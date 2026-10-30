@@ -2,6 +2,7 @@ import { positionsEqual, resolveBlock, createSpan } from "../state";
 import { caretAfterMarkers } from "../cursor/cursor-ops";
 import { getTypingAttrs } from "./typing-attrs";
 import { normalizeSelectionForAtomicMarks } from "./atomic-marks";
+import { normalizeSelectionForObjects } from "../cursor/object-range";
 import { runTransaction, applyInputRules, updateActiveTrigger } from "./extensions";
 import { clearTransientViewState, type EditorState } from "./editor-state";
 import type { EditorAction, ActionOf } from "./editor-action";
@@ -320,10 +321,17 @@ export function reduceEditor(rawEditor: EditorState, action: EditorAction): Edit
 
   // Atomic marks: the caret never rests inside one (whatever moved it — a click,
   // an arrow step, undo, a programmatic selection), and a range selection covers
-  // one whole or not at all.
+  // one whole or not at all. Likewise a range covers a table whole or not at all;
+  // extending from a lifted anchor restarts from the user's own (`anchorBeforeLift`).
   if (result !== editor) {
-    const selection = normalizeSelectionForAtomicMarks(result.state, result.selection, editor.selection);
+    let marked = normalizeSelectionForAtomicMarks(result.state, result.selection, editor.selection);
+    const raw = result.state === editor.state ? editor.anchorBeforeLift : undefined;
+    if (raw !== undefined && positionsEqual(marked.anchor, editor.selection.anchor)) marked = createSpan(raw, marked.focus);
+    const selection = normalizeSelectionForObjects(result.state, marked);
+    const lifted = !positionsEqual(selection.anchor, marked.anchor) && !positionsEqual(selection.anchor, selection.focus);
+    const anchorBeforeLift = lifted ? marked.anchor : undefined;
     if (selection !== result.selection) result = { ...result, selection };
+    if (anchorBeforeLift !== result.anchorBeforeLift) result = { ...result, anchorBeforeLift };
   }
 
   result = updateStoredAttrs(editor, result, traits);

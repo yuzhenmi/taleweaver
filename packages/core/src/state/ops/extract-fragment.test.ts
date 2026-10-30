@@ -292,6 +292,37 @@ describe("extractFragment", () => {
     expect(cell?.type).toBe("table-cell");
   });
 
+  // ── an OBJECT endpoint (horizontal line / table) is copied whole ──────────
+
+  it("an object endpoint — (objectId, 0), start or end — copies the whole object", () => {
+    // "abcd" | hr | tbl["xy"] | "efgh"
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: "p1" }),
+        buildBlock({ id: "p0", type: "paragraph", parentId: "doc", nextSiblingId: "hr", inlineContent: inlineContent([text("abcd")]) }),
+        buildBlock({ id: "hr", type: "horizontal-line", parentId: "doc", prevSiblingId: "p0", nextSiblingId: "tbl" }),
+        buildBlock({ id: "tbl", type: "table", parentId: "doc", prevSiblingId: "hr", nextSiblingId: "p1", firstChildId: "row", lastChildId: "row" }),
+        buildBlock({ id: "row", type: "table-row", parentId: "tbl", firstChildId: "cell", lastChildId: "cell" }),
+        buildBlock({ id: "cell", type: "table-cell", parentId: "row", firstChildId: "cp", lastChildId: "cp" }),
+        buildBlock({ id: "cp", type: "paragraph", parentId: "cell", inlineContent: inlineContent([text("xy")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", prevSiblingId: "tbl", inlineContent: inlineContent([text("efgh")]) }),
+      ],
+    });
+    // (The fragment keeps invariant I: an empty paragraph follows each object.)
+    const shape = (frag: ReturnType<typeof extractFragment>): string[] =>
+      topLevelBlockIds(frag).map((id, i) => {
+        const type = getBlock(frag, id)?.type ?? "?";
+        return type === "paragraph" ? `"${fragBlockText(frag, i)}"` : type;
+      });
+    const toTable = extractFragment(state, createSpan(createPosition(bid("p0"), 1), createPosition(bid("tbl"), 0)));
+    expect(shape(toTable)).toEqual(['"bcd"', "horizontal-line", '""', "table", '""']);
+    const fromRule = extractFragment(state, createSpan(createPosition(bid("hr"), 0), createPosition(bid("p1"), 2)));
+    expect(shape(fromRule)).toEqual(["horizontal-line", '""', "table", '"ef"']);
+    const toRule = extractFragment(state, createSpan(createPosition(bid("p0"), 1), createPosition(bid("hr"), 0)));
+    expect(shape(toRule)).toEqual(['"bcd"', "horizontal-line", '""']);
+  });
+
   // ── footnote bodies carried as embedContents ─────────────────────────────
 
   it("carries footnote bodies (embedContents) referenced by selected embeds", () => {

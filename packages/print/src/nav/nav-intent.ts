@@ -12,6 +12,7 @@ import {
   caretAfterMarkers,
   expandSelection,
   seedAnchorAffinity,
+  stepOffObject,
   isTextShaper,
   adaptShaperToMeasurer,
   type EditorState,
@@ -107,6 +108,35 @@ function setCaret(
   };
 }
 
+/**
+ * A focus-only extender's result when the focus is an object endpoint (a range
+ * covering a rule / image / table whole): the focus steps past the whole object
+ * (core `stepOffObject`); `null` at the document edge. `undefined` for a text focus.
+ */
+function extendOffObject(
+  editor: EditorState,
+  direction: "forward" | "backward",
+  anchorAffinity: CaretAffinity | undefined,
+): EditorAction | null | undefined {
+  const focus = stepOffObject(editor.state, editor.selection.focus, direction);
+  if (focus === undefined) return undefined;
+  if (focus === null) return null;
+  return {
+    type: "SET_SELECTION",
+    selection: createSpan(editor.selection.anchor, focus),
+    caretAffinity: undefined,
+    anchorAffinity,
+    targetX: null,
+  };
+}
+
+/** Arrow on a range: its edge in `direction`, or past it when that edge is an object (core `stepOffObject`). */
+function collapseOffObject(editor: EditorState, direction: "forward" | "backward"): Position | null {
+  const edge = direction === "forward" ? spanEnd(editor.state, editor.selection) : spanStart(editor.state, editor.selection);
+  const off = stepOffObject(editor.state, edge, direction);
+  return off === undefined ? edge : off;
+}
+
 function toMeasurer(measurer: TextShaper | TextMeasurer): TextMeasurer {
   return isTextShaper(measurer) ? adaptShaperToMeasurer(measurer) : measurer;
 }
@@ -131,11 +161,8 @@ function resolveMoveCursor(
   const visualDir = direction === "forward" ? "right" : "left";
 
   if (!isCollapsed(selection)) {
-    const pos =
-      direction === "forward"
-        ? spanEnd(editor.state, selection)
-        : spanStart(editor.state, selection);
-    return setCaret(pos, undefined, null);
+    const pos = collapseOffObject(editor, direction);
+    return pos === null ? null : setCaret(pos, undefined, null);
   }
 
   const line = resolveLineForPosition(
@@ -201,6 +228,8 @@ function resolveExpandSelection(
   const { selection } = editor;
   const visualDir = direction === "forward" ? "right" : "left";
   const newAnchorAffinity = seedAnchorAffinity(editor);
+  const offObject = extendOffObject(editor, direction, newAnchorAffinity);
+  if (offObject !== undefined) return offObject;
 
   const line = resolveLineForPosition(
     editor.state,
@@ -269,6 +298,9 @@ function resolveMoveLine(
     : direction === "up"
       ? spanStart(editor.state, selection)
       : spanEnd(editor.state, selection);
+  // A range ending on an object collapses past it (there is no line inside it to move from).
+  const off = isCollapsed(selection) ? undefined : stepOffObject(editor.state, moveFocus, direction === "up" ? "backward" : "forward");
+  if (off !== undefined) return off === null ? null : setCaret(off, undefined, null);
 
   const result = moveToLine(
     editor.state,
@@ -292,6 +324,8 @@ function resolveExpandLine(
   measurer: TextShaper | TextMeasurer,
 ): EditorAction | null {
   const newAnchorAffinity = seedAnchorAffinity(editor);
+  const offObject = extendOffObject(editor, direction === "up" ? "backward" : "forward", newAnchorAffinity);
+  if (offObject !== undefined) return offObject;
   const result = moveToLine(
     editor.state,
     editor.selection.focus,
@@ -341,6 +375,8 @@ function resolveExpandLineBoundary(
   measurer: TextShaper | TextMeasurer,
 ): EditorAction | null {
   const newAnchorAffinity = seedAnchorAffinity(editor);
+  const offObject = extendOffObject(editor, boundary === "start" ? "backward" : "forward", newAnchorAffinity);
+  if (offObject !== undefined) return offObject;
   const pos = moveToLineBoundary(
     editor.state,
     editor.selection.focus,

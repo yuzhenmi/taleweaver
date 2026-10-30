@@ -1,5 +1,5 @@
 import type { LayoutBox } from "../layout/layout-box";
-import { resolveBlock, coerceBlockId } from "@taleweaver/core";
+import { resolveBlock, coerceBlockId, isObjectBlock } from "@taleweaver/core";
 import type { State, BlockId, BlockKindResolver } from "@taleweaver/core";
 
 /**
@@ -52,8 +52,47 @@ export function getAtomicBoxIndex(
   const cached = _atomicBoxIndexCache.get(layoutTree);
   if (cached !== undefined) return cached;
   const out = new Map<BlockId, AbsoluteRect>();
-  collect(layoutTree, 0, 0, 0, resolver, state, out);
+  collect(layoutTree, 0, 0, 0, (box, rect) => {
+    if (box.type !== "block") return false;
+    const atomicId = atomicLeafBlockFor(box.key, resolver, state);
+    if (atomicId === null) return false;
+    out.set(atomicId, rect);
+    // An atomic leaf has no atomic-leaf descendants; nothing to walk into.
+    return true;
+  });
   _atomicBoxIndexCache.set(layoutTree, out);
+  return out;
+}
+
+/** One object block's box fragment on a page (see {@link getObjectBoxes}). */
+export interface ObjectBox {
+  readonly blockId: BlockId;
+  readonly rect: AbsoluteRect;
+}
+
+const _objectBoxesCache: WeakMap<LayoutBox, readonly ObjectBox[]> = new WeakMap();
+
+/**
+ * Every OBJECT-block (`isObjectBlock`: an atomic leaf or a table) box fragment in
+ * ONE positioned `LayoutBox` (a `getPage(i)` `PageBox`), in paint order, memoized by
+ * the box's identity like {@link getAtomicBoxIndex}. A table split across pages (or
+ * columns) contributes one entry per fragment; objects nested in a table's cells are
+ * included too. The geometry a range selection highlights a covered object with.
+ */
+export function getObjectBoxes(layoutTree: LayoutBox, state: State): readonly ObjectBox[] {
+  const cached = _objectBoxesCache.get(layoutTree);
+  if (cached !== undefined) return cached;
+  const out: ObjectBox[] = [];
+  collect(layoutTree, 0, 0, 0, (box, rect) => {
+    if (box.type !== "block" && box.type !== "table") return false;
+    const id = coerceBlockId(box.key);
+    const block = id === undefined ? null : resolveBlock(state, id)?.block ?? null;
+    if (block === null || !isObjectBlock(block)) return false;
+    out.push({ blockId: block.id, rect });
+    // A table's cells can hold further objects; an atomic leaf holds none.
+    return block.type !== "table";
+  });
+  _objectBoxesCache.set(layoutTree, out);
   return out;
 }
 
@@ -82,11 +121,12 @@ function atomicLeafBlockFor(
 }
 
 /**
- * Walk `box`, accumulating physical `(x, y)` from the parent, and record an
- * `AbsoluteRect` for every `BlockBox` whose `key` resolves to an atomic-leaf
- * block. PHYSICAL-coordinate walk: it records the box's physical rect rather
- * than the logical inline/block projection (images are horizontal-mode, so the
- * physical box IS the rect).
+ * Walk `box`, accumulating physical `(x, y)` from the parent, and hand every
+ * non-text box with its absolute physical `AbsoluteRect` to `visit`, which
+ * records what it wants and returns `true` to skip the box's descendants.
+ * PHYSICAL-coordinate walk: the box's physical rect rather than the logical
+ * inline/block projection (images are horizontal-mode, so the physical box IS
+ * the rect).
  *
  * The page / multicolumn / generic-container / skip-leaf dispatch, the `absX =
  * parentX + box.x` / `absY = parentY + box.y` accumulation, and the
@@ -103,9 +143,7 @@ function collect(
   parentX: number,
   parentY: number,
   pageIndex: number,
-  resolver: BlockKindResolver,
-  state: State,
-  out: Map<BlockId, AbsoluteRect>,
+  visit: (box: LayoutBox, rect: AbsoluteRect) => boolean,
 ): void {
   if (box.type === "page") {
     // Header/footer/footnote SLOTS are page-local BlockBoxes kept OUT of
@@ -113,16 +151,16 @@ function collect(
     // header/footer body). Page-content frame origin `(0, 0)`, the page's own
     // `pageIndex`.
     if (box.headerSlot !== null) {
-      collect(box.headerSlot, 0, 0, box.pageIndex, resolver, state, out);
+      collect(box.headerSlot, 0, 0, box.pageIndex, visit);
     }
     for (const child of box.children) {
-      collect(child, 0, 0, box.pageIndex, resolver, state, out);
+      collect(child, 0, 0, box.pageIndex, visit);
     }
     if (box.footerSlot !== null) {
-      collect(box.footerSlot, 0, 0, box.pageIndex, resolver, state, out);
+      collect(box.footerSlot, 0, 0, box.pageIndex, visit);
     }
     if (box.footnoteSlot !== null) {
-      collect(box.footnoteSlot, 0, 0, box.pageIndex, resolver, state, out);
+      collect(box.footnoteSlot, 0, 0, box.pageIndex, visit);
     }
     return;
   }
@@ -131,28 +169,15 @@ function collect(
   const absX = parentX + box.x;
   const absY = parentY + box.y;
 
-  if (box.type === "block") {
-    const atomicId = atomicLeafBlockFor(box.key, resolver, state);
-    if (atomicId !== null) {
-      out.set(atomicId, {
-        x: absX,
-        y: absY,
-        width: box.width,
-        height: box.height,
-        pageIndex,
-      });
-      // An atomic leaf has no atomic-leaf descendants; nothing to walk into.
-      return;
-    }
-  }
+  if (visit(box, { x: absX, y: absY, width: box.width, height: box.height, pageIndex })) return;
 
   if (box.type === "multicolumn") {
     for (const col of box.columns) {
-      collect(col, absX, absY, pageIndex, resolver, state, out);
+      collect(col, absX, absY, pageIndex, visit);
     }
   } else if ("children" in box) {
     for (const child of box.children) {
-      collect(child, absX, absY, pageIndex, resolver, state, out);
+      collect(child, absX, absY, pageIndex, visit);
     }
   }
 
@@ -161,7 +186,7 @@ function collect(
   // atomic leaf is reachable (mirrors `collectAbsoluteLineBoxes`).
   if (box.absoluteChildren !== undefined) {
     for (const absChild of box.absoluteChildren) {
-      collect(absChild, absX, absY, pageIndex, resolver, state, out);
+      collect(absChild, absX, absY, pageIndex, visit);
     }
   }
 }

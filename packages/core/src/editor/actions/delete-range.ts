@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
-import { createPosition, createSpan, spanStart, bookmarkDeletionSpan } from "../../state";
+import { createPosition, createSpan, spanStart, bookmarkDeletionSpan, clipSpanToText } from "../../state";
 import { deleteRangeOrSuggest } from "./helpers/delete-range-or-suggest";
 import { isSuggestingInBlock } from "./helpers/is-suggesting-in-block";
 import { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
@@ -30,7 +30,7 @@ export function handleDeleteRange(editor: EditorState, { span }: ActionOf<"DELET
   if (result.state === editor.state) return null;
   // Direct mode: the seam in the survivor R, as Backspace over a selection.
   const start = isSuggestingInBlock(editor.state, spanStart(editor.state, norm).blockId, config)
-    ? spanStart(editor.state, norm)
+    ? clipSpanToText(editor.state, norm).anchor
     : expandedSpanCollapsePoint(editor.state, norm) ?? bookmarkDeletionSpan(editor.state, norm).span.anchor;
   const newCursor = createPosition(start.blockId, start.offset);
   const newSelection = createSpan(newCursor, newCursor);

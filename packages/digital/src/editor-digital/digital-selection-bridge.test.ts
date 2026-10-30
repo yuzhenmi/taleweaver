@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { asBlockId, createPosition, createSpan } from "@taleweaver/core";
+import { asBlockId, createPosition, createSpan, createDefaultComponentRegistry, createDefaultAttrRegistry, firstLeafBlock, getBlock, type BlockId, type EditorAction } from "@taleweaver/core";
 import { createDigitalSelectionBridge } from "./digital-selection-bridge";
+import { createDigitalController } from "./digital-controller";
 
 /** Build a contenteditable root with one block `<div data-block-id>` containing children. */
 function rootWith(blockId: string, build: (block: HTMLElement) => void): HTMLElement {
@@ -273,5 +274,101 @@ describe("DigitalSelectionBridge — injected blockElementLookup (I1: O(1) posit
     const pos = createPosition(asBlockId("b1"), 2);
     bridge.positionToDom(createSpan(pos, pos));
     expect(bridge.readDomSelection()?.focus).toEqual(pos);
+  });
+});
+
+// A range covers an OBJECT block (rule / image / table — core `isObjectBlock`) whole; an
+// endpoint on one is `(objectId, 0)`. Through the real controller + reconciler on
+// "abcd" | object | "" (fresh document per case).
+describe("DigitalSelectionBridge — range endpoints on object blocks", () => {
+  const OBJECTS: Record<string, EditorAction> = {
+    rule: { type: "INSERT_HORIZONTAL_LINE" },
+    image: { type: "INSERT_IMAGE", src: "data:image/png;base64,AA==", width: 4, height: 4 },
+    table: { type: "INSERT_TABLE", rows: 1, cols: 1 },
+  };
+
+  function mount(object: EditorAction) {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const controller = createDigitalController({
+      container, componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, doc: document,
+    });
+    controller.dispatch({ type: "INSERT_TEXT", text: "abcd" });
+    controller.dispatch(object);
+    const st = controller.editorState.state;
+    const first = firstLeafBlock(st, st.rootId);
+    const section = first === null ? null : getBlock(st, first)?.parentId ?? null;
+    const ids: BlockId[] = [];
+    for (let id = section === null ? null : getBlock(st, section)?.firstChildId ?? null; id !== null; id = getBlock(st, id)?.nextSiblingId ?? null) ids.push(id);
+    const [text, obj, after] = ids;
+    const el = (id: BlockId | undefined) => container.querySelector(`[data-block-id="${id ?? ""}"]`);
+    const objEl = el(obj);
+    const textNode = el(text)?.querySelector("span")?.firstChild ?? null;
+    if (text === undefined || obj === undefined || after === undefined || objEl === null || textNode === null) throw new Error("fixture");
+    const parent = objEl.parentNode;
+    const index = parent === null ? -1 : Array.prototype.indexOf.call(parent.childNodes, objEl);
+    return { container, controller, text, obj, after, objEl, textNode, parent, index, afterEl: el(after) };
+  }
+
+  const domSel = () => {
+    const s = window.getSelection();
+    return s === null ? null : [s.anchorNode, s.anchorOffset, s.focusNode, s.focusOffset];
+  };
+
+  for (const [name, action] of Object.entries(OBJECTS)) {
+    it(`${name}: a model range ending / starting on it covers its element whole, and reads back unchanged`, () => {
+      const m = mount(action);
+      const p = createPosition;
+      // Ending on it (forward and backward): the boundary AFTER the element.
+      m.controller.dispatch({ type: "SET_SELECTION", selection: createSpan(p(m.text, 1), p(m.obj, 0)) });
+      expect(domSel()).toEqual([m.textNode, 1, m.parent, m.index + 1]);
+      // Starting on it, backward: the anchor sits BEFORE the element.
+      m.controller.dispatch({ type: "SET_SELECTION", selection: createSpan(p(m.after, 0), p(m.obj, 0)) });
+      expect(domSel()).toEqual([m.afterEl, 0, m.parent, m.index]);
+      // The DOM selection reads back as the same model selection (no re-dispatch loop).
+      document.dispatchEvent(new Event("selectionchange"));
+      expect(m.controller.editorState.selection).toEqual(createSpan(p(m.after, 0), p(m.obj, 0)));
+      m.controller.destroy();
+      m.container.remove();
+    });
+  }
+
+  it("a native drag from text into a table cell becomes a selection of the whole table", () => {
+    const m = mount(OBJECTS.table ?? { type: "INSERT_HORIZONTAL_LINE" });
+    const cellBlock = m.objEl.querySelector("td [data-block-id]");
+    if (cellBlock === null) throw new Error("no cell paragraph");
+    window.getSelection()?.setBaseAndExtent(m.textNode, 1, cellBlock, 0);
+    document.dispatchEvent(new Event("selectionchange"));
+    expect(m.controller.editorState.selection).toEqual(createSpan(createPosition(m.text, 1), createPosition(m.obj, 0)));
+    // …and the DOM selection is re-projected to cover the table.
+    expect(domSel()).toEqual([m.textNode, 1, m.parent, m.index + 1]);
+    m.controller.destroy();
+    m.container.remove();
+  });
+
+  it("a native selection ending at the boundary around an image or between blocks maps to blocks, never a container", () => {
+    const m = mount(OBJECTS.image ?? { type: "INSERT_HORIZONTAL_LINE" });
+    const sel = window.getSelection();
+    if (sel === null || m.parent === null) throw new Error("no selection");
+    const p = createPosition;
+    // Text → just after the image (the parent boundary the browser reports on an image).
+    sel.setBaseAndExtent(m.textNode, 1, m.parent, m.index + 1);
+    document.dispatchEvent(new Event("selectionchange"));
+    expect(m.controller.editorState.selection).toEqual(createSpan(p(m.text, 1), p(m.obj, 0)));
+    // Backward (anchor after the image = the range's end): anchored on the image.
+    m.controller.dispatch({ type: "SET_SELECTION", selection: createSpan(p(m.text, 0), p(m.text, 0)) });
+    sel.setBaseAndExtent(m.parent, m.index + 1, m.textNode, 1);
+    document.dispatchEvent(new Event("selectionchange"));
+    expect(m.controller.editorState.selection).toEqual(createSpan(p(m.obj, 0), p(m.text, 1)));
+    // The gap after the image as a START: the next block's start.
+    sel.setBaseAndExtent(m.parent, m.index + 1, m.afterEl ?? m.parent, 0);
+    document.dispatchEvent(new Event("selectionchange"));
+    expect(m.controller.editorState.selection).toEqual(createSpan(p(m.after, 0), p(m.after, 0)));
+    // A container boundary before the image as an end: the text block's end.
+    sel.setBaseAndExtent(m.textNode, 1, m.parent, m.index);
+    document.dispatchEvent(new Event("selectionchange"));
+    expect(m.controller.editorState.selection).toEqual(createSpan(p(m.text, 1), p(m.text, 4)));
+    m.controller.destroy();
+    m.container.remove();
   });
 });

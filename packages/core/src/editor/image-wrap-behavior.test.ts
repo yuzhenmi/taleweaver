@@ -330,13 +330,19 @@ describe("image-wrap behavior — selection across the floated image", () => {
     const editor = editorFrom(seedWithPredecessor("left"), createSpan(para(0), para(0)));
     // Anchor at the start of the preceding text, focus inside the wrapped para.
     const span = createSpan(createPosition("pre" as BlockId, 0), para(5));
-    const rects = computeSelectionRects(editor.state, span, plainTree(editor), measurer);
+    const tree = plainTree(editor);
+    const all = computeSelectionRects(editor.state, span, tree, measurer);
 
-    // The range spans two text blocks (pre + para) across the image → at least
-    // two highlight rects, ordered top-to-bottom (document order). The image
-    // contributes no rect of its own (no line), but the range stays contiguous:
-    // it does not skip the image's document position — pre and para are adjacent
-    // in the chain with only the (lineless) image between them.
+    // The range covers the image whole (an object block between its endpoints), so
+    // the image's box is highlighted after the text rects.
+    const img = findBoxByKey(tree, "img");
+    if (img === null) throw new Error("no image box");
+    expect(all[all.length - 1]).toMatchObject({ width: img.width, height: img.height });
+    const rects = all.slice(0, -1);
+    // The text spans two text blocks (pre + para) across the image → at least
+    // two highlight rects, ordered top-to-bottom (document order): the range
+    // stays contiguous — pre and para are adjacent in the chain with only the
+    // image between them.
     expect(rects.length).toBeGreaterThanOrEqual(2);
     const ys = rects.map((r) => r.y);
     const sortedYs = [...ys].sort((a, b) => a - b);

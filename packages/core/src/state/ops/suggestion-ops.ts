@@ -39,7 +39,7 @@ import {
   type SuggestionRecord,
 } from "../suggestions";
 import { iterateAllBlocksInDocumentOrder } from "../document-order";
-import type { BlockRange } from "../span-iteration";
+import { clipSpanToText, type BlockRange } from "../span-iteration";
 import { splitAt, deleteUnits, type ContentSpan } from "../flow-ops";
 import { hasContent, bookmarksRemovedBy, unitsDeletedBy, widenOverBookmarkMarkers, type DeletedPart } from "../bookmarks";
 import type { SiblingBlockInit } from "./insert-blocks-after";
@@ -238,6 +238,10 @@ function formattingRecordsInSegments(
  *     pending insertion) → REMOVED FOR REAL (omitted from the rebuilt block); no
  *     deletion attr, no deletion record. (It never became real text, so
  *     un-suggesting it = removing it.)
+ *
+ * An OBJECT endpoint (`isObjectBlock`) is covered whole, as an object between
+ * the endpoints: a table's cell text is struck, an atomic leaf has none; the object
+ * itself stays in place (structural change tracking is not built).
  *
  * Embeds inside the span are not tracked here: they are preserved in
  * place, UNTAGGED. (Embed / inline-object soft-deletion is not tracked —
@@ -440,11 +444,12 @@ function planMarkDeletion(
       deletedUnits,
     });
   }
-  // The seam: where a suggested replacement goes — the span start, or where a removed
-  // bookmark's start marker just before it was (as `bookmarkDeletionSpan`).
-  const first = plan.segments[0];
-  const startItems = first?.block.inlineContent?.items ?? [];
-  const seam = first === undefined ? 0 : widenOverBookmarkMarkers(startItems, first.rangeStart, "backward", removedBookmarks);
+  // The seam: where a suggested replacement goes — the start of the span's text
+  // (`clipSpanToText`: after an object start), or where a removed bookmark's start
+  // marker just before it was (as `bookmarkDeletionSpan`).
+  const textStart = clipSpanToText(state, span).anchor;
+  const startItems = resolveBlock(state, textStart.blockId)?.block.inlineContent?.items ?? [];
+  const seam = widenOverBookmarkMarkers(startItems, textStart.offset, "backward", removedBookmarks);
 
   return { writes, steps, taggedAny, changesAny, id, reusing, kind: plan.kind, removedBookmarks, seam };
 }
@@ -498,7 +503,11 @@ interface MarkDeletionPlan {
   }[];
   /** The bookmarks the strike's physical removals remove (the deletion rule over all of them). */
   readonly removedBookmarks: ReadonlySet<string>;
-  /** The post-strike offset in the span's start block where a suggested replacement goes. */
+  /**
+   * The post-strike offset where a suggested replacement goes, in the block of the
+   * span's text start (`clipSpanToText(span).anchor` — the span start unless it is an
+   * object).
+   */
   readonly seam: number;
   /** The ¶s inside the span this deletion keys or (own insertions) removes. */
   readonly steps: readonly MarkDeletionStep[];
@@ -702,11 +711,15 @@ export interface ReplaceSuggestionInput {
  */
 export function replaceWithSuggestion(
   state: State,
-  span: Span,
+  rawSpan: Span,
   text: string,
   attrs: ReadonlyAttrs,
   input: ReplaceSuggestionInput,
 ): OperationResult & { readonly endPosition: Position } {
+  const span = rawSpan;
+  // The suggested text goes at the start of the span's text (after an object start):
+  // a covered object stays in place (structural change tracking is not built).
+  const start = clipSpanToText(state, span).anchor;
   // Degenerate: nothing to insert → a pure suggested deletion of the selection.
   if (text === "") {
     const del = markDeletion(state, span, {
@@ -715,7 +728,7 @@ export function replaceWithSuggestion(
       createdAt: input.createdAt,
       order: input.order,
     });
-    return { ...del, endPosition: spanStart(state, span) };
+    return { ...del, endPosition: start };
   }
 
   // Degenerate: collapsed span → nothing to strike, a pure suggested insertion.
@@ -741,7 +754,6 @@ export function replaceWithSuggestion(
     createdAt: input.createdAt,
     order: input.order,
   });
-  const start = spanStart(state, span);
   if (delPlan === null) {
     const ins = mintInsertion(state, start, text, attrs, {
       id: input.insertionId,
@@ -879,11 +891,14 @@ export function splitWithSuggestionOverSelection(
   input: ReplaceSuggestionInput,
   newBlockInit?: { readonly type?: string; readonly attrs?: ReadonlyAttrs },
 ): OperationResult {
-  // Snapped ONCE: the strike, the split offset and the split tag share one cut.
+  // Snapped ONCE: the strike, the split offset and the split tag share one cut. The
+  // split lands in the span's TEXT (`clipSpanToText`): a covered object stays in
+  // place, though the strike covers a table's cell text.
   const span = snapSpanOut(state, rawSpan);
-  const start = spanStart(state, span);
-  const end = spanEnd(state, span);
-  const blockB = start.blockId; // === end.blockId for a single-block span.
+  const text = snapSpanOut(state, clipSpanToText(state, rawSpan));
+  const start = text.anchor;
+  const end = text.focus;
+  const blockB = start.blockId; // === end.blockId for a single-block span text.
 
   // Plan the strike (pure, pre-tx). A `null` plan means the span re-collapsed /
   // yields nothing to strike — reduce to a pure suggested split at the span start.
@@ -1041,9 +1056,11 @@ export function planReplaceWithSuggestedFragment(
   allocator: IdAllocator,
 ): ReplaceFragmentPlan {
   // Snapped ONCE: the strike range, the prefix cut `c`, the insert and the moved tail
-  // all use the same grapheme-aligned offsets.
+  // all use the same grapheme-aligned offsets. The fragment goes at the start of the
+  // span's TEXT (`clipSpanToText`: after an object start) — a covered object stays in
+  // place (structural change tracking is not built), though a table's cell text is struck.
   const span = snapSpanOut(state, rawSpan);
-  const at = spanStart(state, span);
+  const at = snapSpanOut(state, clipSpanToText(state, rawSpan)).anchor;
   const resolved = resolveBlock(state, at.blockId);
   if (resolved === null || resolved.block.inlineContent === null) {
     throw new Error(

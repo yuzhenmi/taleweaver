@@ -7,13 +7,13 @@ import {
   createPosition,
   createSpan,
   spanStart,
-  bookmarkDeletionSpan,
 } from "../../state";
 import type { OperationResult, Position } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { isObjectSelection } from "../../cursor/object-selection";
 import type { Edit } from "../edit";
 import { isCrossContextSelection } from "./helpers/is-cross-context-selection";
+import { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
 import { suggestionInputForBlock } from "./helpers/suggestion-input-for-block";
 import { replaceSuggestionInputForBlock } from "./helpers/replace-suggestion-input-for-block";
 import { replaceObjectWithText } from "./helpers/replace-object-with-text";
@@ -41,9 +41,7 @@ export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT
   if (!isCollapsed(selectionBefore)) {
     // Cross-CONTEXT selection refusal (see isCrossContextSelection).
     // replaceRange's spanStart would throw "no common ancestor" on a cross-tree
-    // span. NOTE: insert-text intentionally has ONLY this guard — not the
-    // deletable-span (resolveBlock/parentId) guard the delete/split handlers
-    // add — so its guard SET is unchanged.
+    // span.
     if (isCrossContextSelection(editor.state, selectionBefore)) return null;
     const start = spanStart(editor.state, selectionBefore);
     // Suggesting mode: type-over-a-selection is the tracked composite — soft-delete
@@ -59,8 +57,11 @@ export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT
     const replaceInput = replaceSuggestionInputForBlock(editor.state, start.blockId, config);
     let end: Position;
     if (replaceInput === null) {
+      // The seam the direct delete leaves (the surviving block — see
+      // expandedSpanCollapsePoint); null = an undeletable (cross-parent) span.
+      const seam = expandedSpanCollapsePoint(editor.state, selectionBefore);
+      if (seam === null) return null;
       result = replaceRange(editor.state, selectionBefore, text, typingAttrs());
-      const seam = bookmarkDeletionSpan(editor.state, selectionBefore).span.anchor;
       end = createPosition(seam.blockId, seam.offset + text.length);
     } else {
       const suggested = replaceWithSuggestion(editor.state, selectionBefore, text, typingAttrs(), replaceInput);

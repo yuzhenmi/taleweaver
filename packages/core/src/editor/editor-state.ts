@@ -3,7 +3,7 @@ import { STATE_INTERNAL } from "../state/state-internal";
 import { bindAttrRegistry } from "../state/mark-attrs";
 import type { ProposalOutcome } from "./proposals";
 import { compileKeymap, type ActiveTrigger } from "./extensions";
-import type { State, Selection, BlockId, ReadonlyAttrs } from "../state";
+import type { State, Selection, BlockId, Position, ReadonlyAttrs } from "../state";
 import type { CaretAffinity } from "../cursor/selection";
 import type { EditorConfig } from "./editor-config";
 import type { DocumentChange } from "./document-change";
@@ -101,6 +101,14 @@ export interface EditorState {
    * `History`, never part of `Position` / `Selection` / `Span`.
    */
   readonly anchorAffinity?: CaretAffinity;
+  /**
+   * The user's own anchor, when `selection.anchor` is that anchor lifted to a whole
+   * table (`normalizeSelectionForObjects`). A selection extended from the lifted
+   * anchor (Shift+Arrow, shift-click) restarts from this one, so moving the focus
+   * back into the table selects from the original caret again (as a mouse drag
+   * does). Cleared by any document change and whenever the anchor is not lifted.
+   */
+  readonly anchorBeforeLift?: Position;
   /**
    * Pending TYPING ATTRS (word-processor "stored marks"): the attrs the next typed
    * text takes instead of those inherited at the caret. Set by a format command at

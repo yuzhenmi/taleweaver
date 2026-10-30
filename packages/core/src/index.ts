@@ -124,7 +124,7 @@ export {
   firstLeafBlock,
   lastLeafBlock,
 } from "./state";
-export { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./state";
+export { normalizeSpan, iterateSpan, iterateBlocksInSpan, isObjectBlock, clipSpanToText } from "./state";
 
 // Layer 3 ops
 export { insertText } from "./state";
@@ -526,6 +526,7 @@ export { initialSelectionForState } from "./editor/actions";
 // selection, and the line-delete span guards. `seedAnchorAffinity` lives on
 // `editor-state`; the rest in `editor/actions`.
 export { seedAnchorAffinity } from "./editor/editor-state";
+export { stepOffObject } from "./cursor/object-range";
 export {
   objectMoveSelection,
   isCrossContextSelection,

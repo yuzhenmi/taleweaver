@@ -1,6 +1,6 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
-import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition, splitWithSuggestion, splitWithSuggestionOverSelection, markDeletion, spanStart, spanEnd, inlineContentLength } from "../../state";
+import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition, splitWithSuggestion, splitWithSuggestionOverSelection, markDeletion, spanStart, clipSpanToText, inlineContentLength } from "../../state";
 import type { BlockId } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { isObjectSelection } from "../../cursor/object-selection";
@@ -41,13 +41,13 @@ export function handleSplitNode(editor: EditorState): Edit | null {
     // Enter SOFT-DELETES the selection then inserts a suggested split — in the main body
     // OR any footnote/header/footer body (`replaceSuggestionInputForBlock` returns null
     // only when not suggesting or the block resolves to no context).
-    const sStart = spanStart(editor.state, selection);
-    const replaceInput = replaceSuggestionInputForBlock(editor.state, sStart.blockId, config);
+    const replaceInput = replaceSuggestionInputForBlock(editor.state, spanStart(editor.state, selection).blockId, config);
     if (replaceInput !== null) {
       // Suggesting mode: a non-collapsed Enter
       // SOFT-DELETES the selection (text stays, struck) THEN inserts a suggested
-      // paragraph split, in ONE undoable transaction.
-      const sEnd = spanEnd(editor.state, selection);
+      // paragraph split, in ONE undoable transaction. The split lands in the span's
+      // text (`clipSpanToText`): a covered object stays in place (its cell text is struck).
+      const { anchor: sStart, focus: sEnd } = clipSpanToText(editor.state, selection);
       const splitBlock = resolveBlock(editor.state, sStart.blockId)?.block ?? null;
       const endBlock = resolveBlock(editor.state, sEnd.blockId)?.block ?? null;
       if (

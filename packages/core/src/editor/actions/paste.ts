@@ -10,7 +10,6 @@ import {
   createSpan,
   spanStart,
   deleteRange,
-  bookmarkDeletionSpan,
   insertText,
   splitBlockAtPosition,
   insertBlocksAfter,
@@ -34,6 +33,7 @@ import type {
 import { isCollapsed } from "../../cursor/selection";
 import { replaceSuggestionInputForBlock } from "./helpers/replace-suggestion-input-for-block";
 import { isCrossContextSelection } from "./helpers/is-cross-context-selection";
+import { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
 import { getTypingAttrs } from "../typing-attrs";
 
 /**
@@ -295,20 +295,13 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
   const accumulatedDirtyIds = new Set<BlockId>();
 
   if (!isCollapsed(selection)) {
-    const anchorBlock = getBlock(state, selection.anchor.blockId);
-    const focusBlock = getBlock(state, selection.focus.blockId);
-    if (anchorBlock === null || focusBlock === null) return null;
-    if (
-      selection.anchor.blockId !== selection.focus.blockId &&
-      anchorBlock.parentId !== focusBlock.parentId
-    ) {
-      return null;
-    }
-    const start = bookmarkDeletionSpan(state, selection).span.anchor;
+    // Deletable-span guard + the seam the delete leaves (see expandedSpanCollapsePoint).
+    const seam = expandedSpanCollapsePoint(state, selection);
+    if (seam === null) return null;
     const deleteResult = deleteRange(state, selection);
     state = deleteResult.state;
     for (const id of deleteResult.dirtyIds) accumulatedDirtyIds.add(id);
-    pos = createPosition(start.blockId, start.offset);
+    pos = seam;
   }
 
   const lines = text.split("\n");

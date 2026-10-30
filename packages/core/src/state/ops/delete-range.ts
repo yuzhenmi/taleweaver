@@ -3,7 +3,7 @@ import { requireBlockText } from "../block-text";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
-import type { Span } from "../block-position";
+import type { Position, Span } from "../block-position";
 import {
   inlineContentLength,
   splitInlineContentAtOffset,
@@ -15,7 +15,9 @@ import { bookmarksRemovedBy, widenOverBookmarkMarkers } from "../bookmarks";
 import { createPosition, createSpan, positionsEqual } from "../block-position";
 import type { InlineItem } from "../inline-content";
 import { joinWithNext, removeBlockStorage, entityTracker, deleteUnits } from "../flow-ops";
-import { normalizeSpan, iterateSpan } from "../span-iteration";
+import { normalizeSpan, iterateSpan, isObjectBlock, firstTextAfter } from "../span-iteration";
+import { nextBlockInDocOrder, nextBlockAfterSubtree } from "../block-traversal";
+import type { Block } from "../block";
 import { collectEmbedContentSubtreeFromInlineContent } from "../embed-content-cascade";
 import { assertSameTree } from "../assert-same-tree";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
@@ -23,9 +25,12 @@ import { assertSameTree } from "../assert-same-tree";
 /**
  * Pre-computed mutation plan for `deleteRangeInTx`. Discriminated by
  * `mode`: same-block deletes `[anchorOffset, focusOffset)` of one block;
- * cross-block deletes the anchor's tail, every intervening leaf (content + ¶),
- * the focus prefix `[0, focusOffset)` and ¶A — the FOCUS survives (Word: the last
- * ¶ the span needs). No character moves. `embedContentIds` is the set of
+ * cross-block deletes the anchor's tail, every intervening block (a leaf's content
+ * + ¶, an object / container with its subtree), the focus prefix `[0, focusOffset)`
+ * and ¶A — the FOCUS survives (Word: the last ¶ the span needs). An OBJECT endpoint
+ * (`isObjectBlock`: the range covers it whole) is removed with the intervening
+ * blocks and has no text side: the other endpoint's block survives with its
+ * remaining text, unjoined. No character moves. `embedContentIds` is the set of
  * embed-content subtree roots to cascade-delete from `state.embedContents`.
  *
  * `kind` is the owning tree of the span's blocks (resolved once during
@@ -53,10 +58,18 @@ export type DeleteRangePlan =
   | {
       readonly mode: "cross-block";
       readonly kind: BlockTreeKind;
-      readonly anchorId: BlockId;
-      readonly focusId: BlockId;
+      /** The text start block whose tail is cut, or null for an object start (removed whole). */
+      readonly anchorId: BlockId | null;
+      /** The text end block whose prefix is cut, or null for an object end (removed whole). */
+      readonly focusId: BlockId | null;
+      /** The blocks removed whole, in document order: the intervening siblings and any object endpoint. */
       readonly interveningIds: ReadonlyArray<BlockId>;
-      /** Anchor offset (grapheme-snapped) where the anchor's tail is cut. */
+      /** The block holding the seam after the delete ({@link seamBlockOf}). */
+      readonly seamId: BlockId;
+      /**
+       * The seam offset in `seamId`: the anchor offset (grapheme-snapped) where the
+       * anchor's tail is cut, or 0 for an object start.
+       */
       readonly anchorOffset: number;
       /** Focus offset (grapheme-snapped): the focus prefix `[0, focusOffset)` is deleted. */
       readonly focusOffset: number;
@@ -77,6 +90,11 @@ export type DeleteRangePlan =
  * (adjacent equal-attrs runs read back as one run). The merge-formatting rule runs
  * once: the anchor's type + attrs + ¶ props are written onto the focus, unless the
  * anchor is left an empty DEFAULT paragraph (Google Docs / Quill); then the focus keeps its own.
+ * Every block wholly inside the span — an intervening sibling, or an OBJECT endpoint
+ * (`isObjectBlock`, `(objectId, 0)`: the whole object is in the span) — is removed
+ * with its subtree. An object endpoint has no text side: no join happens, and the
+ * other endpoint's block survives with its remaining text (an object start leaves
+ * focus.items[focus.offset..); an object end leaves anchor.items[0..anchor.offset)).
  *
  * Empty-span (collapsed) is a no-op.
  *
@@ -85,8 +103,7 @@ export type DeleteRangePlan =
  *
  * Throws if:
  *   - either endpoint references a missing block,
- *   - either endpoint is a container (firstChildId !== null OR
- *     inlineContent === null),
+ *   - either endpoint is a container that is not an object (a section, a cell),
  *   - the span crosses parents (cross-parent deleteRange not supported
  *     in this phase — action handlers compose primitives for that),
  *   - cross-context (inherited via normalizeSpan's comparePositions
@@ -165,19 +182,25 @@ export function deleteRangeInTx(doc: Y.Doc, plan: DeleteRangePlan): void {
     for (const id of plan.embedContentIds) removeBlockStorage(doc, id);
     return;
   }
-  // Cross-block = the range's characters + the crossed ¶s. No character moves: the
-  // anchor prefix continues the focus once ¶A is gone, so a peer's concurrent typing
-  // in either survives. Right-to-left keeps offsets valid.
-  requireBlockText(doc, plan.focusId, "deleteRange");
+  // Cross-block = the range's characters + the crossed ¶s (+ the blocks wholly
+  // inside). No character moves: the anchor prefix continues the focus once ¶A is
+  // gone, so a peer's concurrent typing in either survives. Right-to-left keeps
+  // offsets valid.
   const removed = plan.removedBookmarks;
-  deleteUnits(doc, { spans: [{ id: plan.focusId, from: 0, to: plan.focusOffset }], removedBookmarks: removed });
+  if (plan.focusId !== null) {
+    requireBlockText(doc, plan.focusId, "deleteRange");
+    deleteUnits(doc, { spans: [{ id: plan.focusId, from: 0, to: plan.focusOffset }], removedBookmarks: removed });
+  }
   // The anchor is re-derived after the intervening blocks go: removing one can rename
   // a duplicate copy `X@c:k`.
-  const anchorId = entityTracker(doc, plan.anchorId);
+  const anchorId = plan.anchorId === null ? null : entityTracker(doc, plan.anchorId);
   for (const id of [...plan.interveningIds].reverse()) removeBlockStorage(doc, id, removed);
-  const anchorText = requireBlockText(doc, anchorId(), "deleteRange");
-  deleteUnits(doc, { spans: [{ id: anchorId(), from: plan.anchorOffset, to: anchorText.length }], removedBookmarks: removed });
-  joinWithNext(doc, anchorId());
+  if (anchorId !== null) {
+    const anchorText = requireBlockText(doc, anchorId(), "deleteRange");
+    deleteUnits(doc, { spans: [{ id: anchorId(), from: plan.anchorOffset, to: anchorText.length }], removedBookmarks: removed });
+    // An object end has no text side: nothing joins the anchor.
+    if (plan.focusId !== null) joinWithNext(doc, anchorId());
+  }
   for (const id of plan.embedContentIds) removeBlockStorage(doc, id);
 }
 
@@ -202,9 +225,32 @@ export function bookmarkDeletionSpan(state: State, span: Span): { readonly span:
   return { span: createSpan(createPosition(n.anchor.blockId, from), createPosition(n.focus.blockId, to)), removed };
 }
 
-/** The block holding the seam after `plan` runs: the anchor, or (cross-block) the surviving focus. */
+/**
+ * Where a direct `deleteRange(state, span)` leaves the caret — the seam, where the
+ * surviving text joins: within one block the span start; cross-block (end block,
+ * start offset) — the end block survives; an OBJECT endpoint (removed whole) has no
+ * text side, so an object start gives (end block, 0), an object end the start
+ * position, two object endpoints the first text block after the span. A removed
+ * bookmark's start marker just before the span goes with it
+ * ({@link bookmarkDeletionSpan}). Null only when two object endpoints have no text
+ * block after them. Assumes a span `deleteRange` accepts. O(span).
+ */
+export function deleteRangeSeam(state: State, span: Span): Position | null {
+  const { span: wide } = bookmarkDeletionSpan(state, span);
+  const start = wide.anchor;
+  if (start.blockId === wide.focus.blockId) return start;
+  const isText = (id: BlockId): boolean => (resolveBlock(state, id)?.block.inlineContent ?? null) !== null;
+  if (isText(wide.focus.blockId)) return createPosition(wide.focus.blockId, start.offset);
+  return isText(start.blockId) ? start : firstTextAfter(state, wide.focus.blockId);
+}
+
+/**
+ * The block holding the seam after `plan` runs: the anchor, or (cross-block) the
+ * surviving focus — the anchor when the end is an object, the first text block after
+ * the span when both endpoints are objects.
+ */
 export function seamBlockOf(plan: DeleteRangePlan): BlockId {
-  return plan.mode === "same-block" ? plan.blockId : plan.focusId;
+  return plan.mode === "same-block" ? plan.blockId : plan.seamId;
 }
 
 /**
@@ -222,7 +268,8 @@ export function seamBlockOf(plan: DeleteRangePlan): BlockId {
  * regardless of the public op name — they share the same error
  * contract because replaceRange composes delete + insert.
  *
- * Throws on missing block or container endpoint; returns void on success.
+ * Throws on missing block or a container endpoint that is not an object
+ * (`isObjectBlock`); returns void on success.
  */
 export function assertDeleteRangeEndpoints(state: State, span: Span): void {
   const sameBlock = span.anchor.blockId === span.focus.blockId;
@@ -237,7 +284,7 @@ export function assertDeleteRangeEndpoints(state: State, span: Span): void {
         : `deleteRange: anchor block "${span.anchor.blockId}" not found`,
     );
   }
-  if (!rawAnchor.inlineContent || rawAnchor.firstChildId !== null) {
+  if (!isTextOrObject(rawAnchor)) {
     throw new Error(
       sameBlock
         ? `deleteRange: block "${span.anchor.blockId}" is a container, not a leaf`
@@ -249,7 +296,7 @@ export function assertDeleteRangeEndpoints(state: State, span: Span): void {
     if (!rawFocus) {
       throw new Error(`deleteRange: focus block "${span.focus.blockId}" not found`);
     }
-    if (!rawFocus.inlineContent || rawFocus.firstChildId !== null) {
+    if (!isTextOrObject(rawFocus)) {
       throw new Error(
         `deleteRange: focus block "${span.focus.blockId}" is a container, not a leaf`,
       );
@@ -378,12 +425,12 @@ export function planDeleteRange(
     throw new Error(`deleteRange: focus block "${normalized.focus.blockId}" not found`);
   }
 
-  if (!anchorBlock.inlineContent || anchorBlock.firstChildId !== null) {
+  if (!isTextOrObject(anchorBlock)) {
     throw new Error(
       `deleteRange: anchor block "${normalized.anchor.blockId}" is a container, not a leaf`,
     );
   }
-  if (!focusBlock.inlineContent || focusBlock.firstChildId !== null) {
+  if (!isTextOrObject(focusBlock)) {
     throw new Error(
       `deleteRange: focus block "${normalized.focus.blockId}" is a container, not a leaf`,
     );
@@ -398,9 +445,7 @@ export function planDeleteRange(
   }
 
   // Defensive: same-parent + cross-block implies non-null parent (siblings
-  // can't span the root since the root has no siblings). Hoist into a const
-  // so the non-null narrowing survives into the transaction closure (avoids
-  // a non-null assertion when calling getYBlock(parentId)).
+  // can't span the root since the root has no siblings).
   const parentId = anchorBlock.parentId;
   if (parentId === null) {
     throw new Error(
@@ -408,43 +453,33 @@ export function planDeleteRange(
     );
   }
 
-  const anchorLen = inlineContentLength(anchorBlock.inlineContent);
+  const anchorContent = anchorBlock.inlineContent;
+  const focusContent = focusBlock.inlineContent;
+  const anchorLen = anchorContent === null ? 0 : inlineContentLength(anchorContent);
   if (normalized.anchor.offset < 0 || normalized.anchor.offset > anchorLen) {
     throw new Error(
       `deleteRange: anchor offset ${normalized.anchor.offset} out of range [0, ${anchorLen}] for block "${normalized.anchor.blockId}"`,
     );
   }
-  const focusLen = inlineContentLength(focusBlock.inlineContent);
+  const focusLen = focusContent === null ? 0 : inlineContentLength(focusContent);
   if (normalized.focus.offset < 0 || normalized.focus.offset > focusLen) {
     throw new Error(
       `deleteRange: focus offset ${normalized.focus.offset} out of range [0, ${focusLen}] for block "${normalized.focus.blockId}"`,
     );
   }
 
-  // Walk the parent's child sibling chain from anchor to focus, collecting
-  // intervening leaves. Throws if focus is not reachable (which would mean
-  // anchor doesn't precede focus in the chain — impossible after normalization
-  // unless state is corrupt).
-  const interveningIds: BlockId[] = [];
+  // Walk the parent's child sibling chain from anchor to focus, collecting the
+  // blocks removed whole: an object anchor, every intervening sibling (leaf,
+  // object or container — `removeBlockStorage` takes a subtree along), an object
+  // focus. Throws if focus is not reachable (which would mean anchor doesn't
+  // precede focus in the chain — impossible after normalization unless state is
+  // corrupt).
+  const interveningIds: BlockId[] = anchorContent === null ? [anchorBlock.id] : [];
   let cur: BlockId | null = anchorBlock.nextSiblingId;
   while (cur !== null && cur !== focusBlock.id) {
     const node = resolveBlock(state, cur)?.block ?? null;
     if (!node) {
       throw new Error(`deleteRange: intervening sibling "${cur}" not found`);
-    }
-    // Defensive: the cross-block delete removes each intervening
-    // sibling via a flat `yTree.delete` — which would ORPHAN a container's
-    // subtree (its descendants are never visited or cascade-deleted). Refuse
-    // a container in the intervening run rather than silently corrupt state;
-    // action handlers must decompose such a span (the same stance as the
-    // cross-parent refusal above). Leaves are `inlineContent !== null` and
-    // `firstChildId === null`.
-    if (node.firstChildId !== null || node.inlineContent === null) {
-      throw new Error(
-        `deleteRange: intervening sibling "${cur}" is a container, not a leaf; ` +
-          `cross-block delete spanning a container is not supported ` +
-          `(action handlers should decompose into per-block operations).`,
-      );
     }
     interveningIds.push(cur);
     cur = node.nextSiblingId;
@@ -453,6 +488,15 @@ export function planDeleteRange(
     throw new Error(
       `deleteRange: focus block "${focusBlock.id}" is not reachable from anchor "${anchorBlock.id}" in the parent's sibling chain`,
     );
+  }
+  if (focusContent === null) interveningIds.push(focusBlock.id);
+
+  // The seam: the surviving focus; the anchor when the end is an object; the first
+  // text block after the span when both endpoints are objects.
+  const seamId =
+    focusContent !== null ? focusBlock.id : anchorContent !== null ? anchorBlock.id : firstTextAfter(state, focusBlock.id)?.blockId ?? null;
+  if (seamId === null) {
+    throw new Error(`deleteRange: no text block follows the objects "${anchorBlock.id}".."${focusBlock.id}" to hold the seam`);
   }
 
   // Validate the focus's old nextSibling rewire-target now (outside the
@@ -475,7 +519,7 @@ export function planDeleteRange(
   }
 
   // Dev-only single-tree invariant: every block this op deletes / rewires
-  // (focus, intervening leaves, focus's old next, the parent) must live in the
+  // (focus, intervening blocks, focus's old next, the parent) must live in the
   // same tree as the anchor (`kind`); otherwise the kind-routed writes below
   // would corrupt state. Production no-op.
   assertSameTree(
@@ -487,53 +531,50 @@ export function planDeleteRange(
 
   // The anchor keeps [0, anchorOffset); the focus suffix follows it. Both endpoints
   // are snapped OUT to grapheme boundaries ONCE (anchor backward, focus forward), so
-  // the cuts and the seam agree.
+  // the cuts and the seam agree. An object endpoint has no text: offset 0, nothing cut.
   const { span: wide, removed: removedBookmarks } = bookmarkDeletionSpan(state, normalized);
-  const anchorOffset = snapOffset(anchorBlock.inlineContent.items, wide.anchor.offset);
-  const focusOffset = snapOffset(focusBlock.inlineContent.items, wide.focus.offset, 1);
-  const [, anchorDeletedSuffix] = splitInlineContentAtOffset(anchorBlock.inlineContent, anchorOffset);
-  const [focusDeletedPrefix] = splitInlineContentAtOffset(
-    focusBlock.inlineContent,
-    focusOffset,
-  );
+  const anchorOffset = anchorContent === null ? 0 : snapOffset(anchorContent.items, wide.anchor.offset);
+  const focusOffset = focusContent === null ? 0 : snapOffset(focusContent.items, wide.focus.offset, 1);
 
   // Collect embed-content ids referenced by the DELETED inline portion of
   // the cross-block range. The deleted portion is:
   //   - anchor suffix: items[anchor.offset..) of anchorBlock
-  //   - all intervening leaves' items
+  //   - every text block of the blocks removed whole (their subtrees)
   //   - focus prefix: items[..focus.offset) of focusBlock
   // Per the "no orphaned blocks" invariant, dropped EmbedItems own their
   // referenced contentBlockId subtrees and must cascade-delete.
   const embedContentIds = new Set<BlockId>();
-  collectEmbedContentSubtreeFromInlineContent(
-    state,
-    { items: anchorDeletedSuffix },
-    embedContentIds,
-  );
-  for (const id of interveningIds) {
-    const interveningBlock = resolveBlock(state, id)?.block ?? null;
-    if (interveningBlock === null || interveningBlock.inlineContent === null) continue;
-    collectEmbedContentSubtreeFromInlineContent(
-      state,
-      interveningBlock.inlineContent,
-      embedContentIds,
-    );
+  if (anchorContent !== null) {
+    const [, anchorDeletedSuffix] = splitInlineContentAtOffset(anchorContent, anchorOffset);
+    collectEmbedContentSubtreeFromInlineContent(state, { items: anchorDeletedSuffix }, embedContentIds);
   }
-  collectEmbedContentSubtreeFromInlineContent(
-    state,
-    { items: focusDeletedPrefix },
-    embedContentIds,
-  );
+  for (const id of interveningIds) {
+    const after = nextBlockAfterSubtree(state, id);
+    for (let b: BlockId | null = id; b !== null && b !== after; b = nextBlockInDocOrder(state, b)) {
+      const content = resolveBlock(state, b)?.block.inlineContent ?? null;
+      if (content !== null) collectEmbedContentSubtreeFromInlineContent(state, content, embedContentIds);
+    }
+  }
+  if (focusContent !== null) {
+    const [focusDeletedPrefix] = splitInlineContentAtOffset(focusContent, focusOffset);
+    collectEmbedContentSubtreeFromInlineContent(state, { items: focusDeletedPrefix }, embedContentIds);
+  }
 
   return {
     mode: "cross-block",
     kind,
-    anchorId: anchorBlock.id,
-    focusId: focusBlock.id,
+    anchorId: anchorContent === null ? null : anchorBlock.id,
+    focusId: focusContent === null ? null : focusBlock.id,
     interveningIds,
+    seamId,
     anchorOffset,
     focusOffset,
     embedContentIds,
     removedBookmarks,
   };
+}
+
+/** A span endpoint `deleteRange` accepts: a text leaf, or an object (`isObjectBlock`) covered whole. */
+function isTextOrObject(block: Block): boolean {
+  return (block.inlineContent !== null && block.firstChildId === null) || isObjectBlock(block);
 }

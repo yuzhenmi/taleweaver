@@ -1,7 +1,7 @@
-import { inspectDocument, type IncompatibleDocumentReport, createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, selectParagraph, getBlock, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, type Proposal, type ProposeResult, type ProposalOutcome, proposeResultOf, type SuggestionGroupStyle, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
+import { inspectDocument, type IncompatibleDocumentReport, createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, selectParagraph, getBlock, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, type Proposal, type ProposeResult, type ProposalOutcome, proposeResultOf, type SuggestionGroupStyle, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
 import { resolvePixelPosition, type PixelPosition } from "./cursor/cursor-position";
 import { resolvePositionFromPixel } from "./cursor/hit-test";
-import { computeSelectionRects, computeSelectionRectsForPage, type SelectionRect } from "./cursor/selection-geometry";
+import { computeSelectionRects, computeSelectionRectsForPage, computeSelectionRectsAcrossPages, type SelectionRect } from "./cursor/selection-geometry";
 import type { LayoutBox } from "./layout/layout-node";
 import type { VirtualLayoutTree } from "./layout/virtual-layout-tree";
 import { buildPdfOutline } from "./layout/pdf-outline";
@@ -400,42 +400,13 @@ export function createEditorController(
   // see a block's fragment on the other page (and `resolvePixelPosition` snaps a
   // boundary at a page edge to the continuation page), so a selection whose
   // start/end block spans pages falls back to the full bridge for that render.
+  // ponytail: only top-level blocks are in the plan, so a range endpoint on a
+  // NESTED table (both endpoints inside one outer table's cells) that itself
+  // spans pages paints only its fragment on the endpoint's resolved page; route
+  // such endpoints to the fallback if that case matters.
   function blockSpansPages(plan: VirtualLayoutTree["plan"], blockId: BlockId): boolean {
     const s = plan.pageSpanOfBlock(blockId);
     return s !== null && s.first !== s.last;
-  }
-  // Spanning-block selection rects WITHOUT materializing the whole tree: resolve the
-  // span's start/end pixel positions once against the virtual tree, then union
-  // computeSelectionRectsForPage over the pages the span covers. Equivalent to
-  // computeSelectionRects over the materialized tree for a spanning boundary
-  // block (computeSelectionRectsForPage self-culls pages outside the range), but
-  // materializes only the spanned pages instead of every page.
-  function selectionRectsAcrossPages(
-    st: State,
-    span: Span,
-    tree: VirtualLayoutTree,
-    m: TextShaper | TextMeasurer,
-    anchorAffinity?: CaretAffinity,
-    focusAffinity?: CaretAffinity,
-  ): SelectionRect[] {
-    const start = spanStart(st, span);
-    const end = spanEnd(st, span);
-    const startPos = resolvePixelPosition(st, start, tree, m);
-    const endPos = resolvePixelPosition(st, end, tree, m);
-    if (startPos === null || endPos === null) return [];
-    const rects: SelectionRect[] = [];
-    // `startPos`/`endPos` were resolved against `tree`, so every index in
-    // [startPos.pageIndex, endPos.pageIndex] is a valid page (getPage throws
-    // only on out-of-range). computeSelectionRectsForPage self-culls, so this
-    // union equals computeSelectionRects over the fully-materialized tree.
-    for (let p = startPos.pageIndex; p <= endPos.pageIndex; p++) {
-      rects.push(
-        ...computeSelectionRectsForPage(
-          st, span, tree.getPage(p), p, startPos, endPos, m, anchorAffinity, focusAffinity,
-        ),
-      );
-    }
-    return rects;
   }
   let focused = true;
   let cursorVisible = true;
@@ -2349,7 +2320,7 @@ export function createEditorController(
     // Do NOT materialize all pages here. `layoutTree` is the raw (possibly
     // virtual) tree; paginated paths (paint, caret, hit-test, selection/find/
     // comment rects) read it per-page via `getPage` and union per-page via
-    // `selectionRectsAcrossPages` — the whole document is never materialized.
+    // `computeSelectionRectsAcrossPages` — the whole document is never materialized.
     // Only the non-paginated branches read it as a positioned `LayoutBox` (via
     // `nonPaginatedTree()`).
     // The backend layout-driver owns the render→cascade→layout
@@ -2412,7 +2383,7 @@ export function createEditorController(
         if (selSpanningFallback) {
           // Rare: a boundary block taller than a page. Per-page concat over the
           // virtual tree (per-page, never the whole tree).
-          selectionRects = selectionRectsAcrossPages(
+          selectionRects = computeSelectionRectsAcrossPages(
             state.state, state.selection, layoutTree, measurer,
             state.anchorAffinity, state.caretAffinity,
           );

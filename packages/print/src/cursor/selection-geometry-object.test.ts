@@ -25,7 +25,11 @@ import type { State } from "@taleweaver/core";
 import type { PageBox } from "../layout/page-box";
 import type { LayoutBox } from "../layout/layout-box";
 import { computeObjectSelectionRect } from "./selection-geometry";
-import { computeSelectionRects } from "./selection-geometry";
+import { computeSelectionRects, computeSelectionRectsAcrossPages, computeSelectionRectsForPage, type SelectionRect } from "./selection-geometry";
+import { getObjectBoxes } from "./atomic-box-index";
+import { resolvePixelPosition } from "./cursor-position";
+import { getBlock, createPosition, createSpan, firstLeafBlock, type BlockId, type EditorAction, type Position } from "@taleweaver/core";
+import { makeNavEditor, typeText, dispatch, firstBlockId, layoutOf, setSelection, caretAt, type NavCtx, type MakeNavEditorOptions } from "../nav/nav-test-helpers";
 
 const SHAPER_CHAR_W = 8;
 const SHAPER_LINE_H = 16;
@@ -195,5 +199,128 @@ describe("computeObjectSelectionRect (#525)", () => {
     const pos = { blockId: FLOAT_IMG_ID, offset: 0 };
     const span = { anchor: pos, focus: pos };
     expect(computeSelectionRects(state, span, page0, shaper)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Range selections covering object blocks (rule / image / table). A range covers
+// an object block WHOLE (core `isObjectBlock`; an endpoint on one is
+// `(objectId, 0)`), so it paints its text part as before PLUS each covered
+// object's box — never the lines inside a covered table (the box carries them).
+// Built through the real editor ("abcd" | object | "") + the layout driver.
+// ---------------------------------------------------------------------------
+
+type ObjectKind = "rule" | "image" | "table";
+
+function objectAction(kind: ObjectKind, rows = 1): EditorAction {
+  if (kind === "rule") return { type: "INSERT_HORIZONTAL_LINE" };
+  if (kind === "image") return { type: "INSERT_IMAGE", src: "x.png", width: 50, height: 40 };
+  return { type: "INSERT_TABLE", rows, cols: 1 };
+}
+
+/** `"abcd" | object | ""` (fresh document per call) and the three body block ids. */
+function objectRangeDoc(kind: ObjectKind, opts: MakeNavEditorOptions = {}, rows = 1) {
+  let ctx = typeText(makeNavEditor(opts), "abcd");
+  ctx = dispatch(ctx, objectAction(kind, rows));
+  const st = ctx.editor.state;
+  const section = getBlock(st, firstBlockId(ctx))?.parentId ?? null;
+  const ids: BlockId[] = [];
+  for (let id = section === null ? null : getBlock(st, section)?.firstChildId ?? null; id !== null; id = getBlock(st, id)?.nextSiblingId ?? null) {
+    ids.push(id);
+  }
+  const [text, object, after] = ids;
+  if (text === undefined || object === undefined || after === undefined || ids.length !== 3) {
+    throw new Error(`expected "abcd" | ${kind} | "" (got ${ids.length} blocks)`);
+  }
+  return { ctx, text, object, after };
+}
+
+function positioned(ctx: NavCtx): LayoutBox {
+  const lt = layoutOf(ctx);
+  if (lt.type === "virtual-root") throw new Error("expected a non-paginated layout");
+  return lt;
+}
+
+function rangeRects(ctx: NavCtx, anchor: Position, focus: Position): SelectionRect[] {
+  return computeSelectionRects(ctx.editor.state, createSpan(anchor, focus), positioned(ctx), ctx.measurer);
+}
+
+/** The object's box fragments on `tree` (the highlight a covered object paints). */
+function boxesOf(ctx: NavCtx, tree: LayoutBox, id: BlockId): SelectionRect[] {
+  return getObjectBoxes(tree, ctx.editor.state).filter((b) => b.blockId === id).map((b) => ({ ...b.rect }));
+}
+
+// "bcd" + the ¶ extension (8px glyphs, 16px lines; "abcd" is the first line).
+const BCD_WITH_PILCROW: SelectionRect = { x: 8, y: 0, width: 40, height: 16, pageIndex: 0 };
+const BCD: SelectionRect = { x: 8, y: 0, width: 24, height: 16, pageIndex: 0 };
+const OBJECT_HEIGHT: Record<ObjectKind, number> = { rule: 16, image: 40, table: 32 };
+
+describe("range selections paint covered object blocks whole", () => {
+  for (const kind of ["rule", "image", "table"] as const) {
+    it(`${kind}: across / starting on / ending on it (either direction)`, () => {
+      const { ctx, text, object, after } = objectRangeDoc(kind);
+      const obj = boxesOf(ctx, positioned(ctx), object);
+      expect(obj).toEqual([{ x: 0, y: 24, width: 800, height: OBJECT_HEIGHT[kind], pageIndex: 0 }]);
+      const p = createPosition;
+      // Across: the text lines exactly as for a text-only range, plus the object.
+      expect(rangeRects(ctx, p(text, 1), p(after, 0))).toEqual([BCD_WITH_PILCROW, ...obj]);
+      // Starting on it: the object alone (the empty paragraph's start adds nothing).
+      expect(rangeRects(ctx, p(object, 0), p(after, 0))).toEqual(obj);
+      expect(rangeRects(ctx, p(after, 0), p(object, 0))).toEqual(obj);
+      // Ending on it: the text up to its block's end (that ¶ survives a delete), plus the object.
+      expect(rangeRects(ctx, p(text, 1), p(object, 0))).toEqual([BCD, ...obj]);
+      expect(rangeRects(ctx, p(object, 0), p(text, 1))).toEqual([BCD, ...obj]);
+    });
+  }
+
+  it("a drag from text into a table cell paints the whole table (core lifts the endpoint)", () => {
+    const { ctx, text, object } = objectRangeDoc("table");
+    const cell = firstLeafBlock(ctx.editor.state, object);
+    if (cell === null) throw new Error("expected a cell paragraph");
+    const dragged = setSelection(ctx, createSpan(createPosition(text, 1), createPosition(cell, 0)));
+    expect(dragged.editor.selection.focus).toEqual(createPosition(object, 0));
+    const tree = positioned(dragged);
+    expect(computeSelectionRects(dragged.editor.state, dragged.editor.selection, tree, dragged.measurer))
+      .toEqual([BCD, ...boxesOf(dragged, tree, object)]);
+  });
+
+  it("a range inside one table's cells does not highlight the table", () => {
+    let { ctx, object } = objectRangeDoc("table");
+    const cell = firstLeafBlock(ctx.editor.state, object);
+    if (cell === null) throw new Error("expected a cell paragraph");
+    ctx = typeText(caretAt(ctx, cell, 0), "xy");
+    const tree = positioned(ctx);
+    const rects = computeSelectionRects(ctx.editor.state, createSpan(createPosition(cell, 0), createPosition(cell, 2)), tree, ctx.measurer);
+    expect(rects).toHaveLength(1);
+    expect(rects[0]?.width).toBe(16);
+  });
+
+  it("a table split across pages is highlighted on every page it spans", () => {
+    // 96px pages: the 8-row table (32px rows) spans several pages.
+    const pageConfig = { pageInlineSize: 320, pageBlockSize: 96, pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 }, pageGap: 24 };
+    const { ctx, text, object, after } = objectRangeDoc("table", { pageConfig, containerWidth: 320 }, 8);
+    const tree = layoutOf(ctx);
+    if (tree.type !== "virtual-root") throw new Error("expected a paginated layout");
+    const span = tree.plan.pageSpanOfBlock(object);
+    if (span === null || span.first === span.last) throw new Error("expected the table to span pages");
+    const st = ctx.editor.state;
+    const fragments: SelectionRect[] = [];
+    for (let i = span.first; i <= span.last; i++) fragments.push(...boxesOf(ctx, tree.getPage(i), object));
+    expect(new Set(fragments.map((r) => r.pageIndex)).size).toBe(span.last - span.first + 1);
+    const p = createPosition;
+    // Ending / starting on the spanning table: the controller's spanning fallback.
+    const toTable = computeSelectionRectsAcrossPages(st, createSpan(p(text, 1), p(object, 0)), tree, ctx.measurer);
+    expect(toTable).toEqual([BCD, ...fragments]);
+    expect(computeSelectionRectsAcrossPages(st, createSpan(p(object, 0), p(after, 0)), tree, ctx.measurer)).toEqual(fragments);
+    // Across it (text endpoints): the controller's per-page path over every page in
+    // the range — the cells' lines stay unpainted under the table's box.
+    const startPos = resolvePixelPosition(st, p(text, 1), tree, ctx.measurer);
+    const endPos = resolvePixelPosition(st, p(after, 0), tree, ctx.measurer);
+    if (startPos === null || endPos === null) throw new Error("unresolved endpoints");
+    const across: SelectionRect[] = [];
+    for (let i = startPos.pageIndex; i <= endPos.pageIndex; i++) {
+      across.push(...computeSelectionRectsForPage(st, createSpan(p(text, 1), p(after, 0)), tree.getPage(i), i, startPos, endPos, ctx.measurer));
+    }
+    expect(across).toEqual([BCD_WITH_PILCROW, ...fragments]);
   });
 });

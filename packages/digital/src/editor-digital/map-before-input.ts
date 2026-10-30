@@ -8,7 +8,7 @@ import {
 
 export interface MapBeforeInputCtx {
   readonly selection: Selection;
-  readonly domToPosition: (node: Node, off: number) => Position | null;
+  readonly domToPosition: (node: Node, off: number, edge?: "start" | "end") => Position | null;
 }
 
 /** Map the first StaticRange of `getTargetRanges()` to a core Span, or null if absent/unmappable. */
@@ -17,7 +17,7 @@ function targetRangeSpan(e: InputEvent, ctx: MapBeforeInputCtx): Span | null {
   const r = ranges[0];
   if (r === undefined) return null;
   const start = ctx.domToPosition(r.startContainer, r.startOffset);
-  const end = ctx.domToPosition(r.endContainer, r.endOffset);
+  const end = ctx.domToPosition(r.endContainer, r.endOffset, "end");
   if (start === null || end === null) return null;
   return createSpan(start, end);
 }

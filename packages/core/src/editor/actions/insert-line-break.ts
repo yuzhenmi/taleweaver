@@ -1,6 +1,6 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
-import { insertLineBreak, mintLineBreak, markDeletion, deleteRange, createPosition, createSpan, spanStart, spanEnd, resolveBlock } from "../../state";
+import { insertLineBreak, mintLineBreak, markDeletion, deleteRange, createPosition, createSpan, spanStart, spanEnd, clipSpanToText, resolveBlock } from "../../state";
 import type { BlockId, OperationResult, Position, State, ReplaceSuggestionInput } from "../../state";
 import { blockAfter } from "../../cursor/paragraph-mark";
 import { isCollapsed } from "../../cursor/selection";
@@ -52,8 +52,11 @@ export function handleInsertLineBreak(editor: EditorState): Edit | null {
 function suggestLineBreak(editor: EditorState, input: ReplaceSuggestionInput): Edit | null {
   const { selection } = editor;
   if (!isCollapsed(selection) && isCrossContextSelection(editor.state, selection)) return null;
-  const start = spanStart(editor.state, selection);
-  const end = spanEnd(editor.state, selection);
+  // The break goes at the start of the span's TEXT (after an object start — a covered
+  // object stays in place; `clipSpanToText`); the strike covers the whole span.
+  const start = isCollapsed(selection) ? selection.anchor : clipSpanToText(editor.state, selection).anchor;
+  const spanFrom = spanStart(editor.state, selection);
+  const spanTo = spanEnd(editor.state, selection);
   const meta = { author: input.author, createdAt: input.createdAt, order: input.order };
   const ins = mintLineBreak(editor.state, start, { ...meta, id: input.insertionId });
   const dirtyIds = new Set<BlockId>(ins.dirtyIds);
@@ -62,7 +65,7 @@ function suggestLineBreak(editor: EditorState, input: ReplaceSuggestionInput): E
   const survivor = startBlock === null ? null : (blockAfter(state, startBlock)?.block.id ?? null);
   if (!isCollapsed(selection)) {
     const shift = (p: Position): Position => (p.blockId === start.blockId ? createPosition(p.blockId, p.offset + 1) : p);
-    const struck = markDeletion(state, createSpan(shift(start), shift(end)), { ...meta, id: input.deletionId });
+    const struck = markDeletion(state, createSpan(shift(spanFrom), shift(spanTo)), { ...meta, id: input.deletionId });
     state = struck.state;
     for (const id of struck.dirtyIds) dirtyIds.add(id);
   }
