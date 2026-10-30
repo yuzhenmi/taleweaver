@@ -5,9 +5,11 @@ import { createPosition, createSpan, spanStart, spanEnd } from "../../state";
 import { moveByWord } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { isObjectSelection } from "../../cursor/object-selection";
-import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
-import { deleteRangeOrSuggest, isSuggestingInBlock } from "./suggestion-mode";
-import { deleteObjectSelection } from "./object-edits";
+import { isCrossContextSelection } from "./helpers/is-cross-context-selection";
+import { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
+import { deleteRangeOrSuggest } from "./helpers/delete-range-or-suggest";
+import { isSuggestingInBlock } from "./helpers/is-suggesting-in-block";
+import { deleteObjectSelection } from "./helpers/delete-object-selection";
 import type { ActionOf } from "../editor-action";
 
 export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"DELETE_WORD">): Edit | null {

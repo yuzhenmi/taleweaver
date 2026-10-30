@@ -2,15 +2,19 @@ import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import { resolveBlock, getBlock, removeBlock, firstLeafBlock, createPosition, createSpan, spanStart, spanEnd, mergeAdjacentBlocks, deleteSectionBreak, inlineContentLength } from "../../state";
-import { caretEdit, suggestMarkDeletion } from "./paragraph-mark-delete";
+import { caretEdit } from "./helpers/caret-edit";
+import { suggestMarkDeletion } from "./helpers/suggest-mark-deletion";
 import { blockAfter } from "../../cursor/paragraph-mark";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
-import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
-import { deleteAdjacentAtomicLeaf } from "./atomic-edits";
-import { deleteObjectSelection } from "./object-edits";
+import { isCrossContextSelection } from "./helpers/is-cross-context-selection";
+import { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
+import { deleteAdjacentAtomicLeaf } from "./helpers/delete-adjacent-atomic-leaf";
+import { deleteObjectSelection } from "./helpers/delete-object-selection";
 import { isObjectSelection } from "../../cursor/object-selection";
-import { deleteRangeOrSuggest, suggestionInputForBlock, isSuggestingInBlock } from "./suggestion-mode";
+import { deleteRangeOrSuggest } from "./helpers/delete-range-or-suggest";
+import { suggestionInputForBlock } from "./helpers/suggestion-input-for-block";
+import { isSuggestingInBlock } from "./helpers/is-suggesting-in-block";
 
 export function handleDeleteForward(editor: EditorState): Edit | null {
   const { config } = editor;

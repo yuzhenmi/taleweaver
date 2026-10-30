@@ -7,7 +7,7 @@ import {
   createSpan,
 } from "../../state";
 import type { BlockId } from "../../state";
-import { prepareEmbedInsertPoint } from "./selection-guards";
+import { prepareEmbedInsertPoint } from "./helpers/prepare-embed-insert-point";
 import type { ActionOf } from "../editor-action";
 
 /**

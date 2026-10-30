@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs } from "../../state";
-import { resolveActiveSection } from "./active-section";
+import { resolveActiveSection } from "./helpers/resolve-active-section";
 import type { ActionOf } from "../editor-action";
 
 /**

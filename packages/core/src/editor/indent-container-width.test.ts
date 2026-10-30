@@ -21,7 +21,7 @@ import {
   reduceEditor,
   firstChildId,
 } from "./actions/test-helpers";
-import { MIN_INDENT_CONTENT_WIDTH } from "./actions/indent";
+import { MIN_INDENT_CONTENT_WIDTH } from "./actions/helpers/shift-indent";
 import { getBlock } from "../state";
 import type { BlockId } from "../state";
 

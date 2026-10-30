@@ -7,7 +7,7 @@ import type { State, Selection, BlockId, ReadonlyAttrs } from "../state";
 import type { CaretAffinity } from "../cursor/selection";
 import type { EditorConfig } from "./editor-config";
 import type { DocumentChange } from "./document-change";
-import { initialSelectionForState } from "./actions/helpers";
+import { initialSelectionForState } from "./actions/helpers/initial-selection-for-state";
 
 // --- EditorState ---
 

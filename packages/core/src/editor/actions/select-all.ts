@@ -10,7 +10,8 @@ import {
   resolveBlock,
 } from "../../state";
 import type { BlockId } from "../../state";
-import { findFirstContentBlock, findLastContentBlock } from "./helpers";
+import { findFirstContentBlock } from "./helpers/find-first-content-block";
+import { findLastContentBlock } from "./helpers/find-last-content-block";
 
 /**
  * SELECT_ALL — context-aware. A header/footer body is an ISOLATED editing

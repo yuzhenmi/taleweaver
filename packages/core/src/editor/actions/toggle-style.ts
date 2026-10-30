@@ -2,7 +2,7 @@ import type { EditorState } from "../editor-state";
 import { iterateSpan, findItemAtOffset } from "../../state";
 import type { State, Span } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
-import { applyAttrsOrSuggest } from "./suggestion-mode";
+import { applyAttrsOrSuggest } from "./helpers/apply-attrs-or-suggest";
 import { storeTypingAttrs, getTypingAttrs } from "../typing-attrs";
 import type { Edit } from "../edit";
 import type { ActionOf } from "../editor-action";

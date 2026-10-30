@@ -15,9 +15,6 @@ import {
   productionAllocator,
   createPositionMapping,
   findItemAtOffset,
-  runWithTransactionOrigin,
-  currentTransactionOrigin,
-  UntrackedOrigin,
 } from "../state";
 import type {
   BlockId,
@@ -37,7 +34,6 @@ import { type EditorConfig } from "./editor-config";
 import { type EditorState } from "./editor-state";
 import { replacementAttrs } from "./typing-attrs";
 import { rebaseSelection } from "./foreign-change";
-import type { ActionOf } from "./editor-action";
 
 /**
  * Host PROPOSALS: changes offered as ONE reviewable suggestion group, independent of
@@ -232,46 +228,7 @@ function linesFor(state: State, at: Position, text: string, attrs: ReadonlyAttrs
   }));
 }
 
-/**
- * The PROPOSE reducer arm — the AUTHORITATIVE check: map the edits from `basedOn` (the
- * version they were computed against) through the editor's change chain (stale when the
- * ranges changed or the version is unknown), validate, then apply every edit as a
- * suggestion (fresh, non-coalescing records, author = the proposal's), mapping each
- * later edit through the earlier ones, and tag all records with the group + metadata.
- * A proposal is another author's change, so it is NOT in the user's undo stack:
- * it runs under an {@link UntrackedOrigin} owned by the dispatching host's origin
- * (untracked; self to that host's own foreign-change subscription) and the History only advances its
- * cached state — Ctrl+Z keeps undoing the user's own last edit (accept / reject stay
- * undoable user actions). Inline storage never re-mints a character on an in-block
- * edit, and undo selections are CRDT-anchored, so the user's open entry survives.
- * A multi-paragraph replace is untracked too: its new paragraphs are splits (marks),
- * so no character is re-minted. The selection is rebased and stored typing attrs
- * kept. The verdict is `lastProposal`.
- */
-export function handlePropose(
-  editor: EditorState,
-  { proposal: input, basedOn }: ActionOf<"PROPOSE">,
-): EditorState {
-  const { config } = editor;
-  const outcomeOf = (verdict: Verdict): ProposalOutcome => chainOutcome(editor.lastProposal, { ...verdict, proposal: input });
-  const verdict = (v: Verdict): EditorState => ({ ...editor, lastProposal: outcomeOf(v) });
-  let proposal = input;
-  if (basedOn !== undefined && basedOn !== editor.state) {
-    const mapping = mappingSince(editor, basedOn);
-    const mapped = mapping === null ? null : mapProposal(input, mapping);
-    if (mapped === null) return verdict({ groupId: input.groupId, outcome: "stale" });
-    proposal = mapped;
-  }
-  const problem = validateProposal(editor.state, proposal);
-  if (problem !== null) return verdict({ groupId: proposal.groupId, outcome: "rejected", problem });
-  // Per-instance untracked origin: wraps the dispatching host's own (ambient) origin,
-  // so no History tracks it but the host's own foreign-change subscription treats it
-  // as self (a second host on the same doc still sees it as foreign).
-  const origin = new UntrackedOrigin(currentTransactionOrigin());
-  return runWithTransactionOrigin(origin, () => applyProposal(editor, proposal, config, outcomeOf));
-}
-
-function applyProposal(
+export function applyProposal(
   editor: EditorState,
   proposal: Proposal,
   config: EditorConfig,
@@ -382,7 +339,7 @@ export interface ProposalOutcome {
   readonly prior?: ProposalOutcome;
 }
 
-type Verdict = Pick<ProposalOutcome, "groupId" | "outcome" | "problem">;
+export type Verdict = Pick<ProposalOutcome, "groupId" | "outcome" | "problem">;
 
 /** How many verdicts `ProposalOutcome.prior` is guaranteed to keep (the newest included). */
 export const MAX_PROPOSAL_CHAIN = 32;
@@ -392,7 +349,7 @@ export const MAX_PROPOSAL_CHAIN = 32;
  * chain grows past 2 × {@link MAX_PROPOSAL_CHAIN} is it rebuilt to the newest MAX
  * (copies keep `seq`) — O(1) amortised, like `recordChange`.
  */
-function chainOutcome(prior: ProposalOutcome | undefined, outcome: Omit<ProposalOutcome, "prior" | "seq" | "depth">): ProposalOutcome {
+export function chainOutcome(prior: ProposalOutcome | undefined, outcome: Omit<ProposalOutcome, "prior" | "seq" | "depth">): ProposalOutcome {
   const seq = (prior?.seq ?? 0) + 1;
   if (prior === undefined) return { ...outcome, seq, depth: 1 };
   if (prior.depth < 2 * MAX_PROPOSAL_CHAIN) return { ...outcome, seq, depth: prior.depth + 1, prior };
@@ -421,7 +378,7 @@ export function proposeResultOf(outcome: ProposalOutcome | undefined): ProposeRe
  * editor's change chain (`lastChange`) — null when `basedOn` is not on it (aged out of the
  * bounded chain, or the document was replaced).
  */
-function mappingSince(editor: EditorState, basedOn: State): PositionMapping | null {
+export function mappingSince(editor: EditorState, basedOn: State): PositionMapping | null {
   const links: ChangeLink[] = [];
   for (let c = editor.lastChange; c !== null; c = c.prior) {
     links.push(c);

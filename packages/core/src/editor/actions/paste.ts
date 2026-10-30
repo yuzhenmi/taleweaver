@@ -32,8 +32,8 @@ import type {
   ReadonlyAttrs,
 } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
-import { replaceSuggestionInputForBlock } from "./suggestion-mode";
-import { isCrossContextSelection } from "./selection-guards";
+import { replaceSuggestionInputForBlock } from "./helpers/replace-suggestion-input-for-block";
+import { isCrossContextSelection } from "./helpers/is-cross-context-selection";
 import { getTypingAttrs } from "../typing-attrs";
 
 /**

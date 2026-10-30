@@ -18,7 +18,7 @@ import {
 } from "./insert-items";
 import { clonePastedSubtree } from "../clone-pasted-subtree";
 import type { ClonedSubtree } from "../clone-pasted-subtree";
-import { isCrossContextSelection } from "../../editor/actions/selection-guards";
+import { isCrossContextSelection } from "../../editor/actions/helpers/is-cross-context-selection";
 import { spanStart } from "../block-compare";
 import { isCollapsed } from "../../cursor/selection";
 import { getListDefsForState } from "../list-defs";

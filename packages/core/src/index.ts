@@ -306,7 +306,8 @@ export { BROKEN_CROSS_REFERENCE_TEXT } from "./render/resolve-cross-reference";
 // backend layout-driver (`@taleweaver/print`) cascades these side-tree bodies as
 // part of the render→cascade→layout pipeline it owns. Pure
 // render/cascade — legitimately public.
-export { cascadeTemplateContents, cascadeEmbedContents } from "./editor/actions/helpers";
+export { cascadeTemplateContents } from "./cascade/cascade-template-contents";
+export { cascadeEmbedContents } from "./cascade/cascade-embed-contents";
 
 // Layout — TEXT CORE only. The geometric box-layout surface (LayoutBox / PageBox /
 // VirtualLayoutTree / layoutTree / BFC / IFC / used-style / footnote-resolve /

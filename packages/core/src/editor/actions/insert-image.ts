@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import type { ReadonlyAttrs } from "../../state";
-import { insertAtomicBlockAfterFocus } from "./atomic-edits";
+import { insertAtomicBlockAfterFocus } from "./helpers/insert-atomic-block-after-focus";
 import type { ActionOf } from "../editor-action";
 
 /**

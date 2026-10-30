@@ -1,17 +1,10 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
-import {
-  createPosition,
-  createSpan,
-  inlineContentLength,
-  resolveBlock,
-  selectionContextOf,
-  firstLeafBlock,
-  lastLeafBlock,
-} from "../../state";
-import type { BlockId, State } from "../../state";
-import { findFirstContentBlock, findLastContentBlock } from "./helpers";
+import { createPosition, createSpan, selectionContextOf } from "../../state";
 import type { ActionOf } from "../editor-action";
+import { firstBoundaryBlock } from "./helpers/first-boundary-block";
+import { lastBoundaryBlock } from "./helpers/last-boundary-block";
+import { endOffsetOf } from "./helpers/end-offset-of";
 
 /**
  * EXPAND_DOCUMENT_BOUNDARY (Ctrl+Shift+Home / Ctrl+Shift+End) — CONTEXT-AWARE,
@@ -47,38 +40,3 @@ export function handleExpandDocumentBoundary(
   const focus = createPosition(targetId, offset);
   return { selection: createSpan(editor.selection.anchor, focus) };
 }
-
-/**
- * The first boundary block within `ctxRoot`. Main body → the first
- * CONTENT-bearing leaf (`findFirstContentBlock`, which skips container-only
- * leaves). A footnote/header/footer body → the first leaf within that body
- * (`firstLeafBlock`). Mirrors `handleSelectAll`.
- */
-function firstBoundaryBlock(state: State, ctxRoot: BlockId): BlockId | null {
-  return ctxRoot === state.rootId
-    ? findFirstContentBlock(state)
-    : firstLeafBlock(state, ctxRoot);
-}
-
-/** Symmetric to `firstBoundaryBlock` for the document END. */
-function lastBoundaryBlock(state: State, ctxRoot: BlockId): BlockId | null {
-  return ctxRoot === state.rootId
-    ? findLastContentBlock(state)
-    : lastLeafBlock(state, ctxRoot);
-}
-
-/**
- * The end (last) offset of `blockId` — its inline-content length, or 0 for a
- * container leaf with no inline content. Resolved tree-aware via `resolveBlock`
- * so a footnote/header/footer body block is read from its own tree. Returns null
- * if the block is unresolvable.
- */
-function endOffsetOf(state: State, blockId: BlockId): number | null {
-  const resolved = resolveBlock(state, blockId);
-  if (resolved === null) return null;
-  return resolved.block.inlineContent === null
-    ? 0
-    : inlineContentLength(resolved.block.inlineContent);
-}
-
-export { firstBoundaryBlock, lastBoundaryBlock, endOffsetOf };

@@ -2,14 +2,14 @@ import { positionsEqual, resolveBlock, createSpan } from "../state";
 import { caretAfterMarkers } from "../cursor/cursor-ops";
 import { getTypingAttrs } from "./typing-attrs";
 import { normalizeSelectionForAtomicMarks } from "./atomic-marks";
-import { handleApplyForeignChange } from "./foreign-change";
-import { handlePropose } from "./proposals";
-import { runTransaction, applyInputRules, updateActiveTrigger } from "./extensions";
+import { updateActiveTrigger, type Reduce } from "./extensions";
 import { clearTransientViewState, type EditorState } from "./editor-state";
 import type { EditorAction, ActionOf } from "./editor-action";
 import { applyEdit, type Edit } from "./edit";
 import {
   handleInsertText,
+  handleTransaction,
+  handleApplyForeignChange,
   handleDeleteBackward,
   handleDeleteForward,
   handleDeleteWord,
@@ -17,32 +17,37 @@ import {
   handleSplitNode,
   handleMoveWord,
   handleMoveDocumentBoundary,
-  handleEscape,
   handleExpandWord,
   handleExpandDocumentBoundary,
   handleSelectAll,
   handleSetSelection,
-  handleSetContainerWidth,
-  handleSetBlockType,
-  handleToggleList,
-  handleToggleStyle,
-  handleSetLink,
-  handleSetTextColor,
-  handleSetTextTransform,
-  handleSetHighlight,
-  handleSetFontSize,
-  handleSetFontFamily,
-  handleClearFormatting,
-  handleSetMark,
-  handleRemoveMark,
+  handleEscape,
   handleUndo,
   handleRedo,
+  handleSetContainerWidth,
+  handlePropose,
   handlePaste,
   handleInsertNode,
+  handleSetBlockType,
+  handleToggleList,
+  handleSetListType,
+  handleSetListRestart,
+  handleListIndent,
+  handleListOutdent,
+  handleIndent,
+  handleOutdent,
   handleSectionBreak,
   handleToggleSectionLandscape,
   handleSetSectionColumns,
-  handleInsertHeaderFooter,
+  handleInsertHeader,
+  handleInsertFooter,
+  handleInsertFootnote,
+  handleInsertCrossReference,
+  handleInsertPageNumber,
+  handleInsertPageCount,
+  handleInsertTab,
+  handleInsertLineBreak,
+  handleSetTabStops,
   handleInsertHorizontalLine,
   handleInsertTableOfContents,
   handleInsertTable,
@@ -58,18 +63,18 @@ import {
   handleSetImageSize,
   handleSetImageWrap,
   handleSetImageAlt,
-  handleInsertFootnote,
-  handleInsertCrossReference,
-  handleInsertPageField,
-  handleInsertTab,
-  handleInsertLineBreak,
-  handleSetTabStops,
+  handleToggleStyle,
+  handleSetLink,
+  handleSetTextColor,
+  handleSetTextTransform,
+  handleSetHighlight,
+  handleSetFontSize,
+  handleSetFontFamily,
+  handleClearFormatting,
+  handleSetMark,
+  handleRemoveMark,
   handleSetTextAlign,
   handleSetLineSpacing,
-  handleIndent,
-  handleListIndent,
-  handleSetListType,
-  handleSetListRestart,
   handleSetParagraphSpacing,
   handleSetFootnotePolicy,
   handleReplaceMatch,
@@ -81,8 +86,9 @@ import {
   handleAddReply,
   handleAcceptSuggestion,
   handleRejectSuggestion,
+  handleAcceptSuggestionGroup,
+  handleRejectSuggestionGroup,
   handleAcceptAllSuggestions,
-  handleResolveSuggestionGroup,
   handleRejectAllSuggestions,
 } from "./actions";
 
@@ -119,28 +125,16 @@ interface ActionTraits {
 type ActionSpec<K extends ActionType> = ActionTraits &
   (
     | { readonly edit: (editor: EditorState, action: ActionOf<K>) => Edit | null }
-    | { readonly reduce: (editor: EditorState, action: ActionOf<K>) => EditorState }
+    | { readonly reduce: (editor: EditorState, action: ActionOf<K>, reduce: Reduce) => EditorState }
   );
-
-/** User-typed text may complete a host input rule (its own undo entry). */
-function insertText(editor: EditorState, action: ActionOf<"INSERT_TEXT">): EditorState {
-  const result = applyEdit(editor, handleInsertText(editor, action));
-  return action.userInput === true && result.state !== editor.state
-    ? applyInputRules(result, editor.config, reduceEditor)
-    : result;
-}
-
-function transaction(editor: EditorState, action: ActionOf<"TRANSACTION">): EditorState {
-  return runTransaction(editor, action.run, reduceEditor);
-}
 
 /**
  * Every action type's spec. The mapped type makes a newly added action a compile error
  * here until it has a handler and a coalescing class.
  */
 const ACTIONS: { readonly [K in ActionType]: ActionSpec<K> } = {
-  INSERT_TEXT: { reduce: insertText, coalesce: "insert", insertsAtCaret: true },
-  TRANSACTION: { reduce: transaction, coalesce: "command" },
+  INSERT_TEXT: { reduce: handleInsertText, coalesce: "insert", insertsAtCaret: true },
+  TRANSACTION: { reduce: handleTransaction, coalesce: "command" },
   // A peer's change: not ours to undo, and it must not split our typing group.
   APPLY_FOREIGN_CHANGE: { reduce: handleApplyForeignChange, coalesce: "inert" },
   DELETE_BACKWARD: { edit: handleDeleteBackward, coalesce: "delete", carriesTypingAttrs: true },
@@ -170,18 +164,18 @@ const ACTIONS: { readonly [K in ActionType]: ActionSpec<K> } = {
   SET_LIST_TYPE: { edit: handleSetListType, coalesce: "command" },
   SET_LIST_RESTART: { edit: handleSetListRestart, coalesce: "command" },
   LIST_INDENT: { edit: handleListIndent, coalesce: "command" },
-  LIST_OUTDENT: { edit: handleListIndent, coalesce: "command" },
+  LIST_OUTDENT: { edit: handleListOutdent, coalesce: "command" },
   INDENT: { edit: handleIndent, coalesce: "command" },
-  OUTDENT: { edit: handleIndent, coalesce: "command" },
+  OUTDENT: { edit: handleOutdent, coalesce: "command" },
   SECTION_BREAK: { edit: handleSectionBreak, coalesce: "command" },
   TOGGLE_SECTION_LANDSCAPE: { edit: handleToggleSectionLandscape, coalesce: "command" },
   SET_SECTION_COLUMNS: { edit: handleSetSectionColumns, coalesce: "command" },
-  INSERT_HEADER: { edit: handleInsertHeaderFooter, coalesce: "command" },
-  INSERT_FOOTER: { edit: handleInsertHeaderFooter, coalesce: "command" },
+  INSERT_HEADER: { edit: handleInsertHeader, coalesce: "command" },
+  INSERT_FOOTER: { edit: handleInsertFooter, coalesce: "command" },
   INSERT_FOOTNOTE: { edit: handleInsertFootnote, coalesce: "command", insertsAtCaret: true },
   INSERT_CROSS_REFERENCE: { edit: handleInsertCrossReference, coalesce: "command", insertsAtCaret: true },
-  INSERT_PAGE_NUMBER: { edit: handleInsertPageField, coalesce: "command", insertsAtCaret: true },
-  INSERT_PAGE_COUNT: { edit: handleInsertPageField, coalesce: "command", insertsAtCaret: true },
+  INSERT_PAGE_NUMBER: { edit: handleInsertPageNumber, coalesce: "command", insertsAtCaret: true },
+  INSERT_PAGE_COUNT: { edit: handleInsertPageCount, coalesce: "command", insertsAtCaret: true },
   INSERT_TAB: { edit: handleInsertTab, coalesce: "command", insertsAtCaret: true },
   INSERT_LINE_BREAK: { edit: handleInsertLineBreak, coalesce: "command", insertsAtCaret: true },
   SET_TAB_STOPS: { edit: handleSetTabStops, coalesce: "command" },
@@ -224,8 +218,8 @@ const ACTIONS: { readonly [K in ActionType]: ActionSpec<K> } = {
   // Suggestion resolution: undoable, each its own entry.
   ACCEPT_SUGGESTION: { edit: handleAcceptSuggestion, coalesce: "command" },
   REJECT_SUGGESTION: { edit: handleRejectSuggestion, coalesce: "command" },
-  ACCEPT_SUGGESTION_GROUP: { edit: handleResolveSuggestionGroup, coalesce: "command" },
-  REJECT_SUGGESTION_GROUP: { edit: handleResolveSuggestionGroup, coalesce: "command" },
+  ACCEPT_SUGGESTION_GROUP: { edit: handleAcceptSuggestionGroup, coalesce: "command" },
+  REJECT_SUGGESTION_GROUP: { edit: handleRejectSuggestionGroup, coalesce: "command" },
   ACCEPT_ALL_SUGGESTIONS: { edit: handleAcceptAllSuggestions, coalesce: "command" },
   REJECT_ALL_SUGGESTIONS: { edit: handleRejectAllSuggestions, coalesce: "command" },
 };
@@ -238,7 +232,7 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
 /** Run `action`'s own transition (`type` correlates the table entry with the action). */
 function reduceAction<K extends ActionType>(editor: EditorState, type: K, action: ActionOf<K>): EditorState {
   const spec: ActionSpec<K> = ACTIONS[type];
-  return "edit" in spec ? applyEdit(editor, spec.edit(editor, action)) : spec.reduce(editor, action);
+  return "edit" in spec ? applyEdit(editor, spec.edit(editor, action)) : spec.reduce(editor, action, reduceEditor);
 }
 
 /** `editor` with a collapsed caret moved past the markers adjacent on its right. */

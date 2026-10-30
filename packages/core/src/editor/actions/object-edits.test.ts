@@ -33,11 +33,9 @@ import { createEditorStateFromState } from "../editor-state";
 import type { EditorState } from "../editor-state";
 import { applyEdit } from "../edit";
 import { config, componentRegistry, reduceEditor } from "./test-helpers";
-import {
-  deleteObjectSelection,
-  replaceObjectWithText,
-  moveOffObject,
-} from "./object-edits";
+import { deleteObjectSelection } from "./helpers/delete-object-selection";
+import { replaceObjectWithText } from "./helpers/replace-object-with-text";
+import { moveOffObject } from "./helpers/move-off-object";
 
 const IMAGE_ID = asBlockId("image");
 const PARA_ID = asBlockId("para");

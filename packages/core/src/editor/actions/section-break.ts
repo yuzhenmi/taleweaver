@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import { getBlock, productionAllocator, createPosition, createSpan, applySectionBreak, applySectionBreakAsSuggestion } from "../../state";
-import { suggestionInputForBlock } from "./suggestion-mode";
+import { suggestionInputForBlock } from "./helpers/suggestion-input-for-block";
 
 /**
  * `SECTION_BREAK` handler — wires the Layer-3 `applySectionBreak` op into the

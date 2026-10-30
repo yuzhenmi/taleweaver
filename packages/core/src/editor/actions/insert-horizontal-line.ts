@@ -1,6 +1,6 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
-import { insertAtomicBlockAfterFocus } from "./atomic-edits";
+import { insertAtomicBlockAfterFocus } from "./helpers/insert-atomic-block-after-focus";
 
 /**
  * INSERT_HORIZONTAL_LINE — insert a horizontal rule (Google Docs Insert ▸

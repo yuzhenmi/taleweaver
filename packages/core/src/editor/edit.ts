@@ -1,6 +1,6 @@
 import type { OperationResult, ReadonlyAttrs, Selection } from "../state";
 import type { EditorState } from "./editor-state";
-import { rebuildTrees } from "./actions/helpers";
+import { rebuildTrees } from "./actions/helpers/rebuild-trees";
 import { rebaseSelection } from "./foreign-change";
 
 /**

@@ -1,5 +1,5 @@
 import type { EditorState } from "../editor-state";
-import { rebuildTrees } from "./helpers";
+import { rebuildTrees } from "./helpers/rebuild-trees";
 import { recordChange } from "../document-change";
 import { rebaseSelection } from "../foreign-change";
 

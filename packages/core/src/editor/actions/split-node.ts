@@ -4,10 +4,13 @@ import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRa
 import type { BlockId } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { isObjectSelection } from "../../cursor/object-selection";
-import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
-import { shiftListLevel } from "./list-indent";
-import { listLevelOf, unlistBlock } from "./list-edits";
-import { suggestionInputForBlock, replaceSuggestionInputForBlock } from "./suggestion-mode";
+import { isCrossContextSelection } from "./helpers/is-cross-context-selection";
+import { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
+import { shiftListLevel } from "./helpers/shift-list-level";
+import { listLevelOf } from "./helpers/list-level-of";
+import { unlistBlock } from "./helpers/unlist-block";
+import { suggestionInputForBlock } from "./helpers/suggestion-input-for-block";
+import { replaceSuggestionInputForBlock } from "./helpers/replace-suggestion-input-for-block";
 
 export function handleSplitNode(editor: EditorState): Edit | null {
   const { config } = editor;

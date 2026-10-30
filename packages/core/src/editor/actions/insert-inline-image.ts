@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import { insertInlineImage, createPosition, createSpan, type BlockId } from "../../state";
-import { prepareEmbedInsertPoint } from "./selection-guards";
+import { prepareEmbedInsertPoint } from "./helpers/prepare-embed-insert-point";
 import type { ActionOf } from "../editor-action";
 
 /**

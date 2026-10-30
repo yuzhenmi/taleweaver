@@ -1,11 +1,9 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import { createPosition, createSpan, selectionContextOf } from "../../state";
-import {
-  firstBoundaryBlock,
-  lastBoundaryBlock,
-  endOffsetOf,
-} from "./expand-document-boundary";
+import { firstBoundaryBlock } from "./helpers/first-boundary-block";
+import { lastBoundaryBlock } from "./helpers/last-boundary-block";
+import { endOffsetOf } from "./helpers/end-offset-of";
 import type { ActionOf } from "../editor-action";
 
 /**

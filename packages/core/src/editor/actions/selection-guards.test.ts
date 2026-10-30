@@ -22,10 +22,8 @@ import {
   inlineContent,
   text,
 } from "../../test-utils/state-builders";
-import {
-  isCrossContextSelection,
-  expandedSpanCollapsePoint,
-} from "./selection-guards";
+import { isCrossContextSelection } from "./helpers/is-cross-context-selection";
+import { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
 
 const BODY_P1 = "p" as BlockId;
 const BODY_P2 = "p2" as BlockId;

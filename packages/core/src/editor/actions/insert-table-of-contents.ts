@@ -1,6 +1,6 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
-import { insertAtomicBlockAfterFocus } from "./atomic-edits";
+import { insertAtomicBlockAfterFocus } from "./helpers/insert-atomic-block-after-focus";
 import { DEFAULT_TOC_ATTRS } from "../../components/table-of-contents-attrs";
 
 /**

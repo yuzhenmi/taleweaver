@@ -2,7 +2,7 @@ import type { EditorState } from "../editor-state";
 import { createSpan } from "../../state";
 import { moveByWord } from "../../cursor/cursor-ops";
 import { isObjectSelection } from "../../cursor/object-selection";
-import { moveOffObject } from "./object-edits";
+import { moveOffObject } from "./helpers/move-off-object";
 import type { ActionOf } from "../editor-action";
 import type { Edit } from "../edit";
 

@@ -1,9 +1,8 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs } from "../../state";
-import type { ActionOf } from "../editor-action";
+import type { ActionOf, ImageWrap } from "../editor-action";
 
-export type ImageWrap = "left" | "right" | "break";
 const VALID_WRAP: ReadonlySet<string> = new Set<ImageWrap>([
   "left",
   "right",

@@ -25,7 +25,7 @@ import {
   createPosition,
   createSpan,
 } from "./test-helpers";
-import { INDENT_STEP, MIN_INDENT_CONTENT_WIDTH } from "./indent";
+import { INDENT_STEP, MIN_INDENT_CONTENT_WIDTH } from "./helpers/shift-indent";
 import { createEditorStateFromState, type EditorState } from "../editor-state";
 import { getBlock } from "../../state";
 import type { BlockId, State, Selection } from "../../state";

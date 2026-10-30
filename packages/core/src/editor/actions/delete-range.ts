@@ -2,8 +2,9 @@ import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import { createPosition, createSpan, spanStart, bookmarkDeletionSpan } from "../../state";
-import { deleteRangeOrSuggest, isSuggestingInBlock } from "./suggestion-mode";
-import { expandedSpanCollapsePoint } from "./selection-guards";
+import { deleteRangeOrSuggest } from "./helpers/delete-range-or-suggest";
+import { isSuggestingInBlock } from "./helpers/is-suggesting-in-block";
+import { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
 import type { ActionOf } from "../editor-action";
 
 /**

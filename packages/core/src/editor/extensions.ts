@@ -96,7 +96,8 @@ export interface EditorExtensions {
 
 // ─── Transactions ─────────────────────────────────────────────────────────
 
-type Reduce = (editor: EditorState, action: EditorAction) => EditorState;
+/** The editor reducer, handed to the actions that run other actions (transactions, input rules). */
+export type Reduce = (editor: EditorState, action: EditorAction) => EditorState;
 
 /**
  * Run a `TRANSACTION`: every step goes through `reduce` inside ONE history batch (one

@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
 import { isCollapsed } from "../../cursor/selection";
 import { INLINE_FORMAT_ATTR_KEYS } from "../inline-format-keys";
-import { applyAttrsOrSuggest } from "./suggestion-mode";
+import { applyAttrsOrSuggest } from "./helpers/apply-attrs-or-suggest";
 import { storeTypingAttrs } from "../typing-attrs";
 import type { Edit } from "../edit";
 

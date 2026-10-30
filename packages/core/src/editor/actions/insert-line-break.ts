@@ -4,9 +4,10 @@ import { insertLineBreak, mintLineBreak, markDeletion, deleteRange, createPositi
 import type { BlockId, OperationResult, Position, State, ReplaceSuggestionInput } from "../../state";
 import { blockAfter } from "../../cursor/paragraph-mark";
 import { isCollapsed } from "../../cursor/selection";
-import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
-import { replaceSuggestionInputForBlock } from "./suggestion-mode";
-import { caretEdit } from "./paragraph-mark-delete";
+import { isCrossContextSelection } from "./helpers/is-cross-context-selection";
+import { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
+import { replaceSuggestionInputForBlock } from "./helpers/replace-suggestion-input-for-block";
+import { caretEdit } from "./helpers/caret-edit";
 
 /**
  * `INSERT_LINE_BREAK` (Shift+Enter): insert a soft line break — an

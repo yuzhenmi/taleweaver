@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import { isObjectSelection } from "../../cursor/object-selection";
-import { moveOffObject } from "./object-edits";
+import { moveOffObject } from "./helpers/move-off-object";
 
 /**
  * ESCAPE on an object selection: collapse the caret to just AFTER the
