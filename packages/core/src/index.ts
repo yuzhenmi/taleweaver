@@ -124,7 +124,7 @@ export {
   firstLeafBlock,
   lastLeafBlock,
 } from "./state";
-export { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./state";
+export { normalizeSpan, iterateSpan, iterateBlocksInSpan, isObjectBlock, clipSpanToText } from "./state";
 
 // Layer 3 ops
 export { insertText } from "./state";

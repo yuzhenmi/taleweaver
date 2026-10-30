@@ -3,6 +3,11 @@ import {
   createPosition,
   createSpan,
   caretAfterMarkers,
+  comparePositions,
+  inlineContentLength,
+  isObjectBlock,
+  positionsEqual,
+  resolveBlock,
   type Position,
   type Span,
   type Selection,
@@ -13,7 +18,12 @@ import {
 
 export interface DigitalSelectionBridge {
   readonly root: HTMLElement;
-  domToPosition(node: Node, nodeOffset: number): Position | null;
+  /**
+   * The model position of a DOM point. `edge` says which end of a range the point is:
+   * a point between blocks (in a container) resolves to the first block at or after it
+   * as a `"start"` (the default), the last block before it as an `"end"`.
+   */
+  domToPosition(node: Node, nodeOffset: number, edge?: RangeEdge): Position | null;
   readDomSelection(): Span | null;
   positionToDom(selection: Selection): void;
   /** The DOM point a model position renders at (null while its block is not mounted). */
@@ -26,6 +36,9 @@ export interface DigitalSelectionBridge {
    */
   normalizeCaret(position: Position): void;
 }
+
+/** Which end of a range a DOM point is. */
+export type RangeEdge = "start" | "end";
 
 /** True iff `el` is a recognized inline-embed atom (1 unit, no descent). */
 function isInlineEmbed(node: Node): node is HTMLElement {
@@ -243,6 +256,60 @@ function locateOffset(block: HTMLElement, offset: number): DomPoint {
   return { node: block, offset: block.childNodes.length };
 }
 
+/**
+ * The range-endpoint position a block element's subtree offers at `edge`: a text
+ * block's start / end, an OBJECT block (`isObjectBlock`: image, rule, table of
+ * contents, table) whole as `(id, 0)`, or a container's first / last such stop.
+ * Generated nodes and non-block text are skipped. O(subtree) worst case.
+ */
+function stopIn(state: State, node: Node, edge: RangeEdge): Position | null {
+  if (!(node instanceof HTMLElement) || isGeneratedNode(node)) return null;
+  const raw = node.getAttribute("data-block-id");
+  const block = raw === null ? null : resolveBlock(state, asBlockId(raw))?.block ?? null;
+  if (block !== null && block.inlineContent !== null) {
+    return createPosition(block.id, edge === "start" ? 0 : inlineContentLength(block.inlineContent));
+  }
+  if (block !== null && isObjectBlock(block)) return createPosition(block.id, 0);
+  const kids = Array.from(node.childNodes);
+  if (edge === "end") kids.reverse();
+  for (const kid of kids) {
+    const p = stopIn(state, kid, edge);
+    if (p !== null) return p;
+  }
+  return null;
+}
+
+/**
+ * A DOM point between the children of a non-text block element `el` (a container, or
+ * an object's own element), as a range endpoint: an object covers itself whole
+ * (`(id, 0)`); in a container, the first stop at / after child `index` as a `"start"`,
+ * the last stop before it as an `"end"` — climbing out of `el` (below `root`) when
+ * that side of it has none. Null when the point has no block on that side.
+ */
+function boundaryStop(state: State, root: HTMLElement, el: HTMLElement, index: number, edge: RangeEdge): Position | null {
+  const raw = el.getAttribute("data-block-id");
+  const block = raw === null ? null : resolveBlock(state, asBlockId(raw))?.block ?? null;
+  if (block !== null && isObjectBlock(block)) return createPosition(block.id, 0);
+  const kids = el.childNodes;
+  if (edge === "start") {
+    for (let i = index; i < kids.length; i++) {
+      const kid = kids.item(i);
+      const p = kid === null ? null : stopIn(state, kid, edge);
+      if (p !== null) return p;
+    }
+  } else {
+    for (let i = Math.min(index, kids.length) - 1; i >= 0; i--) {
+      const kid = kids.item(i);
+      const p = kid === null ? null : stopIn(state, kid, edge);
+      if (p !== null) return p;
+    }
+  }
+  const parent = el.parentNode;
+  if (el === root || !(parent instanceof HTMLElement) || !root.contains(parent)) return null;
+  const at = Array.prototype.indexOf.call(parent.childNodes, el);
+  return boundaryStop(state, root, parent, edge === "start" ? at + 1 : at, edge);
+}
+
 /** Resolve the block element for a `BlockId`, or null. Injected by the reconciler (its `blockElMap`). */
 export type BlockElementLookup = (blockId: BlockId) => HTMLElement | null;
 
@@ -263,20 +330,30 @@ export function createDigitalSelectionBridge(
   /** The rendered document: DOM points normalize through its markers (absent → raw offsets). */
   stateOf?: () => State | null,
 ): DigitalSelectionBridge {
-  function domToPosition(node: Node, nodeOffset: number): Position | null {
-    const raw = rawDomToPosition(node, nodeOffset);
+  function domToPosition(node: Node, nodeOffset: number, edge: RangeEdge = "start"): Position | null {
     const state = stateOf?.() ?? null;
+    const raw = rawDomToPosition(node, nodeOffset, edge, state);
     // A structural marker (bookmark / comment) is never a caret stop: a point just
     // before markers stands after them, as in print's hit-test.
     return raw === null || state === null ? raw : caretAfterMarkers(state, raw);
   }
 
-  function rawDomToPosition(node: Node, nodeOffset: number): Position | null {
+  function rawDomToPosition(node: Node, nodeOffset: number, edge: RangeEdge, state: State | null): Position | null {
     const block = enclosingBlockElement(node);
     if (block === null) return null;
     const rawId = block.getAttribute("data-block-id");
     if (rawId === null) return null;
     const blockId: BlockId = asBlockId(rawId);
+    // A point in a block WITHOUT text (an object, a container): never an offset into it —
+    // an object endpoint covers the object whole, a point between blocks is the block
+    // at the range's `edge` (a container is never a range endpoint).
+    if (state !== null && resolveBlock(state, blockId)?.block.inlineContent === null) {
+      if (node === block) return boundaryStop(state, root, block, nodeOffset, edge);
+      let child: Node = node;
+      while (child.parentNode !== null && child.parentNode !== block) child = child.parentNode;
+      const index = Array.prototype.indexOf.call(block.childNodes, child);
+      return boundaryStop(state, root, block, edge === "start" ? index : index + 1, edge);
+    }
     // A click on the generated ¶ (change tracking): it is drawn at (block, len) and is
     // not a caret stop.
     const mark = breakMarkOf(node, block);
@@ -290,8 +367,11 @@ export function createDigitalSelectionBridge(
     const sel = win.getSelection();
     if (sel === null || sel.anchorNode === null || sel.focusNode === null) return null;
     if (!root.contains(sel.anchorNode) || !root.contains(sel.focusNode)) return null;
-    const anchor = domToPosition(sel.anchorNode, sel.anchorOffset);
-    const focus = domToPosition(sel.focusNode, sel.focusOffset);
+    // The anchor is the range's start unless the selection runs backward.
+    const range = sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+    const anchorIsStart = range === null || (range.startContainer === sel.anchorNode && range.startOffset === sel.anchorOffset);
+    const anchor = domToPosition(sel.anchorNode, sel.anchorOffset, anchorIsStart ? "start" : "end");
+    const focus = domToPosition(sel.focusNode, sel.focusOffset, anchorIsStart ? "end" : "start");
     if (anchor === null || focus === null) return null;
     return createSpan(anchor, focus);
   }
@@ -315,8 +395,20 @@ export function createDigitalSelectionBridge(
     const anchorBlock = blockElementFor(selection.anchor.blockId);
     const focusBlock = blockElementFor(selection.focus.blockId);
     if (anchorBlock === null || focusBlock === null) return; // transient during full rebuild
-    const a = locateOffset(anchorBlock, selection.anchor.offset);
-    const f = locateOffset(focusBlock, selection.focus.offset);
+    // A RANGE endpoint on an object block covers it whole: the DOM range runs from before
+    // the object's element (as the start) / to after it (as the end).
+    const state = stateOf?.() ?? null;
+    const anchorIsStart = state === null || positionsEqual(selection.anchor, selection.focus) ||
+      comparePositions(state, selection.anchor, selection.focus) <= 0;
+    const pointFor = (el: HTMLElement, pos: Position, isStart: boolean): DomPoint => {
+      const block = state === null || positionsEqual(selection.anchor, selection.focus) ? null : resolveBlock(state, pos.blockId)?.block ?? null;
+      const parent = el.parentNode;
+      if (block === null || !isObjectBlock(block) || parent === null) return locateOffset(el, pos.offset);
+      const index = Array.prototype.indexOf.call(parent.childNodes, el);
+      return { node: parent, offset: isStart ? index : index + 1 };
+    };
+    const a = pointFor(anchorBlock, selection.anchor, anchorIsStart);
+    const f = pointFor(focusBlock, selection.focus, !anchorIsStart);
     const sel = win.getSelection();
     if (sel === null) return;
     sel.setBaseAndExtent(a.node, a.offset, f.node, f.offset);

@@ -87,13 +87,63 @@ export function locateOffsetInMirror(
   return best;
 }
 
+/** A DOM boundary point (a text node + offset, or an element + child index). */
+interface MirrorPoint {
+  readonly node: Node;
+  readonly nodeOffset: number;
+}
+
+/** The mirror element of block `blockId` (it carries `data-block-id`), or null. */
+function blockElement(mirror: HTMLElement, blockId: BlockId): HTMLElement | null {
+  for (const el of Array.from(mirror.querySelectorAll<HTMLElement>("[data-block-id]"))) {
+    if (el.getAttribute("data-block-id") === blockId) return el;
+  }
+  return null;
+}
+
+/**
+ * Does `el` mirror an OBJECT block (an image, rule, table of contents or table —
+ * covered whole by a range; core `isObjectBlock`)? Reads the role vocabulary
+ * `buildElement` (dom-mirror.ts) gives those blocks.
+ */
+function isObjectElement(el: HTMLElement): boolean {
+  return el.tagName === "HR" || el.tagName === "TABLE" || el.tagName === "NAV" || el.getAttribute("role") === "img";
+}
+
+/**
+ * The DOM point for an endpoint whose block has no text run. On an object block
+ * (`(objectId, 0)`, covered whole) it is the boundary before the object's element
+ * when the range runs on past it (`other` follows it), else the boundary after it —
+ * so the DOM range covers the whole element. On an empty text block it is the
+ * block's own start.
+ */
+function runlessPoint(el: HTMLElement, other: Node): MirrorPoint | null {
+  if (!isObjectElement(el)) return { node: el, nodeOffset: 0 };
+  const parent = el.parentNode;
+  if (parent === null) return null;
+  const index = Array.prototype.indexOf.call(parent.childNodes, el);
+  const otherFollows = (el.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  return { node: parent, nodeOffset: otherFollows ? index : index + 1 };
+}
+
 export function placeMirrorSelection(
   mirror: HTMLElement,
   selection: EngineSelection,
   win: Window,
 ): void {
-  const anchor = locateOffsetInMirror(mirror, selection.anchor);
-  const focus = locateOffsetInMirror(mirror, selection.focus);
+  let anchor: MirrorPoint | null = locateOffsetInMirror(mirror, selection.anchor);
+  let focus: MirrorPoint | null = locateOffsetInMirror(mirror, selection.focus);
+  // An endpoint without a text run (an object block, an empty paragraph): place
+  // it by its block element. A collapsed selection there stays unmapped (an
+  // object selection paints on the canvas only).
+  if (selection.anchor.blockId !== selection.focus.blockId) {
+    const anchorEl = anchor === null ? blockElement(mirror, selection.anchor.blockId) : null;
+    const focusEl = focus === null ? blockElement(mirror, selection.focus.blockId) : null;
+    const anchorOther = focus?.node ?? focusEl;
+    const focusOther = anchorEl ?? anchor?.node ?? null;
+    if (anchorEl !== null && anchorOther !== null) anchor = runlessPoint(anchorEl, anchorOther);
+    if (focusEl !== null && focusOther !== null) focus = runlessPoint(focusEl, focusOther);
+  }
   if (anchor === null || focus === null) return;
   const browser = win.getSelection();
   if (browser === null) return;

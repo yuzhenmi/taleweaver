@@ -115,4 +115,34 @@ describe("dom-mirror-selection place/read (browser Selection)", () => {
     expect(readMirrorSelection(root, window)).toEqual(sel);
     root.remove();
   });
+
+  it("covers a range's object endpoint (rule / image / table) whole, either direction", () => {
+    const root = mirror(
+      '<p data-block-id="p1"><span data-offset-start="0" data-offset-end="4">abcd</span></p>' +
+        '<hr data-block-id="hr">' +
+        '<span role="img" data-block-id="img"></span>' +
+        '<table data-block-id="t"><tbody><tr data-block-id="r"><td data-block-id="c">' +
+        '<p data-block-id="cp"><span data-offset-start="0" data-offset-end="1">x</span></p>' +
+        "</td></tr></tbody></table>" +
+        '<p data-block-id="p2"></p>',
+    );
+    document.body.appendChild(root);
+    const text = root.querySelector("span")?.firstChild ?? null;
+    const p2 = root.lastElementChild;
+    const at = (blockId: string, offset: number): Position => ({ blockId: bid(blockId), offset });
+    const placed = (anchor: Position, focus: Position) => {
+      placeMirrorSelection(root, { anchor, focus }, window);
+      const b = window.getSelection();
+      return b === null ? null : [b.anchorNode, b.anchorOffset, b.focusNode, b.focusOffset];
+    };
+    // Ending on an object: the boundary AFTER its element (children: p1, hr, img, table, p2).
+    expect(placed(at("p1", 1), at("hr", 0))).toEqual([text, 1, root, 2]);
+    expect(placed(at("p1", 1), at("img", 0))).toEqual([text, 1, root, 3]);
+    expect(placed(at("p1", 1), at("t", 0))).toEqual([text, 1, root, 4]);
+    // Starting on one (backward too): the boundary BEFORE it; an empty paragraph at its start.
+    expect(placed(at("t", 0), at("p2", 0))).toEqual([root, 3, p2, 0]);
+    expect(placed(at("p2", 0), at("hr", 0))).toEqual([p2, 0, root, 1]);
+    expect(placed(at("hr", 0), at("t", 0))).toEqual([root, 1, root, 4]);
+    root.remove();
+  });
 });

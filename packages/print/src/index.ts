@@ -120,6 +120,7 @@ export type { SelectionRect } from "./cursor/selection-geometry";
 export {
   computeSelectionRects,
   computeSelectionRectsForPage,
+  computeSelectionRectsAcrossPages,
   computeObjectSelectionRect,
 } from "./cursor/selection-geometry";
 export { getCommentRangeRects } from "./cursor/comment-rects";

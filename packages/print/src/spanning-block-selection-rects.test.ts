@@ -4,11 +4,11 @@
 // selection fallback used to route through a whole-tree-positioning bridge
 // (`computeSelectionRects` over the fully-positioned tree). It now unions
 // `computeSelectionRectsForPage` over the pages a spanning block covers
-// (`selectionRectsAcrossPages` in the controller). (Find / comment / suggestion
+// (`computeSelectionRectsAcrossPages`, which the controller calls). (Find / comment / suggestion
 // highlights are decorations now: they resolve per painted page through
 // `computeSelectionRectsForPageRange`, using the same per-page geometry.)
 //
-// These tests prove that per-page union (the exact logic the helper runs) on a
+// These tests prove that per-page union on a
 // REAL paragraph taller than a page:
 //   1. equals `computeSelectionRects` over the materialized tree (no behavior
 //      change) — order-insensitive equivalence;
@@ -24,8 +24,8 @@
 // Spec: docs/superpowers/specs/2026-06-09-vl-bridge-removal-design.md §Bucket A.
 
 import { describe, it, expect } from "vitest";
-import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockMeasurer, createSpan, createPosition, spanStart, spanEnd, INITIAL_COMPUTED_STYLE, getBlock, inlineContentLength, render, cascadePass, type EditorState, type EditorConfig, type State, type Span, type TextShaper, type TextMeasurer, type BlockId, type PageConfig } from "@taleweaver/core";
-import { resolvePixelPosition, computeSelectionRects, computeSelectionRectsForPage, createBlockBox, computeUsedStyle, layoutTree, type LayoutBox, type VirtualLayoutTree, type SelectionRect } from "./index";
+import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockMeasurer, createSpan, createPosition, INITIAL_COMPUTED_STYLE, getBlock, inlineContentLength, render, cascadePass, type EditorState, type EditorConfig, type State, type TextShaper, type TextMeasurer, type BlockId, type PageConfig } from "@taleweaver/core";
+import { computeSelectionRects, computeSelectionRectsAcrossPages, createBlockBox, computeUsedStyle, layoutTree, type LayoutBox, type VirtualLayoutTree, type SelectionRect } from "./index";
 import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
 
 /**
@@ -129,30 +129,6 @@ function asVirtual(tree: LayoutBox | VirtualLayoutTree): VirtualLayoutTree {
   return tree;
 }
 
-/**
- * The exact per-page union the controller's `selectionRectsAcrossPages` runs:
- * resolve the span's start/end once against the virtual tree, then concat
- * `computeSelectionRectsForPage` over the covered page range. Mirrors the
- * controller helper so this test exercises the migrated path's geometry.
- */
-function selectionRectsAcrossPages(
-  state: State,
-  span: Span,
-  tree: VirtualLayoutTree,
-  measurer: TextShaper | TextMeasurer,
-): SelectionRect[] {
-  const startPos = resolvePixelPosition(state, spanStart(state, span), tree, measurer);
-  const endPos = resolvePixelPosition(state, spanEnd(state, span), tree, measurer);
-  if (startPos === null || endPos === null) return [];
-  const rects: SelectionRect[] = [];
-  for (let p = startPos.pageIndex; p <= endPos.pageIndex; p++) {
-    rects.push(
-      ...computeSelectionRectsForPage(state, span, tree.getPage(p), p, startPos, endPos, measurer),
-    );
-  }
-  return rects;
-}
-
 // Order-insensitive rect key (pages may emit in a different order than a single
 // materialized walk).
 function rectKey(r: SelectionRect): string {
@@ -190,7 +166,7 @@ describe("spanning-block selection rects: per-page union (VL Slice 3)", () => {
       createPosition(blockId, total),
     );
 
-    const perPage = selectionRectsAcrossPages(editor.state, span, virtual, measurer);
+    const perPage = computeSelectionRectsAcrossPages(editor.state, span, virtual, measurer);
     const oracle = computeSelectionRects(editor.state, span, positioned, measurer);
 
     expect(perPage.length).toBe(oracle.length);
@@ -208,7 +184,7 @@ describe("spanning-block selection rects: per-page union (VL Slice 3)", () => {
       createPosition(blockId, total),
     );
 
-    const rects = selectionRectsAcrossPages(editor.state, span, virtual, measurer);
+    const rects = computeSelectionRectsAcrossPages(editor.state, span, virtual, measurer);
     expect(rects.length).toBeGreaterThan(0);
 
     const pages = new Set(rects.map((r) => r.pageIndex));
@@ -248,7 +224,7 @@ describe("spanning-block selection rects: per-page union (VL Slice 3)", () => {
       createPosition(blockId, Math.min(total, 320)),
     );
 
-    const perPage = selectionRectsAcrossPages(editor.state, span, virtual, measurer);
+    const perPage = computeSelectionRectsAcrossPages(editor.state, span, virtual, measurer);
     const oracle = computeSelectionRects(editor.state, span, positioned, measurer);
 
     expect(sortedKeys(perPage)).toEqual(sortedKeys(oracle));
