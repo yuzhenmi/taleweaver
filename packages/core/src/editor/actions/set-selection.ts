@@ -1,4 +1,4 @@
-import { selectionContextOf } from "../../state";
+import { selectionContextOf, type Selection } from "../../state";
 import { isDevMode } from "../../state/dev-mode";
 import type { EditorState } from "../editor-state";
 import type { ActionOf } from "../editor-action";
@@ -35,10 +35,8 @@ import type { ActionOf } from "../editor-action";
  * clears it, matching every non-line nav). A plain click / programmatic select
  * passes no `targetX`, so the field is untouched here and cleared centrally.
  */
-export function handleSetSelection(
-  editor: EditorState,
-  { selection, caretPageHint, caretAffinity, anchorAffinity, targetX }: ActionOf<"SET_SELECTION">,
-): EditorState {
+export function handleSetSelection(editor: EditorState, action: ActionOf<"SET_SELECTION">): EditorState {
+  const { selection } = action;
   // Engine backstop: a Span must keep BOTH endpoints in the SAME
   // selection context (the main document tree, OR one footnote/embed body,
   // OR one header/footer/template body). Cross-context spans are unsupported
@@ -65,6 +63,22 @@ export function handleSetSelection(
     }
     return editor; // production backstop: no-op, keep the prior in-context selection
   }
+  return setSelection(editor, selection, action);
+}
+
+/** The view hints a selection change carries (see `handleSetSelection`). */
+type SelectionView = Omit<ActionOf<"SET_SELECTION">, "type" | "selection">;
+
+/**
+ * `editor` with `selection` and its view hints: an absent `caretPageHint` /
+ * `caretAffinity` / `anchorAffinity` clears it, an absent `targetX` leaves it. An edit
+ * placing its caret calls this directly (its span is in-context by construction).
+ */
+export function setSelection(
+  editor: EditorState,
+  selection: Selection,
+  { caretPageHint, caretAffinity, anchorAffinity, targetX }: SelectionView = {},
+): EditorState {
   const next: EditorState = { ...editor, selection, caretPageHint, caretAffinity, anchorAffinity };
   return targetX === undefined ? next : { ...next, targetX };
 }

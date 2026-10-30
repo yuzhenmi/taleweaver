@@ -11,7 +11,7 @@ import { deleteAdjacentAtomicLeaf } from "./atomic-edits";
 import { deleteObjectSelection } from "./object-edits";
 import { isObjectSelection } from "../../cursor/object-selection";
 import { deleteRangeOrSuggest, suggestionInputForBlock, isSuggestingInBlock } from "./suggestion-mode";
-import { handleSetSelection } from "./set-selection";
+import { setSelection } from "./set-selection";
 
 export function handleDeleteForward(editor: EditorState): EditorState {
   const { config } = editor;
@@ -36,7 +36,7 @@ export function handleDeleteForward(editor: EditorState): EditorState {
     // Suggesting mode over an already-struck selection: a caret-only outcome (span end).
     if (result.state === editor.state) {
       const end = spanEnd(editor.state, selection);
-      return handleSetSelection(editor, { type: "SET_SELECTION", selection: createSpan(end, end) });
+      return setSelection(editor, createSpan(end, end));
     }
     // Forward soft-delete leaves the struck text in place, so the caret must
     // land PAST it (span END); a direct delete removes the text, so the caret
@@ -83,7 +83,7 @@ export function handleDeleteForward(editor: EditorState): EditorState {
     const result = deleteRangeOrSuggest(editor.state, span, config);
     // Suggesting mode over an already-struck character (any author): nothing is
     // written; the caret moves past it (no history entry).
-    if (result.state === editor.state) return handleSetSelection(editor, { type: "SET_SELECTION", selection: createSpan(span.focus, span.focus) });
+    if (result.state === editor.state) return setSelection(editor, createSpan(span.focus, span.focus));
     // Forward soft-delete strikes the char in place, so the caret must ADVANCE
     // past it (to `next`, the span end) — else the next Delete would re-target
     // the already-struck char (markDeletion coalesces → no-op). A direct delete

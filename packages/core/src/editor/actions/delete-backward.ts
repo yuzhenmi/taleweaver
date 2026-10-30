@@ -8,13 +8,13 @@ import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
-import { handleListIndent } from "./list-indent";
+import { shiftListLevel } from "./list-indent";
 import { listLevelOf, unlistBlock } from "./list-edits";
 import { deleteAdjacentAtomicLeaf } from "./atomic-edits";
 import { deleteObjectSelection } from "./object-edits";
 import { isObjectSelection } from "../../cursor/object-selection";
 import { deleteRangeOrSuggest, suggestionInputForBlock, isSuggestingInBlock } from "./suggestion-mode";
-import { handleSetSelection } from "./set-selection";
+import { setSelection } from "./set-selection";
 
 export function handleDeleteBackward(editor: EditorState): EditorState {
   const { config } = editor;
@@ -43,7 +43,7 @@ export function handleDeleteBackward(editor: EditorState): EditorState {
     const newCursor = createPosition(at.blockId, at.offset);
     const newSelection = createSpan(newCursor, newCursor);
     // Suggesting mode over an already-struck selection: a caret-only outcome.
-    if (result.state === editor.state) return handleSetSelection(editor, { type: "SET_SELECTION", selection: newSelection });
+    if (result.state === editor.state) return setSelection(editor, newSelection);
     editor.history.commit(result, {
       before: selection,
       after: newSelection,
@@ -70,7 +70,7 @@ export function handleDeleteBackward(editor: EditorState): EditorState {
     const newSelection = createSpan(newCursor, newCursor);
     // Suggesting mode over an already-struck character (any author): nothing is
     // written; the caret moves across it (no history entry).
-    if (result.state === editor.state) return handleSetSelection(editor, { type: "SET_SELECTION", selection: newSelection });
+    if (result.state === editor.state) return setSelection(editor, newSelection);
     editor.history.commit(result, {
       before: selection,
       after: newSelection,
@@ -92,7 +92,7 @@ export function handleDeleteBackward(editor: EditorState): EditorState {
   // becomes a plain paragraph — rather than merging into the previous block.
   if (currentBlock.type === "list-item") {
     return listLevelOf(currentBlock) > 0
-      ? handleListIndent(editor, { type: "LIST_OUTDENT" })
+      ? shiftListLevel(editor, -1)
       : unlistBlock(editor, currentBlock, config);
   }
 

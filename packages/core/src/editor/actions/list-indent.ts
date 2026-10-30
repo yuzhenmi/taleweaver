@@ -27,10 +27,14 @@ export const MAX_LIST_LEVEL = 8;
  */
 export function handleListIndent(
   editor: EditorState,
-  action: ActionOf<"LIST_INDENT" | "LIST_OUTDENT">,
+  { type }: ActionOf<"LIST_INDENT" | "LIST_OUTDENT">,
 ): EditorState {
+  return shiftListLevel(editor, type === "LIST_INDENT" ? 1 : -1);
+}
+
+/** Step the target list-items' `listLevel` by `delta` (see `handleListIndent`). */
+export function shiftListLevel(editor: EditorState, delta: 1 | -1): EditorState {
   const { config } = editor;
-  const delta = action.type === "LIST_INDENT" ? 1 : -1;
   const targetIds = targetListItemIds(editor);
 
   let state: State = editor.state;

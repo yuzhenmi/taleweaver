@@ -5,7 +5,7 @@ import { isCollapsed } from "../../cursor/selection";
 import { isObjectSelection } from "../../cursor/object-selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
-import { handleListIndent } from "./list-indent";
+import { shiftListLevel } from "./list-indent";
 import { listLevelOf, unlistBlock } from "./list-edits";
 import { suggestionInputForBlock, replaceSuggestionInputForBlock } from "./suggestion-mode";
 
@@ -153,7 +153,7 @@ export function handleSplitNode(editor: EditorState): EditorState {
     inlineContentLength(block.inlineContent) === 0
   ) {
     return listLevelOf(block) > 0
-      ? handleListIndent(editor, { type: "LIST_OUTDENT" })
+      ? shiftListLevel(editor, -1)
       : unlistBlock(editor, block, config);
   }
 
