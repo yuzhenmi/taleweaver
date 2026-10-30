@@ -1,6 +1,7 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import { rebuildTrees } from "./helpers";
-import { recordChange } from "../editor-state";
+import { recordChange } from "../document-change";
 import { rebaseSelection } from "../foreign-change";
 
 export function handleUndo(

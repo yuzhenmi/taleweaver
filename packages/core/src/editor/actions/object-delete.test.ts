@@ -29,7 +29,8 @@ import {
   text,
 } from "../../test-utils/state-builders";
 import { createEditorStateFromState } from "../editor-state";
-import type { EditorConfig, EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
+import type { EditorState } from "../editor-state";
 import { config, componentRegistry, reduceEditor } from "./test-helpers";
 
 const IMAGE_ID = asBlockId("image");

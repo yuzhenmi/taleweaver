@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";

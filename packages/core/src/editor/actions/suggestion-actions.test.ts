@@ -24,11 +24,8 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
   return v;
 }
-import {
-  createEditorStateFromState,
-  type EditorConfig,
-  type EditorState,
-} from "../editor-state";
+import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { type EditorConfig } from "../editor-config";
 import {
   getBlock,
   getSuggestions,

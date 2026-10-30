@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import { getBlock, productionAllocator, createPosition, createSpan, applySectionBreak, applySectionBreakAsSuggestion } from "../../state";
 import { rebuildTrees } from "./helpers";
 import { suggestionInputForBlock } from "./suggestion-mode";

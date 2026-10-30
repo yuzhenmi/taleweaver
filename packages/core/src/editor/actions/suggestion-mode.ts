@@ -1,4 +1,4 @@
-import type { EditorConfig } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import {
   newSuggestionId,
   nextSuggestionOrder,

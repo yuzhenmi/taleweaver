@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition, splitWithSuggestion, splitWithSuggestionOverSelection, markDeletion, spanStart, spanEnd, inlineContentLength } from "../../state";
 import type { BlockId } from "../../state";
 import { isCollapsed } from "../../cursor/selection";

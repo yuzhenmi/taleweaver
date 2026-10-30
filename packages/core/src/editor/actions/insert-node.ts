@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import { productionAllocator, insertBlock, getBlock } from "../../state";
 import type { BlockInit, Position, State, BlockId, IdAllocator, InlineContent, BlockKindResolver } from "../../state";
 import { rebuildTrees } from "./helpers";

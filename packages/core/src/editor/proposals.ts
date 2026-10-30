@@ -32,7 +32,9 @@ import { suggestionIdsOnItem } from "../state/ops/suggestion-ops";
 import { nextSuggestionOrder } from "../state/suggestions";
 import { mappingAcross, type ChangeLink, type PositionMapping } from "../state/position-mapping";
 import { recordSample } from "../perf/perf-trace";
-import { recordChange, type EditorConfig, type EditorState } from "./editor-state";
+import { recordChange } from "./document-change";
+import { type EditorConfig } from "./editor-config";
+import { type EditorState } from "./editor-state";
 import { replacementAttrs } from "./typing-attrs";
 import { rebaseSelection } from "./foreign-change";
 

@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import { mergeBlockAttrs } from "../../state";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../../footnotes";
 import { isValidFootnoteReset, isValidFootnoteFormat } from "../../footnotes";

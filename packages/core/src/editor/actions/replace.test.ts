@@ -1,12 +1,8 @@
 import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import { config } from "./test-helpers";
-import {
-  createEditorStateFromState,
-  createInitialEditorState,
-  reduceEditor,
-  type EditorState,
-} from "../editor-state";
+import { createEditorStateFromState, createInitialEditorState, type EditorState } from "../editor-state";
+import { reduceEditor } from "../reduce-editor";
 import { getBlock, findMatches, createPosition, createSpan, type BlockId } from "../../state";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
 import { buildBlock, buildState, inlineContent, text } from "../../test-utils/state-builders";

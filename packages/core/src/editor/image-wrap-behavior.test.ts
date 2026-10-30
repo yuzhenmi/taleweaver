@@ -39,12 +39,9 @@
  * untested.
  */
 import { describe, it, expect } from "vitest";
-import {
-  createEditorStateFromState,
-  reduceEditor,
-  type EditorConfig,
-  type EditorState,
-} from "./editor-state";
+import { createEditorStateFromState, type EditorState } from "./editor-state";
+import { reduceEditor } from "./reduce-editor";
+import { type EditorConfig } from "./editor-config";
 import { createMockShaper } from "../layout/mock-shaper";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";

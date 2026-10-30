@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import { isObjectSelection } from "../../cursor/object-selection";
 import { moveOffObject } from "./object-edits";
 

@@ -10,12 +10,9 @@ import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
 import { getBlock, createPosition, createSpan, inlineContentLength } from "../../state";
 import { topLevelBlockIds } from "../../state/block-traversal";
 import type { State, BlockId, Selection } from "../../state";
-import {
-  createInitialEditorState,
-  reduceEditor,
-  type EditorConfig,
-  type EditorState,
-} from "../editor-state";
+import { createInitialEditorState, type EditorState } from "../editor-state";
+import { reduceEditor } from "../reduce-editor";
+import { type EditorConfig } from "../editor-config";
 
 export const measurer = createMockShaper(8, 16);
 export const componentRegistry = createDefaultComponentRegistry();
@@ -90,11 +87,8 @@ export function blockEnd(state: State, blockId: BlockId): number {
 }
 
 // Re-exports tests commonly need.
-export {
-  createInitialEditorState,
-  reduceEditor,
-  type EditorConfig,
-  type EditorState,
-} from "../editor-state";
+export { createInitialEditorState, type EditorState } from "../editor-state";
+export { reduceEditor } from "../reduce-editor";
+export { type EditorConfig } from "../editor-config";
 export { createPosition, createSpan };
 export type { Selection } from "../../state";

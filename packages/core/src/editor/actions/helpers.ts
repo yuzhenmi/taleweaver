@@ -1,7 +1,8 @@
 import { createPosition, createSpan, iterateLeafBlocksInDocumentOrder } from "../../state";
 import type { State, BlockId, Selection } from "../../state";
-import type { EditorState, EditorConfig } from "../editor-state";
-import { recordChange } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
+import { recordChange } from "../document-change";
 import { cascadePass, cascadePassIncremental } from "../../cascade";
 import type { ElementBox, RenderNode } from "../../render/render-node";
 import type { RenderOutput } from "../../render/render";

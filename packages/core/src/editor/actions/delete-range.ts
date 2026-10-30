@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import type { Span } from "../../state";
 import { createPosition, createSpan, spanStart, bookmarkDeletionSpan } from "../../state";

@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import { createSpan } from "../../state";
 import { moveByWord } from "../../cursor/cursor-ops";
 import { isObjectSelection } from "../../cursor/object-selection";
