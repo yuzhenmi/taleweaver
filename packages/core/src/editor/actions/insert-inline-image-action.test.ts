@@ -15,7 +15,9 @@
 // EditorState field they expect.
 
 import { describe, it, expect } from "vitest";
-import { reduceEditor, type EditorState, type EditorConfig } from "../editor-state";
+import { reduceEditor } from "../reduce-editor";
+import { type EditorState } from "../editor-state";
+import { type EditorConfig } from "../editor-config";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
 import {

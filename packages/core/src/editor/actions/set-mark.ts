@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import { iterateSpan, blockMarkRanges, markEqualityOf, deepValueEqual, createPosition, createSpan } from "../../state";
 import type { Span, BlockId, ReadonlyAttrs, State } from "../../state";
 import { markInstanceKey, type AttrRegistry } from "../../cascade/attr-registry";

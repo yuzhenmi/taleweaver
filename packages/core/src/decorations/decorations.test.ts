@@ -17,7 +17,7 @@ import { createDecorationLayers, transitionMapping } from "./decoration-layers";
 import { report, resetPerfTrace, setPerfTraceEnabled } from "../perf/perf-trace";
 import { insertText, splitBlockAtPosition, mergeAdjacentBlocks, createTestAllocator } from "../state";
 import { reconcileForeignChange } from "../editor/reconcile-foreign-change";
-import { MAX_CHANGE_CHAIN } from "../editor/editor-state";
+import { MAX_CHANGE_CHAIN } from "../editor/document-change";
 
 function step(editor: EditorState, action: EditorAction, set: DecorationSet) {
   for (const b of iterateLeafBlocksInDocumentOrder(editor.state)) void b; // a render warms the cache

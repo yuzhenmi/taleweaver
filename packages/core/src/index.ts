@@ -63,8 +63,8 @@ export { createPositionMapping, IDENTITY_MAPPING, UNKNOWN_MAPPING } from "./stat
 export * from "./decorations";
 export type { FindSession, FindStatus } from "./editor/find-session";
 export { createFindSession } from "./editor/find-session";
-export type { DocumentChange } from "./editor/editor-state";
-export { MAX_CHANGE_CHAIN } from "./editor/editor-state";
+export type { DocumentChange } from "./editor/document-change";
+export { MAX_CHANGE_CHAIN } from "./editor/document-change";
 export type { FindRefresh } from "./editor/find-session";
 export type { MappingLog } from "./editor/mapping-log";
 export { createMappingLog, composeMappings, DEFAULT_MAPPING_LOG_CAPACITY } from "./editor/mapping-log";
@@ -501,10 +501,8 @@ export type {
 } from "./editor/extensions";
 // LineBox-canonical line traversal (`AbsoluteLineBox` / `collectLineBoxes` etc.)
 // is geometric and RELOCATED to `@taleweaver/print`.
-export type {
-  EditorState,
-  EditorConfig,
-} from "./editor/editor-state";
+export type { EditorState } from "./editor/editor-state";
+export type { EditorConfig } from "./editor/editor-config";
 export {
   createInitialEditorState,
   // Build an `EditorState` from an arbitrary seed `State` + initial `Selection`
@@ -512,10 +510,9 @@ export {
   // that need a non-default seed document (e.g. a TOC + headings doc) without an
   // editor-from-state injection.
   createEditorStateFromState,
-  reduceEditor,
-  findFirstContentBlock,
-  findLastContentBlock,
 } from "./editor/editor-state";
+export { reduceEditor } from "./editor/reduce-editor";
+export { findFirstContentBlock, findLastContentBlock } from "./editor/actions";
 // Live collab: apply a peer's edit (foreign dirty block ids from
 // `subscribeForeignChanges`) to the local `EditorState` — `freshState` cache
 // invalidation + incremental `lastDirtyIds`, selection/history passthrough.

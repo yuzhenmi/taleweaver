@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import { insertInlineImage, createPosition, createSpan, type BlockId } from "../../state";
 import { rebuildTrees } from "./helpers";
 import { prepareEmbedInsertPoint } from "./selection-guards";

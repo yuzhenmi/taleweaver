@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import { createPosition, createSpan, spanStart, spanEnd } from "../../state";
 import { moveByWord } from "../../cursor/cursor-ops";

@@ -1,4 +1,5 @@
-import type { EditorState, DocumentChange } from "../editor/editor-state";
+import type { EditorState } from "../editor/editor-state";
+import type { DocumentChange } from "../editor/document-change";
 import type { Block, BlockId, Position, State, TextMatch, SuggestionGroup } from "../state";
 import { mappingAcross, IDENTITY_MAPPING, UNKNOWN_MAPPING, type PositionMapping } from "../state/position-mapping";
 import { peekBlock, resolveBlock } from "../state/state";

@@ -1,6 +1,7 @@
 import type { BlockId } from "../state";
 import { freshState } from "../state";
-import { clearTransientViewState, recordChange, type EditorState } from "./editor-state";
+import { clearTransientViewState, type EditorState } from "./editor-state";
+import { recordChange } from "./document-change";
 
 /**
  * Apply a PEER's edit to the local `EditorState` (live collab).

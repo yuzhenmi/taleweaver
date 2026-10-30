@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "./editor-state";
+import type { EditorState } from "./editor-state";
+import type { EditorConfig } from "./editor-config";
 import { createEditorStateFromState } from "./editor-state";
 import { initialSelectionForState } from "./actions";
 import {

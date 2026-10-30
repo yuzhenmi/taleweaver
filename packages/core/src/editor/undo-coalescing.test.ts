@@ -6,12 +6,9 @@
  * the spec's "Test plan" (docs/superpowers/specs/2026-06-01-undo-coalescing-design.md).
  */
 import { describe, it, expect } from "vitest";
-import {
-  createInitialEditorState,
-  reduceEditor,
-  type EditorConfig,
-  type EditorState,
-} from "./editor-state";
+import { createInitialEditorState, type EditorState } from "./editor-state";
+import { reduceEditor } from "./reduce-editor";
+import { type EditorConfig } from "./editor-config";
 import { config as baseConfig, getTextOf, firstChildId } from "./actions/test-helpers";
 import { UNDO_COALESCE_PAUSE_MS } from "../state";
 import { createPosition, createSpan } from "../state";

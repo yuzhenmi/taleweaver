@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import type { ReadonlyAttrs } from "../../state";
 import { insertAtomicBlockAfterFocus } from "./atomic-edits";
 

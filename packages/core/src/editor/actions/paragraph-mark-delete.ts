@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import { createPosition, createSpan, markParagraphMarkDeletion } from "../../state";
 import type { Block, OperationResult, Position, SuggestionMintInput } from "../../state";
 import { rebuildTrees } from "./helpers";

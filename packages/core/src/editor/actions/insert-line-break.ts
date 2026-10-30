@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import { insertLineBreak, mintLineBreak, markDeletion, deleteRange, createPosition, createSpan, spanStart, spanEnd, resolveBlock } from "../../state";
 import type { BlockId, OperationResult, Position, State, ReplaceSuggestionInput } from "../../state";
 import { blockAfter } from "../../cursor/paragraph-mark";

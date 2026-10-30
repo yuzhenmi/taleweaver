@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import { iterateSpan, findItemAtOffset } from "../../state";
 import type { State, Span } from "../../state";
 import { isCollapsed } from "../../cursor/selection";

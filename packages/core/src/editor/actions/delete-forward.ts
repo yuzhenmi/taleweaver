@@ -1,4 +1,5 @@
-import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorState } from "../editor-state";
+import type { EditorConfig } from "../editor-config";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import { resolveBlock, getBlock, removeBlock, firstLeafBlock, createPosition, createSpan, spanStart, spanEnd, mergeAdjacentBlocks, deleteSectionBreak, inlineContentLength } from "../../state";
 import { commitWithCaret, suggestMarkDeletion } from "./paragraph-mark-delete";
