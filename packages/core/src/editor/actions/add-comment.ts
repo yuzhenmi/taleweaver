@@ -10,7 +10,7 @@ import type { ActionOf } from "../editor-action";
  * splicing the paired zero-width `comment-start`/`comment-end` marker embeds
  * around the selected range AND writing the thread record, in ONE tracked
  * `applyOperation` transaction (the markers ARE content, so this rides the
- * normal content-op path — markers dirty their block(s) → `rebuildTrees` →
+ * normal content-op path — markers dirty their block(s) → `applyEdit` →
  * repaint; the `comments` map is in the UndoManager's scopes, so the record
  * reverts atomically with its markers).
  *

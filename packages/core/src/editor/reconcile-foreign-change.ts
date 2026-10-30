@@ -1,7 +1,7 @@
 import type { BlockId } from "../state";
 import { freshState } from "../state";
 import { clearTransientViewState, type EditorState } from "./editor-state";
-import { recordChange } from "./document-change";
+import { applyEdit } from "./edit";
 
 /**
  * Apply a PEER's edit to the local `EditorState` (live collab).
@@ -21,17 +21,16 @@ import { recordChange } from "./document-change";
  *   print backend relayouts only the foreign-dirtied blocks on the next
  *   `update()`, exactly like the post-local-dispatch path.
  *
- * **Selection and history pass through this function untouched.** A foreign
- * edit is not in the local undo history (the peer owns it). Selection rebasing
- * under the remote edit is done by the caller (`handleApplyForeignChange` →
- * `rebaseSelection`), not here.
+ * **The selection passes through untouched**, and the change is not a local undo step
+ * (the peer owns it): history only follows it, so a later local undo starts from the
+ * peer-changed document. Selection rebasing under the remote edit is what the
+ * `APPLY_FOREIGN_CHANGE` action adds (`handleApplyForeignChange`).
  *
  * This is an editor-level seam, NOT a controller change: a backend controller
- * that observes a peer's Y.Doc update dispatches `APPLY_FOREIGN_CHANGE`, whose
- * reducer arm (`handleApplyForeignChange`) calls this in whichever reducer owns
- * the state: the print host feeds the result back through its controller's
+ * that observes a peer's Y.Doc update dispatches `APPLY_FOREIGN_CHANGE` to
+ * whichever reducer owns the state: the print host feeds the result back through its controller's
  * `update(editorState)`; the digital controller reduces it in its own `dispatch`.
- * Core is geometry-free, so — like `rebuildTrees` — this carries no
+ * Core is geometry-free, so — like `applyEdit` — this carries no
  * `config`/geometry.
  */
 export function reconcileForeignChange(
@@ -44,10 +43,7 @@ export function reconcileForeignChange(
   // against the pre-edit structure). `caretPageHint` is deliberately NOT in that
   // set: its lifecycle preserves it through non-undo/redo handlers, and a foreign
   // edit is not undo/redo.
-  return clearTransientViewState({
-    ...editor,
-    state: freshState(editor.state, dirtyIds),
-    lastDirtyIds: dirtyIds,
-    lastChange: recordChange(editor.lastChange, editor.state, dirtyIds),
-  });
+  return clearTransientViewState(
+    applyEdit(editor, { change: { state: freshState(editor.state, dirtyIds), dirtyIds }, undoable: false }),
+  );
 }

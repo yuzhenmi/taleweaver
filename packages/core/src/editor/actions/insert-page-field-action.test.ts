@@ -8,7 +8,7 @@
 //
 // The fixture mirrors header-caret-edit.test.ts: a document with a main body paragraph
 // plus a header template body (a container root with two child paragraphs) living in
-// templateContents, built through the full pipeline so the handlers + rebuildTrees
+// templateContents, built through the full pipeline so the handlers + applyEdit
 // have every EditorState field they expect.
 
 import { describe, it, expect } from "vitest";

@@ -2,13 +2,12 @@ import { positionsEqual, resolveBlock, createSpan } from "../state";
 import { caretAfterMarkers } from "../cursor/cursor-ops";
 import { getTypingAttrs } from "./typing-attrs";
 import { normalizeSelectionForAtomicMarks } from "./atomic-marks";
-import { updateActiveTrigger, type Reduce } from "./extensions";
+import { runTransaction, applyInputRules, updateActiveTrigger } from "./extensions";
 import { clearTransientViewState, type EditorState } from "./editor-state";
 import type { EditorAction, ActionOf } from "./editor-action";
 import { applyEdit, type Edit } from "./edit";
 import {
   handleInsertText,
-  handleTransaction,
   handleApplyForeignChange,
   handleDeleteBackward,
   handleDeleteForward,
@@ -113,30 +112,36 @@ interface ActionTraits {
   readonly insertsAtCaret?: true;
   /** After it, an emptied caret block keeps the removed text's typing attrs. */
   readonly carriesTypingAttrs?: true;
+  /**
+   * It places the selection together with its view hints (`SET_SELECTION`): the central
+   * reset leaves those hints alone, and re-placing the same selection keeps the pending
+   * typing attrs.
+   */
+  readonly placesSelection?: true;
 }
 
+/** `TRANSACTION` composes other actions: the reducer runs it itself (`runTransaction`). */
+type HandledActionType = Exclude<ActionType, "TRANSACTION">;
+
 /**
- * Everything the reducer knows about one action type. A document-editing action is an
- * `edit`: it computes what it did (`Edit`, or `null` for nothing) and the reducer applies
- * it (`applyEdit`). The few actions that manage history, the view or other actions
- * instead of editing the document — undo / redo, a resize, a selection with its view
- * hints, a peer's change, a proposal, a transaction — `reduce` the editor directly.
+ * Everything the reducer knows about one action type: its handler, which computes what
+ * the action did (`Edit`, or `null` for nothing) for the reducer to apply (`applyEdit`),
+ * and its traits.
  */
-type ActionSpec<K extends ActionType> = ActionTraits &
-  (
-    | { readonly edit: (editor: EditorState, action: ActionOf<K>) => Edit | null }
-    | { readonly reduce: (editor: EditorState, action: ActionOf<K>, reduce: Reduce) => EditorState }
-  );
+interface ActionSpec<K extends HandledActionType> extends ActionTraits {
+  readonly edit: (editor: EditorState, action: ActionOf<K>) => Edit | null;
+}
+
+const TRANSACTION_TRAITS: ActionTraits = { coalesce: "command" };
 
 /**
  * Every action type's spec. The mapped type makes a newly added action a compile error
  * here until it has a handler and a coalescing class.
  */
-const ACTIONS: { readonly [K in ActionType]: ActionSpec<K> } = {
-  INSERT_TEXT: { reduce: handleInsertText, coalesce: "insert", insertsAtCaret: true },
-  TRANSACTION: { reduce: handleTransaction, coalesce: "command" },
+const ACTIONS: { readonly [K in HandledActionType]: ActionSpec<K> } = {
+  INSERT_TEXT: { edit: handleInsertText, coalesce: "insert", insertsAtCaret: true },
   // A peer's change: not ours to undo, and it must not split our typing group.
-  APPLY_FOREIGN_CHANGE: { reduce: handleApplyForeignChange, coalesce: "inert" },
+  APPLY_FOREIGN_CHANGE: { edit: handleApplyForeignChange, coalesce: "inert" },
   DELETE_BACKWARD: { edit: handleDeleteBackward, coalesce: "delete", carriesTypingAttrs: true },
   DELETE_FORWARD: { edit: handleDeleteForward, coalesce: "delete", carriesTypingAttrs: true },
   DELETE_WORD: { edit: handleDeleteWord, coalesce: "delete", carriesTypingAttrs: true },
@@ -147,16 +152,16 @@ const ACTIONS: { readonly [K in ActionType]: ActionSpec<K> } = {
   EXPAND_WORD: { edit: handleExpandWord, coalesce: "selection-break" },
   EXPAND_DOCUMENT_BOUNDARY: { edit: handleExpandDocumentBoundary, coalesce: "selection-break" },
   SELECT_ALL: { edit: handleSelectAll, coalesce: "selection-break" },
-  SET_SELECTION: { reduce: handleSetSelection, coalesce: "selection-break" },
+  SET_SELECTION: { edit: handleSetSelection, coalesce: "selection-break", placesSelection: true },
   // A pure selection move (deselect an object → caret beside it): breaks the open undo
   // group like any other caret move.
   ESCAPE: { edit: handleEscape, coalesce: "selection-break" },
-  UNDO: { reduce: handleUndo, coalesce: "selection-break" },
-  REDO: { reduce: handleRedo, coalesce: "selection-break" },
-  SET_CONTAINER_WIDTH: { reduce: handleSetContainerWidth, coalesce: "inert" },
+  UNDO: { edit: handleUndo, coalesce: "selection-break" },
+  REDO: { edit: handleRedo, coalesce: "selection-break" },
+  SET_CONTAINER_WIDTH: { edit: handleSetContainerWidth, coalesce: "inert" },
   // Another author's proposal: keeps the stored typing attrs; its handler opens its OWN
   // undo entry only when it applies something (1.5 "Host proposals").
-  PROPOSE: { reduce: handlePropose, coalesce: "inert" },
+  PROPOSE: { edit: handlePropose, coalesce: "inert" },
   PASTE: { edit: handlePaste, coalesce: "command", insertsAtCaret: true },
   INSERT_NODE: { edit: handleInsertNode, coalesce: "command" },
   SET_BLOCK_TYPE: { edit: handleSetBlockType, coalesce: "command" },
@@ -224,15 +229,19 @@ const ACTIONS: { readonly [K in ActionType]: ActionSpec<K> } = {
   REJECT_ALL_SUGGESTIONS: { edit: handleRejectAllSuggestions, coalesce: "command" },
 };
 
-/** Classify an `EditorAction` for undo-group coalescing. */
-export function coalesceKeyOf(action: EditorAction): ActionClass {
-  return ACTIONS[action.type].coalesce;
+function traitsOf(type: ActionType): ActionTraits {
+  return type === "TRANSACTION" ? TRANSACTION_TRAITS : ACTIONS[type];
 }
 
-/** Run `action`'s own transition (`type` correlates the table entry with the action). */
-function reduceAction<K extends ActionType>(editor: EditorState, type: K, action: ActionOf<K>): EditorState {
+/** Classify an `EditorAction` for undo-group coalescing. */
+export function coalesceKeyOf(action: EditorAction): ActionClass {
+  return traitsOf(action.type).coalesce;
+}
+
+/** What `action` did (`type` correlates the table entry with the action). */
+function editOf<K extends HandledActionType>(editor: EditorState, type: K, action: ActionOf<K>): Edit | null {
   const spec: ActionSpec<K> = ACTIONS[type];
-  return "edit" in spec ? applyEdit(editor, spec.edit(editor, action)) : spec.reduce(editor, action, reduceEditor);
+  return spec.edit(editor, action);
 }
 
 /** `editor` with a collapsed caret moved past the markers adjacent on its right. */
@@ -245,19 +254,19 @@ function withCaretAfterMarkers(editor: EditorState): EditorState {
 
 /** Pure reducer: applies an action to EditorState and returns new state. */
 export function reduceEditor(rawEditor: EditorState, action: EditorAction): EditorState {
-  const spec = ACTIONS[action.type];
+  const traits = traitsOf(action.type);
   // ENTRY-CLEAR: `lastDirtyIds` is the layout-driver's per-dispatch
-  // incremental hint, written ONLY by a mutating action's `rebuildTrees`. Clear
+  // incremental hint, written ONLY by `applyEdit` for a changing action. Clear
   // it at the entry of every dispatch so a prior mutating action's dirty ids
   // never leak forward onto a later selection-only / inert action (which would
-  // make the driver wrongly rebuild only those blocks). A mutating handler's
-  // `rebuildTrees` re-sets a fresh non-null set; everything else leaves it null.
+  // make the driver wrongly rebuild only those blocks). A changing action's
+  // `applyEdit` re-sets a fresh non-null set; everything else leaves it null.
   const cleared =
     rawEditor.lastDirtyIds === null ? rawEditor : { ...rawEditor, lastDirtyIds: null };
   // Markers are not caret stops: every insertion at a collapsed caret goes after the
   // markers adjacent on its right — inside a bookmark / comment at its start, outside
   // at its end. Normalized once here, so no insertion handler repeats it (block-local).
-  const editor = spec.insertsAtCaret === true ? withCaretAfterMarkers(cleared) : cleared;
+  const editor = traits.insertsAtCaret === true ? withCaretAfterMarkers(cleared) : cleared;
 
   // Undo-group coalescing. Decide the undo boundary BEFORE the operation
   // runs (with `captureTimeout: MAX`, a transaction merges into the open group
@@ -266,7 +275,7 @@ export function reduceEditor(rawEditor: EditorState, action: EditorAction): Edit
   // neither. This runs before the per-action handler's no-op short-circuit (the
   // "Accepted edge" in the design): a no-op committing action still advances the
   // boundary, which is intentional — keeping the policy in one place.
-  const coalesceClass = spec.coalesce;
+  const coalesceClass = traits.coalesce;
   switch (coalesceClass) {
     case "insert":
     case "delete":
@@ -284,7 +293,14 @@ export function reduceEditor(rawEditor: EditorState, action: EditorAction): Edit
     }
   }
 
-  let result = reduceAction(editor, action.type, action);
+  let result =
+    action.type === "TRANSACTION"
+      ? runTransaction(editor, action.run, reduceEditor)
+      : applyEdit(editor, editOf(editor, action.type, action));
+  // User-typed text may complete a host input rule (its own undo entry).
+  if (action.type === "INSERT_TEXT" && action.userInput === true && result.state !== editor.state) {
+    result = applyInputRules(result, editor.config, reduceEditor);
+  }
 
   // Central transient-view-state clear: `targetX` (line-nav sticky goal column)
   // and the bidi-boundary affinities are all resolved against a SPECIFIC
@@ -295,10 +311,10 @@ export function reduceEditor(rawEditor: EditorState, action: EditorAction): Edit
   // the `SET_SELECTION` it dispatches (a programmatic / body `SET_SELECTION`
   // passes `null`/`undefined`, deliberately clearing them). The six lifted
   // geometric-nav handlers that used to manage these no longer run in core. So
-  // every non-`SET_SELECTION` action routes through `clearTransientViewState`
+  // every other action (the `placesSelection` trait) routes through `clearTransientViewState`
   // (the single home for "what's stale-on-mutation", also used by
   // `reconcileForeignChange`); the helper is allocation-guarded.
-  if (action.type !== "SET_SELECTION") {
+  if (traits.placesSelection !== true) {
     result = clearTransientViewState(result);
   }
 
@@ -310,7 +326,7 @@ export function reduceEditor(rawEditor: EditorState, action: EditorAction): Edit
     if (selection !== result.selection) result = { ...result, selection };
   }
 
-  result = updateStoredAttrs(editor, result, action, spec);
+  result = updateStoredAttrs(editor, result, traits);
   result = updateActiveTrigger(editor, result, action, editor.config);
   // Keep the selection's blocks snapshotted in the current state: a later foreign
   // change maps the caret from that snapshot (the Y.Doc has changed by then). O(1).
@@ -331,14 +347,13 @@ export function reduceEditor(rawEditor: EditorState, action: EditorAction): Edit
 function updateStoredAttrs(
   before: EditorState,
   result: EditorState,
-  action: EditorAction,
   traits: ActionTraits,
 ): EditorState {
   let out = result;
   if (out.storedAttrs !== undefined && out.storedAttrs === before.storedAttrs) {
     const keep =
       traits.coalesce === "inert" ||
-      (action.type === "SET_SELECTION" &&
+      (traits.placesSelection === true &&
         positionsEqual(out.selection.anchor, before.selection.anchor) &&
         positionsEqual(out.selection.focus, before.selection.focus));
     if (!keep) out = { ...out, storedAttrs: undefined };

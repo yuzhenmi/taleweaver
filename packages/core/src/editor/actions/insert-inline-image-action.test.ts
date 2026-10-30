@@ -11,7 +11,7 @@
 // expanded selection first, one undo step) → splice the embed → caret after.
 //
 // The fixture mirrors insert-page-field-action.test.ts: a main body paragraph
-// built through the full pipeline so the handler + rebuildTrees have every
+// built through the full pipeline so the handler + applyEdit have every
 // EditorState field they expect.
 
 import { describe, it, expect } from "vitest";

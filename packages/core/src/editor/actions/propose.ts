@@ -1,3 +1,4 @@
+import type { Edit } from "../edit";
 import {
   runWithTransactionOrigin,
   currentTransactionOrigin,
@@ -34,10 +35,10 @@ import {
 export function handlePropose(
   editor: EditorState,
   { proposal: input, basedOn }: ActionOf<"PROPOSE">,
-): EditorState {
+): Edit | null {
   const { config } = editor;
   const outcomeOf = (verdict: Verdict): ProposalOutcome => chainOutcome(editor.lastProposal, { ...verdict, proposal: input });
-  const verdict = (v: Verdict): EditorState => ({ ...editor, lastProposal: outcomeOf(v) });
+  const verdict = (v: Verdict): Edit => ({ proposal: outcomeOf(v) });
   let proposal = input;
   if (basedOn !== undefined && basedOn !== editor.state) {
     const mapping = mappingSince(editor, basedOn);

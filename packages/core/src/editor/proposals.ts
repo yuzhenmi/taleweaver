@@ -29,11 +29,10 @@ import { suggestionIdsOnItem } from "../state/ops/suggestion-ops";
 import { nextSuggestionOrder } from "../state/suggestions";
 import { mappingAcross, type ChangeLink, type PositionMapping } from "../state/position-mapping";
 import { recordSample } from "../perf/perf-trace";
-import { recordChange } from "./document-change";
 import { type EditorConfig } from "./editor-config";
 import { type EditorState } from "./editor-state";
+import type { Edit } from "./edit";
 import { replacementAttrs } from "./typing-attrs";
-import { rebaseSelection } from "./foreign-change";
 
 /**
  * Host PROPOSALS: changes offered as ONE reviewable suggestion group, independent of
@@ -233,11 +232,11 @@ export function applyProposal(
   proposal: Proposal,
   config: EditorConfig,
   outcomeOf: (verdict: Verdict) => ProposalOutcome,
-): EditorState {
+): Edit {
   const createdAt = (config.now ?? Date.now)();
   let state = editor.state;
-  let change = editor.lastChange;
-  const dirty = new Set<BlockId>();
+  // Each step is its own change, keeping its exact position mapping.
+  const steps: OperationResult[] = [];
   const minted: SuggestionId[] = [];
   const perId = new Map<SuggestionId, Readonly<Record<string, unknown>>>();
   let pending = proposal.edits.map((e) => ({ ...e }));
@@ -245,8 +244,7 @@ export function applyProposal(
   const step = (result: OperationResult, ids: readonly SuggestionId[], meta: Readonly<Record<string, unknown>> | undefined): void => {
     if (result.state === state) return;
     const mapping = createPositionMapping(state, result.state, result.dirtyIds);
-    change = recordChange(change, state, result.dirtyIds);
-    for (const id of result.dirtyIds) dirty.add(id);
+    steps.push(result);
     state = result.state;
     for (const id of ids) {
       minted.push(id);
@@ -292,24 +290,12 @@ export function applyProposal(
     }
   }
   if (minted.length === 0) {
-    return { ...editor, lastProposal: outcomeOf({ groupId: proposal.groupId, outcome: "rejected", problem: { kind: "invalid", message: "nothing to propose" } }) };
+    return { proposal: outcomeOf({ groupId: proposal.groupId, outcome: "rejected", problem: { kind: "invalid", message: "nothing to propose" } }) };
   }
   const grouped = assignSuggestionGroup(state, minted, proposal.groupId, proposal.metadata, perId);
-  if (grouped.state !== state) {
-    change = recordChange(change, state, grouped.dirtyIds);
-    for (const id of grouped.dirtyIds) dirty.add(id);
-    state = grouped.state;
-  }
-  const after: EditorState = {
-    ...editor,
-    state,
-    lastDirtyIds: dirty,
-    lastChange: change,
-    lastProposal: outcomeOf({ groupId: proposal.groupId, outcome: "applied" }),
-  };
-  const selection = rebaseSelection(editor, after);
-  editor.history.advanceState(state);
-  return { ...after, selection };
+  steps.push(grouped);
+  // Another author's change: not an undo step of this editor; the selection is rebased.
+  return { change: steps, selection: "rebase", undoable: false, proposal: outcomeOf({ groupId: proposal.groupId, outcome: "applied" }) };
 }
 
 /** What `controller.propose()` reports (see `EditorState.lastProposal` for print). */

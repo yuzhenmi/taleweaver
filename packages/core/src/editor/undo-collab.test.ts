@@ -103,6 +103,23 @@ describe("undo survives a peer's formatting (T6)", () => {
   });
 });
 
+describe("undo after a peer's change elsewhere", () => {
+  it("B's UNDO keeps a peer's edit in another paragraph (history follows the peer's change)", () => {
+    const p = peers("one");
+    // A split keeps the caret's block as the TAIL: `p.id` becomes the second paragraph.
+    p.a(caret(p.id, 3), { type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "two" });
+    const first = getBlock(p.aEditor.state, p.id)?.prevSiblingId ?? null;
+    if (first === null) throw new Error("setup");
+    // B reads the second paragraph (its caret visits it), then edits the first.
+    p.b(caret(p.id, 1), caret(first, 3), { type: "INSERT_TEXT", text: "X" });
+    p.a(caret(p.id, 3), { type: "INSERT_TEXT", text: "Y" }); // the peer's edit in the second
+    expect(textOf(p.bEditor, p.id)).toBe("twoY");
+    p.b({ type: "UNDO" });
+    expect(textOf(p.bEditor, first)).toBe("one");
+    expect(textOf(p.bEditor, p.id)).toBe("twoY");
+  });
+});
+
 describe("undo selections are CRDT-anchored (T6)", () => {
   it("a peer's insert BEFORE the stored caret: undo restores the caret at its character, not a stale offset", () => {
     const p = peers("world");

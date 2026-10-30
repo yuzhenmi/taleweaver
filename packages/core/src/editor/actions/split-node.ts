@@ -166,7 +166,7 @@ export function handleSplitNode(editor: EditorState): Edit | null {
   // Suggesting mode: route the split through `splitWithSuggestion` (a tracked
   // INSERTION of a paragraph break — a REAL structural split PLUS the boundary tag
   // on the new block + an `insertion` record, ONE undoable op). Everything downstream (cursor → (B, 0),
-  // `history.commit`, `rebuildTrees`) is
+  // `applyEdit`) is
   // IDENTICAL to the direct path because the split is real; `newBlockInit` is
   // threaded through unchanged.
   // Gate on the split block's context: a split in ANY editing context (main body

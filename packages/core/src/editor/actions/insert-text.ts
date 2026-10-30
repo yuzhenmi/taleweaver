@@ -12,8 +12,7 @@ import {
 import type { OperationResult, Position } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { isObjectSelection } from "../../cursor/object-selection";
-import { applyEdit, type Edit } from "../edit";
-import { applyInputRules, type Reduce } from "../extensions";
+import type { Edit } from "../edit";
 import { isCrossContextSelection } from "./helpers/is-cross-context-selection";
 import { suggestionInputForBlock } from "./helpers/suggestion-input-for-block";
 import { replaceSuggestionInputForBlock } from "./helpers/replace-suggestion-input-for-block";
@@ -21,7 +20,7 @@ import { replaceObjectWithText } from "./helpers/replace-object-with-text";
 import { getTypingAttrs } from "../typing-attrs";
 import type { ActionOf } from "../editor-action";
 
-function insertTextEdit(editor: EditorState, { text }: ActionOf<"INSERT_TEXT">): Edit | null {
+export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT_TEXT">): Edit | null {
   const { config } = editor;
   // Object selection: typing over a selected atomic-leaf (image) replaces
   // the object with the typed text (Google Docs). Routes BEFORE the collapsed
@@ -99,12 +98,4 @@ function insertTextEdit(editor: EditorState, { text }: ActionOf<"INSERT_TEXT">):
   const newSelection = createSpan(newCursor, newCursor);
 
   return { change: result, selection: newSelection };
-}
-
-/** User-typed text may complete a host input rule (its own undo entry). */
-export function handleInsertText(editor: EditorState, action: ActionOf<"INSERT_TEXT">, reduce: Reduce): EditorState {
-  const result = applyEdit(editor, insertTextEdit(editor, action));
-  return action.userInput === true && result.state !== editor.state
-    ? applyInputRules(result, editor.config, reduce)
-    : result;
 }

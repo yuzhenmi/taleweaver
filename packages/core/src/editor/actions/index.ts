@@ -7,7 +7,6 @@ export { objectMoveSelection } from "./helpers/object-move-selection";
 export { isCrossContextSelection } from "./helpers/is-cross-context-selection";
 export { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
 export { handleInsertText } from "./insert-text";
-export { handleTransaction } from "./transaction";
 export { handleApplyForeignChange } from "./apply-foreign-change";
 export { handleDeleteBackward } from "./delete-backward";
 export { handleDeleteForward } from "./delete-forward";
