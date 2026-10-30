@@ -227,4 +227,18 @@ describe("range edits touching an object (horizontal line / table)", () => {
     expect(run(doc("table", "hr"), sel, "direct", "TYPE")).toBe('"abcd" | "Xefgh"  "Xefgh"@1');
     expect(run(doc("table", "hr"), sel, "suggest", "DEL")).toBe('"abcd" | [table "~xy~"] | "" | [hr] | "efgh"  ""@0');
   });
+
+  it("extending from a lifted anchor restarts from the user's own: back in the table selects from the original caret", () => {
+    const set = (e: EditorState, sel: Selection) => reduceEditor(e, { type: "SET_SELECTION", selection: sel });
+    let e = createEditorStateFromState(doc("table"), createSpan(at("cp", 1), at("cp", 1)), config);
+    e = set(e, createSpan(e.selection.anchor, at("p1", 2)));
+    expect(e.selection).toEqual(createSpan(at("obj", 0), at("p1", 2)));
+    e = set(e, createSpan(e.selection.anchor, at("cp", 2)));
+    expect(e.selection).toEqual(createSpan(at("cp", 1), at("cp", 2)));
+    // A document change forgets the user's anchor; a table endpoint holding the other collapses to it.
+    e = set(e, createSpan(e.selection.anchor, at("p1", 2)));
+    e = reduceEditor(e, { type: "TOGGLE_STYLE", style: "bold" });
+    e = set(e, createSpan(e.selection.anchor, at("cp", 2)));
+    expect(e.selection).toEqual(createSpan(at("cp", 2), at("cp", 2)));
+  });
 });

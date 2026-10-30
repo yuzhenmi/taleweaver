@@ -138,4 +138,37 @@ describe("print — range selections over object blocks through the controller",
     expect(m.selectionFills()).toEqual([BCD, { x: 0, y: 24, w: 600, h: 40 }]);
     m.controller.destroy();
   });
+
+  it("Shift+Arrow covers a table in one step and steps off it; a plain arrow collapses past it; back in, the original caret anchors", () => {
+    const m = mount({ type: "INSERT_TABLE", rows: 1, cols: 1 });
+    const cell = core.firstLeafBlock(m.get().state, m.obj);
+    if (cell === null) throw new Error("no cell paragraph");
+    const textarea = m.container.querySelector("textarea");
+    if (textarea === null) throw new Error("no textarea");
+    const key = (k: string, shiftKey = false) => textarea.dispatchEvent(new KeyboardEvent("keydown", { key: k, shiftKey, bubbles: true }));
+    const sel = (a: core.Position, f: core.Position) => core.createSpan(a, f);
+
+    m.dispatch({ type: "SET_SELECTION", selection: sel(at(m.text, 4), at(m.text, 4)) });
+    key("ArrowDown", true);
+    expect(m.get().selection).toEqual(sel(at(m.text, 4), at(m.obj, 0)));
+    key("ArrowDown", true);
+    expect(m.get().selection).toEqual(sel(at(m.text, 4), at(m.after, 0)));
+    key("ArrowUp", true);
+    expect(m.get().selection).toEqual(sel(at(m.text, 4), at(m.obj, 0)));
+    key("ArrowLeft", true);
+    expect(m.get().selection).toEqual(sel(at(m.text, 4), at(m.text, 4)));
+    key("ArrowRight", true);
+    expect(m.get().selection).toEqual(sel(at(m.text, 4), at(m.obj, 0)));
+    key("ArrowRight");
+    expect(m.get().selection).toEqual(sel(at(m.after, 0), at(m.after, 0)));
+
+    // From a caret in the cell: out of the table lifts the anchor; back in restores it.
+    m.dispatch({ type: "SET_SELECTION", selection: sel(at(cell, 0), at(cell, 0)) });
+    key("ArrowDown", true);
+    expect(m.get().selection).toEqual(sel(at(m.obj, 0), at(m.after, 0)));
+    key("ArrowLeft", true);
+    expect(m.get().selection.anchor).toEqual(at(cell, 0));
+    expect(m.get().selection.focus.blockId).toBe(cell);
+    m.controller.destroy();
+  });
 });

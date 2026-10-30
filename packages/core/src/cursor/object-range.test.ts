@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createPosition, createSpan, asBlockId } from "../state";
 import type { State } from "../state";
 import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
-import { normalizeSelectionForObjects } from "./object-range";
+import { normalizeSelectionForObjects, stepOffObject } from "./object-range";
 
 const at = (b: string, o: number) => createPosition(asBlockId(b), o);
 const para = (id: string, parentId: string, t: string, sib: { prevSiblingId?: string; nextSiblingId?: string } = {}) =>
@@ -67,5 +67,21 @@ describe("normalizeSelectionForObjects — a range covers a table whole or not a
     expect(normalizeSelectionForObjects(sections, acrossBreak)).toBe(acrossBreak);
     const toRule = createSpan(at("a", 0), at("hr", 0));
     expect(normalizeSelectionForObjects(sections, toRule)).toBe(toRule);
+  });
+
+  it("a table endpoint whose table holds the other endpoint collapses to that endpoint", () => {
+    const s = nested();
+    expect(normalizeSelectionForObjects(s, createSpan(at("T", 0), at("o", 1)))).toEqual(createSpan(at("o", 1), at("o", 1)));
+    expect(normalizeSelectionForObjects(s, createSpan(at("i", 1), at("U", 0)))).toEqual(createSpan(at("i", 1), at("i", 1)));
+  });
+});
+
+describe("stepOffObject — a focus extended off an object steps past it whole", () => {
+  it("forward to the text after the object's subtree, backward to the end of the text before; undefined off objects", () => {
+    const s = nested();
+    expect(stepOffObject(s, at("T", 0), "forward")).toEqual(at("p1", 0));
+    expect(stepOffObject(s, at("T", 0), "backward")).toEqual(at("p0", 4));
+    expect(stepOffObject(s, at("U", 0), "forward")).toEqual(at("o2", 0));
+    expect(stepOffObject(s, at("p0", 0), "forward")).toBeUndefined();
   });
 });
