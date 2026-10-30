@@ -26,7 +26,7 @@ const cfg: core.EditorConfig = {
 
 /** Peer A (reducer-driven, its own Y.Doc) and a digital controller B over a synced replica. */
 function setup(text: string, extra: Partial<DigitalControllerOptions> = {}) {
-  let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text }, cfg);
+  let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text });
   const docA = core.getYDoc(peerA.state);
   const docB = new Y.Doc();
   Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
@@ -39,7 +39,7 @@ function setup(text: string, extra: Partial<DigitalControllerOptions> = {}) {
   core.subscribeRemoteChanges(
     peerA.state,
     (dirtyIds) => {
-      peerA = core.reduceEditor(peerA, { type: "APPLY_FOREIGN_CHANGE", dirtyIds }, cfg);
+      peerA = core.reduceEditor(peerA, { type: "APPLY_FOREIGN_CHANGE", dirtyIds });
     },
     () => undefined, // peer A is the old-client side in the HALTED test
   );
@@ -70,7 +70,7 @@ function setup(text: string, extra: Partial<DigitalControllerOptions> = {}) {
     rootId: peerA.state.rootId,
     compatible: () => compatible,
     a: (...actions: core.EditorAction[]) => {
-      for (const action of actions) peerA = core.reduceEditor(peerA, action, cfg);
+      for (const action of actions) peerA = core.reduceEditor(peerA, action);
     },
   };
 }

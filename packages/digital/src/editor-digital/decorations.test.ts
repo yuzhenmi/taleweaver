@@ -417,11 +417,11 @@ describe("digital — stacked formatting suggestions", () => {
     const base = { componentRegistry, attrRegistry, containerWidth: 800 };
     const alice = { ...base, suggestingAuthor: "alice", now: () => 1 };
     const bob = { ...base, suggestingAuthor: "bob", now: () => 2 };
-    let editor = reduceEditor(createInitialEditorState(base), { type: "INSERT_TEXT", text: "abcdefgh" }, base);
+    let editor = reduceEditor(createInitialEditorState(base), { type: "INSERT_TEXT", text: "abcdefgh" });
     const p = editor.selection.focus.blockId;
     const select = (a: number, b: number): EditorAction => ({ type: "SET_SELECTION", selection: createSpan(createPosition(p, a), createPosition(p, b)) });
-    editor = reduceEditor(reduceEditor(editor, select(0, 4), alice), { type: "TOGGLE_STYLE", style: "bold" }, alice);
-    editor = reduceEditor(reduceEditor(editor, select(2, 6), bob), { type: "TOGGLE_STYLE", style: "italic" }, bob);
+    editor = reduceEditor(reduceEditor({ ...editor, config: alice }, select(0, 4)), { type: "TOGGLE_STYLE", style: "bold" });
+    editor = reduceEditor(reduceEditor({ ...editor, config: bob }, select(2, 6)), { type: "TOGGLE_STYLE", style: "italic" });
     const ids = getSuggestions(editor.state).map((s) => s.id);
     const [a, b] = ids;
     if (a === undefined || b === undefined) throw new Error("expected two suggestions");
@@ -480,12 +480,12 @@ describe("digital — stacked formatting suggestions", () => {
     const attrRegistry = createDefaultAttrRegistry();
     const base = { componentRegistry, attrRegistry, containerWidth: 800 };
     const alice = { ...base, suggestingAuthor: "alice" };
-    let editor = reduceEditor(createInitialEditorState(base), { type: "INSERT_TEXT", text: "ab" }, base);
-    editor = reduceEditor(editor, { type: "INSERT_TAB" }, base);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "cd" }, base);
+    let editor = reduceEditor(createInitialEditorState(base), { type: "INSERT_TEXT", text: "ab" });
+    editor = reduceEditor(editor, { type: "INSERT_TAB" });
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "cd" });
     const p = editor.selection.focus.blockId;
-    editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(p, 2), createPosition(p, 3)) }, alice);
-    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, alice);
+    editor = reduceEditor({ ...editor, config: alice }, { type: "SET_SELECTION", selection: createSpan(createPosition(p, 2), createPosition(p, 3)) });
+    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
     const [only] = getSuggestions(editor.state);
     if (only === undefined) throw new Error("expected a suggestion");
 

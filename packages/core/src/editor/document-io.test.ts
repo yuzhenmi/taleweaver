@@ -176,7 +176,7 @@ describe("document-io — exportDocument / loadDocument", () => {
     // Build content via the editor pipeline so the EXPORTING editor has a
     // non-empty undo history; the loaded editor must NOT inherit it.
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "history" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "history" });
     expect(editor.history.canUndo()).toBe(true);
 
     const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
@@ -200,7 +200,7 @@ describe("document-io — exportDocument / loadDocument", () => {
     const loaded = loadDocument(bytes, BINARY_FORMAT, reg, config);
 
     const caretBlockId = loaded.selection.anchor.blockId;
-    const edited = reduceEditor(loaded, { type: "INSERT_TEXT", text: "X" }, config);
+    const edited = reduceEditor(loaded, { type: "INSERT_TEXT", text: "X" });
     const editedBlock = getBlock(edited.state, caretBlockId);
     expect(editedBlock).not.toBeNull();
     const text = editedBlock?.inlineContent?.items

@@ -36,7 +36,6 @@ function firstTextItem(editor: ReturnType<typeof createInitialEditorState>): Tex
 function selectAll(
   editor: ReturnType<typeof createInitialEditorState>,
   length: number,
-  config: EditorConfig,
 ): ReturnType<typeof createInitialEditorState> {
   const pId = (() => {
     const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
@@ -49,7 +48,6 @@ function selectAll(
       type: "SET_SELECTION",
       selection: createSpan(createPosition(pId, 0), createPosition(pId, length)),
     },
-    config,
   );
 }
 
@@ -57,10 +55,10 @@ describe("handleSetFontFamily", () => {
   it("no-op on collapsed selection (no font family can target a single cursor)", () => {
     const config = makeConfig();
     const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello" }, config);
+    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello" });
     const before = editor;
     // Collapsed at end.
-    editor = reduceEditor(editor, { type: "SET_FONT_FAMILY", family: "Courier New" }, config);
+    editor = reduceEditor(editor, { type: "SET_FONT_FAMILY", family: "Courier New" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(editor.state).toBe(before.state);
   });
@@ -68,9 +66,9 @@ describe("handleSetFontFamily", () => {
   it("sets fontFamily attr on every text item in the selection", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "font me" }, config);
-    editor = selectAll(editor, 7, config);
-    editor = reduceEditor(editor, { type: "SET_FONT_FAMILY", family: "Courier New" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "font me" });
+    editor = selectAll(editor, 7);
+    editor = reduceEditor(editor, { type: "SET_FONT_FAMILY", family: "Courier New" });
 
     const item = firstTextItem(editor);
     expect(item).not.toBeNull();
@@ -82,37 +80,37 @@ describe("handleSetFontFamily", () => {
   it("clears fontFamily attr when given null (family removed → inherit default)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "font me" }, config);
-    editor = selectAll(editor, 7, config);
-    editor = reduceEditor(editor, { type: "SET_FONT_FAMILY", family: "Courier New" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "font me" });
+    editor = selectAll(editor, 7);
+    editor = reduceEditor(editor, { type: "SET_FONT_FAMILY", family: "Courier New" });
     expect(firstTextItem(editor)?.attrs.fontFamily).toBe("Courier New");
-    editor = reduceEditor(editor, { type: "SET_FONT_FAMILY", family: null }, config);
+    editor = reduceEditor(editor, { type: "SET_FONT_FAMILY", family: null });
     expect(firstTextItem(editor)?.attrs.fontFamily).toBeUndefined();
   });
 
   it("clears fontFamily attr when given empty string (empty isn't a meaningful family)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "font me" }, config);
-    editor = selectAll(editor, 7, config);
-    editor = reduceEditor(editor, { type: "SET_FONT_FAMILY", family: "Courier New" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "font me" });
+    editor = selectAll(editor, 7);
+    editor = reduceEditor(editor, { type: "SET_FONT_FAMILY", family: "Courier New" });
     expect(firstTextItem(editor)?.attrs.fontFamily).toBe("Courier New");
-    editor = reduceEditor(editor, { type: "SET_FONT_FAMILY", family: "" }, config);
+    editor = reduceEditor(editor, { type: "SET_FONT_FAMILY", family: "" });
     expect(firstTextItem(editor)?.attrs.fontFamily).toBeUndefined();
   });
 
   it("undo restores the pre-family state", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "font me" }, config);
-    editor = selectAll(editor, 7, config);
-    editor = reduceEditor(editor, { type: "SET_FONT_FAMILY", family: "Courier New" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "font me" });
+    editor = selectAll(editor, 7);
+    editor = reduceEditor(editor, { type: "SET_FONT_FAMILY", family: "Courier New" });
     expect(firstTextItem(editor)?.attrs.fontFamily).toBe("Courier New");
 
-    editor = reduceEditor(editor, { type: "UNDO" }, config);
+    editor = reduceEditor(editor, { type: "UNDO" });
     expect(firstTextItem(editor)?.attrs.fontFamily).toBeUndefined();
 
-    editor = reduceEditor(editor, { type: "REDO" }, config);
+    editor = reduceEditor(editor, { type: "REDO" });
     expect(firstTextItem(editor)?.attrs.fontFamily).toBe("Courier New");
   });
 });

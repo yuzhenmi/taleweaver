@@ -71,26 +71,26 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
   it("REUSES the cached anchor array for a text edit to a NON-anchor block (walk skipped)", () => {
     // Doc with a footnote anchor on paragraph 1, then a second paragraph.
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" }, config);
-    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "xyz" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" });
+    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "xyz" });
     const prevState = editor.state;
     const prev = renderFull(prevState);
 
     // Cursor is now in the SECOND paragraph (no anchor). Typing there cannot
     // change the anchor list, so the walk must be skipped → the prev cycle's
     // cached anchor array is reused BY REFERENCE.
-    const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "d" }, config);
+    const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "d" });
     const rendered = renderIncrementalCycle(after.state, prev, prevState, after.lastDirtyIds ?? new Set<BlockId>());
     expect(rendered.footnoteAnchors).toBe(prev.footnoteAnchors);
   });
 
   it("RE-WALKS (fresh anchor array) when an edit ADDS a footnote", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" });
     const hostId = editor.selection.focus.blockId;
-    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     // After INSERT_FOOTNOTE the caret is inside the footnote BODY — a second
     // INSERT_FOOTNOTE there is refused (no footnotes-in-footnotes). Move the
     // caret back into the main host paragraph (after "abc" + anchor → offset 4)
@@ -104,14 +104,13 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
           focus: { blockId: hostId, offset: 4 },
         },
       },
-      config,
     );
     const prevState = editor.state;
     const prev = renderFull(prevState);
 
     // The doc already has a footnote; inserting a SECOND one must re-walk
     // (the dirty block gains a new anchor → rule 2).
-    const after = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    const after = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     const rendered = renderIncrementalCycle(after.state, prev, prevState, after.lastDirtyIds ?? new Set<BlockId>());
     expect(rendered.footnoteAnchors).not.toBe(prev.footnoteAnchors);
     // Both footnotes are numbered (1 and 2) in the cycle's map.
@@ -125,9 +124,9 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
     // Two footnotes across two paragraphs; delete the SECOND anchor; the first
     // stays numbered "1" and the deleting edit must re-walk.
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
     const firstHost = editor.selection.focus.blockId;
-    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     // Back to main doc (after "a" + anchor → offset 2), new paragraph, 2nd fn.
     editor = reduceEditor(
       editor,
@@ -138,12 +137,11 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
           focus: { blockId: firstHost, offset: 2 },
         },
       },
-      config,
     );
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
     const secondHost = editor.selection.focus.blockId;
-    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     // split head = new id — the first anchor's paragraph is now the head
     // (a NEW id) and the tail (typed into) keeps `firstHost`; two distinct hosts.
     const firstAnchorHost = getBlock(editor.state, secondHost)?.prevSiblingId ?? null;
@@ -160,12 +158,11 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
           focus: { blockId: secondHost, offset: 2 },
         },
       },
-      config,
     );
     const prevState = editor.state;
     const prev = renderFull(prevState);
 
-    const after = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const after = reduceEditor(editor, { type: "DELETE_BACKWARD" });
     const rendered = renderIncrementalCycle(after.state, prev, prevState, after.lastDirtyIds ?? new Set<BlockId>());
     expect(rendered.footnoteAnchors).not.toBe(prev.footnoteAnchors);
     // Exactly one anchor remains, still numbered "1".
@@ -175,9 +172,9 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
 
   it("RE-WALKS when editing the anchor's OWN host block text", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" });
     const hostId = editor.selection.focus.blockId;
-    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     // INSERT_FOOTNOTE drops the caret into the body; move it back into the
     // anchor's HOST block ("abc" + anchor → offset 4). Typing there dirties the
     // anchor-bearing block → rule 2 forces a recompute (the dirty block carries
@@ -191,12 +188,11 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
           focus: { blockId: hostId, offset: 4 },
         },
       },
-      config,
     );
     const prevState = editor.state;
     const prev = renderFull(prevState);
 
-    const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "z" }, config);
+    const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "z" });
     const rendered = renderIncrementalCycle(after.state, prev, prevState, after.lastDirtyIds ?? new Set<BlockId>());
     expect(rendered.footnoteAnchors).not.toBe(prev.footnoteAnchors);
   });
@@ -204,9 +200,9 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
   it("re-renders footnote BODY slot numbers (not just call markers) when an insert renumbers (render-audit I1)", () => {
     // Build two footnotes across two paragraphs (fn1 on para 1, fn2 on para 2).
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
     const firstHost = editor.selection.focus.blockId;
-    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     editor = reduceEditor(
       editor,
       {
@@ -216,11 +212,10 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
           focus: { blockId: firstHost, offset: 2 },
         },
       },
-      config,
     );
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
-    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
+    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
 
     // Insert a NEW footnote at the very start of para 1 — BEFORE fn1's anchor —
     // bumping the existing footnotes 1→2 and 2→3. fn2's host is NOT dirty (only
@@ -234,12 +229,11 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
           focus: { blockId: firstHost, offset: 0 },
         },
       },
-      config,
     );
     const prevState = editor.state;
     const prev = renderFull(prevState);
 
-    const after = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    const after = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     const rendered = renderIncrementalCycle(after.state, prev, prevState, after.lastDirtyIds ?? new Set<BlockId>());
 
     // Invariant: every footnote body's RENDERED leading number (markerText,
@@ -260,9 +254,9 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
 
   it("reuses CORRECT numbers across a skipped (reused) cycle", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
     const firstHost = editor.selection.focus.blockId;
-    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     // Back to main doc, new paragraph, second footnote.
     editor = reduceEditor(
       editor,
@@ -273,12 +267,11 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
           focus: { blockId: firstHost, offset: 2 },
         },
       },
-      config,
     );
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
     const secondHost = editor.selection.focus.blockId;
-    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     // Move caret to a third, anchor-free paragraph and type — reused cycle.
     editor = reduceEditor(
       editor,
@@ -289,13 +282,12 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
           focus: { blockId: secondHost, offset: 2 },
         },
       },
-      config,
     );
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
     const prevState = editor.state;
     const prev = renderFull(prevState);
 
-    const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "c" }, config);
+    const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "c" });
     const rendered = renderIncrementalCycle(after.state, prev, prevState, after.lastDirtyIds ?? new Set<BlockId>());
     // Walk skipped (anchor-free dirty block) → cached anchor array reused.
     expect(rendered.footnoteAnchors).toBe(prev.footnoteAnchors);

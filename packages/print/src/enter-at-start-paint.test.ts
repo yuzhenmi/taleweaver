@@ -77,8 +77,8 @@ describe("Enter at first position repaints page 0 (view-layer regression)", () =
     const config = makeConfig();
     let editor = createInitialEditorState(config);
     const firstId = firstChildId(editor);
-    editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) }, config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "Welcome" }, config);
+    editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) });
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "Welcome" });
 
     const cache = createPaintCache();
     const mount = makeSpyCtx();
@@ -87,8 +87,8 @@ describe("Enter at first position repaints page 0 (view-layer regression)", () =
 
     // Enter at the very start, then repaint page 0 with the SAME persistent
     // cache — exactly the controller's per-frame flow.
-    editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) }, config);
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) });
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
 
     const after = makeSpyCtx();
     paintPage(after.ctx, getPage0(editor, config), [], [], CURSOR, "active", undefined, cache);

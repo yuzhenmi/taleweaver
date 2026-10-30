@@ -408,7 +408,7 @@ describe("image-wrap behavior — delete + undo restores the wrap attr", () => {
     const start = createPosition("pre" as BlockId, "PRE".length);
     const seeded = editorFrom(seedWithPredecessor("left"), createSpan(start, start));
 
-    const deleted = reduceEditor(seeded, { type: "DELETE_FORWARD" }, config);
+    const deleted = reduceEditor({ ...seeded, config: config }, { type: "DELETE_FORWARD" });
     expect(getBlock(deleted.state, "img" as BlockId)).toBeNull();
     // With the float gone, the paragraph reflows full-width (no inset line).
     const afterLines = paraLines(plainTree(deleted));
@@ -417,7 +417,7 @@ describe("image-wrap behavior — delete + undo restores the wrap attr", () => {
     expect(afterLines[0]?.inlineSize).toBe(CONTAINER_W);
 
     // UNDO restores the image as a unit, INCLUDING its wrap attr…
-    const undone = reduceEditor(deleted, { type: "UNDO" }, config);
+    const undone = reduceEditor(deleted, { type: "UNDO" });
     const restored = getBlock(undone.state, "img" as BlockId);
     expect(restored?.type).toBe("image");
     expect(restored?.attrs.wrap).toBe("left");
@@ -442,7 +442,7 @@ describe("image-wrap behavior — delete + undo restores the wrap attr", () => {
     const config = makeConfig();
     const seeded = editorFrom(seedWithPredecessor("left"), createSpan(para(0), para(0)));
 
-    const deleted = reduceEditor(seeded, { type: "DELETE_BACKWARD" }, config);
+    const deleted = reduceEditor({ ...seeded, config: config }, { type: "DELETE_BACKWARD" });
     expect(getBlock(deleted.state, "img" as BlockId)).toBeNull();
     expect(getBlock(deleted.state, "para" as BlockId)?.type).toBe("paragraph");
     // pre and para close up around the removed image.

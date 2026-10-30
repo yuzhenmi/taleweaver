@@ -2,7 +2,7 @@
 //
 // Phase 0b PERF GUARD for the layout-driver's incremental reuse. The driver
 // (`createLayoutDriver`) retains the prior render→cascade→layout cycle's trees
-// as closure state; on the next `rebuild(state, width, lastDirtyIds)` the
+// as closure state; on the next `rebuild(editor)` the
 // incremental path reuses every subtree the edit did NOT touch BY REFERENCE
 // (keyed off `lastDirtyIds`), rebuilding only the edited subtree. This is what
 // makes a keystroke O(edited blocks), not O(document). Without it, the driver
@@ -53,26 +53,17 @@ function makeEditorConfig(pageConfig?: PageConfig): EditorConfig {
   };
 }
 
-function makeLayoutConfig(pageConfig?: PageConfig): LayoutConfig {
-  return {
-    measurer,
-    componentRegistry: createDefaultComponentRegistry(),
-    attrRegistry: createDefaultAttrRegistry(),
-    pageConfig,
-  };
-}
+const LAYOUT_CONFIG: LayoutConfig = { measurer };
 
 /** Move the caret to (blockId, offset). */
 function caretTo(
   editor: EditorState,
   blockId: BlockId,
   offset: number,
-  config: EditorConfig,
 ): EditorState {
   return reduceEditor(
     editor,
     { type: "SET_SELECTION", selection: { anchor: { blockId, offset }, focus: { blockId, offset } } },
-    config,
   );
 }
 
@@ -111,8 +102,8 @@ describe("layout-driver incremental reuse (perf guard)", () => {
     let editor = createInitialEditorState(config);
 
     for (let i = 0; i < 24; i++) {
-      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `Paragraph ${i}` }, config);
-      if (i < 23) editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `Paragraph ${i}` });
+      if (i < 23) editor = reduceEditor(editor, { type: "SPLIT_NODE" });
     }
     // a split's head gets a NEW id while the focused tail keeps the old one,
     // so read the 24 paragraph ids back in document order.
@@ -120,8 +111,8 @@ describe("layout-driver incremental reuse (perf guard)", () => {
     for (let id = finalSection(editor.state)?.firstChildId ?? null; id !== null; id = getBlock(editor.state, id)?.nextSiblingId ?? null) blockIds.push(id);
     expect(blockIds.length).toBe(24);
 
-    const driver = createLayoutDriver(makeLayoutConfig());
-    const before = driver.rebuild(editor.state, editor.containerWidth, null);
+    const driver = createLayoutDriver(LAYOUT_CONFIG);
+    const before = driver.rebuild({ ...editor, lastDirtyIds: null });
     if (before.type !== "block") throw new Error("expected a non-paginated LayoutBox");
 
     const editedId = blockIds[12];
@@ -135,14 +126,14 @@ describe("layout-driver incremental reuse (perf guard)", () => {
     }
 
     // Type into block 12, then incrementally rebuild off its dirty ids.
-    editor = caretTo(editor, editedId, 0, config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "Z" }, config);
+    editor = caretTo(editor, editedId, 0);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "Z" });
     const dirty = editor.lastDirtyIds;
     expect(dirty).not.toBeNull();
     if (dirty === null) return;
     expect(dirty.has(editedId)).toBe(true);
 
-    const after = driver.rebuild(editor.state, editor.containerWidth, dirty);
+    const after = driver.rebuild(editor);
     if (after.type !== "block") throw new Error("expected a non-paginated LayoutBox");
 
     const editedBoxAfter = findBoxByKey(after, editedId);
@@ -163,28 +154,28 @@ describe("layout-driver incremental reuse (perf guard)", () => {
 
     // A header template (shown on every page) + a footnote on the FIRST body
     // block (its body lands in page 0's footnote slot).
-    editor = reduceEditor(editor, { type: "INSERT_HEADER" }, config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "Header" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_HEADER" });
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "Header" });
 
     const bodyFirst = firstBodyBlockId(editor);
-    editor = caretTo(editor, bodyFirst, 0, config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "host" }, config);
-    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    editor = caretTo(editor, bodyFirst, 0);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "host" });
+    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     // INSERT_FOOTNOTE drops the caret into the footnote body; type into it.
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "note" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "note" });
     // Return the caret to the host body block (offset 5 = "host" + anchor).
-    editor = caretTo(editor, bodyFirst, 5, config);
+    editor = caretTo(editor, bodyFirst, 5);
 
     // Fill enough one-line paragraphs to span several pages.
     const bodyIds: BlockId[] = [bodyFirst];
     for (let i = 0; i < 24; i++) {
-      editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `P${i}` }, config);
+      editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `P${i}` });
       bodyIds.push(editor.selection.focus.blockId);
     }
 
-    const driver = createLayoutDriver(makeLayoutConfig(SMALL_PAGE));
-    const before = driver.rebuild(editor.state, editor.containerWidth, null);
+    const driver = createLayoutDriver(LAYOUT_CONFIG);
+    const before = driver.rebuild({ ...editor, lastDirtyIds: null });
     if (before.type !== "virtual-root") throw new Error("expected a paginated tree");
     expect(before.plan.entries.length).toBeGreaterThan(1); // genuinely multi-page
 
@@ -197,14 +188,14 @@ describe("layout-driver incremental reuse (perf guard)", () => {
     // body nor the header/footnote bodies.
     const lastId = bodyIds[bodyIds.length - 1];
     if (lastId === undefined) throw new Error("missing last body id");
-    editor = caretTo(editor, lastId, 0, config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "Z" }, config);
+    editor = caretTo(editor, lastId, 0);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "Z" });
     const dirty = editor.lastDirtyIds;
     expect(dirty).not.toBeNull();
     if (dirty === null) return;
     expect(dirty.has(lastId)).toBe(true);
 
-    const after = driver.rebuild(editor.state, editor.containerWidth, dirty);
+    const after = driver.rebuild(editor);
     if (after.type !== "virtual-root") throw new Error("expected a paginated tree");
     const page0After: PageBox = after.getPage(0);
 

@@ -81,7 +81,7 @@ function rootChildIds(editor: EditorState): BlockId[] {
 }
 
 /** Caret at the end of `blockId` (its inline-content length). */
-function caretAtEnd(editor: EditorState, blockId: BlockId, config: EditorConfig): EditorState {
+function caretAtEnd(editor: EditorState, blockId: BlockId): EditorState {
   const block = getBlock(editor.state, blockId);
   const len =
     block?.inlineContent === null || block?.inlineContent === undefined
@@ -91,7 +91,7 @@ function caretAtEnd(editor: EditorState, blockId: BlockId, config: EditorConfig)
           0,
         );
   const pos = createPosition(blockId, len);
-  return reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(pos, pos) }, config);
+  return reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(pos, pos) });
 }
 
 /** Concatenate all text in a laid-out box subtree (block + column children). */
@@ -156,14 +156,14 @@ describe("cross-ref-page to a NESTED (table-cell) target resolves end-to-end (Ta
     // it a short label so it stays on page 0.
     const seedId = rootChildIds(editor)[0];
     if (seedId === undefined) throw new Error("no seed paragraph");
-    editor = caretAtEnd(editor, seedId, config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "see " }, config);
+    editor = caretAtEnd(editor, seedId);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "see " });
 
     // Append several one-line filler paragraphs AFTER the host so the table lands on a
     // later page (page index >= 1). Each SPLIT_NODE + INSERT_TEXT is a fresh paragraph.
     for (let i = 0; i < 9; i++) {
-      editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `fill ${i}` }, config);
+      editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `fill ${i}` });
     }
     // Enter at the end gives the TEXT the new id: "see " now lives
     // in the first top-level paragraph, not in the seed id.
@@ -172,11 +172,11 @@ describe("cross-ref-page to a NESTED (table-cell) target resolves end-to-end (Ta
 
     // After the last filler, split once more and insert a table at the fresh paragraph's
     // start. INSERT_TABLE lands the caret in cell (0,0)'s paragraph — the NESTED target.
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-    editor = reduceEditor(editor, { type: "INSERT_TABLE", rows: 1, cols: 1 }, config);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+    editor = reduceEditor(editor, { type: "INSERT_TABLE", rows: 1, cols: 1 });
     const nestedTargetId = editor.selection.focus.blockId; // the cell (0,0) paragraph
     // Type something into the cell so the target is genuinely inline-bearing content.
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "target" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "target" });
 
     // Sanity: the target is genuinely NESTED — its parent is a table-cell (NOT the root),
     // so the page plan does NOT index it directly; only its top-level TABLE ancestor is.
@@ -195,12 +195,11 @@ describe("cross-ref-page to a NESTED (table-cell) target resolves end-to-end (Ta
 
     // Put the caret back at the end of the host paragraph (page 0) and insert a page-mode
     // cross-reference to the NESTED target.
-    editor = caretAtEnd(editor, hostId, config);
+    editor = caretAtEnd(editor, hostId);
     const offsetBefore = editor.selection.focus.offset;
     editor = reduceEditor(
       editor,
       { type: "INSERT_CROSS_REFERENCE", targetId: nestedTargetId, refMode: "page" },
-      config,
     );
     // The ref was actually inserted (page mode accepts an inline-bearing nested target).
     expect(editor.selection.focus.offset).toBe(offsetBefore + 1);

@@ -41,8 +41,8 @@ function docWithOneFootnote(): {
   hostBlockId: BlockId;
 } {
   let editor = createInitialEditorState(config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
-  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
+  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
   const anchors = collectFootnoteAnchors(editor.state);
   if (anchors.length !== 1) {
     throw new Error(`expected exactly one footnote anchor, got ${anchors.length}`);

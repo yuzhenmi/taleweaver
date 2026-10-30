@@ -1,4 +1,4 @@
-import { inspectDocument, type IncompatibleDocumentReport, createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, selectParagraph, getBlock, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type PageConfig, type EditorConfig, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, compileKeymap, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, type Proposal, type ProposeResult, type ProposalOutcome, proposeResultOf, type SuggestionGroupStyle, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDefaultComponentRegistry, createDefaultAttrRegistry, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
+import { inspectDocument, type IncompatibleDocumentReport, createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, selectParagraph, getBlock, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, type Proposal, type ProposeResult, type ProposalOutcome, proposeResultOf, type SuggestionGroupStyle, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
 import { resolvePixelPosition, type PixelPosition } from "./cursor/cursor-position";
 import { resolvePositionFromPixel } from "./cursor/hit-test";
 import { computeSelectionRects, computeSelectionRectsForPage, type SelectionRect } from "./cursor/selection-geometry";
@@ -88,14 +88,6 @@ export interface EditorControllerOptions {
   pageHeight?: number;
   pageGap?: number;
   /**
-   * The paginated page config. The render→cascade→layout pipeline
-   * lives in the print backend's layout-driver now (not core's reducer), so the
-   * HOST supplies `pageConfig` here instead of in core's `EditorConfig`.
-   * `undefined` ⇒ unpaginated layout (the prior default for callers that passed
-   * none into `EditorConfig`).
-   */
-  pageConfig?: PageConfig;
-  /**
    * Injected auto-hyphenation capability, passed to the layout-driver as
    * `LayoutConfig.hyphenator`. `undefined` ⇒ no hyphenation.
    */
@@ -106,20 +98,6 @@ export interface EditorControllerOptions {
    * textarea path is unchanged. Flipping the default ON is gated on the user's in-browser IME/screen-reader smoke.
    */
   accessibilityMirror?: boolean;
-  /**
-   * The registries of the host's core `EditorConfig` — pass that SAME config object
-   * the reducer runs with, so the controller can never paint / hit-test with a
-   * registry different from the one editing uses (the two used to be separate
-   * options and could silently diverge, e.g. host marks editing correctly but never
-   * painting). Consumed by:
-   * - the layout-driver's render + cascade (`attrRegistry` → host marks paint via
-   *   `toStyle`; `componentRegistry` → block render);
-   * - the object-selection hit-test pre-pass and NavIntent resolution
-   *   (`componentRegistry` is the canonical `BlockKindResolver`);
-   * - copy / cut (`extractFragment` strips `copy: "drop"` marks, judged by the registry bound to the doc).
-   * Omitted → the built-in registries (`createDefault*Registry()`).
-   */
-  config?: Pick<EditorConfig, "componentRegistry" | "attrRegistry" | "extensions">;
   /**
    * Collaboration: `"observe"` (default) — every peer update that lands in the current
    * document's Y.Doc is dispatched to the host as `APPLY_FOREIGN_CHANGE`; `"ignore"` —
@@ -364,20 +342,6 @@ export function createEditorController(
   const dispatch = (action: EditorAction): void => {
     if (!halted) options.dispatch(action);
   };
-  // Object-selection resolver: threaded into the body hit-test calls so a
-  // click inside an image's rect selects the image as an object. Absent → the
-  // text-only fall-through (byte-identical to no resolver).
-  // The resolved component registry (host-supplied or the built-in default). The
-  // layout-driver AND the geometric-nav resolver both need the SAME
-  // instance the host built its state with — for object-selection detection in
-  // nav, and the render/cascade passes in the driver.
-  const componentRegistry = options.config?.componentRegistry ?? createDefaultComponentRegistry();
-  // The render→cascade→layout pipeline lives in the print backend's layout-driver.
-  // It needs the same component/attr registries the host built its
-  // `EditorConfig` with; default to the built-in registries when omitted (the
-  // empty-document tests construct the controller with `{ measurer, dispatch }`
-  // only, and their state is built from the same defaults).
-  const attrRegistry = options.config?.attrRegistry ?? createDefaultAttrRegistry();
   // Anchors follow every transition `update` sees (the same mapping the decorations use).
   const anchors = createAnchorSet();
   // A peer's change landing in the current document's Y.Doc is DISPATCHED to the host
@@ -387,15 +351,9 @@ export function createEditorController(
   let unsubscribeRemote: (() => void) | null = null;
   // Host keymap `Mod` = Cmd on Mac, Ctrl elsewhere (the same rule as the digital backend).
   const modConvention = modConventionFor(typeof navigator === "undefined" ? "" : navigator.userAgent);
-  // Parse the host keymap now: a malformed binding name fails at configuration time.
-  if (options.config?.extensions?.keymap !== undefined) compileKeymap(options.config.extensions.keymap);
-  const driver = createLayoutDriver({
-    measurer: options.measurer,
-    hyphenator: options.hyphenator,
-    pageConfig: options.pageConfig,
-    componentRegistry,
-    attrRegistry,
-  });
+  // The registries, page setup and host extensions are the host's `EditorState.config` —
+  // the same config its reducer runs with — read from the latest state at each use.
+  const driver = createLayoutDriver({ measurer: options.measurer, hyphenator: options.hyphenator });
   const pageHeight = options.pageHeight;
   const pageGap = options.pageGap ?? DEFAULT_PAGE_GAP;
   // Accessibility mirror: when ON, a hidden AT-visible DOM mirror
@@ -1829,7 +1787,7 @@ export function createEditorController(
       coords.x,
       coords.y,
       coords.pageIndex,
-      componentRegistry,
+      state.config.componentRegistry,
     );
     if (!hit) {
       dispatch({ type: "MOVE_DOCUMENT_BOUNDARY", boundary: "end" });
@@ -1941,7 +1899,7 @@ export function createEditorController(
       coords.x,
       coords.y,
       coords.pageIndex,
-      componentRegistry,
+      state.config.componentRegistry,
     );
     if (hit) {
       // A drag builds a (usually non-collapsed) span — caret
@@ -2004,7 +1962,7 @@ export function createEditorController(
     // Host keymap BEFORE the defaults: a command that runs claims the key; an
     // unbound (`null`) key is swallowed so the default cannot run.
     if (state !== null) {
-      const outcome = runKeyBinding(options.config?.extensions, e, modConvention, state, dispatch);
+      const outcome = runKeyBinding(state.config.extensions, e, modConvention, state, dispatch);
       if (outcome !== "default") {
         e.preventDefault();
         return;
@@ -2037,7 +1995,7 @@ export function createEditorController(
     if (result === null) return;
     // Claim Escape only when it dismisses something (an object selection or a host
     // trigger); otherwise it must reach the page (e.g. close a containing dialog).
-    if (!isNavIntent(result) && result.type === "ESCAPE" && (state === null || !escapeWouldChange(state, componentRegistry))) return;
+    if (!isNavIntent(result) && result.type === "ESCAPE" && (state === null || !escapeWouldChange(state, state.config.componentRegistry))) return;
     e.preventDefault();
     if (isNavIntent(result)) {
       // Geometric navigation: core's reducer is geometry-free, so the
@@ -2046,7 +2004,7 @@ export function createEditorController(
       // null resolution (line-move off the document edge, degenerate line-delete)
       // dispatches nothing — matching the lifted handlers' `return editor;`.
       if (state === null || layoutTree === null) return;
-      const navAction = resolveNavIntent(result, state, layoutTree, measurer, componentRegistry);
+      const navAction = resolveNavIntent(result, state, layoutTree, measurer, state.config.componentRegistry);
       if (navAction !== null) dispatch(navAction);
       return;
     }
@@ -2399,11 +2357,7 @@ export function createEditorController(
     // (`state.lastDirtyIds`); the driver consumes that to rebuild incrementally
     // (reusing unchanged page subtrees by reference) and is the SOLE source of
     // the layout tree the controller paints / hit-tests / positions the caret on.
-    layoutTree = driver.rebuild(
-      state.state,
-      state.containerWidth,
-      state.lastDirtyIds ?? null,
-    );
+    layoutTree = driver.rebuild(state);
 
     // Cursor position: resolved directly against the (virtual or positioned)
     // tree. In virtual mode `resolvePixelPosition` positions only the cursor's
@@ -2814,7 +2768,7 @@ export function createEditorController(
     },
     runCommand(command: string | Command): boolean {
       if (halted || destroyed || state === null) return false;
-      const resolved = resolveCommand(command, options.config?.extensions);
+      const resolved = resolveCommand(command, state.config.extensions);
       return resolved !== null && resolved(state, dispatch);
     },
     exportToPdf,

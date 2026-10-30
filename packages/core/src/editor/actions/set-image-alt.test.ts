@@ -27,12 +27,11 @@ import type { BlockId } from "../../state";
 /** Insert an image (120×80) after the first paragraph; return its block id. */
 function docWithImage() {
   let editor = createInitialEditorState(config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" }, config);
+  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
   const paraId = firstChildId(editor.state) as BlockId;
   editor = reduceEditor(
     editor,
     { type: "INSERT_IMAGE", src: "i.png", width: 120, height: 80 },
-    config,
   );
   const imageId = getBlock(editor.state, paraId)?.nextSiblingId as BlockId;
   // Self-validate the fixture: if INSERT_IMAGE ever stops placing the image as
@@ -49,7 +48,6 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: "A red barn" },
-      config,
     );
 
     const img = getBlock(next.state, imageId);
@@ -64,7 +62,6 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: "" },
-      config,
     );
 
     const img = getBlock(next.state, imageId);
@@ -79,14 +76,12 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
     const labeled = reduceEditor(
       editor,
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: "Cat" },
-      config,
     );
     expect(getBlock(labeled.state, imageId)?.attrs.alt).toBe("Cat");
 
     const cleared = reduceEditor(
       labeled,
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: null },
-      config,
     );
 
     const img = getBlock(cleared.state, imageId);
@@ -101,7 +96,6 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: "A red barn" },
-      config,
     );
 
     expect(next.selection).toEqual(before);
@@ -113,7 +107,6 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_IMAGE_ALT", blockId: paraId, alt: "A red barn" },
-      config,
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -126,7 +119,6 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_IMAGE_ALT", blockId: "missing-id" as BlockId, alt: "x" },
-      config,
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -138,13 +130,11 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
     const labeled = reduceEditor(
       editor,
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: "Cat" },
-      config,
     );
 
     const again = reduceEditor(
       labeled,
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: "Cat" },
-      config,
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -159,7 +149,6 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: null },
-      config,
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -171,16 +160,14 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
     const labeled = reduceEditor(
       editor,
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: "Cat" },
-      config,
     );
     const cleared = reduceEditor(
       labeled,
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: null },
-      config,
     );
     expect(getBlock(cleared.state, imageId)?.attrs.alt).toBeUndefined();
 
-    const undone = reduceEditor(cleared, { type: "UNDO" }, config);
+    const undone = reduceEditor(cleared, { type: "UNDO" });
     expect(getBlock(undone.state, imageId)?.attrs.alt).toBe("Cat");
   });
 
@@ -189,11 +176,10 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
     const labeled = reduceEditor(
       editor,
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: "Cat" },
-      config,
     );
     expect(getBlock(labeled.state, imageId)?.attrs.alt).toBe("Cat");
 
-    const undone = reduceEditor(labeled, { type: "UNDO" }, config);
+    const undone = reduceEditor(labeled, { type: "UNDO" });
     const img = getBlock(undone.state, imageId);
     expect(img?.attrs.alt).toBeUndefined();
     expect("alt" in (img?.attrs ?? {})).toBe(false);

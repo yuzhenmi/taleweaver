@@ -64,10 +64,9 @@ function mount(
     measurer: core.createMockMeasurer(8, 16),
     dispatch: (a) => {
       actions.push(a);
-      current = core.reduceEditor(current, a, cfg);
+      current = core.reduceEditor(current, a);
       controller?.update(current);
     },
-    config: cfg,
     ...(remoteChanges !== undefined ? { remoteChanges } : {}),
     ...(accessibilityMirror ? { accessibilityMirror } : {}),
   });
@@ -92,7 +91,7 @@ function type(textarea: HTMLTextAreaElement, text: string): void {
 
 describe("print — anchors and versions", () => {
   it("an anchor follows typing and undo; mapPosition / createAnchor({ basedOn }) map from an older version", () => {
-    const m = mount(core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" }, cfg));
+    const m = mount(core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" }));
     const id = m.get().selection.focus.blockId;
     const v0 = m.controller.version;
     if (v0 === null) throw new Error("no version");
@@ -110,7 +109,7 @@ describe("print — anchors and versions", () => {
 
 describe("print — collaboration", () => {
   it("a peer's update reaches the host as APPLY_FOREIGN_CHANGE: text, rebased caret, anchors", () => {
-    let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" }, cfg);
+    let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" });
     const docA = core.getYDoc(peerA.state);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
@@ -120,15 +119,15 @@ describe("print — collaboration", () => {
     const id = peerA.selection.focus.blockId;
     m.controller.runCommand((_e, dispatch) => (dispatch?.(caretAt(id, 5)), true));
     const anchor = m.controller.createAnchor(core.createPosition(id, 6), core.createPosition(id, 11));
-    peerA = core.reduceEditor(peerA, caretAt(id, 0), cfg);
-    peerA = core.reduceEditor(peerA, { type: "INSERT_TEXT", text: "Oh, " }, cfg);
+    peerA = core.reduceEditor(peerA, caretAt(id, 0));
+    peerA = core.reduceEditor(peerA, { type: "INSERT_TEXT", text: "Oh, " });
     expect(textOf(m.get(), id)).toBe("Oh, hello world");
     expect(m.get().selection.focus).toEqual(core.createPosition(id, 9));
     expect(anchor === null ? null : [anchor.from.offset, anchor.to.offset]).toEqual([10, 15]);
     expect(m.controller.getCaretRect(m.get().selection.focus)?.left).toBe(9 * 8);
     // A peer deleting the anchored word: the anchor reports it.
-    peerA = core.reduceEditor(peerA, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(id, 9), core.createPosition(id, 15)) }, cfg);
-    peerA = core.reduceEditor(peerA, { type: "DELETE_BACKWARD" }, cfg);
+    peerA = core.reduceEditor(peerA, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(id, 9), core.createPosition(id, 15)) });
+    peerA = core.reduceEditor(peerA, { type: "DELETE_BACKWARD" });
     expect(textOf(m.get(), id)).toBe("Oh, hello");
     expect(anchor?.deleted).toBe(true);
     // Local typing + undo stay local.
@@ -141,7 +140,7 @@ describe("print — collaboration", () => {
 
 /** Peer A (driven through the reducer) and a replica State over a second, synced Y.Doc. */
 function peerPair(text = "hello world") {
-  let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text }, cfg);
+  let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text });
   const docA = core.getYDoc(peerA.state);
   const docB = new Y.Doc();
   Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
@@ -152,7 +151,7 @@ function peerPair(text = "hello world") {
     id,
     editorB: () => core.createEditorStateFromState(stateB, core.initialSelectionForState(stateB), cfg),
     type: (t: string) => {
-      peerA = core.reduceEditor(peerA, { type: "INSERT_TEXT", text: t }, cfg);
+      peerA = core.reduceEditor(peerA, { type: "INSERT_TEXT", text: t });
     },
   };
 }

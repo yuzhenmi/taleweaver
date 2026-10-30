@@ -149,7 +149,7 @@ describe("deleteObjectSelection (#525)", () => {
     const next = deleteObjectSelection(editor, config, IMAGE_ID);
     expect(getBlock(next.state, IMAGE_ID)).toBeNull();
 
-    const undone = reduceEditor(next, { type: "UNDO" }, config);
+    const undone = reduceEditor(next, { type: "UNDO" });
     expect(getBlock(undone.state, IMAGE_ID)?.type).toBe("image");
     expect(isObjectSelection(undone.state, undone.selection, componentRegistry)).toBe(IMAGE_ID);
   });
@@ -197,7 +197,7 @@ describe("replaceObjectWithText (#525)", () => {
     const next = replaceObjectWithText(editor, config, IMAGE_ID, "x");
     expect(getBlock(next.state, IMAGE_ID)).toBeNull();
 
-    const undone = reduceEditor(next, { type: "UNDO" }, config);
+    const undone = reduceEditor(next, { type: "UNDO" });
     expect(getBlock(undone.state, IMAGE_ID)?.type).toBe("image");
     // After ONE undo the typed text is gone too (single entry).
     expect(textOf(undone.state, TRAILING_ID)).toBe("");

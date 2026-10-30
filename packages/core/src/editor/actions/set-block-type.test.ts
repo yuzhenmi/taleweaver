@@ -16,8 +16,8 @@ import {
   reduceEditor,
   firstChildId,
 } from "./test-helpers";
-import type { EditorState } from "../editor-state";
-import { getBlock, createHistory } from "../../state";
+import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { getBlock } from "../../state";
 import type { BlockId } from "../../state";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
 
@@ -29,7 +29,6 @@ describe("handleSetBlockType — same-kind transitions succeed (regression #155)
     const next = reduceEditor(
       initial,
       { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } },
-      config,
     );
 
     expect(getBlock(next.state, paraId)?.type).toBe("heading");
@@ -43,7 +42,6 @@ describe("handleSetBlockType — same-kind transitions succeed (regression #155)
     const next = reduceEditor(
       initial,
       { type: "SET_BLOCK_TYPE", blockType: "list-item", properties: { listType: "unordered" } },
-      config,
     );
 
     expect(getBlock(next.state, paraId)?.type).toBe("list-item");
@@ -71,21 +69,12 @@ describe("handleSetBlockType — same-kind transitions succeed (regression #155)
     });
     // Phase 0b: core's `EditorState` is geometry-free — build only the
     // geometry-free fields (the handler reads no layout).
-    const initial: EditorState = {
-      state: initialState,
-      selection: { anchor: { blockId: "li" as BlockId, offset: 0 }, focus: { blockId: "li" as BlockId, offset: 0 } },
-      history: createHistory(initialState),
-      lastDirtyIds: null,
-      lastChange: null,
-      containerWidth: config.containerWidth,
-      targetX: null,
-    };
+    const initial: EditorState = createEditorStateFromState(initialState, { anchor: { blockId: "li" as BlockId, offset: 0 }, focus: { blockId: "li" as BlockId, offset: 0 } }, config);
     // Action: SET_BLOCK_TYPE heading. Targets "li" (same-kind: list-item is
     // inline-bearing-leaf, heading is inline-bearing-leaf → succeeds).
     const next = reduceEditor(
       initial,
       { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } },
-      config,
     );
     // The list-item became a heading.
     expect(getBlock(next.state, "li" as BlockId)?.type).toBe("heading");
@@ -97,14 +86,12 @@ describe("handleSetBlockType — same-kind transitions succeed (regression #155)
     s = reduceEditor(
       s,
       { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 2 } },
-      config,
     );
     expect(getBlock(s.state, paraId)?.type).toBe("heading");
 
     s = reduceEditor(
       s,
       { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 2 } },
-      config,
     );
     expect(getBlock(s.state, paraId)?.type).toBe("paragraph");
     expect(getBlock(s.state, paraId)?.attrs).toEqual({});

@@ -43,9 +43,9 @@ function footnoteNumbersOf(state: State): ReadonlyMap<BlockId, { value: number; 
  */
 function twoSectionDocWithFootnotes(): EditorState {
   let editor = createInitialEditorState(config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
+  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
   const firstHost = editor.selection.focus.blockId;
-  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
   editor = reduceEditor(
     editor,
     {
@@ -55,12 +55,11 @@ function twoSectionDocWithFootnotes(): EditorState {
         focus: { blockId: firstHost, offset: 2 },
       },
     },
-    config,
   );
-  editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-  editor = reduceEditor(editor, { type: "SECTION_BREAK" }, config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
-  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+  editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+  editor = reduceEditor(editor, { type: "SECTION_BREAK" });
+  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
+  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
   return editor;
 }
 
@@ -88,7 +87,6 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" },
-      config,
     );
 
     // The policy attr is now on the root, and numbering restarts: each
@@ -104,7 +102,6 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_FOOTNOTE_POLICY", format: "lower-roman" },
-      config,
     );
 
     expect(documentFootnotePolicy(next.state).format).toBe("lower-roman");
@@ -118,13 +115,11 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
     const withReset = reduceEditor(
       editor,
       { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" },
-      config,
     );
     // Now set ONLY the format; reset must stay restart-per-section.
     const withFormat = reduceEditor(
       withReset,
       { type: "SET_FOOTNOTE_POLICY", format: "upper-alpha" },
-      config,
     );
     expect(documentFootnotePolicy(withFormat.state).reset).toBe(
       "restart-per-section",
@@ -137,12 +132,11 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" },
-      config,
     );
     expect(documentFootnotePolicy(next.state).reset).toBe("restart-per-section");
     expect(numberValues(next)).toEqual([1, 1]);
 
-    const undone = reduceEditor(next, { type: "UNDO" }, config);
+    const undone = reduceEditor(next, { type: "UNDO" });
     // Policy back to the default (continuous), numbering back to 1, 2.
     expect(documentFootnotePolicy(undone.state).reset).toBe("continuous");
     expect(numberValues(undone)).toEqual([1, 2]);
@@ -157,7 +151,6 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
         type: "SET_FOOTNOTE_POLICY",
         reset: "restart-per-paragraph" as never,
       },
-      config,
     );
     // No valid field → no-op: the document `state` is untouched (same reference,
     // no history commit). The editor WRAPPER may differ only by the reducer's
@@ -172,12 +165,10 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
     const withReset = reduceEditor(
       editor,
       { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" },
-      config,
     );
     const again = reduceEditor(
       withReset,
       { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" },
-      config,
     );
     // mergeBlockAttrs is a no-op → no document mutation, no history commit. The
     // `state` reference is preserved; the editor wrapper may differ only by the
@@ -191,7 +182,6 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_FOOTNOTE_POLICY", format: "upper-roman" },
-      config,
     );
     expect(next.selection.anchor.blockId).toBe(before.anchor.blockId);
     expect(next.selection.anchor.offset).toBe(before.anchor.offset);

@@ -285,17 +285,17 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
   it("a list marker paints in its ¶ character props (`list.markerStyle` from `markAttrs`; Word formats the number with the ¶'s rPr)", () => {
     const config: EditorConfig = { componentRegistry, attrRegistry, containerWidth: 800 };
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "one" }, config);
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "one" });
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
     // Typing bold into the second paragraph: its ¶'s markAttrs follow.
-    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "two" }, config);
+    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "two" });
     const two = editor.selection.focus.blockId;
     const one = getBlock(editor.state, two)?.prevSiblingId;
     if (one === null || one === undefined) throw new Error("no first item");
     expect(getBlock(editor.state, two)?.markAttrs).toEqual({ bold: true });
-    editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(one, 0), createPosition(two, 3)) }, config);
-    editor = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" }, config);
+    editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(one, 0), createPosition(two, 3)) });
+    editor = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" });
     const layout = positionTreeForTest(layoutTree(render(editor.state, componentRegistry, attrRegistry).root, 800, shaper));
     const markers: LayoutBox[] = [];
     const walk = (box: LayoutBox): void => {
@@ -320,7 +320,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       containerWidth: 800,
     };
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "color me" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "color me" });
     const pId = (() => {
       const root = finalSection(editor.state);
       if (root === null || root.firstChildId === null) throw new Error("no para");
@@ -332,9 +332,8 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(pId, 0), createPosition(pId, 8)),
       },
-      config,
     );
-    editor = reduceEditor(editor, { type: "SET_TEXT_COLOR", color: "#ff0000" }, config);
+    editor = reduceEditor(editor, { type: "SET_TEXT_COLOR", color: "#ff0000" });
 
     const renderOutput = render(editor.state, componentRegistry, attrRegistry);
     const cascaded = cascadePass(renderOutput.root);
@@ -355,7 +354,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     // selection and confirm backgroundColorInterpreter threads it to
     // ComputedStyle.backgroundColor (the canvas renderer's text-run branch
     // paints exactly this behind the glyphs).
-    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "#ffff00" }, config);
+    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "#ffff00" });
     const cascadedHl = cascadePass(
       render(editor.state, componentRegistry, attrRegistry).root,
     );
@@ -405,7 +404,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       containerWidth: 800,
     };
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" });
     const pId = (() => {
       const root = finalSection(editor.state);
       if (root === null || root.firstChildId === null) throw new Error("no para");
@@ -417,7 +416,6 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(pId, 0), createPosition(pId, 7)),
       },
-      config,
     );
 
     function findFirstText(node: RenderNode): RenderNode | null {
@@ -452,7 +450,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
 
     const heightBefore = paragraphHeight(editor.state);
 
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 }, config);
+    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 });
 
     // Cascade: the affected text node carries the dispatched fontSize.
     const cascaded = cascadePass(
@@ -508,7 +506,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       containerWidth: 800,
     };
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "space me" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "space me" });
     const pId = (() => {
       const root = finalSection(editor.state);
       if (root === null || root.firstChildId === null) throw new Error("no para");
@@ -520,7 +518,6 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(pId, 0), createPosition(pId, 8)),
       },
-      config,
     );
 
     function findFirstText(node: RenderNode): RenderNode | null {
@@ -556,7 +553,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     expect(getBlock(editor.state, pId)?.attrs.lineHeight).toBeUndefined();
     const heightBefore = paragraphHeight(editor.state);
 
-    editor = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 }, config);
+    editor = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 });
 
     // Cascade: the affected text node's ComputedStyle carries the dispatched
     // unitless ratio (inherits down to the run from the block attr).
@@ -589,7 +586,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       containerWidth: 800,
     };
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "indent me" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "indent me" });
     const pId = (() => {
       const root = finalSection(editor.state);
       if (root === null || root.firstChildId === null) throw new Error("no para");
@@ -601,7 +598,6 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(pId, 0), createPosition(pId, 9)),
       },
-      config,
     );
 
     function findBlockBox(box: LayoutBox, key: string): LayoutBox | null {
@@ -628,7 +624,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     expect(getBlock(editor.state, pId)?.attrs.marginInlineStart).toBeUndefined();
     const before = paragraphBox(editor.state);
 
-    editor = reduceEditor(editor, { type: "INDENT" }, config);
+    editor = reduceEditor(editor, { type: "INDENT" });
 
     // State: the attr landed.
     expect(getBlock(editor.state, pId)?.attrs.marginInlineStart).toBe(48);
@@ -661,9 +657,9 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       containerWidth: 800,
     };
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "first" }, config);
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "second" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "first" });
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "second" });
 
     const [p1Id, p2Id] = (() => {
       const root = finalSection(editor.state);
@@ -710,14 +706,12 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(p1Id, 0), createPosition(p1Id, 0)),
       },
-      config,
     );
 
     // Set space-after on the FIRST paragraph to 60px.
     editor = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "after", value: 60 },
-      config,
     );
 
     // State: the attr landed.
@@ -741,7 +735,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       containerWidth: 800,
     };
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "font me" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "font me" });
     const pId = (() => {
       const root = finalSection(editor.state);
       if (root === null || root.firstChildId === null) throw new Error("no para");
@@ -753,12 +747,10 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(pId, 0), createPosition(pId, 7)),
       },
-      config,
     );
     editor = reduceEditor(
       editor,
       { type: "SET_FONT_FAMILY", family: "Courier New" },
-      config,
     );
 
     const cascaded = cascadePass(

@@ -13,6 +13,7 @@ import {
   type EditorConfig,
   type AttrRegistry,
   type EditorExtensions,
+  type PageConfig,
   type IncompatibleDocumentReport,
   type State,
 } from "@taleweaver/core";
@@ -23,13 +24,14 @@ const DEFAULT_WIDTH = 600;
 export interface UseEditorOptions {
   /**
    * The attribute registry (built-in formatting + any host marks registered with
-   * `registerMark`). Default: `createDefaultAttrRegistry()`. It lives on the
-   * returned `config`, which spreading the hook result into `EditorView` hands to
-   * the print controller — one config for reducer and controller.
+   * `registerMark`). Default: `createDefaultAttrRegistry()`. Like every option here it
+   * lands on `editorState.config`, which the reducer and the print controller both read.
    */
   readonly attrRegistry?: AttrRegistry;
-  /** Host extensions (commands, keymap, input rules, triggers) — on the returned `config`. */
+  /** Host extensions (commands, keymap, input rules, triggers). */
   readonly extensions?: EditorExtensions;
+  /** Page setup (size, margins, gap). `undefined` ⇒ unpaginated. */
+  readonly pageConfig?: PageConfig;
   /**
    * The editor HALTED on an incompatible document (`report.reason`): a legacy client
    * wrote into the frozen legacy root, a peer raised the schema past this engine's, a
@@ -97,6 +99,7 @@ function createConfig(options?: UseEditorOptions): EditorConfig {
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: options?.attrRegistry ?? createDefaultAttrRegistry(),
     ...(options?.extensions !== undefined ? { extensions: options.extensions } : {}),
+    ...(options?.pageConfig !== undefined ? { pageConfig: options.pageConfig } : {}),
     containerWidth: DEFAULT_WIDTH,
     htmlParser: browserHtmlParser,
   };
@@ -119,7 +122,7 @@ export function useEditor(options?: UseEditorOptions) {
 
   const [editorState, send] = useReducer(
     (state: EditorState, message: EditorMessage) =>
-      message.type === "react.replaceDocument" ? message.editorState : reduceEditor(state, message, config),
+      message.type === "react.replaceDocument" ? message.editorState : reduceEditor(state, message),
     config,
     createInitialEditorState,
   );
@@ -205,7 +208,6 @@ export function useEditor(options?: UseEditorOptions) {
     containerRef,
     shaper,
     focus,
-    config,
     halted,
     replaceDocument,
   };

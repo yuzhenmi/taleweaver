@@ -60,7 +60,7 @@ function makeConfig(extra?: Partial<EditorConfig>): EditorConfig {
 
 function run(editor: EditorState, config: EditorConfig, ...actions: EditorAction[]): EditorState {
   let s = editor;
-  for (const a of actions) s = reduceEditor(s, a, config);
+  for (const a of actions) s = reduceEditor({ ...s, config: config }, a);
   return s;
 }
 

@@ -239,8 +239,8 @@ describe("emitPageContent — change-tracking ¶ and section-break label are art
     // A suggested join p0|p1 (¶ at the end of p0) and a suggested section break before p2
     // (an empty ¶ ending the first section, drawn as the section-break label).
     let e = createEditorStateFromState(s, at("p1", 0), alice);
-    e = reduceEditor(e, { type: "DELETE_BACKWARD" }, alice);
-    e = reduceEditor(reduceEditor(e, { type: "SET_SELECTION", selection: at("p2", 0) }, alice), { type: "SECTION_BREAK" }, alice);
+    e = reduceEditor(e, { type: "DELETE_BACKWARD" });
+    e = reduceEditor(reduceEditor(e, { type: "SET_SELECTION", selection: at("p2", 0) }), { type: "SECTION_BREAK" });
     return e.state;
   };
 

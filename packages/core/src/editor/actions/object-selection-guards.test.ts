@@ -87,7 +87,7 @@ describe("object-selection action-handler guards (#525 T6)", () => {
     const editor = objectEditor();
     let next: EditorState | null = null;
     expect(() => {
-      next = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" }, config);
+      next = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
     }).not.toThrow();
     if (next === null) throw new Error("unreachable");
     const result: EditorState = next;
@@ -98,14 +98,14 @@ describe("object-selection action-handler guards (#525 T6)", () => {
     expect(result.selection.focus.offset).toBe(1);
 
     // ONE undo entry: a single UNDO restores the image AND drops the text.
-    const undone = reduceEditor(result, { type: "UNDO" }, config);
+    const undone = reduceEditor(result, { type: "UNDO" });
     expect(getBlock(undone.state, IMAGE_ID)?.type).toBe("image");
     expect(textOf(undone.state, TRAILING_ID)).toBe("");
   });
 
   it("DELETE_WORD removes the selected object (routed to object-delete)", () => {
     const editor = objectEditor();
-    const next = reduceEditor(editor, { type: "DELETE_WORD", direction: "forward" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_WORD", direction: "forward" });
     expect(getBlock(next.state, IMAGE_ID)).toBeNull();
     expect(next.selection.focus.blockId).toBe(TRAILING_ID);
     expect(next.selection.focus.offset).toBe(0);
@@ -113,7 +113,7 @@ describe("object-selection action-handler guards (#525 T6)", () => {
 
   it("SPLIT_NODE (Enter) on an object selection is a no-op (same editor reference)", () => {
     const editor = objectEditor();
-    const next = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    const next = reduceEditor(editor, { type: "SPLIT_NODE" });
     expect(next).toBe(editor);
     expect(getBlock(next.state, IMAGE_ID)?.type).toBe("image");
   });
@@ -124,14 +124,14 @@ describe("object-selection action-handler guards (#525 T6)", () => {
     // selection. The geometry-free core action it would otherwise dispatch —
     // DELETE_RANGE over the object's collapsed span — is itself a no-op.
     const editor = objectEditor();
-    const next = reduceEditor(editor, { type: "DELETE_RANGE", span: editor.selection }, config);
+    const next = reduceEditor(editor, { type: "DELETE_RANGE", span: editor.selection });
     expect(next).toBe(editor);
     expect(getBlock(next.state, IMAGE_ID)?.type).toBe("image");
   });
 
   it("MOVE_WORD forward places the caret AFTER the image (start of the following block)", () => {
     const editor = objectEditor();
-    const next = reduceEditor(editor, { type: "MOVE_WORD", direction: "forward" }, config);
+    const next = reduceEditor(editor, { type: "MOVE_WORD", direction: "forward" });
     expect(getBlock(next.state, IMAGE_ID)?.type).toBe("image");
     expect(next.selection.focus.blockId).toBe(TRAILING_ID);
     expect(next.selection.focus.offset).toBe(0);
@@ -140,7 +140,7 @@ describe("object-selection action-handler guards (#525 T6)", () => {
 
   it("MOVE_WORD backward places the caret BEFORE the image (end of the preceding block)", () => {
     const editor = objectEditor();
-    const next = reduceEditor(editor, { type: "MOVE_WORD", direction: "backward" }, config);
+    const next = reduceEditor(editor, { type: "MOVE_WORD", direction: "backward" });
     expect(getBlock(next.state, IMAGE_ID)?.type).toBe("image");
     expect(next.selection.focus.blockId).toBe(PARA_ID);
     expect(next.selection.focus.offset).toBe("above".length);

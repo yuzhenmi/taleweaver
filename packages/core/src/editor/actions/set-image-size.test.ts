@@ -18,12 +18,11 @@ import type { BlockId } from "../../state";
 /** Insert an image (120×80) after the first paragraph; return its block id. */
 function docWithImage() {
   let editor = createInitialEditorState(config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" }, config);
+  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
   const paraId = firstChildId(editor.state) as BlockId;
   editor = reduceEditor(
     editor,
     { type: "INSERT_IMAGE", src: "i.png", width: 120, height: 80 },
-    config,
   );
   const imageId = getBlock(editor.state, paraId)?.nextSiblingId as BlockId;
   // Self-validate the fixture: if INSERT_IMAGE ever stops placing the image as
@@ -40,7 +39,6 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: 100 },
-      config,
     );
 
     const img = getBlock(next.state, imageId);
@@ -57,7 +55,6 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: 100 },
-      config,
     );
 
     expect(next.selection).toEqual(before);
@@ -69,7 +66,6 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_IMAGE_SIZE", blockId: paraId, width: 200, height: 100 },
-      config,
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -82,7 +78,6 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_IMAGE_SIZE", blockId: "missing-id" as BlockId, width: 50, height: 50 },
-      config,
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -95,7 +90,6 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_IMAGE_SIZE", blockId: imageId, width: 120, height: 80 },
-      config,
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -107,30 +101,27 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(
-      reduceEditor(editor, { type: "SET_IMAGE_SIZE", blockId: imageId, width: 0, height: 100 }, config).state,
+      reduceEditor(editor, { type: "SET_IMAGE_SIZE", blockId: imageId, width: 0, height: 100 }).state,
     ).toBe(editor.state);
     expect(
-      reduceEditor(editor, { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: -5 }, config).state,
+      reduceEditor(editor, { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: -5 }).state,
     ).toBe(editor.state);
     expect(
       reduceEditor(
         editor,
         { type: "SET_IMAGE_SIZE", blockId: imageId, width: Number.NaN, height: 100 },
-        config,
       ).state,
     ).toBe(editor.state);
     expect(
       reduceEditor(
         editor,
         { type: "SET_IMAGE_SIZE", blockId: imageId, width: Number.POSITIVE_INFINITY, height: 100 },
-        config,
       ).state,
     ).toBe(editor.state);
     expect(
       reduceEditor(
         editor,
         { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: Number.NEGATIVE_INFINITY },
-        config,
       ).state,
     ).toBe(editor.state);
   });
@@ -140,11 +131,10 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
     const resized = reduceEditor(
       editor,
       { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: 100 },
-      config,
     );
     expect(getBlock(resized.state, imageId)?.attrs.width).toBe(200);
 
-    const undone = reduceEditor(resized, { type: "UNDO" }, config);
+    const undone = reduceEditor(resized, { type: "UNDO" });
     expect(getBlock(undone.state, imageId)?.attrs.width).toBe(120);
     expect(getBlock(undone.state, imageId)?.attrs.height).toBe(80);
   });

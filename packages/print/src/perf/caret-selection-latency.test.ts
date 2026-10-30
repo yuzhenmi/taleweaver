@@ -89,10 +89,9 @@ function run(paragraphs: number): Result {
   const controller = createEditorController(container, {
     measurer: core.createMockMeasurer(8, 16),
     dispatch: (a) => {
-      editor = core.reduceEditor(editor, a, config);
+      editor = core.reduceEditor(editor, a);
       controller.update(editor);
     },
-    pageConfig: LETTER,
     pageHeight: LETTER.pageBlockSize,
     pageGap: LETTER.pageGap,
   });

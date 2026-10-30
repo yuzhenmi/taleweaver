@@ -151,14 +151,14 @@ function secondInstanceWrite(from: Y.Doc, doc: Y.Doc): void {
 type HaltedCase = () => unknown;
 
 /** Peer A (an engine of its own) and the controller under test on peer B's doc (synced A → B). */
-function setup(text = "hello", extra: Partial<EditorControllerOptions> = {}) {
-  let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text }, cfg);
+function setup(text = "hello", extra: Partial<EditorControllerOptions> = {}, config: core.EditorConfig = cfg) {
+  let peerA = core.reduceEditor(core.createInitialEditorState(config), { type: "INSERT_TEXT", text });
   const docA = core.getYDoc(peerA.state);
   const docB = new Y.Doc();
   Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
   docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
   const stateB = core.createState({ resolver: TEST_RESOLVER, rootId: peerA.state.rootId, doc: docB });
-  let current = core.createEditorStateFromState(stateB, core.initialSelectionForState(stateB), cfg);
+  let current = core.createEditorStateFromState(stateB, core.initialSelectionForState(stateB), config);
   const actions: core.EditorAction[] = [];
   const reports: core.IncompatibleDocumentReport[] = [];
   let compatible = 0;
@@ -169,10 +169,9 @@ function setup(text = "hello", extra: Partial<EditorControllerOptions> = {}) {
     measurer: core.createMockMeasurer(8, 16),
     dispatch: (a) => {
       actions.push(a);
-      current = core.reduceEditor(current, a, cfg);
+      current = core.reduceEditor(current, a);
       controller?.update(current);
     },
-    config: cfg,
     onIncompatibleDocument: (r) => reports.push(r),
     onDocumentCompatible: () => compatible++,
     ...extra,
@@ -196,7 +195,7 @@ function setup(text = "hello", extra: Partial<EditorControllerOptions> = {}) {
     set: (e: core.EditorState) => (current = e),
     /** Peer A edits through its own engine (an up-to-date client). */
     peer: (action: core.EditorAction) => {
-      peerA = core.reduceEditor(peerA, action, cfg);
+      peerA = core.reduceEditor(peerA, action);
     },
     /** Peer A's caret block. */
     peerFocus: () => peerA.selection.focus.blockId,
@@ -396,14 +395,14 @@ describe("print — HALTED on an incompatible document", () => {
     const m = setup();
     legacyWrite(m.docA, "old");
     // A descendant of the halted State (the host kept reducing it): not a replacement.
-    const descendant = core.reduceEditor(m.get(), { type: "APPLY_FOREIGN_CHANGE", dirtyIds: new Set([m.id]) }, cfg);
+    const descendant = core.reduceEditor(m.get(), { type: "APPLY_FOREIGN_CHANGE", dirtyIds: new Set([m.id]) });
     expect(descendant.state).not.toBe(m.get().state);
     expect(descendant.lastChange).not.toBeNull();
     m.controller.update(descendant);
     expect(m.controller.halted).toBe(true);
     // A fresh State over the same Y.Doc — with an edit on top (the host reduced it
     // before rendering) — resumes: its chain never reaches the halted State.
-    m.set(core.reduceEditor(freshOver(m.docB, m.rootId), { type: "INSERT_TEXT", text: "!" }, cfg));
+    m.set(core.reduceEditor(freshOver(m.docB, m.rootId), { type: "INSERT_TEXT", text: "!" }));
     expect(m.get().lastChange).not.toBeNull();
     m.controller.update(m.get());
     expect(m.controller.halted).toBe(false);
@@ -447,7 +446,7 @@ describe("print — HALTED on an incompatible document", () => {
     core.upgradeDocument(x.doc, { resolver: TEST_RESOLVER });
     expect(m.compatible()).toBe(1);
     // A State reduced from the refused replacement never resumes; a fresh one does.
-    const descendant = core.reduceEditor(x.editorState, { type: "APPLY_FOREIGN_CHANGE", dirtyIds: new Set(["p1" as core.BlockId]) }, cfg);
+    const descendant = core.reduceEditor(x.editorState, { type: "APPLY_FOREIGN_CHANGE", dirtyIds: new Set(["p1" as core.BlockId]) });
     expect(descendant.lastChange?.from).toBe(x.editorState.state);
     m.controller.update(descendant);
     expect(m.controller.halted).toBe(true);
@@ -465,7 +464,6 @@ describe("print — HALTED on an incompatible document", () => {
     const c = createEditorController(container, {
       measurer: core.createMockMeasurer(8, 16),
       dispatch: () => {},
-      config: cfg,
       startHaltedOn: x.editorState,
       onDocumentCompatible: () => compatible++,
     });
@@ -521,16 +519,13 @@ describe("print — HALTED on an incompatible document", () => {
 
   it("a page never painted scrolls into view while halted: it paints the last good layout, nothing throws", () => {
     const paragraphs = Array.from({ length: 80 }, (_, i) => `para ${i}`).join("\n");
-    const m = setup("x", {
-      pageHeight: 200,
+    const pageConfig: core.PageConfig = {
+      pageInlineSize: 300,
+      pageBlockSize: 200,
+      pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
       pageGap: 10,
-      pageConfig: {
-        pageInlineSize: 300,
-        pageBlockSize: 200,
-        pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
-        pageGap: 10,
-      },
-    });
+    };
+    const m = setup("x", { pageHeight: 200, pageGap: 10 }, { ...cfg, pageConfig });
     // Build a multi-page document on the peer and sync it before halting.
     for (const line of paragraphs.split("\n")) {
       m.peer({ type: "SPLIT_NODE" });

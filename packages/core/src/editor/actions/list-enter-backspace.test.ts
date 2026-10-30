@@ -14,8 +14,8 @@ import {
   reduceEditor,
   createPosition,
 } from "./test-helpers";
-import type { EditorState } from "../editor-state";
-import { getBlock, createHistory, setListType } from "../../state";
+import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { getBlock, setListType } from "../../state";
 import type { BlockId, State } from "../../state";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
 
@@ -23,15 +23,7 @@ import { buildState, buildBlock, inlineContent, text } from "../../test-utils/st
 // read no layout, so build only the geometry-free fields.
 function makeEditor(state: State, focusId: string, offset: number): EditorState {
   const caret = createPosition(focusId as BlockId, offset);
-  return {
-    state,
-    selection: { anchor: caret, focus: caret },
-    history: createHistory(state),
-    lastDirtyIds: null,
-    lastChange: null,
-    containerWidth: config.containerWidth,
-    targetX: null,
-  };
+  return createEditorStateFromState(state, { anchor: caret, focus: caret }, config);
 }
 
 /** A single list-item `li` (listId L1) as the document's only block. */
@@ -87,7 +79,7 @@ describe("Enter-exit on an empty list-item (#L16)", () => {
     const state = buildDoc({ content: "" });
     const editor = makeEditor(state, "li", 0);
 
-    const next = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    const next = reduceEditor(editor, { type: "SPLIT_NODE" });
 
     const block = getBlock(next.state, "li" as BlockId);
     expect(block?.type).toBe("paragraph");
@@ -101,7 +93,7 @@ describe("Enter-exit on an empty list-item (#L16)", () => {
     const state = buildDoc({ level: 2, content: "" });
     const editor = makeEditor(state, "li", 0);
 
-    const next = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    const next = reduceEditor(editor, { type: "SPLIT_NODE" });
 
     const block = getBlock(next.state, "li" as BlockId);
     expect(block?.type).toBe("list-item");
@@ -113,7 +105,7 @@ describe("Enter-exit on an empty list-item (#L16)", () => {
     const state = buildLoneItemDoc("");
     const editor = makeEditor(state, "li", 0);
 
-    const next = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    const next = reduceEditor(editor, { type: "SPLIT_NODE" });
 
     const block = getBlock(next.state, "li" as BlockId);
     expect(block?.type).toBe("paragraph");
@@ -128,7 +120,7 @@ describe("Enter-exit on an empty list-item (#L16)", () => {
     // Caret in the middle ("hel|lo").
     const editor = makeEditor(state, "li", 3);
 
-    const next = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    const next = reduceEditor(editor, { type: "SPLIT_NODE" });
 
     // the head [0, 3) is the new block; "li" keeps the tail.
     const original = getBlock(next.state, "li" as BlockId);
@@ -147,7 +139,7 @@ describe("Backspace-outdent at the start of a list-item (#L16)", () => {
     const state = buildDoc({ level: 2, content: "item" });
     const editor = makeEditor(state, "li", 0);
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     const block = getBlock(next.state, "li" as BlockId);
     expect(block?.type).toBe("list-item");
@@ -160,7 +152,7 @@ describe("Backspace-outdent at the start of a list-item (#L16)", () => {
     const state = buildDoc({ content: "item" });
     const editor = makeEditor(state, "li", 0);
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     const block = getBlock(next.state, "li" as BlockId);
     expect(block?.type).toBe("paragraph");
@@ -175,7 +167,7 @@ describe("Backspace-outdent at the start of a list-item (#L16)", () => {
     const state = buildLoneItemDoc("item");
     const editor = makeEditor(state, "li", 0);
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     // Un-lists rather than no-op'ing at doc start (the list-item branch fires
     // before the doc-start cross-block guard).
@@ -189,7 +181,7 @@ describe("Backspace-outdent at the start of a list-item (#L16)", () => {
     const state = buildDoc({ level: 2, content: "ab" });
     const editor = makeEditor(state, "li", 2);
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     const block = getBlock(next.state, "li" as BlockId);
     // Level unchanged; one char removed.

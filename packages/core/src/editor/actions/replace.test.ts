@@ -10,7 +10,7 @@ import { buildBlock, buildState, inlineContent, text } from "../../test-utils/st
 /** Build a single-paragraph editor with `text` typed in. */
 function withText(text: string): EditorState {
   let s = createInitialEditorState(config);
-  s = reduceEditor(s, { type: "INSERT_TEXT", text }, config);
+  s = reduceEditor(s, { type: "INSERT_TEXT", text });
   return s;
 }
 
@@ -36,7 +36,6 @@ describe("REPLACE_MATCH", () => {
     editor = reduceEditor(
       editor,
       { type: "REPLACE_MATCH", match: { blockId: p, start: 0, end: 5 }, replacement: "goodbye" },
-      config,
     );
     expect(textOf(editor, p)).toBe("goodbye world hello");
     // Cursor lands at start + replacement.length = 0 + 7.
@@ -51,19 +50,18 @@ describe("REPLACE_MATCH", () => {
     let editor = reduceEditor(
       typed,
       { type: "REPLACE_MATCH", match: { blockId: p, start: 0, end: 3 }, replacement: "dog" },
-      config,
     );
     expect(textOf(editor, p)).toBe("dog cat");
 
     // Undoing once restores the pre-replace text (the replace did NOT coalesce
     // into the typing entry — it is its own undo unit).
-    editor = reduceEditor(editor, { type: "UNDO" }, config);
+    editor = reduceEditor(editor, { type: "UNDO" });
     expect(textOf(editor, p)).toBe("cat cat");
 
     // The SECOND undo backs out the typing, then the stack is empty — so the
     // replace + typing were exactly TWO entries.
     expect(editor.history.canUndo()).toBe(true);
-    editor = reduceEditor(editor, { type: "UNDO" }, config);
+    editor = reduceEditor(editor, { type: "UNDO" });
     expect(textOf(editor, p)).toBe("");
     expect(editor.history.canUndo()).toBe(false);
   });
@@ -77,27 +75,27 @@ describe("REPLACE_ALL", () => {
     const matches = findMatches(typed.state, "ab");
     expect(matches).toHaveLength(3);
 
-    let editor = reduceEditor(typed, { type: "REPLACE_ALL", matches, replacement: "ZZ" }, config);
+    let editor = reduceEditor(typed, { type: "REPLACE_ALL", matches, replacement: "ZZ" });
     expect(textOf(editor, p)).toBe("ZZ cd ZZ ef ZZ");
 
     // ONE undo restores the pre-replace text in a single step (the whole
     // replace-all is exactly ONE undo entry, not three).
-    editor = reduceEditor(editor, { type: "UNDO" }, config);
+    editor = reduceEditor(editor, { type: "UNDO" });
     expect(textOf(editor, p)).toBe("ab cd ab ef ab");
 
     // The SECOND undo backs out the typing — then the stack is empty. So the
     // replace-all + typing were exactly TWO entries total (replace-all = 1).
     expect(editor.history.canUndo()).toBe(true);
-    editor = reduceEditor(editor, { type: "UNDO" }, config);
+    editor = reduceEditor(editor, { type: "UNDO" });
     expect(textOf(editor, p)).toBe("");
     expect(editor.history.canUndo()).toBe(false);
   });
 
   it("undo of REPLACE_ALL restores ALL blocks in one step", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "foo bar" }, config);
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "bar baz" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "foo bar" });
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "bar baz" });
 
     const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
     const p1 = root?.firstChildId;
@@ -109,12 +107,12 @@ describe("REPLACE_ALL", () => {
     const matches = findMatches(editor.state, "bar");
     expect(matches).toHaveLength(2); // one in each paragraph
 
-    const afterReplace = reduceEditor(editor, { type: "REPLACE_ALL", matches, replacement: "QUX" }, config);
+    const afterReplace = reduceEditor(editor, { type: "REPLACE_ALL", matches, replacement: "QUX" });
     expect(textOf(afterReplace, p1)).toBe("foo QUX");
     expect(textOf(afterReplace, p2)).toBe("QUX baz");
 
     // ONE undo restores BOTH blocks.
-    const undone = reduceEditor(afterReplace, { type: "UNDO" }, config);
+    const undone = reduceEditor(afterReplace, { type: "UNDO" });
     expect(textOf(undone, p1)).toBe("foo bar");
     expect(textOf(undone, p2)).toBe("bar baz");
 
@@ -129,7 +127,7 @@ describe("REPLACE_ALL", () => {
 
   it("empty matches → no-op (same state reference)", () => {
     const editor = withText("hello");
-    const result = reduceEditor(editor, { type: "REPLACE_ALL", matches: [], replacement: "x" }, config);
+    const result = reduceEditor(editor, { type: "REPLACE_ALL", matches: [], replacement: "x" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(result.state).toBe(editor.state);
   });
@@ -159,7 +157,7 @@ describe("REPLACE_ALL — canonical storage through the editor's attr registry",
     });
     const p = "p" as BlockId;
     let editor = createEditorStateFromState(state, createSpan(createPosition(p, 0), createPosition(p, 0)), cfg);
-    editor = reduceEditor(editor, { type: "REPLACE_ALL", matches: findMatches(editor.state, "X"), replacement: "Y" }, cfg);
+    editor = reduceEditor(editor, { type: "REPLACE_ALL", matches: findMatches(editor.state, "X"), replacement: "Y" });
     expect(getBlock(editor.state, p)?.inlineContent?.items).toEqual([text("abY", { tag: { id: "t", v: 1 } })]);
   });
 });

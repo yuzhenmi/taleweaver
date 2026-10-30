@@ -29,7 +29,6 @@ import {
   runKeyBinding,
   resolveCommand,
   modConventionFor,
-  compileKeymap,
   createAnchorSet,
   proposeResultOf,
   type ProposalOutcome,
@@ -255,8 +254,6 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   let isComposing = false;
   let destroyed = false;
   const modConvention = modConventionFor(win.navigator.userAgent);
-  // Parse the host keymap now: a malformed binding name fails at configuration time.
-  if (options.extensions?.keymap !== undefined) compileKeymap(options.extensions.keymap);
   const mac = modConvention === "meta";
 
   // The reconciler owns the single selection bridge (created on its `mount`, wired to its
@@ -324,7 +321,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   function dispatch(action: EditorAction): void {
     if (halted) return;
     const prev = editorState;
-    editorState = reduceEditor(editorState, action, config);
+    editorState = reduceEditor(editorState, action);
     if (prev.state !== editorState.state) {
       const mapping = transitionMapping(prev, editorState);
       log.record(prev.state, editorState.state, mapping);

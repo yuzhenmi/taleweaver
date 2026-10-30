@@ -34,7 +34,7 @@ describe("EditorState.lastDirtyIds", () => {
     const editor = createInitialEditorState(config);
     const blockId = firstBlockId(editor.state);
 
-    const result = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" }, config);
+    const result = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
 
     expect(result.lastDirtyIds).not.toBeNull();
     const dirty = result.lastDirtyIds;
@@ -51,7 +51,6 @@ describe("EditorState.lastDirtyIds", () => {
     const result = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: createSpan(at, at) },
-      config,
     );
 
     expect(result.lastDirtyIds).toBeNull();
@@ -62,7 +61,7 @@ describe("EditorState.lastDirtyIds", () => {
     const blockId = firstBlockId(editor.state);
 
     // r1: a mutating action → a non-null block set.
-    const r1 = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" }, config);
+    const r1 = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
     expect(r1.lastDirtyIds).not.toBeNull();
 
     // r2: a selection-only action dispatched ON r1. Without the reducer's
@@ -72,7 +71,6 @@ describe("EditorState.lastDirtyIds", () => {
     const r2 = reduceEditor(
       r1,
       { type: "SET_SELECTION", selection: createSpan(at, at) },
-      config,
     );
 
     expect(r2.lastDirtyIds).toBeNull();

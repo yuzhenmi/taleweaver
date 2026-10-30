@@ -50,7 +50,7 @@ const config: EditorConfig = {
 
 function run(editor: EditorState, cfg: EditorConfig, ...actions: EditorAction[]): EditorState {
   let s = editor;
-  for (const a of actions) s = reduceEditor(s, a, cfg);
+  for (const a of actions) s = reduceEditor({ ...s, config: cfg }, a);
   return s;
 }
 const at = (id: BlockId, o: number): Position => createPosition(id, o);

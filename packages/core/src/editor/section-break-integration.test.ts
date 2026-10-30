@@ -18,8 +18,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { config, measurer, reduceEditor } from "./actions/test-helpers";
-import type { EditorState } from "./editor-state";
-import { getBlock, firstLeafBlock, createHistory, topLevelBlockIds } from "../state";
+import { createEditorStateFromState, type EditorState } from "./editor-state";
+import { getBlock, firstLeafBlock, topLevelBlockIds } from "../state";
 import type { State, BlockId } from "../state";
 import { positionTreeForTest } from "@taleweaver/print";
 import type { LayoutBox } from "@taleweaver/print";
@@ -88,18 +88,7 @@ function makeEditor(cursorBlock: BlockId): EditorState {
     ],
   });
   const cursor = { blockId: cursorBlock, offset: 0 };
-  return {
-    state: initialState,
-    selection: { anchor: cursor, focus: cursor },
-    history: createHistory(initialState),
-    lastDirtyIds: null,
-    lastChange: null,
-    containerWidth: config.containerWidth,
-    targetX: null,
-    caretPageHint: undefined,
-    caretAffinity: undefined,
-    anchorAffinity: undefined,
-  };
+  return createEditorStateFromState(initialState, { anchor: cursor, focus: cursor }, config);
 }
 
 /**
@@ -217,7 +206,7 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
     expect(p4Geom.y).toBeGreaterThan(p1Geom.y);
 
     // ----- 1. Dispatch SECTION_BREAK -----
-    const after = reduceEditor(before, { type: "SECTION_BREAK" }, config);
+    const after = reduceEditor(before, { type: "SECTION_BREAK" });
 
     // A real break produced a new state reference.
     expect(after.state).not.toBe(before.state);
@@ -262,7 +251,7 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
     expect(after.selection.anchor).toEqual(expectedCursor);
 
     // ----- 3. UNDO: restore original structure + selection + geometry -----
-    const undone = reduceEditor(after, { type: "UNDO" }, config);
+    const undone = reduceEditor(after, { type: "UNDO" });
 
     // One (final) section again, holding the original paragraphs.
     expect(rootChildIds(undone.state)).toHaveLength(1);
@@ -292,7 +281,7 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
     }
 
     // ----- 4. REDO: sections back, cursor at the new section start -----
-    const redone = reduceEditor(undone, { type: "REDO" }, config);
+    const redone = reduceEditor(undone, { type: "REDO" });
 
     const redoneRootChildren = rootChildIds(redone.state);
     expect(redoneRootChildren).toHaveLength(2);

@@ -16,10 +16,9 @@ import {
   createPosition,
   createSpan,
 } from "./test-helpers";
-import type { EditorState } from "../editor-state";
+import { createEditorStateFromState, type EditorState } from "../editor-state";
 import {
   getBlock,
-  createHistory,
   setListType,
   getListDefsForState,
   classifyListDef,
@@ -32,15 +31,7 @@ import { computeCounters } from "../../numbering/compute-counters";
 // Phase 0b: core's `EditorState` is geometry-free — these state-level action
 // tests build only the geometry-free fields (the handler reads no layout).
 function makeEditor(state: State, selection: EditorState["selection"]): EditorState {
-  return {
-    state,
-    selection,
-    history: createHistory(state),
-    lastDirtyIds: null,
-    lastChange: null,
-    containerWidth: config.containerWidth,
-    targetX: null,
-  };
+  return createEditorStateFromState(state, selection, config);
 }
 
 /** A list's classified type (ordered/unordered), or undefined if it has no def. */
@@ -101,7 +92,7 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
       anchor: createPosition("i1" as BlockId, 0),
       focus: createPosition("i1" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "unordered" }, config);
+    const next = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "unordered" });
 
     // The single shared def flipped — affects ALL items, not just the focus item.
     expect(listKind(next.state, "L1")).toBe("unordered");
@@ -113,7 +104,7 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
       anchor: createPosition("i0" as BlockId, 0),
       focus: createPosition("i0" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "ordered" }, config);
+    const next = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "ordered" });
     expect(next).toBe(editor);
   });
 
@@ -134,7 +125,7 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
       anchor: createPosition("p" as BlockId, 0),
       focus: createPosition("p" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "ordered" }, config);
+    const next = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "ordered" });
     expect(next).toBe(editor);
   });
 
@@ -144,10 +135,10 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
       anchor: createPosition("i1" as BlockId, 0),
       focus: createPosition("i1" as BlockId, 0),
     });
-    const changed = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "unordered" }, config);
+    const changed = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "unordered" });
     expect(listKind(changed.state, "L1")).toBe("unordered");
 
-    const undone = reduceEditor(changed, { type: "UNDO" }, config);
+    const undone = reduceEditor(changed, { type: "UNDO" });
     expect(listKind(undone.state, "L1")).toBe("ordered");
   });
 
@@ -191,7 +182,7 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
       state,
       createSpan(createPosition("i0" as BlockId, 0), createPosition("j0" as BlockId, 1)),
     );
-    const next = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "unordered" }, config);
+    const next = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "unordered" });
 
     expect(listKind(next.state, "L1")).toBe("unordered");
     expect(listKind(next.state, "L2")).toBe("unordered");
@@ -209,7 +200,7 @@ describe("handleSetListRestart — SET_LIST_RESTART (#L15)", () => {
       anchor: createPosition("i1" as BlockId, 0),
       focus: createPosition("i1" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "SET_LIST_RESTART", value: 5 }, config);
+    const next = reduceEditor(editor, { type: "SET_LIST_RESTART", value: 5 });
 
     // The attr is written on the focus item.
     expect(getBlock(next.state, "i1" as BlockId)?.attrs.listCounterOverride).toBe(5);
@@ -226,7 +217,6 @@ describe("handleSetListRestart — SET_LIST_RESTART (#L15)", () => {
         focus: createPosition("i1" as BlockId, 0),
       }),
       { type: "SET_LIST_RESTART", value: 5 },
-      config,
     ).state;
     expect(counterValue(state, "i1")).toBe(5);
 
@@ -234,7 +224,7 @@ describe("handleSetListRestart — SET_LIST_RESTART (#L15)", () => {
       anchor: createPosition("i1" as BlockId, 0),
       focus: createPosition("i1" as BlockId, 0),
     });
-    const cleared = reduceEditor(editor, { type: "SET_LIST_RESTART", value: null }, config);
+    const cleared = reduceEditor(editor, { type: "SET_LIST_RESTART", value: null });
 
     expect(getBlock(cleared.state, "i1" as BlockId)?.attrs.listCounterOverride).toBeUndefined();
     // Back to the natural sequence: i1=2, i2=3.
@@ -259,7 +249,7 @@ describe("handleSetListRestart — SET_LIST_RESTART (#L15)", () => {
       anchor: createPosition("p" as BlockId, 0),
       focus: createPosition("p" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "SET_LIST_RESTART", value: 3 }, config);
+    const next = reduceEditor(editor, { type: "SET_LIST_RESTART", value: 3 });
     expect(next).toBe(editor);
   });
 
@@ -271,14 +261,13 @@ describe("handleSetListRestart — SET_LIST_RESTART (#L15)", () => {
         focus: createPosition("i1" as BlockId, 0),
       }),
       { type: "SET_LIST_RESTART", value: 5 },
-      config,
     ).state;
 
     const editor = makeEditor(state, {
       anchor: createPosition("i1" as BlockId, 0),
       focus: createPosition("i1" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "SET_LIST_RESTART", value: 5 }, config);
+    const next = reduceEditor(editor, { type: "SET_LIST_RESTART", value: 5 });
     expect(next).toBe(editor);
   });
 });

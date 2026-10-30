@@ -130,7 +130,6 @@ function run(withDecorations: boolean, keystrokes: number, paragraphs = 400): Ru
   const controller = createEditorController(container, {
     measurer: core.createMockMeasurer(8, 16),
     dispatch: noop,
-    pageConfig: LETTER,
     pageHeight: LETTER.pageBlockSize,
     pageGap: LETTER.pageGap,
   });
@@ -154,7 +153,7 @@ function run(withDecorations: boolean, keystrokes: number, paragraphs = 400): Ru
   const target = ids[10];
   if (target === undefined) throw new Error("setup");
   const caret = core.createPosition(target, 10);
-  editor = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(caret, caret) }, config);
+  editor = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(caret, caret) });
   controller.update(editor);
 
   const typing: number[] = [];
@@ -162,7 +161,7 @@ function run(withDecorations: boolean, keystrokes: number, paragraphs = 400): Ru
   core.setPerfTraceEnabled(true);
   for (let i = 0; i < keystrokes; i++) {
     const t = performance.now();
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "x" }, config);
+    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
     controller.update(editor);
     typing.push(performance.now() - t);
   }

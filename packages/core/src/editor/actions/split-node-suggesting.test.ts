@@ -70,12 +70,11 @@ function caretAt(
   cfg: EditorConfig,
 ): EditorState {
   return reduceEditor(
-    editor,
+    { ...editor, config: cfg },
     {
       type: "SET_SELECTION",
       selection: createSpan(createPosition(paraId, offset), createPosition(paraId, offset)),
     },
-    cfg,
   );
 }
 
@@ -88,12 +87,11 @@ function select(
   cfg: EditorConfig,
 ): EditorState {
   return reduceEditor(
-    editor,
+    { ...editor, config: cfg },
     {
       type: "SET_SELECTION",
       selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
     },
-    cfg,
   );
 }
 
@@ -107,7 +105,6 @@ function seed(text: string): EditorState {
   return reduceEditor(
     createInitialEditorState(directConfig),
     { type: "INSERT_TEXT", text },
-    directConfig,
   );
 }
 
@@ -126,7 +123,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     const paraId = bodyParaId(seeded);
     const placed = caretAt(seeded, paraId, 3, suggestingConfig); // caret after "abc"
 
-    const next = reduceEditor(placed, { type: "SPLIT_NODE" }, suggestingConfig);
+    const next = reduceEditor(placed, { type: "SPLIT_NODE" });
 
     const head = headOf(next, paraId);
     expect(getTextOf(next.state, head)).toBe("abc");
@@ -144,7 +141,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     expect(next.selection.focus).toEqual(createPosition(paraId, 0));
 
     expect(next.history.canUndo()).toBe(true);
-    const undone = reduceEditor(next, { type: "UNDO" }, suggestingConfig);
+    const undone = reduceEditor(next, { type: "UNDO" });
     expect(getTextOf(undone.state, paraId)).toBe("abcdef");
     expect(getBlock(undone.state, paraId)?.prevSiblingId).toBeNull();
     expect(getSuggestions(undone.state)).toHaveLength(0);
@@ -153,7 +150,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
   it("collapsed Enter at START (offset 0): no special case — the new EMPTY head above carries the keyed ¶ (Word); the text keeps its id and the caret", () => {
     const seeded = seed("abcdef");
     const paraId = bodyParaId(seeded);
-    const next = reduceEditor(caretAt(seeded, paraId, 0, suggestingConfig), { type: "SPLIT_NODE" }, suggestingConfig);
+    const next = reduceEditor(caretAt(seeded, paraId, 0, suggestingConfig), { type: "SPLIT_NODE" });
 
     const head = headOf(next, paraId);
     expect(getTextOf(next.state, head)).toBe("");
@@ -166,9 +163,9 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
   it("collapsed Enter at END of a heading: the head stays a heading with the keyed ¶; the empty tail takes the follow-on type", () => {
     let editor = createInitialEditorState(directConfig);
     const headingId = bodyParaId(editor);
-    editor = reduceEditor(editor, { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } }, directConfig);
-    for (const ch of "Title") editor = reduceEditor(editor, { type: "INSERT_TEXT", text: ch }, directConfig);
-    const next = reduceEditor(caretAt(editor, headingId, 5, suggestingConfig), { type: "SPLIT_NODE" }, suggestingConfig);
+    editor = reduceEditor(editor, { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } });
+    for (const ch of "Title") editor = reduceEditor(editor, { type: "INSERT_TEXT", text: ch });
+    const next = reduceEditor(caretAt(editor, headingId, 5, suggestingConfig), { type: "SPLIT_NODE" });
 
     const head = headOf(next, headingId);
     const h = getBlock(next.state, head);
@@ -197,7 +194,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     });
     for (const [from, to] of [[3, 3], [2, 3]] as const) {
       const placed = createEditorStateFromState(state, createSpan(createPosition(p, from), createPosition(p, to)), cfg);
-      const next = reduceEditor(placed, { type: "SPLIT_NODE" }, cfg);
+      const next = reduceEditor(placed, { type: "SPLIT_NODE" });
       const head = headOf(next, p);
       expect(getBlock(next.state, head)?.markAttrs).toEqual({ bold: true });
       expect(getBlock(next.state, head)?.attrs).toEqual({ hostOnce: 1 });
@@ -208,7 +205,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
   it("direct mode (regression): collapsed Enter does a plain untracked split (no tag, no record)", () => {
     const seeded = seed("abcdef");
     const paraId = bodyParaId(seeded);
-    const next = reduceEditor(caretAt(seeded, paraId, 3, directConfig), { type: "SPLIT_NODE" }, directConfig);
+    const next = reduceEditor(caretAt(seeded, paraId, 3, directConfig), { type: "SPLIT_NODE" });
     const head = headOf(next, paraId);
     expect(getTextOf(next.state, head)).toBe("abc");
     expect(getTextOf(next.state, paraId)).toBe("def");
@@ -219,7 +216,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
   it("single-block non-collapsed Enter in suggesting mode: selection struck (stays) + suggested split after it + caret → (B, 0) + one undo reverts all", () => {
     const seeded = seed("abcdef");
     const paraId = bodyParaId(seeded);
-    const next = reduceEditor(select(seeded, paraId, 1, 4, suggestingConfig), { type: "SPLIT_NODE" }, suggestingConfig);
+    const next = reduceEditor(select(seeded, paraId, 1, 4, suggestingConfig), { type: "SPLIT_NODE" });
 
     // The head: "a" + struck "bcd" (text STAYS), its ¶ the suggested split.
     const head = headOf(next, paraId);
@@ -238,7 +235,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     expect(next.selection.focus).toEqual(createPosition(paraId, 0));
     expect(next.selection.anchor).toEqual(next.selection.focus);
 
-    const undone = reduceEditor(next, { type: "UNDO" }, suggestingConfig);
+    const undone = reduceEditor(next, { type: "UNDO" });
     expect(getTextOf(undone.state, paraId)).toBe("abcdef");
     expect(getBlock(undone.state, paraId)?.prevSiblingId).toBeNull();
     expect(getSuggestions(undone.state)).toHaveLength(0);
@@ -260,18 +257,17 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     const mk = (): { editor: EditorState; para1: BlockId } => {
       let editor = seed("abc");
       const para1 = bodyParaId(editor);
-      editor = reduceEditor(editor, { type: "SPLIT_NODE" }, directConfig); // "abc" | ""
-      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "def" }, directConfig);
+      editor = reduceEditor(editor, { type: "SPLIT_NODE" }); // "abc" | ""
+      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "def" });
       // After the direct split para1 holds "" (the tail) and its new head holds "abc".
       const para2 = para1;
       const head1 = getBlock(editor.state, para2)?.prevSiblingId ?? null;
       if (head1 === null) throw new Error("expected a second paragraph");
       const crossed = reduceEditor(
-        editor,
+        { ...editor, config: suggestingConfig },
         { type: "SET_SELECTION", selection: createSpan(createPosition(head1, 1), createPosition(para2, 2)) },
-        suggestingConfig,
       );
-      return { editor: reduceEditor(crossed, { type: "SPLIT_NODE" }, suggestingConfig), para1: head1 };
+      return { editor: reduceEditor(crossed, { type: "SPLIT_NODE" }), para1: head1 };
     };
 
     it("tracks a deletion + insertion; the inserted (split) ¶ follows the struck selection", () => {
@@ -294,7 +290,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     });
 
     it("ACCEPT_ALL removes the selection and leaves ONE paragraph break (\"a\" | \"f\")", () => {
-      const accepted = reduceEditor(mk().editor, { type: "ACCEPT_ALL_SUGGESTIONS" }, suggestingConfig);
+      const accepted = reduceEditor(mk().editor, { type: "ACCEPT_ALL_SUGGESTIONS" });
       const seq = blockSeq(accepted);
       expect(seq.map((id) => getTextOf(accepted.state, id))).toEqual(["a", "f"]);
       expect(getSuggestions(accepted.state)).toHaveLength(0);
@@ -304,32 +300,32 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
       const mkHeadings = (): { editor: EditorState; tail: BlockId } => {
         let editor = createInitialEditorState(directConfig);
         const e = bodyParaId(editor);
-        editor = reduceEditor(editor, { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } }, directConfig);
-        for (const ch of "Title") editor = reduceEditor(editor, { type: "INSERT_TEXT", text: ch }, directConfig);
-        editor = reduceEditor(editor, { type: "SPLIT_NODE" }, directConfig); // "Title" | "" (paragraph)
-        editor = reduceEditor(editor, { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 2 } }, directConfig);
-        for (const ch of "Sub") editor = reduceEditor(editor, { type: "INSERT_TEXT", text: ch }, directConfig);
+        editor = reduceEditor(editor, { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } });
+        for (const ch of "Title") editor = reduceEditor(editor, { type: "INSERT_TEXT", text: ch });
+        editor = reduceEditor(editor, { type: "SPLIT_NODE" }); // "Title" | "" (paragraph)
+        editor = reduceEditor(editor, { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 2 } });
+        for (const ch of "Sub") editor = reduceEditor(editor, { type: "INSERT_TEXT", text: ch });
         const s = getBlock(editor.state, e)?.prevSiblingId ?? null;
         if (s === null) throw new Error("expected two headings");
-        const crossed = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(s, 2), createPosition(e, 3)) }, suggestingConfig);
-        return { editor: reduceEditor(crossed, { type: "SPLIT_NODE" }, suggestingConfig), tail: e };
+        const crossed = reduceEditor({ ...editor, config: suggestingConfig }, { type: "SET_SELECTION", selection: createSpan(createPosition(s, 2), createPosition(e, 3)) });
+        return { editor: reduceEditor(crossed, { type: "SPLIT_NODE" }), tail: e };
       };
       const { editor: next, tail } = mkHeadings();
       expect(getBlock(next.state, tail)?.type).toBe("paragraph");
       expect(next.selection.focus).toEqual(createPosition(tail, 0));
       const view = (e: EditorState) => blockSeq(e).map((id) => [getBlock(e.state, id)?.type, getBlock(e.state, id)?.attrs, getTextOf(e.state, id)]);
-      expect(view(reduceEditor(next, { type: "ACCEPT_ALL_SUGGESTIONS" }, suggestingConfig))).toEqual([
+      expect(view(reduceEditor(next, { type: "ACCEPT_ALL_SUGGESTIONS" }))).toEqual([
         ["heading", { level: 1 }, "Ti"],
         ["paragraph", {}, ""],
       ]);
-      expect(view(reduceEditor(mkHeadings().editor, { type: "REJECT_ALL_SUGGESTIONS" }, suggestingConfig))).toEqual([
+      expect(view(reduceEditor(mkHeadings().editor, { type: "REJECT_ALL_SUGGESTIONS" }))).toEqual([
         ["heading", { level: 1 }, "Title"],
         ["heading", { level: 2 }, "Sub"],
       ]);
     });
 
     it("REJECT_ALL restores the original two blocks (\"abc\" | \"def\")", () => {
-      const rejected = reduceEditor(mk().editor, { type: "REJECT_ALL_SUGGESTIONS" }, suggestingConfig);
+      const rejected = reduceEditor(mk().editor, { type: "REJECT_ALL_SUGGESTIONS" });
       const seq = blockSeq(rejected);
       expect(seq.map((id) => getTextOf(rejected.state, id))).toEqual(["abc", "def"]);
       expect(getSuggestions(rejected.state)).toHaveLength(0);
@@ -341,7 +337,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     const paraId = bodyParaId(seeded);
     const selected = select(seeded, paraId, 1, 4, directConfig); // select "bcd"
 
-    const next = reduceEditor(selected, { type: "SPLIT_NODE" }, directConfig);
+    const next = reduceEditor(selected, { type: "SPLIT_NODE" });
 
     // "bcd" deleted, then split at offset 1: the new head = "a", the block keeps "ef".
     expect(getTextOf(next.state, headOf(next, paraId))).toBe("a");

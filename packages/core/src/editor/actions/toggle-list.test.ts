@@ -20,10 +20,9 @@ import {
   createPosition,
   createSpan,
 } from "./test-helpers";
-import type { EditorState } from "../editor-state";
+import { createEditorStateFromState, type EditorState } from "../editor-state";
 import {
   getBlock,
-  createHistory,
   setListType,
   getListDefsForState,
 } from "../../state";
@@ -33,15 +32,7 @@ import { buildState, buildBlock, inlineContent, text } from "../../test-utils/st
 // Phase 0b: core's `EditorState` is geometry-free — these state-level action
 // tests build only the geometry-free fields (the handler reads no layout).
 function makeEditor(state: State, selection: EditorState["selection"]): EditorState {
-  return {
-    state,
-    selection,
-    history: createHistory(state),
-    lastDirtyIds: null,
-    lastChange: null,
-    containerWidth: config.containerWidth,
-    targetX: null,
-  };
+  return createEditorStateFromState(state, selection, config);
 }
 
 /** Classify a listId's def via the level-0 marker style (test mirror of the handler). */
@@ -64,7 +55,6 @@ describe("handleToggleList — flat list model (#L14)", () => {
     const next = reduceEditor(
       initial,
       { type: "TOGGLE_LIST", listType: "unordered" },
-      config,
     );
 
     const block = getBlock(next.state, paraId);
@@ -108,7 +98,7 @@ describe("handleToggleList — flat list model (#L14)", () => {
       anchor: createPosition("p" as BlockId, 0),
       focus: createPosition("p" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "unordered" }, config);
+    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "unordered" });
 
     const p = getBlock(next.state, "p" as BlockId);
     expect(p?.type).toBe("list-item");
@@ -136,7 +126,7 @@ describe("handleToggleList — flat list model (#L14)", () => {
       anchor: createPosition("li" as BlockId, 0),
       focus: createPosition("li" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "unordered" }, config);
+    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "unordered" });
 
     const block = getBlock(next.state, "li" as BlockId);
     expect(block?.type).toBe("paragraph");
@@ -170,7 +160,7 @@ describe("handleToggleList — flat list model (#L14)", () => {
       createSpan(createPosition("p0" as BlockId, 0), createPosition("p1" as BlockId, 3)),
     );
 
-    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" }, config);
+    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" });
 
     const b0 = getBlock(next.state, "p0" as BlockId);
     const b1 = getBlock(next.state, "p1" as BlockId);
@@ -203,7 +193,7 @@ describe("handleToggleList — flat list model (#L14)", () => {
       focus: createPosition("li" as BlockId, 0),
     });
     // Requesting ordered on an unordered item → NOT turning off → convert.
-    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" }, config);
+    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" });
 
     const block = getBlock(next.state, "li" as BlockId);
     expect(block?.type).toBe("list-item");
@@ -244,7 +234,7 @@ describe("handleToggleList — flat list model (#L14)", () => {
       anchor: createPosition("li" as BlockId, 0),
       focus: createPosition("li" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" }, config);
+    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" });
 
     // Joined the adjacent ordered list rather than allocating a new one.
     expect(getBlock(next.state, "li" as BlockId)?.attrs.listId).toBe("L1");
@@ -288,7 +278,7 @@ describe("handleToggleList — flat list model (#L14)", () => {
       anchor: createPosition("p" as BlockId, 0),
       focus: createPosition("p" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "unordered" }, config);
+    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "unordered" });
 
     // Both neighbours qualify → the BEFORE list (L1) wins.
     expect(getBlock(next.state, "p" as BlockId)?.attrs.listId).toBe("L1");
@@ -314,7 +304,7 @@ describe("handleToggleList — flat list model (#L14)", () => {
       anchor: createPosition("li" as BlockId, 0),
       focus: createPosition("li" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" }, config);
+    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" });
 
     const block = getBlock(next.state, "li" as BlockId);
     expect(block?.type).toBe("list-item");
@@ -325,10 +315,10 @@ describe("handleToggleList — flat list model (#L14)", () => {
 
   it("preserves the block id and inlineContent across the toggle", () => {
     let s = createInitialEditorState(config);
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "hello" }, config);
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "hello" });
     const paraId = firstChildId(s.state) as BlockId;
 
-    s = reduceEditor(s, { type: "TOGGLE_LIST", listType: "unordered" }, config);
+    s = reduceEditor(s, { type: "TOGGLE_LIST", listType: "unordered" });
     const after = getBlock(s.state, paraId);
     expect(after?.id).toBe(paraId);
     expect(after?.type).toBe("list-item");
@@ -339,10 +329,10 @@ describe("handleToggleList — flat list model (#L14)", () => {
     let s = createInitialEditorState(config);
     const paraId = firstChildId(s.state) as BlockId;
 
-    s = reduceEditor(s, { type: "TOGGLE_LIST", listType: "ordered" }, config);
+    s = reduceEditor(s, { type: "TOGGLE_LIST", listType: "ordered" });
     expect(getBlock(s.state, paraId)?.type).toBe("list-item");
 
-    s = reduceEditor(s, { type: "TOGGLE_LIST", listType: "ordered" }, config);
+    s = reduceEditor(s, { type: "TOGGLE_LIST", listType: "ordered" });
     expect(getBlock(s.state, paraId)?.type).toBe("paragraph");
     expect(getBlock(s.state, paraId)?.attrs).toEqual({});
   });

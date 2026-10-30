@@ -19,12 +19,11 @@ import type { BlockId } from "../../state";
 /** Insert an image (120×80) after the first paragraph; return its block id. */
 function docWithImage() {
   let editor = createInitialEditorState(config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" }, config);
+  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
   const paraId = firstChildId(editor.state) as BlockId;
   editor = reduceEditor(
     editor,
     { type: "INSERT_IMAGE", src: "i.png", width: 120, height: 80 },
-    config,
   );
   const imageId = getBlock(editor.state, paraId)?.nextSiblingId as BlockId;
   // Self-validate the fixture: if INSERT_IMAGE ever stops placing the image as
@@ -41,7 +40,6 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "left" },
-      config,
     );
 
     const img = getBlock(next.state, imageId);
@@ -57,14 +55,12 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
     const wrapped = reduceEditor(
       editor,
       { type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "right" },
-      config,
     );
     expect(getBlock(wrapped.state, imageId)?.attrs.wrap).toBe("right");
 
     const cleared = reduceEditor(
       wrapped,
       { type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "break" },
-      config,
     );
 
     const img = getBlock(cleared.state, imageId);
@@ -79,7 +75,6 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "left" },
-      config,
     );
 
     expect(next.selection).toEqual(before);
@@ -91,7 +86,6 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_IMAGE_WRAP", blockId: paraId, wrap: "left" },
-      config,
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -104,7 +98,6 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_IMAGE_WRAP", blockId: "missing-id" as BlockId, wrap: "left" },
-      config,
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -118,7 +111,6 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
       editor,
       // Force an out-of-range value past the type to exercise the runtime guard.
       { type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "center" as unknown as "left" },
-      config,
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -130,13 +122,11 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
     const wrapped = reduceEditor(
       editor,
       { type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "left" },
-      config,
     );
 
     const again = reduceEditor(
       wrapped,
       { type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "left" },
-      config,
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -151,7 +141,6 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "break" },
-      config,
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -163,16 +152,14 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
     const wrapped = reduceEditor(
       editor,
       { type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "left" },
-      config,
     );
     const cleared = reduceEditor(
       wrapped,
       { type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "break" },
-      config,
     );
     expect(getBlock(cleared.state, imageId)?.attrs.wrap).toBeUndefined();
 
-    const undone = reduceEditor(cleared, { type: "UNDO" }, config);
+    const undone = reduceEditor(cleared, { type: "UNDO" });
     expect(getBlock(undone.state, imageId)?.attrs.wrap).toBe("left");
   });
 
@@ -181,11 +168,10 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
     const wrapped = reduceEditor(
       editor,
       { type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "left" },
-      config,
     );
     expect(getBlock(wrapped.state, imageId)?.attrs.wrap).toBe("left");
 
-    const undone = reduceEditor(wrapped, { type: "UNDO" }, config);
+    const undone = reduceEditor(wrapped, { type: "UNDO" });
     const img = getBlock(undone.state, imageId);
     expect(img?.attrs.wrap).toBeUndefined();
     expect("wrap" in (img?.attrs ?? {})).toBe(false);

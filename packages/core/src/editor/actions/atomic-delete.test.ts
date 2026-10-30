@@ -23,9 +23,9 @@ function docWithAtomicAfter(
   insert: { type: "INSERT_IMAGE"; src: string } | { type: "INSERT_HORIZONTAL_LINE" },
 ) {
   let editor = createInitialEditorState(config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "above" }, config);
+  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "above" });
   const paraId = firstChildId(editor.state) as BlockId;
-  editor = reduceEditor(editor, insert, config);
+  editor = reduceEditor(editor, insert);
   const atomicId = getBlock(editor.state, paraId)?.nextSiblingId as BlockId;
   const trailingId = getBlock(editor.state, atomicId)?.nextSiblingId as BlockId;
   return { editor, paraId, atomicId, trailingId };
@@ -42,7 +42,7 @@ describe("atomic-leaf delete behavior (#P11.3)", () => {
     expect(editor.selection.focus.blockId).toBe(trailingId);
     expect(editor.selection.focus.offset).toBe(0);
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     // Image removed; the paragraph chain closes up around it.
     expect(getBlock(next.state, atomicId)).toBeNull();
@@ -60,7 +60,7 @@ describe("atomic-leaf delete behavior (#P11.3)", () => {
     });
     expect(getBlock(editor.state, atomicId)?.type).toBe("horizontal-line");
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     expect(getBlock(next.state, atomicId)).toBeNull();
     expect(getBlock(next.state, paraId)?.nextSiblingId).toBe(trailingId);
@@ -78,10 +78,9 @@ describe("atomic-leaf delete behavior (#P11.3)", () => {
     const placed = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: createSpan(caret, caret) },
-      config,
     );
 
-    const next = reduceEditor(placed, { type: "DELETE_FORWARD" }, config);
+    const next = reduceEditor(placed, { type: "DELETE_FORWARD" });
 
     expect(getBlock(next.state, atomicId)).toBeNull();
     // Caret stays at the end of "above".
@@ -94,10 +93,10 @@ describe("atomic-leaf delete behavior (#P11.3)", () => {
       type: "INSERT_IMAGE",
       src: "img.png",
     });
-    const deleted = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const deleted = reduceEditor(editor, { type: "DELETE_BACKWARD" });
     expect(getBlock(deleted.state, atomicId)).toBeNull();
 
-    const undone = reduceEditor(deleted, { type: "UNDO" }, config);
+    const undone = reduceEditor(deleted, { type: "UNDO" });
     const restoredId = getBlock(undone.state, paraId)?.nextSiblingId as BlockId;
     expect(getBlock(undone.state, restoredId)?.type).toBe("image");
   });
@@ -111,12 +110,11 @@ describe("atomic-leaf delete behavior (#P11.3)", () => {
     const placed = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: createSpan(caret, caret) },
-      config,
     );
-    const deleted = reduceEditor(placed, { type: "DELETE_FORWARD" }, config);
+    const deleted = reduceEditor(placed, { type: "DELETE_FORWARD" });
     expect(getBlock(deleted.state, atomicId)).toBeNull();
 
-    const undone = reduceEditor(deleted, { type: "UNDO" }, config);
+    const undone = reduceEditor(deleted, { type: "UNDO" });
     const restoredId = getBlock(undone.state, paraId)?.nextSiblingId as BlockId;
     expect(getBlock(undone.state, restoredId)?.type).toBe("image");
   });
@@ -129,25 +127,24 @@ describe("atomic-leaf delete behavior (#P11.3)", () => {
     // image A (its immediate predecessor) and leave image B untouched — proving
     // the helper deletes one block per invocation, not everything preceding.
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "above" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "above" });
     const paraId = firstChildId(editor.state) as BlockId;
     // Insert B first (after "above"), then A (after "above") so doc order is A, B.
-    editor = reduceEditor(editor, { type: "INSERT_IMAGE", src: "B.png" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_IMAGE", src: "B.png" });
     const imageBId = getBlock(editor.state, paraId)?.nextSiblingId as BlockId;
     const atParaEnd = createPosition(paraId, "above".length);
     editor = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: createSpan(atParaEnd, atParaEnd) },
-      config,
     );
-    editor = reduceEditor(editor, { type: "INSERT_IMAGE", src: "A.png" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_IMAGE", src: "A.png" });
     const imageAId = getBlock(editor.state, paraId)?.nextSiblingId as BlockId;
     const trailingAId = getBlock(editor.state, imageAId)?.nextSiblingId as BlockId;
     expect(getBlock(editor.state, imageAId)?.attrs.src).toBe("A.png");
     expect(getBlock(editor.state, imageBId)?.attrs.src).toBe("B.png");
     expect(editor.selection.focus.blockId).toBe(trailingAId);
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     expect(getBlock(next.state, imageAId)).toBeNull();
     expect(getBlock(next.state, imageBId)?.attrs.src).toBe("B.png");
@@ -156,9 +153,9 @@ describe("atomic-leaf delete behavior (#P11.3)", () => {
 
   it("regression: Backspace at the start of a normal paragraph still MERGES (no atomic neighbour)", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
     const para1Id = firstChildId(editor.state) as BlockId;
     const para2Id = getBlock(editor.state, para1Id)?.nextSiblingId as BlockId;
     // Caret at start of para2.
@@ -166,10 +163,9 @@ describe("atomic-leaf delete behavior (#P11.3)", () => {
     editor = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: createSpan(caret, caret) },
-      config,
     );
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     // Merged into one paragraph "ab": ¶para1 goes and para2 survives.
     expect(getBlock(next.state, para1Id)).toBeNull();

@@ -19,13 +19,12 @@ import type { BlockId } from "../../state";
 describe("handleInsertImage — INSERT_IMAGE (#P11.2)", () => {
   it("inserts an image (with src + dimensions) + trailing paragraph after the caret block", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "above" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "above" });
     const paraId = firstChildId(editor.state) as BlockId;
 
     const next = reduceEditor(
       editor,
       { type: "INSERT_IMAGE", src: "https://x/i.png", width: 120, height: 80 },
-      config,
     );
 
     const imgId = getBlock(next.state, paraId)?.nextSiblingId ?? null;
@@ -42,10 +41,10 @@ describe("handleInsertImage — INSERT_IMAGE (#P11.2)", () => {
 
   it("omits width/height attrs when not provided (so the image sizes intrinsically)", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
     const paraId = firstChildId(editor.state) as BlockId;
 
-    const next = reduceEditor(editor, { type: "INSERT_IMAGE", src: "a.png" }, config);
+    const next = reduceEditor(editor, { type: "INSERT_IMAGE", src: "a.png" });
 
     const imgId = getBlock(next.state, paraId)?.nextSiblingId ?? null;
     const img = imgId !== null ? getBlock(next.state, imgId) : null;
@@ -57,10 +56,10 @@ describe("handleInsertImage — INSERT_IMAGE (#P11.2)", () => {
 
   it("places the caret at the start of the new trailing paragraph", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
     const paraId = firstChildId(editor.state) as BlockId;
 
-    const next = reduceEditor(editor, { type: "INSERT_IMAGE", src: "a.png" }, config);
+    const next = reduceEditor(editor, { type: "INSERT_IMAGE", src: "a.png" });
 
     const imgId = getBlock(next.state, paraId)?.nextSiblingId ?? null;
     const trailingId = imgId !== null ? getBlock(next.state, imgId)?.nextSiblingId ?? null : null;
@@ -71,19 +70,19 @@ describe("handleInsertImage — INSERT_IMAGE (#P11.2)", () => {
 
   it("is a no-op when the caret is in a header body (not the main tree)", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_HEADER" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_HEADER" });
     expect(getBlock(editor.state, editor.selection.focus.blockId)).toBeNull(); // caret outside main tree
 
-    const next = reduceEditor(editor, { type: "INSERT_IMAGE", src: "a.png" }, config);
+    const next = reduceEditor(editor, { type: "INSERT_IMAGE", src: "a.png" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(next.state).toBe(editor.state);
   });
 
   it("splices the image + paragraph BETWEEN the focus block and its existing next sibling", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
     const para1Id = firstChildId(editor.state) as BlockId;
     const para2Id = getBlock(editor.state, para1Id)?.nextSiblingId ?? null;
     expect(para2Id).not.toBeNull();
@@ -93,10 +92,9 @@ describe("handleInsertImage — INSERT_IMAGE (#P11.2)", () => {
     editor = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: createSpan(caret, caret) },
-      config,
     );
 
-    const next = reduceEditor(editor, { type: "INSERT_IMAGE", src: "a.png" }, config);
+    const next = reduceEditor(editor, { type: "INSERT_IMAGE", src: "a.png" });
 
     // Order: para1 → image → trailingPara → para2.
     const imgId = getBlock(next.state, para1Id)?.nextSiblingId ?? null;
@@ -114,14 +112,14 @@ describe("handleInsertImage — INSERT_IMAGE (#P11.2)", () => {
 
   it("undo removes the image and the trailing paragraph", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "y" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "y" });
     const paraId = firstChildId(editor.state) as BlockId;
     expect(getBlock(editor.state, paraId)?.nextSiblingId).toBeNull();
 
-    const inserted = reduceEditor(editor, { type: "INSERT_IMAGE", src: "a.png" }, config);
+    const inserted = reduceEditor(editor, { type: "INSERT_IMAGE", src: "a.png" });
     expect(getBlock(inserted.state, paraId)?.nextSiblingId).not.toBeNull();
 
-    const undone = reduceEditor(inserted, { type: "UNDO" }, config);
+    const undone = reduceEditor(inserted, { type: "UNDO" });
     expect(getBlock(undone.state, paraId)?.nextSiblingId).toBeNull();
   });
 });

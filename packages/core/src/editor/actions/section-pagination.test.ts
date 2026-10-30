@@ -58,7 +58,7 @@ function makeConfig(pageBlockSize = 64): EditorConfig {
 /** Build an N-paragraph doc in one O(N) PASTE (one paragraph per line). */
 function buildPasted(config: EditorConfig, n: number): EditorState {
   const text = Array.from({ length: n }, (_, i) => `para ${i}`).join("\n");
-  return reduceEditor(createInitialEditorState(config), { type: "PASTE", text }, config);
+  return reduceEditor(createInitialEditorState(config), { type: "PASTE", text });
 }
 
 /** The document root's direct children, in order. */
@@ -121,9 +121,8 @@ describe("section pagination — positioning honors the section page-break cap (
     editor = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: { anchor: createPosition(boundary, 0), focus: createPosition(boundary, 0) } },
-      config,
     );
-    editor = reduceEditor(editor, { type: "SECTION_BREAK" }, config);
+    editor = reduceEditor(editor, { type: "SECTION_BREAK" });
 
     // Root now holds two sections.
     const sectionIds = rootChildIds(editor);
@@ -142,9 +141,8 @@ describe("section pagination — positioning honors the section page-break cap (
     editor = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: { anchor: createPosition(firstParaOfA, 2), focus: createPosition(firstParaOfA, 2) } },
-      config,
     );
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
 
     // The layout must be virtual (paginated mode).
     const tree = layoutOf(editor, config);

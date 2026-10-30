@@ -256,14 +256,12 @@ function buildRealPaginatedEditorState(): {
 
 // The controller enters paginated mode (and assigns its closure-local
 // `virtualTree`) only when `pageHeight` is set — it matches the fixture's
-// `pageConfig().pageBlockSize`. Phase 0b: `pageConfig` now lives in the
-// controller's OWN geometry options (the backend layout-driver reads it), so the
-// driver paginates the doc to a VirtualLayoutTree.
+// `pageConfig().pageBlockSize`. The layout-driver paginates the doc to a
+// VirtualLayoutTree with the `pageConfig` on the editor state's config.
 function makeOptions(): Parameters<typeof createEditorController>[1] {
   return {
     measurer: core.createMockMeasurer(8, 16),
     dispatch: vi.fn(),
-    pageConfig: pageConfig(),
     pageHeight: pageConfig().pageBlockSize,
     pageGap: pageConfig().pageGap,
   };

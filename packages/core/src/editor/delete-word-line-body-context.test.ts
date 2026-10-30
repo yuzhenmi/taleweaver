@@ -54,9 +54,9 @@ function withFootnoteBodyText(text: string): {
   bodyLength: number;
 } {
   const initial = createInitialEditorState(config);
-  const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" }, config);
-  const withFn = reduceEditor(typed, { type: "INSERT_FOOTNOTE" }, config);
-  const bodyTyped = reduceEditor(withFn, { type: "INSERT_TEXT", text }, config);
+  const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" });
+  const withFn = reduceEditor(typed, { type: "INSERT_FOOTNOTE" });
+  const bodyTyped = reduceEditor(withFn, { type: "INSERT_TEXT", text });
   const bodyId = bodyTyped.selection.focus.blockId;
   const block = resolveBlock(bodyTyped.state, bodyId)?.block ?? null;
   if (block === null || block.inlineContent === null) {
@@ -85,7 +85,6 @@ function selectInBlock(
         focus: { blockId, offset: end },
       },
     },
-    config,
   );
 }
 
@@ -99,7 +98,6 @@ describe("#430 — DELETE_WORD deletes a non-collapsed range inside a footnote b
     editor = reduceEditor(
       editor,
       { type: "DELETE_WORD", direction: "backward" },
-      config,
     );
 
     // The selected range is deleted (NOT extended by word — a selection delete
@@ -120,13 +118,12 @@ describe("#430 — DELETE_WORD deletes a non-collapsed range inside a footnote b
 describe("#430 — main-tree DELETE_WORD selection delete unchanged", () => {
   it("DELETE_WORD with a selection in the MAIN tree deletes the selection", () => {
     const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello world" }, config);
+    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello world" });
     const blockId = typed.selection.focus.blockId;
     const selected = selectInBlock(typed, blockId, 0, 6);
     const after = reduceEditor(
       selected,
       { type: "DELETE_WORD", direction: "backward" },
-      config,
     );
     expect(bodyTextOf(after.state, blockId)).toBe("world");
     expect(after.selection.anchor).toEqual(after.selection.focus);

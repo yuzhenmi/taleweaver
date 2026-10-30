@@ -21,12 +21,11 @@
 
 import { describe, it, expect } from "vitest";
 import { reduceEditor } from "../reduce-editor";
-import { type EditorState } from "../editor-state";
+import { type EditorState, createEditorStateFromState } from "../editor-state";
 import { type EditorConfig } from "../editor-config";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
 import {
-  createHistory,
   createPosition,
   createSpan,
   selectionContextOf,
@@ -141,21 +140,13 @@ function buildMainOnlyState(): State {
 function buildEditor(state: State, caret: { blockId: BlockId; offset: number }): EditorState {
   // Phase 0b: SELECT_ALL is context-aware but reads no layout — geometry-free.
   const cursor = createPosition(caret.blockId, caret.offset);
-  return {
-    state,
-    selection: createSpan(cursor, cursor),
-    history: createHistory(state),
-    lastDirtyIds: null,
-    lastChange: null,
-    containerWidth: config.containerWidth,
-    targetX: null,
-  };
+  return createEditorStateFromState(state, createSpan(cursor, cursor), config);
 }
 
 describe("SELECT_ALL — context-aware span", () => {
   it("caret in the MAIN body selects the whole main tree (first→last main leaf)", () => {
     const editor = buildEditor(buildStateWithHeaderFooter(), { blockId: BODY_P1, offset: 2 });
-    const next = reduceEditor(editor, { type: "SELECT_ALL" }, config);
+    const next = reduceEditor(editor, { type: "SELECT_ALL" });
 
     const { anchor, focus } = next.selection;
     // Both endpoints are MAIN-tree blocks.
@@ -174,7 +165,7 @@ describe("SELECT_ALL — context-aware span", () => {
 
   it("caret in a HEADER body selects ONLY that header (first→last header leaf)", () => {
     const editor = buildEditor(buildStateWithHeaderFooter(), { blockId: HDR_P1, offset: 1 });
-    const next = reduceEditor(editor, { type: "SELECT_ALL" }, config);
+    const next = reduceEditor(editor, { type: "SELECT_ALL" });
 
     const { anchor, focus } = next.selection;
     // Both endpoints are in the HEADER body.
@@ -194,7 +185,7 @@ describe("SELECT_ALL — context-aware span", () => {
 
   it("caret in a FOOTER body selects ONLY that footer", () => {
     const editor = buildEditor(buildStateWithHeaderFooter(), { blockId: FTR_P1, offset: 3 });
-    const next = reduceEditor(editor, { type: "SELECT_ALL" }, config);
+    const next = reduceEditor(editor, { type: "SELECT_ALL" });
 
     const { anchor, focus } = next.selection;
     expect(anchor.blockId).toBe(FTR_P1);
@@ -210,7 +201,7 @@ describe("SELECT_ALL — context-aware span", () => {
 
   it("NO-REGRESSION: main-only doc spans the whole main tree", () => {
     const editor = buildEditor(buildMainOnlyState(), { blockId: BODY_P1, offset: 1 });
-    const next = reduceEditor(editor, { type: "SELECT_ALL" }, config);
+    const next = reduceEditor(editor, { type: "SELECT_ALL" });
 
     const { anchor, focus } = next.selection;
     expect(anchor.blockId).toBe(BODY_P1);

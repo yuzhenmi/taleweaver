@@ -46,15 +46,13 @@ async function init() {
   let editorState: EditorState = createInitialEditorState(config);
 
   const dispatch = (action: EditorAction) => {
-    editorState = reduceEditor(editorState, action, config);
+    editorState = reduceEditor(editorState, action);
     ctrl.update(editorState);
   };
 
   const ctrl = createEditorController(container, {
     measurer: shaper,
     dispatch,
-    // The SAME config the reducer uses, so host-registered marks paint and copy correctly.
-    config,
     pageHeight: PAGE_HEIGHT,
     pageGap: PAGE_GAP,
   });

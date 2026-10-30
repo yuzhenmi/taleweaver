@@ -71,10 +71,9 @@ describe("handleInsertTable — INSERT_TABLE", () => {
     const placed = reduceEditor(
       initial,
       { type: "SET_SELECTION", selection: createSpan(createPosition(paraId, 0), createPosition(paraId, 0)) },
-      config,
     );
 
-    const next = reduceEditor(placed, { type: "INSERT_TABLE", rows: 2, cols: 3 }, config);
+    const next = reduceEditor(placed, { type: "INSERT_TABLE", rows: 2, cols: 3 });
     expect(next.state).not.toBe(placed.state);
 
     // table now precedes the original paragraph.
@@ -100,15 +99,14 @@ describe("handleInsertTable — INSERT_TABLE", () => {
 
   it("splits a mid-paragraph caret and threads the table between the halves", () => {
     const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abcdef" }, config);
+    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abcdef" });
     const paraId = bodyParaId(typed);
     const placed = reduceEditor(
       typed,
       { type: "SET_SELECTION", selection: createSpan(createPosition(paraId, 3), createPosition(paraId, 3)) },
-      config,
     );
 
-    const next = reduceEditor(placed, { type: "INSERT_TABLE", rows: 2, cols: 2 }, config);
+    const next = reduceEditor(placed, { type: "INSERT_TABLE", rows: 2, cols: 2 });
     // "abc" | table | "def". The head "abc" is the new block; the
     // caret's paragraph keeps the tail "def" (and its ¶) after the table.
     expect(topLevelTypes(next)).toEqual(["paragraph", "table", "paragraph"]);
@@ -123,60 +121,58 @@ describe("handleInsertTable — INSERT_TABLE", () => {
 
   it("inserts the whole table as ONE undo step (undo removes it and heals the split)", () => {
     const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abcdef" }, config);
+    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abcdef" });
     const paraId = bodyParaId(typed);
     const placed = reduceEditor(
       typed,
       { type: "SET_SELECTION", selection: createSpan(createPosition(paraId, 3), createPosition(paraId, 3)) },
-      config,
     );
-    const next = reduceEditor(placed, { type: "INSERT_TABLE", rows: 2, cols: 2 }, config);
+    const next = reduceEditor(placed, { type: "INSERT_TABLE", rows: 2, cols: 2 });
     expect(topLevelTypes(next)).toEqual(["paragraph", "table", "paragraph"]);
 
-    const undone = reduceEditor(next, { type: "UNDO" }, config);
+    const undone = reduceEditor(next, { type: "UNDO" });
     expect(topLevelTypes(undone)).toEqual(["paragraph"]);
     expect(getTextOf(undone.state, paraId)).toBe("abcdef");
   });
 
   it("replaces a non-collapsed selection (deletes it) before inserting, as one undo step", () => {
     const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abcdef" }, config);
+    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abcdef" });
     const paraId = bodyParaId(typed);
     // Select "cd" (offset 2..4).
     const placed = reduceEditor(
       typed,
       { type: "SET_SELECTION", selection: createSpan(createPosition(paraId, 2), createPosition(paraId, 4)) },
-      config,
     );
 
-    const next = reduceEditor(placed, { type: "INSERT_TABLE", rows: 1, cols: 1 }, config);
+    const next = reduceEditor(placed, { type: "INSERT_TABLE", rows: 1, cols: 1 });
     // "cd" deleted → "ab" | table | "ef" (the head "ab" is the new block).
     expect(getTextOf(next.state, paraId)).toBe("ef");
     expect(getTextOf(next.state, bodyParaId(next))).toBe("ab");
     expect(topLevelTypes(next)).toEqual(["paragraph", "table", "paragraph"]);
 
     // ONE undo restores "abcdef" AND removes the table.
-    const undone = reduceEditor(next, { type: "UNDO" }, config);
+    const undone = reduceEditor(next, { type: "UNDO" });
     expect(getTextOf(undone.state, paraId)).toBe("abcdef");
     expect(topLevelTypes(undone)).toEqual(["paragraph"]);
   });
 
   it("refuses (no-op) when the caret is inside a footnote body", () => {
     const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" }, config);
+    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" });
     // INSERT_FOOTNOTE lands the caret inside the footnote body paragraph.
-    const inFootnote = reduceEditor(typed, { type: "INSERT_FOOTNOTE" }, config);
+    const inFootnote = reduceEditor(typed, { type: "INSERT_FOOTNOTE" });
     expect(resolveBlock(inFootnote.state, inFootnote.selection.focus.blockId)?.kind).toBe("embedContent");
 
-    const refused = reduceEditor(inFootnote, { type: "INSERT_TABLE", rows: 2, cols: 2 }, config);
+    const refused = reduceEditor(inFootnote, { type: "INSERT_TABLE", rows: 2, cols: 2 });
     expect(refused.state).toBe(inFootnote.state); // identity: nothing changed
   });
 
   it("is a no-op for rows < 1 or cols < 1", () => {
     const initial = createInitialEditorState(config);
-    const a = reduceEditor(initial, { type: "INSERT_TABLE", rows: 0, cols: 3 }, config);
+    const a = reduceEditor(initial, { type: "INSERT_TABLE", rows: 0, cols: 3 });
     expect(a.state).toBe(initial.state);
-    const b = reduceEditor(initial, { type: "INSERT_TABLE", rows: 2, cols: 0 }, config);
+    const b = reduceEditor(initial, { type: "INSERT_TABLE", rows: 2, cols: 0 });
     expect(b.state).toBe(initial.state);
   });
 });

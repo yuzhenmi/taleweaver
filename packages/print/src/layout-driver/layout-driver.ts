@@ -14,6 +14,8 @@ import {
   type RenderNode,
   type ElementBox,
   type FootnoteNumber,
+  type EditorState,
+  type EditorConfig,
 } from "@taleweaver/core";
 import { layoutTreeIncremental } from "../layout/layout-incremental";
 import type { LayoutBox } from "../layout/layout-node";
@@ -34,20 +36,19 @@ import type { LayoutConfig } from "./layout-config";
  */
 export interface LayoutDriver {
   /**
-   * Rebuild the layout tree for `state` at `containerWidth`.
+   * Rebuild the layout tree for `editor.state` at `editor.containerWidth`, with the
+   * component / attr registries and page setup of `editor.config`. A registry or page
+   * setup different from the previous rebuild's drops every retained tree (a fresh
+   * full build).
    *
-   * `lastDirtyIds`:
+   * `editor.lastDirtyIds`:
    *  - a (possibly empty) set → incremental rebuild from the retained prior
    *    trees, reusing unchanged subtrees by reference (gated on the set);
    *  - `null` → a FULL rebuild (the initial build, or a container-width resize)
    *    against the prior cascaded tree when one exists (so a tall-header doc
    *    re-paginates with the grown insets), else a fresh full build.
    */
-  rebuild(
-    state: State,
-    containerWidth: number,
-    lastDirtyIds: ReadonlySet<BlockId> | null,
-  ): LayoutBox | VirtualLayoutTree;
+  rebuild(editor: EditorState): LayoutBox | VirtualLayoutTree;
 }
 
 /**
@@ -89,13 +90,14 @@ interface PipelinePrev {
 const MAX_PER_PAGE_CONVERGENCE_PASSES = 4;
 
 export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
-  const { measurer, hyphenator, pageConfig, componentRegistry, attrRegistry } = layoutConfig;
+  const { measurer, hyphenator } = layoutConfig;
 
   // Retained prior-cycle trees (the closure state feeding incremental reuse).
   // Null until the first rebuild populates them.
   let prev: PipelineResult | null = null;
   let prevState: State | null = null;
   let prevWidth: number | null = null;
+  let prevConfig: EditorConfig | null = null;
 
   /**
    * Run one render → cascade → layout cycle. Incremental when `cycle.dirtyIds`
@@ -106,8 +108,10 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
   function renderCascadeLayout(
     state: State,
     containerWidth: number,
+    config: EditorConfig,
     cycle: PipelinePrev | null,
   ): PipelineResult {
+    const { componentRegistry, attrRegistry, pageConfig } = config;
     const incremental = cycle !== null && cycle.dirtyIds !== undefined;
 
     const rendered =
@@ -183,6 +187,7 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
   function applyRestartPerPageNumbering(
     state: State,
     containerWidth: number,
+    config: EditorConfig,
     first: PipelineResult,
   ): PipelineResult {
     const policy = documentFootnotePolicy(state);
@@ -222,7 +227,7 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
         }
       }
 
-      const next = renderCascadeLayout(state, containerWidth, {
+      const next = renderCascadeLayout(state, containerWidth, config, {
         prevRenderOutput: current.rendered,
         prevState: state,
         prevCascaded: current.cascadedRoot,
@@ -250,11 +255,19 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
     return current;
   }
 
-  function rebuild(
-    state: State,
-    containerWidth: number,
-    lastDirtyIds: ReadonlySet<BlockId> | null,
-  ): LayoutBox | VirtualLayoutTree {
+  function rebuild(editor: EditorState): LayoutBox | VirtualLayoutTree {
+    const { state, containerWidth, lastDirtyIds, config } = editor;
+    // The retained trees were built with the previous registries / page setup: a change
+    // to any of them invalidates all of it.
+    if (
+      prevConfig !== null &&
+      (config.componentRegistry !== prevConfig.componentRegistry ||
+        config.attrRegistry !== prevConfig.attrRegistry ||
+        config.pageConfig !== prevConfig.pageConfig)
+    ) {
+      prev = null;
+      prevState = null;
+    }
     // Nothing the pipeline reads changed (a selection-only / inert dispatch: same
     // State, same width, no dirty set): the prior tree stands. Without this a caret
     // move re-rendered and re-laid-out the whole document (O(doc) per caret move).
@@ -276,12 +289,13 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
           }
         : null;
 
-    const first = renderCascadeLayout(state, containerWidth, cycle);
-    const converged = applyRestartPerPageNumbering(state, containerWidth, first);
+    const first = renderCascadeLayout(state, containerWidth, config, cycle);
+    const converged = applyRestartPerPageNumbering(state, containerWidth, config, first);
 
     prev = converged;
     prevState = state;
     prevWidth = containerWidth;
+    prevConfig = config;
     return converged.layout;
   }
 

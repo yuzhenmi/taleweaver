@@ -55,12 +55,11 @@ const suggestingConfig: EditorConfig = { ...directConfig, suggestingAuthor: "ali
 /** Place a collapsed caret at `offset` of `paraId` (suggesting config). */
 function caretAt(editor: EditorState, paraId: BlockId, offset: number): EditorState {
   return reduceEditor(
-    editor,
+    { ...editor, config: suggestingConfig },
     {
       type: "SET_SELECTION",
       selection: createSpan(createPosition(paraId, offset), createPosition(paraId, offset)),
     },
-    suggestingConfig,
   );
 }
 
@@ -72,12 +71,11 @@ function select(
   end: number,
 ): EditorState {
   return reduceEditor(
-    editor,
+    { ...editor, config: suggestingConfig },
     {
       type: "SET_SELECTION",
       selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
     },
-    suggestingConfig,
   );
 }
 
@@ -105,7 +103,6 @@ function seed(text: string): EditorState {
   return reduceEditor(
     createInitialEditorState(directConfig),
     { type: "INSERT_TEXT", text },
-    directConfig,
   );
 }
 
@@ -119,7 +116,6 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
     const next = reduceEditor(
       placed,
       { type: "DELETE_WORD", direction: "backward" },
-      suggestingConfig,
     );
 
     // Text intact; "world" (indices 6..10) carries the deletion id.
@@ -147,7 +143,6 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
     const once = reduceEditor(
       placed,
       { type: "DELETE_WORD", direction: "forward" },
-      suggestingConfig,
     );
 
     // "hello" (0..4) struck, text intact; caret advanced to the word END (5).
@@ -164,7 +159,6 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
     const twice = reduceEditor(
       once,
       { type: "DELETE_WORD", direction: "forward" },
-      suggestingConfig,
     );
     expect(getTextOf(twice.state, paraId)).toBe("hello world");
     expect(deletionIdAt(twice, paraId, 6)).toBeDefined();
@@ -185,12 +179,11 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
     const struck = reduceEditor(
       placed,
       { type: "DELETE_WORD", direction: "backward" },
-      suggestingConfig,
     );
 
     expect(struck.history.canUndo()).toBe(true);
 
-    const undone = reduceEditor(struck, { type: "UNDO" }, suggestingConfig);
+    const undone = reduceEditor(struck, { type: "UNDO" });
     expect(getTextOf(undone.state, paraId)).toBe("hello world");
     expect(deletionIdAt(undone, paraId, 6)).toBeUndefined();
     expect(getSuggestions(undone.state)).toHaveLength(0);
@@ -207,12 +200,10 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
           type: "SET_SELECTION",
           selection: createSpan(createPosition(paraId, 11), createPosition(paraId, 11)),
         },
-        directConfig,
       );
       const next = reduceEditor(
         placed,
         { type: "DELETE_WORD", direction: "backward" },
-        directConfig,
       );
       expect(getTextOf(next.state, paraId)).toBe("hello ");
       expect(next.selection.focus.offset).toBe(6);
@@ -229,12 +220,10 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
           type: "SET_SELECTION",
           selection: createSpan(createPosition(paraId, 0), createPosition(paraId, 0)),
         },
-        directConfig,
       );
       const next = reduceEditor(
         placed,
         { type: "DELETE_WORD", direction: "forward" },
-        directConfig,
       );
       expect(getTextOf(next.state, paraId)).toBe(" world");
       expect(next.selection.focus.offset).toBe(0);
@@ -251,7 +240,6 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
       const next = reduceEditor(
         selected,
         { type: "DELETE_WORD", direction: "forward" },
-        suggestingConfig,
       );
       expect(getTextOf(next.state, paraId)).toBe("abcdef");
       const suggestions = getSuggestions(next.state);
@@ -273,7 +261,6 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
       const next = reduceEditor(
         selected,
         { type: "DELETE_WORD", direction: "backward" },
-        suggestingConfig,
       );
       expect(getTextOf(next.state, paraId)).toBe("abcdef");
       expect(deletionIdAt(next, paraId, 1)).toBeDefined();
@@ -286,9 +273,9 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
   it("cross-block word-delete is a NO-OP in BOTH modes (no suggestion in suggesting mode)", () => {
     // Two paragraphs "abc" / "def"; caret at the START of the 2nd (offset 0).
     let s = createInitialEditorState(directConfig);
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, directConfig);
-    s = reduceEditor(s, { type: "SPLIT_NODE" }, directConfig);
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" }, directConfig);
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" });
+    s = reduceEditor(s, { type: "SPLIT_NODE" });
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" });
 
     const root = getBlock(s.state, finalSectionOf(s.state));
     const secondId = root?.lastChildId ?? null;
@@ -303,12 +290,10 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(secondId, 0), createPosition(secondId, 0)),
       },
-      directConfig,
     );
     const directNext = reduceEditor(
       placedDirect,
       { type: "DELETE_WORD", direction: "backward" },
-      directConfig,
     );
     expect(directNext).toBe(placedDirect);
 
@@ -317,7 +302,6 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
     const suggestNext = reduceEditor(
       placedSuggest,
       { type: "DELETE_WORD", direction: "backward" },
-      suggestingConfig,
     );
     expect(suggestNext).toBe(placedSuggest);
     expect(getSuggestions(suggestNext.state)).toHaveLength(0);

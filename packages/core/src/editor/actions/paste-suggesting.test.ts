@@ -70,12 +70,12 @@ const textOfResolved = (editor: EditorState, id: BlockId): string =>
 const endMarkKind = (editor: EditorState, id: BlockId): string | null =>
   endMarkOf(editor.state, id)?.kind ?? null;
 
-const paste = (e: EditorState, text: string, cfg: EditorConfig): EditorState =>
-  reduceEditor(e, { type: "PASTE", text }, cfg);
+const paste = (e: EditorState, text: string): EditorState =>
+  reduceEditor(e, { type: "PASTE", text });
 const caretAt = (e: EditorState, id: BlockId, off: number): EditorState =>
-  reduceEditor(e, { type: "SET_SELECTION", selection: createSpan(createPosition(id, off), createPosition(id, off)) }, suggestingConfig);
+  reduceEditor({ ...e, config: suggestingConfig }, { type: "SET_SELECTION", selection: createSpan(createPosition(id, off), createPosition(id, off)) });
 const select = (e: EditorState, a: [BlockId, number], f: [BlockId, number]): EditorState =>
-  reduceEditor(e, { type: "SET_SELECTION", selection: createSpan(createPosition(a[0], a[1]), createPosition(f[0], f[1])) }, suggestingConfig);
+  reduceEditor({ ...e, config: suggestingConfig }, { type: "SET_SELECTION", selection: createSpan(createPosition(a[0], a[1]), createPosition(f[0], f[1])) });
 
 // reduceEditor mutates the shared underlying Y.Doc in place, so accept and reject
 // CANNOT run off the same pasted editor — each independent resolution needs a FRESH
@@ -83,12 +83,12 @@ const select = (e: EditorState, a: [BlockId, number], f: [BlockId, number]): Edi
 function freshCollapsedPaste(text: string): { editor: EditorState; p1: BlockId } {
   const base = stateWithTwoParagraphs(); // "abc" / "def" (built directly, no suggestions)
   const p1 = bodyParaId(base);
-  return { editor: paste(caretAt(base, p1, 3), text, suggestingConfig), p1 };
+  return { editor: paste(caretAt(base, p1, 3), text), p1 };
 }
 function freshSingleBlockPaste(): { editor: EditorState; p1: BlockId } {
   const base = stateWithTwoParagraphs();
   const p1 = bodyParaId(base);
-  return { editor: paste(select(base, [p1, 1], [p1, 2]), "X", suggestingConfig), p1 };
+  return { editor: paste(select(base, [p1, 1], [p1, 2]), "X"), p1 };
 }
 function freshCrossBlockPaste(): { editor: EditorState; p1: BlockId } {
   const base = stateWithTwoParagraphs(); // "abc" / "def"
@@ -96,7 +96,7 @@ function freshCrossBlockPaste(): { editor: EditorState; p1: BlockId } {
   const p2 = getBlock(base.state, p1)?.nextSiblingId ?? null;
   if (p2 === null) throw new Error("expected a second paragraph");
   // Select p1[1..] .. p2[..2]: "bc" + break + "de"; paste "X".
-  return { editor: paste(select(base, [p1, 1], [p2, 2]), "X", suggestingConfig), p1 };
+  return { editor: paste(select(base, [p1, 1], [p2, 2]), "X"), p1 };
 }
 
 describe("handlePaste — suggesting mode (PF-3)", () => {
@@ -116,9 +116,8 @@ describe("handlePaste — suggesting mode (PF-3)", () => {
     const dbase = stateWithTwoParagraphs();
     const dp1 = bodyParaId(dbase);
     const direct = paste(
-      reduceEditor(dbase, { type: "SET_SELECTION", selection: createSpan(createPosition(dp1, 3), createPosition(dp1, 3)) }, directConfig),
+      reduceEditor(dbase, { type: "SET_SELECTION", selection: createSpan(createPosition(dp1, 3), createPosition(dp1, 3)) }),
       "X",
-      directConfig,
     );
     expect(getTextOf(direct.state, dp1)).toBe("abcX");
     expect(getSuggestions(direct.state)).toHaveLength(0);
@@ -137,21 +136,21 @@ describe("handlePaste — suggesting mode (PF-3)", () => {
     expect(sug.selection.focus.blockId).toBe(seq[1]);
     expect(sug.selection.focus.offset).toBe(1);
 
-    const accepted = reduceEditor(freshCollapsedPaste("X\nY").editor, { type: "ACCEPT_ALL_SUGGESTIONS" }, suggestingConfig);
+    const accepted = reduceEditor(freshCollapsedPaste("X\nY").editor, { type: "ACCEPT_ALL_SUGGESTIONS" });
     expect(blockSeq(accepted).map((id) => getTextOf(accepted.state, id))).toEqual(["abcX", "Y", "def"]);
     expect(getSuggestions(accepted.state)).toHaveLength(0);
 
-    const rejected = reduceEditor(freshCollapsedPaste("X\nY").editor, { type: "REJECT_ALL_SUGGESTIONS" }, suggestingConfig);
+    const rejected = reduceEditor(freshCollapsedPaste("X\nY").editor, { type: "REJECT_ALL_SUGGESTIONS" });
     expect(blockSeq(rejected).map((id) => getTextOf(rejected.state, id))).toEqual(["abc", "def"]);
     expect(getSuggestions(rejected.state)).toHaveLength(0);
   });
 
   it("paste over a SINGLE-block selection: strikes selection + tracks insert; accept removes struck + keeps text; reject restores", () => {
     expect(getSuggestions(freshSingleBlockPaste().editor.state).map((s) => s.kind).sort()).toEqual(["deletion", "insertion"]);
-    const accepted = reduceEditor(freshSingleBlockPaste().editor, { type: "ACCEPT_ALL_SUGGESTIONS" }, suggestingConfig);
+    const accepted = reduceEditor(freshSingleBlockPaste().editor, { type: "ACCEPT_ALL_SUGGESTIONS" });
     expect(getTextOf(accepted.state, nth(blockSeq(accepted), 0, "block id"))).toBe("aXc"); // b struck-removed, X kept
     expect(getSuggestions(accepted.state)).toHaveLength(0);
-    const rejected = reduceEditor(freshSingleBlockPaste().editor, { type: "REJECT_ALL_SUGGESTIONS" }, suggestingConfig);
+    const rejected = reduceEditor(freshSingleBlockPaste().editor, { type: "REJECT_ALL_SUGGESTIONS" });
     expect(blockSeq(rejected).map((id) => getTextOf(rejected.state, id))).toEqual(["abc", "def"]);
     expect(getSuggestions(rejected.state)).toHaveLength(0);
   });
@@ -161,11 +160,11 @@ describe("handlePaste — suggesting mode (PF-3)", () => {
     expect(endMarkKind(sug, p1)).toBe("join");
     expect(getSuggestions(sug.state).map((s) => s.kind).sort()).toEqual(["deletion", "insertion"]);
 
-    const accepted = reduceEditor(freshCrossBlockPaste().editor, { type: "ACCEPT_ALL_SUGGESTIONS" }, suggestingConfig);
+    const accepted = reduceEditor(freshCrossBlockPaste().editor, { type: "ACCEPT_ALL_SUGGESTIONS" });
     expect(blockSeq(accepted).map((id) => getTextOf(accepted.state, id))).toEqual(["aXf"]);
     expect(getSuggestions(accepted.state)).toHaveLength(0);
 
-    const rejected = reduceEditor(freshCrossBlockPaste().editor, { type: "REJECT_ALL_SUGGESTIONS" }, suggestingConfig);
+    const rejected = reduceEditor(freshCrossBlockPaste().editor, { type: "REJECT_ALL_SUGGESTIONS" });
     expect(blockSeq(rejected).map((id) => getTextOf(rejected.state, id))).toEqual(["abc", "def"]);
     expect(getSuggestions(rejected.state)).toHaveLength(0);
   });
@@ -173,12 +172,12 @@ describe("handlePaste — suggesting mode (PF-3)", () => {
   it("multi-line paste inherits the caret block's TYPE+ATTRS (heading), not paragraph (accept keeps headings)", () => {
     const mk = (): EditorState => {
       let e = createInitialEditorState(directConfig);
-      e = reduceEditor(e, { type: "INSERT_TEXT", text: "abc" }, directConfig);
-      e = reduceEditor(e, { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } }, directConfig);
+      e = reduceEditor(e, { type: "INSERT_TEXT", text: "abc" });
+      e = reduceEditor(e, { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } });
       const h = bodyParaId(e);
-      return paste(caretAt(e, h, 3), "X\nY", suggestingConfig);
+      return paste(caretAt(e, h, 3), "X\nY");
     };
-    const accepted = reduceEditor(mk(), { type: "ACCEPT_ALL_SUGGESTIONS" }, suggestingConfig);
+    const accepted = reduceEditor(mk(), { type: "ACCEPT_ALL_SUGGESTIONS" });
     const seq = blockSeq(accepted);
     expect(seq.length).toBe(2);
     // The new "Y" block inherits the source HEADING type + level (would be a plain
@@ -190,19 +189,19 @@ describe("handlePaste — suggesting mode (PF-3)", () => {
 
   it("footnote-body collapsed two-line paste tracks + resolves in the body tree (MT round-trip)", () => {
     const initial = createInitialEditorState(directConfig);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "x" }, directConfig);
-    const withFn = reduceEditor(typed, { type: "INSERT_FOOTNOTE" }, directConfig);
+    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "x" });
+    const withFn = reduceEditor(typed, { type: "INSERT_FOOTNOTE" });
     const bodyPara = withFn.selection.focus.blockId;
-    const seeded = reduceEditor(withFn, { type: "INSERT_TEXT", text: "abc" }, directConfig);
+    const seeded = reduceEditor(withFn, { type: "INSERT_TEXT", text: "abc" });
     expect(selectionContextOf(seeded.state, bodyPara)).not.toBe(seeded.state.rootId);
 
-    const sug = paste(caretAt(seeded, bodyPara, 3), "P\nQ", suggestingConfig);
+    const sug = paste(caretAt(seeded, bodyPara, 3), "P\nQ");
     expect(getSuggestions(sug.state).map((s) => s.kind)).toEqual(["insertion"]);
     // The new head (before the body paragraph, which keeps "Q" + its ¶) holds "abcP".
     const head = resolveBlock(sug.state, bodyPara)?.block.prevSiblingId ?? null;
     if (head === null) throw new Error("expected a new head");
     expect(endMarkKind(sug, head)).toBe("split");
-    const accepted = reduceEditor(sug, { type: "ACCEPT_ALL_SUGGESTIONS" }, suggestingConfig);
+    const accepted = reduceEditor(sug, { type: "ACCEPT_ALL_SUGGESTIONS" });
     expect(textOfResolved(accepted, head)).toBe("abcP");
     expect(textOfResolved(accepted, bodyPara)).toBe("Q");
     expect(getSuggestions(accepted.state)).toHaveLength(0);
@@ -212,9 +211,8 @@ describe("handlePaste — suggesting mode (PF-3)", () => {
     const base = stateWithTwoParagraphs();
     const p1 = bodyParaId(base);
     const direct = paste(
-      reduceEditor(base, { type: "SET_SELECTION", selection: createSpan(createPosition(p1, 3), createPosition(p1, 3)) }, directConfig),
+      reduceEditor(base, { type: "SET_SELECTION", selection: createSpan(createPosition(p1, 3), createPosition(p1, 3)) }),
       "X\nY\nZ",
-      directConfig,
     );
     // p1 keeps "abcX"; two new blocks "Y", "Z"; original "def" follows. No suggestions.
     expect(blockSeq(direct).map((id) => getTextOf(direct.state, id))).toEqual(["abcX", "Y", "Z", "def"]);

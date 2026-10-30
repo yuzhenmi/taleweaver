@@ -11,17 +11,17 @@ import type { BlockId } from "../../state";
 
 function typed(text: string, offset: number): { editor: EditorState; p: BlockId } {
   let editor = createInitialEditorState(config);
-  editor = reduceEditor(editor, { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 2 } }, config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text }, config);
+  editor = reduceEditor(editor, { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 2 } });
+  editor = reduceEditor(editor, { type: "INSERT_TEXT", text });
   const p = firstChildId(editor.state) as BlockId;
   const at = createPosition(p, offset);
-  return { editor: reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(at, at) }, config), p };
+  return { editor: reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(at, at) }), p };
 }
 
 describe("INSERT_LINE_BREAK", () => {
   it("inserts a hard-break embed at the caret: no new paragraph, attrs unchanged, caret after it", () => {
     const { editor, p } = typed("abcd", 2);
-    const next = reduceEditor(editor, { type: "INSERT_LINE_BREAK" }, config);
+    const next = reduceEditor(editor, { type: "INSERT_LINE_BREAK" });
     expect(bodyBlockIds(next.state)).toEqual([p]);
     const block = getBlock(next.state, p);
     expect(block?.type).toBe("heading");
@@ -35,19 +35,19 @@ describe("INSERT_LINE_BREAK", () => {
 
   it("replaces a selection (one undo step)", () => {
     const { editor, p } = typed("abcd", 1);
-    const sel = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(p, 1), createPosition(p, 3)) }, config);
-    const next = reduceEditor(sel, { type: "INSERT_LINE_BREAK" }, config);
+    const sel = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(p, 1), createPosition(p, 3)) });
+    const next = reduceEditor(sel, { type: "INSERT_LINE_BREAK" });
     const items = getBlock(next.state, p)?.inlineContent?.items ?? [];
     expect(items.map((i) => (i.kind === "text" ? i.text : i.embedType))).toEqual(["a", HARD_BREAK_EMBED_TYPE, "d"]);
     expect(next.selection.focus).toEqual({ blockId: p, offset: 2 });
-    const undone = reduceEditor(next, { type: "UNDO" }, config);
+    const undone = reduceEditor(next, { type: "UNDO" });
     expect(getBlock(undone.state, p)?.inlineContent?.items.map((i) => (i.kind === "text" ? i.text : "")).join("")).toBe("abcd");
   });
 
     it("in suggesting mode the break is an inline insertion revision (view, accept / reject, own Backspace)", () => {
     const suggesting = { ...config, suggestingAuthor: "alice" };
     const { editor, p } = typed("abcd", 2);
-    const next = reduceEditor(editor, { type: "INSERT_LINE_BREAK" }, suggesting);
+    const next = reduceEditor({ ...editor, config: suggesting }, { type: "INSERT_LINE_BREAK" });
     expect(bodyBlockIds(next.state)).toEqual([p]);
     const brk = (getBlock(next.state, p)?.inlineContent?.items ?? []).find((i) => i.kind === "embed");
     const id = brk?.attrs[INSERTION_SUGGESTION_ATTR];
@@ -57,27 +57,27 @@ describe("INSERT_LINE_BREAK", () => {
     // "original" hides the break; reject drops it, accept keeps it untracked.
     expect(extractText(next.state, createSpan(createPosition(p, 0), createPosition(p, 5)), builtinEmbedSerializer, "original")).toBe("abcd");
     const kinds = (e: EditorState): string[] => (getBlock(e.state, firstChildId(e.state) as BlockId)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : i.embedType));
-    const rejected = reduceEditor(next, { type: "REJECT_ALL_SUGGESTIONS" }, suggesting);
+    const rejected = reduceEditor(next, { type: "REJECT_ALL_SUGGESTIONS" });
     expect(kinds(rejected)).toEqual(["abcd"]);
     // (Each case on a fresh document: ops write the shared Y.Doc.)
-    const again = reduceEditor(typed("abcd", 2).editor, { type: "INSERT_LINE_BREAK" }, suggesting);
-    const accepted = reduceEditor(again, { type: "ACCEPT_ALL_SUGGESTIONS" }, suggesting);
+    const again = reduceEditor({ ...typed("abcd", 2).editor, config: suggesting }, { type: "INSERT_LINE_BREAK" });
+    const accepted = reduceEditor(again, { type: "ACCEPT_ALL_SUGGESTIONS" });
     expect(kinds(accepted)).toEqual(["ab", HARD_BREAK_EMBED_TYPE, "cd"]);
     expect(getSuggestions(accepted.state)).toHaveLength(0);
     // Backspace over the author's own pending break removes it for real.
-    const own = reduceEditor(reduceEditor(typed("abcd", 2).editor, { type: "INSERT_LINE_BREAK" }, suggesting), { type: "DELETE_BACKWARD" }, suggesting);
+    const own = reduceEditor(reduceEditor({ ...typed("abcd", 2).editor, config: suggesting }, { type: "INSERT_LINE_BREAK" }), { type: "DELETE_BACKWARD" });
     expect(kinds(own)).toEqual(["abcd"]);
   });
 
   it("in suggesting mode over a selection: the break is inserted and the selection struck, one undo step", () => {
     const suggesting = { ...config, suggestingAuthor: "alice" };
     const { editor, p } = typed("abcd", 1);
-    const sel = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(p, 1), createPosition(p, 3)) }, config);
-    const next = reduceEditor(sel, { type: "INSERT_LINE_BREAK" }, suggesting);
+    const sel = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(p, 1), createPosition(p, 3)) });
+    const next = reduceEditor({ ...sel, config: suggesting }, { type: "INSERT_LINE_BREAK" });
     expect(getSuggestions(next.state).map((s) => s.kind).sort()).toEqual(["deletion", "insertion"]);
     expect(extractText(next.state, createSpan(createPosition(p, 0), createPosition(p, 5)), builtinEmbedSerializer, "final")).toBe("a\nd");
     expect(next.selection.focus).toEqual({ blockId: p, offset: 2 });
-    const undone = reduceEditor(next, { type: "UNDO" }, suggesting);
+    const undone = reduceEditor(next, { type: "UNDO" });
     expect(getSuggestions(undone.state)).toHaveLength(0);
   });
 });

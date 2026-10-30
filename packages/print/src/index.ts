@@ -93,10 +93,10 @@ export { computeUsedStyle } from "./layout/used-style";
 // paginated mode; consumers read it per-page via `getPage(i)`.
 export type { VirtualLayoutTree } from "./layout/virtual-layout-tree";
 // Layout-driver: the print backend's render → cascade → layout pipeline. A
-// consumer builds a layout tree from a (geometry-free) core `State` by calling
-// `createLayoutDriver(layoutConfig).rebuild(state, containerWidth, null)`. The
-// `LayoutConfig` carries the print-only geometry capabilities (measurer /
-// hyphenator) that left core's `EditorConfig`.
+// consumer builds a layout tree from a (geometry-free) core `EditorState` by calling
+// `createLayoutDriver(layoutConfig).rebuild(editorState)`. The `LayoutConfig` carries
+// the print-only geometry capabilities (measurer / hyphenator) that are not on core's
+// `EditorConfig`; the registries and page setup come from `editorState.config`.
 export { createLayoutDriver } from "./layout-driver/layout-driver";
 export type { LayoutDriver } from "./layout-driver/layout-driver";
 export type { LayoutConfig } from "./layout-driver/layout-config";

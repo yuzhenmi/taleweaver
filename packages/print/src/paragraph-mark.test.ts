@@ -76,20 +76,19 @@ function mount(text: string, pageConfig?: core.PageConfig): {
   dispatch: (a: core.EditorAction) => void;
   id: core.BlockId;
 } {
-  const cfg = makeConfig();
-  let editor = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text }, cfg);
+  const cfg = { ...makeConfig(), ...(pageConfig !== undefined ? { pageConfig } : {}) };
+  let editor = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text });
   const container = document.createElement("div");
   document.body.appendChild(container);
   let controller: EditorController | null = null;
   const dispatch = (a: core.EditorAction): void => {
-    editor = core.reduceEditor(editor, a, cfg);
+    editor = core.reduceEditor(editor, a);
     controller?.update(editor);
   };
   controller = createEditorController(container, {
     measurer: core.createMockMeasurer(8, 16),
     dispatch,
-    config: cfg,
-    ...(pageConfig !== undefined ? { pageConfig, pageHeight: pageConfig.pageBlockSize, pageGap: pageConfig.pageGap } : {}),
+    ...(pageConfig !== undefined ? { pageHeight: pageConfig.pageBlockSize, pageGap: pageConfig.pageGap } : {}),
   });
   controller.update(editor);
   const textarea = container.querySelector("textarea");

@@ -115,18 +115,13 @@ function buildTaggedInput(): {
   // materializes into each page's `headerSlot`.
   const selection = core.initialSelectionForState(state);
   let editor = core.createEditorStateFromState(state, selection, config);
-  editor = core.reduceEditor(editor, { type: "INSERT_HEADER" }, config);
-  editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "Header" }, config);
+  editor = core.reduceEditor(editor, { type: "INSERT_HEADER" });
+  editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "Header" });
 
   // Run the print backend's render → cascade → layout pipeline (the geometric
   // half that left core in the dual-mode split) to get the paginated tree.
-  const layoutConfig: LayoutConfig = {
-    measurer: core.createMockMeasurer(8, 16),
-    componentRegistry,
-    attrRegistry,
-    pageConfig,
-  };
-  const layoutTree = createLayoutDriver(layoutConfig).rebuild(editor.state, containerWidth, null);
+  const layoutConfig: LayoutConfig = { measurer: core.createMockMeasurer(8, 16) };
+  const layoutTree = createLayoutDriver(layoutConfig).rebuild({ ...editor, containerWidth, lastDirtyIds: null });
   if (layoutTree.type !== "virtual-root") {
     throw new Error("tagged-pdf test: expected a paginated VirtualLayoutTree");
   }

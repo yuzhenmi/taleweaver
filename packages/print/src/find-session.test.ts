@@ -79,7 +79,7 @@ function config(): core.EditorConfig {
 function seededEditorState(text: string): core.EditorState {
   const cfg = config();
   let editor = core.createInitialEditorState(cfg);
-  editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text }, cfg);
+  editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text });
   return editor;
 }
 
@@ -196,12 +196,11 @@ describe("find session + navigation (#433)", () => {
     const blockId = finalSection(editor.state)?.firstChildId;
     if (blockId === null || blockId === undefined) throw new Error("no block");
     editor = core.reduceEditor(
-      editor,
+      { ...editor, config: cfg },
       {
         type: "SET_SELECTION",
         selection: core.createSpan(core.createPosition(blockId, 4), core.createPosition(blockId, 4)),
       },
-      cfg,
     );
     const { container } = mount();
     const ctrl = createEditorController(container, { measurer, dispatch: vi.fn() });
@@ -219,8 +218,8 @@ describe("find session + navigation (#433)", () => {
     // walk must NOT throw "no common ancestor" — it falls back to activeIndex 0.
     const cfg = config();
     let editor = core.createInitialEditorState(cfg);
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "hello hello" }, cfg);
-    editor = core.reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, cfg);
+    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "hello hello" });
+    editor = core.reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     // Sanity: the caret is now in a different context than the main body.
     const bodyBlockId = finalSection(editor.state)?.firstChildId;
     if (bodyBlockId === null || bodyBlockId === undefined) throw new Error("no body block");
@@ -299,13 +298,13 @@ describe("find session + navigation (#433)", () => {
       //   pN: "foo"  (far down)
       const cfg = config();
       let editor = core.createInitialEditorState(cfg);
-      editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "foo" }, cfg);
+      editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "foo" });
       for (let i = 0; i < 8; i++) {
-        editor = core.reduceEditor(editor, { type: "SPLIT_NODE" }, cfg);
-        editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "filler" }, cfg);
+        editor = core.reduceEditor(editor, { type: "SPLIT_NODE" });
+        editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "filler" });
       }
-      editor = core.reduceEditor(editor, { type: "SPLIT_NODE" }, cfg);
-      editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "foo" }, cfg);
+      editor = core.reduceEditor(editor, { type: "SPLIT_NODE" });
+      editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "foo" });
 
       const { container, sp } = mountScrollable();
       const ctrl = createEditorController(container, { measurer, dispatch: vi.fn() });
@@ -395,7 +394,7 @@ describe("find session + navigation (#433)", () => {
     // 4 matches; the preserved activeIndex (1) is still in range.
     const ctx0 = lastCtx();
     if (ctx0) ctx0._ops.length = 0;
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: " foo" }, cfg);
+    editor = core.reduceEditor({ ...editor, config: cfg }, { type: "INSERT_TEXT", text: " foo" });
     ctrl.update(editor);
 
     // Highlights refreshed: 4 matched bands now paint (3 inactive + 1 active).
@@ -421,15 +420,15 @@ describe("find session + navigation (#433)", () => {
       // cursor-scroll never fires; any rAF would be a find-recompute scroll.
       const cfg = config();
       let editor = core.createInitialEditorState(cfg);
-      editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "foo" }, cfg);
+      editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "foo" });
       const topBlockId = finalSection(editor.state)?.firstChildId;
       if (topBlockId === null || topBlockId === undefined) throw new Error("no top block");
       for (let i = 0; i < 8; i++) {
-        editor = core.reduceEditor(editor, { type: "SPLIT_NODE" }, cfg);
-        editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "foo" }, cfg);
+        editor = core.reduceEditor(editor, { type: "SPLIT_NODE" });
+        editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "foo" });
       }
       const topSel = core.createSpan(core.createPosition(topBlockId, 0), core.createPosition(topBlockId, 0));
-      editor = core.reduceEditor(editor, { type: "SET_SELECTION", selection: topSel }, cfg);
+      editor = core.reduceEditor(editor, { type: "SET_SELECTION", selection: topSel });
 
       const { container } = mount(); // window-scrolled; window.scrollY starts at 0
       const ctrl = createEditorController(container, { measurer, dispatch: vi.fn() });
@@ -455,10 +454,9 @@ describe("find session + navigation (#433)", () => {
           type: "SET_SELECTION",
           selection: core.createSpan(core.createPosition(lastBlockId, 0), core.createPosition(lastBlockId, 3)),
         },
-        cfg,
       );
-      editor = core.reduceEditor(editor, { type: "DELETE_BACKWARD" }, cfg);
-      editor = core.reduceEditor(editor, { type: "SET_SELECTION", selection: topSel }, cfg);
+      editor = core.reduceEditor(editor, { type: "DELETE_BACKWARD" });
+      editor = core.reduceEditor(editor, { type: "SET_SELECTION", selection: topSel });
 
       // Install the rAF spy ONLY AFTER the two `advanceTimersByTime(400)` calls
       // above (one after the initial update, one after findStart). 400ms exceeds
@@ -499,14 +497,13 @@ describe("find session + navigation (#433)", () => {
 
     // Delete " foo" (offsets 3..7) — removes the active (2nd) match.
     editor = core.reduceEditor(
-      editor,
+      { ...editor, config: cfg },
       {
         type: "SET_SELECTION",
         selection: core.createSpan(core.createPosition(blockId, 3), core.createPosition(blockId, 7)),
       },
-      cfg,
     );
-    editor = core.reduceEditor(editor, { type: "DELETE_BACKWARD" }, cfg);
+    editor = core.reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     const ctx = lastCtx();
     if (ctx) ctx._ops.length = 0;

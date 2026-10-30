@@ -12,12 +12,10 @@ import {
   type EditorAction,
   type EditorState,
   type FindMatchesOptions,
-  type PageConfig,
   type Hyphenator,
   type Position,
   type Decoration,
   type State,
-  type EditorConfig,
   type Anchor,
   type AnchorOptions,
   type Assoc,
@@ -51,12 +49,10 @@ export interface EditorViewProps {
   pageHeight?: number;
   pageGap?: number;
   /**
-   * Page setup + auto-hyphenation moved out of core's `EditorConfig`
-   * into the controller. The host (e.g. the perf example) threads them through
-   * here so the layout-driver paginates / hyphenates. `undefined` ⇒ unpaginated
-   * / no hyphenation (the common-path host default).
+   * Auto-hyphenation: print mechanics, not part of core's `EditorConfig`. `undefined` ⇒
+   * no hyphenation. (Page setup, the registries and the host keymap come from
+   * `editorState.config` — the config the reducer runs with.)
    */
-  pageConfig?: PageConfig;
   hyphenator?: Hyphenator;
   /**
    * View-only host decorations (see core `Decoration`). Applied after the editor state
@@ -72,15 +68,6 @@ export interface EditorViewProps {
   decorationsBasedOn?: State;
   /** Hover / click on decorated content (built-in highlights included). */
   onDecorationPointer?: (event: PrintDecorationPointerEvent) => void;
-  /**
-   * The host's core `EditorConfig` — the SAME object the reducer runs with — so the
-   * print controller renders, hit-tests and copies with exactly the registries
-   * editing uses (host marks paint via their `toStyle`) and consults the host
-   * keymap (`extensions`). `useEditor` returns it,
-   * so spreading the hook result passes it. Default: the built-in registries.
-   * Read at mount.
-   */
-  config?: Pick<EditorConfig, "componentRegistry" | "attrRegistry" | "extensions">;
   /**
    * Collaboration: whether this view's controller applies peer updates landing in the
    * document's Y.Doc (default `"observe"`). Exactly one view per document observes;
@@ -144,7 +131,7 @@ const handleProfile: ProfilerOnRenderCallback = (id, _phase, actualDuration) => 
 
 export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
   function EditorView(
-    { editorState, dispatch, containerRef, measurer, pageHeight, pageGap, pageConfig, hyphenator, decorations, decorationsBasedOn, onDecorationPointer, config, remoteChanges, suggestionStyles, onIncompatibleDocument },
+    { editorState, dispatch, containerRef, measurer, pageHeight, pageGap, hyphenator, decorations, decorationsBasedOn, onDecorationPointer, remoteChanges, suggestionStyles, onIncompatibleDocument },
     ref,
   ) {
   const controllerRef = useRef<EditorController | null>(null);
@@ -234,9 +221,7 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
       dispatch,
       pageHeight,
       pageGap,
-      pageConfig,
       hyphenator,
-      ...(config !== undefined ? { config } : {}),
       ...(remoteChanges !== undefined ? { remoteChanges } : {}),
       onDecorationPointer: (event) => pointerRef.current?.(event),
       onIncompatibleDocument: reportIncompatible,

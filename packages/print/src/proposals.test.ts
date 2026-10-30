@@ -72,17 +72,16 @@ const cfg: core.EditorConfig = {
  * `controller.update` when the test says so (`flush`) — an async / batched host.
  */
 function mount(text: string, deferred = false) {
-  let editor = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text }, cfg);
+  let editor = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text });
   const container = document.createElement("div");
   document.body.appendChild(container);
   let controller: EditorController | null = null;
   controller = createEditorController(container, {
     measurer: core.createMockMeasurer(8, 16),
     dispatch: (a) => {
-      editor = core.reduceEditor(editor, a, cfg);
+      editor = core.reduceEditor(editor, a);
       if (!deferred) controller?.update(editor);
     },
-    config: cfg,
   });
   controller.update(editor);
   const c = controller;
@@ -275,7 +274,7 @@ describe("print — host proposals", () => {
   });
 
   it("a proposal the host dropped settles as not applied once a LATER proposal's verdict arrives", async () => {
-    let editor = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" }, cfg);
+    let editor = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" });
     const container = document.createElement("div");
     document.body.appendChild(container);
     let drop = true;
@@ -283,9 +282,8 @@ describe("print — host proposals", () => {
       measurer: core.createMockMeasurer(8, 16),
       dispatch: (a) => {
         if (a.type === "PROPOSE" && drop) return; // the host loses this one
-        editor = core.reduceEditor(editor, a, cfg);
+        editor = core.reduceEditor(editor, a);
       },
-      config: cfg,
     });
     controller.update(editor);
     const id = editor.selection.focus.blockId;
@@ -316,7 +314,7 @@ describe("print — host proposals", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const dispatch = vi.fn(); // a host that never applies anything
-    const controller = createEditorController(container, { measurer: core.createMockMeasurer(8, 16), dispatch, config: cfg });
+    const controller = createEditorController(container, { measurer: core.createMockMeasurer(8, 16), dispatch });
     const proposal: core.Proposal = { groupId: core.newSuggestionGroupId(), author: "a", edits: [] };
     const invalid = (message: string) => ({ ok: false, reason: "rejected", problem: { kind: "invalid", message } });
     expect(await controller.propose(proposal)).toEqual(invalid("no document yet"));

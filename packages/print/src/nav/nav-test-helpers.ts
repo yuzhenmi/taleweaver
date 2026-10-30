@@ -53,9 +53,8 @@ export interface MakeNavEditorOptions {
 
 /**
  * Build a fresh nav-test context: a default `EditorConfig` (NO measurer/hyphenator
- * — those left core in Phase 0b) + a `LayoutDriver` carrying the geometry config.
- * The component/attr registries are the SAME instances on both configs (the host
- * contract — see `LayoutConfig`'s docstring).
+ * — those left core in Phase 0b) + a `LayoutDriver` carrying the geometry config
+ * (the driver reads the registries / page setup from the rebuilt editor's config).
  */
 export function makeNavEditor(opts: MakeNavEditorOptions = {}): NavCtx {
   const containerWidth = opts.containerWidth ?? 800;
@@ -72,13 +71,7 @@ export function makeNavEditor(opts: MakeNavEditorOptions = {}): NavCtx {
     now: opts.now,
   };
 
-  const driver = createLayoutDriver({
-    measurer,
-    hyphenator: opts.hyphenator,
-    pageConfig: opts.pageConfig,
-    componentRegistry,
-    attrRegistry,
-  });
+  const driver = createLayoutDriver({ measurer, hyphenator: opts.hyphenator });
 
   return {
     editor: createInitialEditorState(config),
@@ -110,13 +103,7 @@ export function makeNavEditorFromState(state: State, opts: MakeNavEditorOptions 
     pageConfig: opts.pageConfig,
   };
 
-  const driver = createLayoutDriver({
-    measurer,
-    hyphenator: opts.hyphenator,
-    pageConfig: opts.pageConfig,
-    componentRegistry,
-    attrRegistry,
-  });
+  const driver = createLayoutDriver({ measurer, hyphenator: opts.hyphenator });
 
   return {
     editor: createEditorStateFromState(state, initialSelectionForState(state), config),
@@ -131,7 +118,7 @@ export function makeNavEditorFromState(state: State, opts: MakeNavEditorOptions 
 
 /** The driver-built layout tree for the context's CURRENT editor state. */
 export function layoutOf(ctx: NavCtx): LayoutBox | VirtualLayoutTree {
-  return ctx.driver.rebuild(ctx.editor.state, ctx.containerWidth, ctx.editor.lastDirtyIds ?? null);
+  return ctx.driver.rebuild(ctx.editor);
 }
 
 /**
@@ -144,12 +131,12 @@ export function nav(ctx: NavCtx, intent: NavIntent): NavCtx {
   const lt = layoutOf(ctx);
   const action = resolveNavIntent(intent, ctx.editor, lt, ctx.measurer, ctx.componentRegistry);
   if (action === null) return ctx;
-  return { ...ctx, editor: reduceEditor(ctx.editor, action, ctx.config) };
+  return { ...ctx, editor: reduceEditor(ctx.editor, action) };
 }
 
 /** Apply a non-nav `EditorAction` (INSERT_TEXT, SPLIT_NODE, TOGGLE_STYLE, …). */
 export function dispatch(ctx: NavCtx, action: EditorAction): NavCtx {
-  return { ...ctx, editor: reduceEditor(ctx.editor, action, ctx.config) };
+  return { ...ctx, editor: reduceEditor({ ...ctx.editor, config: ctx.config }, action) };
 }
 
 /** Type a literal string one INSERT_TEXT per character (matches keystroke coalescing). */

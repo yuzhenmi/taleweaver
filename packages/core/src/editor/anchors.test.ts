@@ -58,7 +58,7 @@ function harness(editor = createInitialEditorState(config)) {
     anchors,
     advance,
     run(...actions: EditorAction[]) {
-      for (const a of actions) advance(reduceEditor(current, a, config));
+      for (const a of actions) advance(reduceEditor(current, a));
     },
   };
 }
@@ -171,7 +171,7 @@ describe("anchors", () => {
 describe("collaboration: APPLY_FOREIGN_CHANGE over two synced Y.Docs", () => {
   /** Peers A and B over separate Y.Docs kept in sync with Y.applyUpdate (the provider model). */
   function peers(text: string) {
-    let a = reduceEditor(createInitialEditorState(config), { type: "INSERT_TEXT", text }, config);
+    let a = reduceEditor(createInitialEditorState(config), { type: "INSERT_TEXT", text });
     const docA = getYDoc(a.state);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
@@ -192,7 +192,7 @@ describe("collaboration: APPLY_FOREIGN_CHANGE over two synced Y.Docs", () => {
       b,
       id,
       a: (...actions: EditorAction[]) => {
-        for (const action of actions) a = reduceEditor(a, action, config);
+        for (const action of actions) a = reduceEditor(a, action);
       },
     };
   }

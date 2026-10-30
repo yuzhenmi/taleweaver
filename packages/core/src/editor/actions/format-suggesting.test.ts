@@ -69,12 +69,11 @@ function selectIn(
   config: EditorConfig,
 ): EditorState {
   return reduceEditor(
-    editor,
+    { ...editor, config: config },
     {
       type: "SET_SELECTION",
       selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
     },
-    config,
   );
 }
 
@@ -83,7 +82,6 @@ function seededSelection(config: EditorConfig): { editor: EditorState; paraId: B
   const seeded = reduceEditor(
     createInitialEditorState(directConfig),
     { type: "INSERT_TEXT", text: "abcdef" },
-    directConfig,
   );
   const paraId = bodyParaId(seeded);
   return { editor: selectIn(seeded, paraId, 0, 6, config), paraId };
@@ -159,7 +157,7 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
   for (const c of CASES) {
     it(`${c.name}: suggesting mode stamps a formatting record with the action's delta; LIVE attr unchanged`, () => {
       const { editor, paraId } = seededSelection(suggestingConfig);
-      const next = reduceEditor(editor, c.action, suggestingConfig);
+      const next = reduceEditor(editor, c.action);
 
       const runs = textItems(next, paraId);
       expect(runs.length).toBeGreaterThan(0);
@@ -186,7 +184,7 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
 
     it(`${c.name}: direct mode applies the delta live with NO suggestion`, () => {
       const { editor, paraId } = seededSelection(directConfig);
-      const next = reduceEditor(editor, c.action, directConfig);
+      const next = reduceEditor(editor, c.action);
 
       expect(getSuggestions(next.state)).toHaveLength(0);
       // The single non-CLEAR cases set their key live; assert that key landed.
@@ -208,14 +206,13 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
     // toggle first (stamps the id without changing live attrs), then dispatch a
     // direct-mode CLEAR_FORMATTING over the same selection.
     const { editor, paraId } = seededSelection(suggestingConfig);
-    const suggested = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, suggestingConfig);
+    const suggested = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
     const provenanceId = formattingSuggestionIds(nth(textItems(suggested, paraId), 0, "run").attrs)[0];
     expect(provenanceId).toBeDefined();
 
     const cleared = reduceEditor(
       selectIn(suggested, paraId, 0, 6, directConfig),
       { type: "CLEAR_FORMATTING" },
-      directConfig,
     );
 
     // The provenance id SURVIVES the clear — it is not an inline-format key.
@@ -228,11 +225,10 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
     // The id survived the clear (previous test) — prove it is still a LIVE,
     // resolvable suggestion, not a dangling attr.
     const { editor, paraId } = seededSelection(suggestingConfig);
-    const suggested = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, suggestingConfig);
+    const suggested = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
     const cleared = reduceEditor(
       selectIn(suggested, paraId, 0, 6, directConfig),
       { type: "CLEAR_FORMATTING" },
-      directConfig,
     );
 
     const id = nth(getSuggestions(cleared.state), 0, "suggestion").id;

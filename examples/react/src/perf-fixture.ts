@@ -31,7 +31,7 @@ export function buildPerfFixture(
   const para = SAMPLE_TEXT.slice(0, charsPerParagraph);
   const text = Array.from({ length: paragraphCount }, () => para).join("\n");
   const editor = createInitialEditorState(config);
-  return reduceEditor(editor, { type: "PASTE", text }, config);
+  return reduceEditor(editor, { type: "PASTE", text });
 }
 
 /**

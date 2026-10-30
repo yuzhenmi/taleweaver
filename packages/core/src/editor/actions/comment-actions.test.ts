@@ -61,7 +61,7 @@ function markerCount(editor: EditorState, blockId: BlockId, id: CommentId): numb
 /** Build an editor with a single paragraph of `text`. */
 function withText(text: string): { editor: EditorState; paraId: BlockId } {
   const initial = createInitialEditorState(config);
-  const typed = reduceEditor(initial, { type: "INSERT_TEXT", text }, config);
+  const typed = reduceEditor(initial, { type: "INSERT_TEXT", text });
   return { editor: typed, paraId: bodyParaId(typed) };
 }
 
@@ -81,7 +81,6 @@ function selectRange(
         createPosition(paraId, focusOffset),
       ),
     },
-    config,
   );
 }
 
@@ -92,7 +91,7 @@ describe("handleAddComment — ADD_COMMENT", () => {
   it("adds a comment over an expanded main-body range; record live, markers present", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4); // select "bcd"
-    const next = reduceEditor(placed, addCommentAction(CID), config);
+    const next = reduceEditor(placed, addCommentAction(CID));
 
     expect(next.state).not.toBe(placed.state);
     const comments = getComments(next.state);
@@ -108,7 +107,7 @@ describe("handleAddComment — ADD_COMMENT", () => {
   it("no-ops on a COLLAPSED selection (returns the same editor reference; no comment)", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 2, 2); // collapsed caret
-    const next = reduceEditor(placed, addCommentAction(CID), config);
+    const next = reduceEditor(placed, addCommentAction(CID));
 
     expect(next).toBe(placed);
     expect(getComments(next.state).length).toBe(0);
@@ -118,19 +117,18 @@ describe("handleAddComment — ADD_COMMENT", () => {
     const { editor } = withText("abc");
     // INSERT_FOOTNOTE leaves the caret inside the new footnote body (a non-root
     // context). A comment there is body-only-rejected even with an expanded sel.
-    const withFn = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    const withFn = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     const fnPara = withFn.selection.focus.blockId;
     // Type into the footnote body, then select it.
-    const typed = reduceEditor(withFn, { type: "INSERT_TEXT", text: "note" }, config);
+    const typed = reduceEditor(withFn, { type: "INSERT_TEXT", text: "note" });
     const placed = reduceEditor(
       typed,
       {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(fnPara, 0), createPosition(fnPara, 4)),
       },
-      config,
     );
-    const next = reduceEditor(placed, addCommentAction(CID), config);
+    const next = reduceEditor(placed, addCommentAction(CID));
 
     expect(next).toBe(placed);
     expect(getComments(next.state).length).toBe(0);
@@ -139,7 +137,7 @@ describe("handleAddComment — ADD_COMMENT", () => {
   it("preserves the visible selection across the +2 markers — SAME-BLOCK, forward", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4); // forward: anchor 1, focus 4
-    const next = reduceEditor(placed, addCommentAction(CID), config);
+    const next = reduceEditor(placed, addCommentAction(CID));
 
     // Markers OUTSIDE: start-marker at 1, end-marker at original-5 (after the +1
     // shift from the start-marker). Visible selection wraps the same "bcd":
@@ -151,7 +149,7 @@ describe("handleAddComment — ADD_COMMENT", () => {
   it("preserves direction across the +2 markers — SAME-BLOCK, backward", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 4, 1); // backward: anchor 4, focus 1
-    const next = reduceEditor(placed, addCommentAction(CID), config);
+    const next = reduceEditor(placed, addCommentAction(CID));
 
     // start = offset 1, end = offset 4. anchor was at `end` → stays at the new
     // end (5); focus stays at the new start (2). Same chars, reversed.
@@ -161,10 +159,10 @@ describe("handleAddComment — ADD_COMMENT", () => {
 
   it("preserves the visible selection across the +2 markers — CROSS-BLOCK", () => {
     const initial = createInitialEditorState(config);
-    const p1 = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" }, config);
-    const split = reduceEditor(p1, { type: "SPLIT_NODE" }, config);
+    const p1 = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" });
+    const split = reduceEditor(p1, { type: "SPLIT_NODE" });
     const firstId = bodyParaId(split); // the split's head (new id)
-    const withSecond = reduceEditor(split, { type: "INSERT_TEXT", text: "def" }, config);
+    const withSecond = reduceEditor(split, { type: "INSERT_TEXT", text: "def" });
     const secondId = withSecond.selection.focus.blockId;
     expect(secondId).not.toBe(firstId);
 
@@ -175,9 +173,8 @@ describe("handleAddComment — ADD_COMMENT", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(firstId, 1), createPosition(secondId, 2)),
       },
-      config,
     );
-    const next = reduceEditor(placed, addCommentAction(CID), config);
+    const next = reduceEditor(placed, addCommentAction(CID));
 
     // start-marker in para1 at 1 → new start endpoint 1+1=2. end-marker in para2
     // at 2 → end endpoint UNSHIFTED (different block) = 2.
@@ -201,7 +198,7 @@ describe("handleAddComment — ADD_COMMENT", () => {
     // case for the body-only guard. Here we verify the cross-context predicate by
     // a span main↔footnote built directly on the editor object.
     const { editor } = withText("abc");
-    const withFn = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    const withFn = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     const bodyId = bodyParaId(withFn);
     const fnPara = withFn.selection.focus.blockId;
     // Hand-build a cross-context selection on the editor (anchor in body, focus
@@ -211,7 +208,7 @@ describe("handleAddComment — ADD_COMMENT", () => {
       ...withFn,
       selection: createSpan(createPosition(bodyId, 0), createPosition(fnPara, 0)),
     };
-    const next = reduceEditor(crossEditor, addCommentAction(CID), config);
+    const next = reduceEditor(crossEditor, addCommentAction(CID));
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(next.state).toBe(crossEditor.state);
@@ -221,11 +218,11 @@ describe("handleAddComment — ADD_COMMENT", () => {
   it("UNDO of ADD_COMMENT removes BOTH markers AND the record", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4);
-    const added = reduceEditor(placed, addCommentAction(CID), config);
+    const added = reduceEditor(placed, addCommentAction(CID));
     expect(getComments(added.state).length).toBe(1);
     expect(markerCount(added, paraId, CID)).toBe(2);
 
-    const undone = reduceEditor(added, { type: "UNDO" }, config);
+    const undone = reduceEditor(added, { type: "UNDO" });
     expect(getComments(undone.state).length).toBe(0);
     expect(markerCount(undone, paraId, CID)).toBe(0);
   });
@@ -233,18 +230,18 @@ describe("handleAddComment — ADD_COMMENT", () => {
   it("does not swallow a later text edit into the comment's undo unit (own undo entry)", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4);
-    const added = reduceEditor(placed, addCommentAction(CID), config);
+    const added = reduceEditor(placed, addCommentAction(CID));
     // Caret to end, type a char (a SEPARATE undo unit — "command" never coalesces
     // with the following "insert").
     const atEnd = selectRange(added, paraId, 8, 8); // 6 chars + 2 markers
-    const typed = reduceEditor(atEnd, { type: "INSERT_TEXT", text: "Z" }, config);
+    const typed = reduceEditor(atEnd, { type: "INSERT_TEXT", text: "Z" });
     expect(getComments(typed.state).length).toBe(1);
 
     // First UNDO removes the typed "Z" but KEEPS the comment.
-    const undo1 = reduceEditor(typed, { type: "UNDO" }, config);
+    const undo1 = reduceEditor(typed, { type: "UNDO" });
     expect(getComments(undo1.state).length).toBe(1);
     // Second UNDO removes the comment.
-    const undo2 = reduceEditor(undo1, { type: "UNDO" }, config);
+    const undo2 = reduceEditor(undo1, { type: "UNDO" });
     expect(getComments(undo2.state).length).toBe(0);
   });
 });
@@ -253,31 +250,31 @@ describe("handleResolveComment / handleReopenComment", () => {
   function withComment(): EditorState {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4);
-    return reduceEditor(placed, addCommentAction(CID), config);
+    return reduceEditor(placed, addCommentAction(CID));
   }
 
   it("RESOLVE flips resolved → true; REOPEN flips it back; both undoable", () => {
     const added = withComment();
     expect(nth(getComments(added.state), 0, "comment").resolved).toBe(false);
 
-    const resolved = reduceEditor(added, { type: "RESOLVE_COMMENT", id: CID }, config);
+    const resolved = reduceEditor(added, { type: "RESOLVE_COMMENT", id: CID });
     expect(nth(getComments(resolved.state), 0, "comment").resolved).toBe(true);
 
-    const reopened = reduceEditor(resolved, { type: "REOPEN_COMMENT", id: CID }, config);
+    const reopened = reduceEditor(resolved, { type: "REOPEN_COMMENT", id: CID });
     expect(nth(getComments(reopened.state), 0, "comment").resolved).toBe(false);
 
     // Undo the reopen → back to resolved.
-    const undoReopen = reduceEditor(reopened, { type: "UNDO" }, config);
+    const undoReopen = reduceEditor(reopened, { type: "UNDO" });
     expect(nth(getComments(undoReopen.state), 0, "comment").resolved).toBe(true);
     // Undo the resolve → back to open.
-    const undoResolve = reduceEditor(undoReopen, { type: "UNDO" }, config);
+    const undoResolve = reduceEditor(undoReopen, { type: "UNDO" });
     expect(nth(getComments(undoResolve.state), 0, "comment").resolved).toBe(false);
   });
 
   it("RESOLVE on an already-resolved comment is an identity no-op (same state ref)", () => {
     const added = withComment();
-    const resolved = reduceEditor(added, { type: "RESOLVE_COMMENT", id: CID }, config);
-    const again = reduceEditor(resolved, { type: "RESOLVE_COMMENT", id: CID }, config);
+    const resolved = reduceEditor(added, { type: "RESOLVE_COMMENT", id: CID });
+    const again = reduceEditor(resolved, { type: "RESOLVE_COMMENT", id: CID });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(again.state).toBe(resolved.state);
   });
@@ -285,13 +282,13 @@ describe("handleResolveComment / handleReopenComment", () => {
   it("RESOLVE on an absent comment is an identity no-op (same editor ref)", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4); // an editor with NO comment
-    const next = reduceEditor(placed, { type: "RESOLVE_COMMENT", id: "nope" as CommentId }, config);
+    const next = reduceEditor(placed, { type: "RESOLVE_COMMENT", id: "nope" as CommentId });
     expect(next).toBe(placed);
   });
 
   it("REOPEN on an already-open comment is an identity no-op (same state ref)", () => {
     const added = withComment(); // open by default
-    const next = reduceEditor(added, { type: "REOPEN_COMMENT", id: CID }, config);
+    const next = reduceEditor(added, { type: "REOPEN_COMMENT", id: CID });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(next.state).toBe(added.state);
   });
@@ -301,27 +298,27 @@ describe("handleDeleteComment — DELETE_COMMENT", () => {
   it("removes the comment (record + markers) and is undoable (redo re-adds)", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4);
-    const added = reduceEditor(placed, addCommentAction(CID), config);
+    const added = reduceEditor(placed, addCommentAction(CID));
     expect(getComments(added.state).length).toBe(1);
     expect(markerCount(added, paraId, CID)).toBe(2);
 
-    const deleted = reduceEditor(added, { type: "DELETE_COMMENT", id: CID }, config);
+    const deleted = reduceEditor(added, { type: "DELETE_COMMENT", id: CID });
     expect(getComments(deleted.state).length).toBe(0);
     expect(markerCount(deleted, paraId, CID)).toBe(0);
 
     // Undo re-adds, redo re-deletes.
-    const undone = reduceEditor(deleted, { type: "UNDO" }, config);
+    const undone = reduceEditor(deleted, { type: "UNDO" });
     expect(getComments(undone.state).length).toBe(1);
     expect(markerCount(undone, paraId, CID)).toBe(2);
 
-    const redone = reduceEditor(undone, { type: "REDO" }, config);
+    const redone = reduceEditor(undone, { type: "REDO" });
     expect(getComments(redone.state).length).toBe(0);
   });
 
   it("no-ops when the id is absent (same editor reference)", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4);
-    const next = reduceEditor(placed, { type: "DELETE_COMMENT", id: "nope" as CommentId }, config);
+    const next = reduceEditor(placed, { type: "DELETE_COMMENT", id: "nope" as CommentId });
     expect(next).toBe(placed);
   });
 
@@ -329,10 +326,10 @@ describe("handleDeleteComment — DELETE_COMMENT", () => {
     // Two paragraphs; comment on para1; caret in para2. Deleting the comment
     // strips markers from para1 only, so the para2 selection stays valid.
     const initial = createInitialEditorState(config);
-    const p1 = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" }, config);
-    const split = reduceEditor(p1, { type: "SPLIT_NODE" }, config);
+    const p1 = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" });
+    const split = reduceEditor(p1, { type: "SPLIT_NODE" });
     const firstId = bodyParaId(split); // the split's head (new id)
-    const withSecond = reduceEditor(split, { type: "INSERT_TEXT", text: "defgh" }, config);
+    const withSecond = reduceEditor(split, { type: "INSERT_TEXT", text: "defgh" });
     const secondId = withSecond.selection.focus.blockId;
 
     // Comment over "bc" in para1.
@@ -342,9 +339,8 @@ describe("handleDeleteComment — DELETE_COMMENT", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(firstId, 1), createPosition(firstId, 3)),
       },
-      config,
     );
-    const added = reduceEditor(placed, addCommentAction(CID), config);
+    const added = reduceEditor(placed, addCommentAction(CID));
 
     // Caret in para2 at offset 3 (unrelated block).
     const caretElsewhere = reduceEditor(
@@ -353,9 +349,8 @@ describe("handleDeleteComment — DELETE_COMMENT", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(secondId, 3), createPosition(secondId, 3)),
       },
-      config,
     );
-    const deleted = reduceEditor(caretElsewhere, { type: "DELETE_COMMENT", id: CID }, config);
+    const deleted = reduceEditor(caretElsewhere, { type: "DELETE_COMMENT", id: CID });
 
     expect(getComments(deleted.state).length).toBe(0);
     // The para2 selection is unchanged and in range (para2 length is 5 ≥ 3).
@@ -379,7 +374,7 @@ describe("handleDeleteComment — DELETE_COMMENT", () => {
     // visual position.
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4); // "bcd"
-    const added = reduceEditor(placed, addCommentAction(CID), config);
+    const added = reduceEditor(placed, addCommentAction(CID));
     expect(markerCount(added, paraId, CID)).toBe(2);
 
     // Collapsed caret at the END of the marked block (offset 8 = past "f" + 2 markers).
@@ -389,9 +384,8 @@ describe("handleDeleteComment — DELETE_COMMENT", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(paraId, 8), createPosition(paraId, 8)),
       },
-      config,
     );
-    const deleted = reduceEditor(caretInBlock, { type: "DELETE_COMMENT", id: CID }, config);
+    const deleted = reduceEditor(caretInBlock, { type: "DELETE_COMMENT", id: CID });
 
     expect(getComments(deleted.state).length).toBe(0);
     expect(markerCount(deleted, paraId, CID)).toBe(0);
@@ -412,7 +406,7 @@ describe("handleAddReply — ADD_REPLY", () => {
   it("appends a reply to the record's replies", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4);
-    const added = reduceEditor(placed, addCommentAction(CID), config);
+    const added = reduceEditor(placed, addCommentAction(CID));
     expect(nth(getComments(added.state), 0, "comment").replies.length).toBe(0);
 
     const replied = reduceEditor(
@@ -425,7 +419,6 @@ describe("handleAddReply — ADD_REPLY", () => {
         body: "agreed",
         createdAt: 2000,
       },
-      config,
     );
     const replies = nth(getComments(replied.state), 0, "comment").replies;
     expect(replies.length).toBe(1);
@@ -449,7 +442,6 @@ describe("handleAddReply — ADD_REPLY", () => {
         body: "x",
         createdAt: 2000,
       },
-      config,
     );
     expect(next).toBe(placed);
   });
@@ -457,7 +449,7 @@ describe("handleAddReply — ADD_REPLY", () => {
   it("is undoable — UNDO removes the reply, leaving the comment", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4);
-    const added = reduceEditor(placed, addCommentAction(CID), config);
+    const added = reduceEditor(placed, addCommentAction(CID));
     const replied = reduceEditor(
       added,
       {
@@ -468,11 +460,10 @@ describe("handleAddReply — ADD_REPLY", () => {
         body: "agreed",
         createdAt: 2000,
       },
-      config,
     );
     expect(nth(getComments(replied.state), 0, "comment").replies.length).toBe(1);
 
-    const undone = reduceEditor(replied, { type: "UNDO" }, config);
+    const undone = reduceEditor(replied, { type: "UNDO" });
     // The reply is its own "command" undo unit: one UNDO drops the reply but
     // the comment record + markers survive (a separate prior entry).
     const comments = getComments(undone.state);

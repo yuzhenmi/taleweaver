@@ -7,8 +7,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { config, measurer, reduceEditor } from "./test-helpers";
-import type { EditorState } from "../editor-state";
-import { getBlock, createHistory } from "../../state";
+import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { getBlock } from "../../state";
 import type { BlockId, State } from "../../state";
 import {
   buildState,
@@ -80,15 +80,7 @@ function makeEditor(cursorBlock: BlockId): EditorState {
     ],
   });
   const cursor = { blockId: cursorBlock, offset: 0 };
-  return {
-    state: initialState,
-    selection: { anchor: cursor, focus: cursor },
-    history: createHistory(initialState),
-    lastDirtyIds: null,
-    lastChange: null,
-    containerWidth: config.containerWidth,
-    targetX: null,
-  };
+  return createEditorStateFromState(initialState, { anchor: cursor, focus: cursor }, config);
 }
 
 /** Ordered list of a block's direct children (the root's: its sections). */
@@ -110,7 +102,7 @@ describe("handleSectionBreak — SECTION_BREAK action", () => {
   it("breaks the doc into two flat sections at the cursor's boundary (cursor in p3)", () => {
     const initial = makeEditor("p3" as BlockId);
 
-    const next = reduceEditor(initial, { type: "SECTION_BREAK" }, config);
+    const next = reduceEditor(initial, { type: "SECTION_BREAK" });
 
     // Positive direction: a real break produces a NEW state reference.
     expect(next.state).not.toBe(initial.state);
@@ -147,7 +139,7 @@ describe("handleSectionBreak — SECTION_BREAK action", () => {
     // empty head is the leading section's paragraph.
     const initial = makeEditor("p1" as BlockId);
 
-    const next = reduceEditor(initial, { type: "SECTION_BREAK" }, config);
+    const next = reduceEditor(initial, { type: "SECTION_BREAK" });
 
     const [secA, secB] = childrenOf(next);
     const leading = childrenOf(next, secA as BlockId);

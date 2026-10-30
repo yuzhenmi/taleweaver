@@ -15,8 +15,8 @@ import {
   createPosition,
   createSpan,
 } from "./test-helpers";
-import type { EditorState } from "../editor-state";
-import { getBlock, createHistory } from "../../state";
+import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { getBlock } from "../../state";
 import type { BlockId, State } from "../../state";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
 import { coalesceKeyOf } from "../coalesce-key";
@@ -25,15 +25,7 @@ import type { EditorAction } from "../editor-action";
 // Phase 0b: core's `EditorState` is geometry-free — these state-level action
 // tests build only the geometry-free fields (the handlers read no layout).
 function makeEditor(state: State, selection: EditorState["selection"]): EditorState {
-  return {
-    state,
-    selection,
-    history: createHistory(state),
-    lastDirtyIds: null,
-    lastChange: null,
-    containerWidth: config.containerWidth,
-    targetX: null,
-  };
+  return createEditorStateFromState(state, selection, config);
 }
 
 /** A doc with one paragraph "p" carrying inline content [text("ab")]. */
@@ -58,7 +50,7 @@ describe("INSERT_TAB action", () => {
     const state = paragraphDoc();
     const at = createPosition("p" as BlockId, 1);
     const ed = makeEditor(state, createSpan(at, at));
-    const next = reduceEditor(ed, { type: "INSERT_TAB" }, config);
+    const next = reduceEditor(ed, { type: "INSERT_TAB" });
 
     // "ab" + tab at offset 1 → [text "a", embed "tab", text "b"].
     const items = getBlock(next.state, "p" as BlockId)?.inlineContent?.items ?? [];
@@ -70,7 +62,7 @@ describe("INSERT_TAB action", () => {
     const state = paragraphDoc();
     const at = createPosition("p" as BlockId, 1);
     const ed = makeEditor(state, createSpan(at, at));
-    const next = reduceEditor(ed, { type: "INSERT_TAB" }, config);
+    const next = reduceEditor(ed, { type: "INSERT_TAB" });
 
     // The tab occupies one position-offset unit; caret lands at offset 2.
     expect(next.selection.anchor).toEqual(createPosition("p" as BlockId, 2));
@@ -94,7 +86,6 @@ describe("SET_TAB_STOPS action", () => {
         blockId: "p" as BlockId,
         tabStops: [{ position: 72, alignment: "left", leader: "none" }],
       },
-      config,
     );
 
     const block = getBlock(next.state, "p" as BlockId);

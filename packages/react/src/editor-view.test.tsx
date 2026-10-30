@@ -4,7 +4,7 @@ import { render, act } from "@testing-library/react";
 import { EditorView, type EditorViewHandle } from "./editor-view";
 import { useEditor } from "./use-editor";
 import { createEditorController } from "@taleweaver/print";
-import { asBlockId, createDefaultAttrRegistry, type Decoration } from "@taleweaver/core";
+import { asBlockId, createDefaultAttrRegistry, type Decoration, type EditorState, type PageConfig } from "@taleweaver/core";
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -112,17 +112,24 @@ describe("EditorView", () => {
     expect(createEditorController).toHaveBeenCalled();
   });
 
-  it("hands useEditor's config (one registry for reducer + controller) to the controller (host marks paint in print)", () => {
+  it("useEditor's options reach the controller on the editor state it renders — one config for reducer + controller (host marks paint in print)", () => {
     const attrRegistry = createDefaultAttrRegistry();
     const extensions = { keymap: { "Mod-k": null } };
+    const pageConfig: PageConfig = {
+      pageInlineSize: 600,
+      pageBlockSize: 800,
+      pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+      pageGap: 24,
+    };
     function RegistryHarness() {
-      const editor = useEditor({ attrRegistry, extensions });
+      const editor = useEditor({ attrRegistry, extensions, pageConfig });
       return <EditorView {...editor} measurer={editor.shaper} />;
     }
     render(<RegistryHarness />);
-    const passed = vi.mocked(createEditorController).mock.calls.at(-1)?.[1].config;
-    expect(passed?.attrRegistry).toBe(attrRegistry);
-    expect(passed?.extensions).toBe(extensions); // host keymap reaches the print controller
+    const rendered = mockUpdate.mock.calls.at(-1)?.[0] as EditorState | undefined;
+    expect(rendered?.config.attrRegistry).toBe(attrRegistry);
+    expect(rendered?.config.extensions).toBe(extensions); // host keymap reaches the print controller
+    expect(rendered?.config.pageConfig).toBe(pageConfig); // the reducer's page setup is the one the view paginates with
   });
 
   it("calls controller.update() with initial editorState", () => {

@@ -94,7 +94,7 @@ describe("cell clip triggers (ResizeObserver on blocks hosting a glyph in a <td>
   function tableDoc(): { state: State; c1: BlockId; c2: BlockId; after: BlockId } {
     const config = { componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800 };
     let e = createInitialEditorState(config);
-    e = reduceEditor(e, { type: "INSERT_TABLE", rows: 1, cols: 2 }, config);
+    e = reduceEditor(e, { type: "INSERT_TABLE", rows: 1, cols: 2 });
     const leaves: BlockId[] = [];
     const walk = (id: BlockId | null): void => {
       for (let cur = id; cur !== null; ) {

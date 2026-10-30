@@ -58,8 +58,8 @@ function leaves(s: State): BlockId[] {
 function paras(texts: readonly string[]): EditorState {
   let e = createInitialEditorState(base);
   texts.forEach((t, i) => {
-    if (i > 0) e = reduceEditor(e, { type: "SPLIT_NODE" }, base);
-    if (t !== "") e = reduceEditor(e, { type: "INSERT_TEXT", text: t }, base);
+    if (i > 0) e = reduceEditor(e, { type: "SPLIT_NODE" });
+    if (t !== "") e = reduceEditor(e, { type: "INSERT_TEXT", text: t });
   });
   return e;
 }
@@ -93,7 +93,7 @@ function joined(): { state: State; l: BlockId; r: BlockId } {
   const e0 = paras(["Anna", "Rosa"]);
   const [l, r] = leaves(e0.state);
   if (l === undefined || r === undefined) throw new Error("setup");
-  const e = reduceEditor(reduceEditor(e0, caret(r, 0), alice), { type: "DELETE_BACKWARD" }, alice);
+  const e = reduceEditor(reduceEditor({ ...e0, config: alice }, caret(r, 0)), { type: "DELETE_BACKWARD" });
   return { state: e.state, l, r };
 }
 
@@ -102,7 +102,7 @@ function sectioned(): { state: State; h: BlockId; b: BlockId } {
   const e0 = paras(["Ax", "B"]);
   const [, b] = leaves(e0.state);
   if (b === undefined) throw new Error("setup");
-  const e = reduceEditor(reduceEditor(e0, caret(b, 0), alice), { type: "SECTION_BREAK" }, alice);
+  const e = reduceEditor(reduceEditor({ ...e0, config: alice }, caret(b, 0)), { type: "SECTION_BREAK" });
   const [, h, b2] = leaves(e.state);
   if (h === undefined || b2 !== b) throw new Error("setup: expected Ax | H | B");
   return { state: e.state, h, b };
@@ -113,7 +113,7 @@ describe("digital boundary ¶ marks", () => {
     const e0 = paras(["Hello"]);
     const [h] = leaves(e0.state);
     if (h === undefined) throw new Error("setup");
-    const e = reduceEditor(reduceEditor(e0, caret(h, 0), alice), { type: "SPLIT_NODE" }, alice); // Enter at 0: the first block empties
+    const e = reduceEditor(reduceEditor({ ...e0, config: alice }, caret(h, 0)), { type: "SPLIT_NODE" }); // Enter at 0: the first block empties
     const [n] = leaves(e.state);
     if (n === undefined) throw new Error("setup");
     const { controller, el, bridge } = mount(e.state);
@@ -352,7 +352,7 @@ describe("digital caret affinity (markers are never caret stops)", () => {
     const e0 = paras(["Title", ""]);
     const [t, host] = leaves(e0.state);
     if (t === undefined || host === undefined) throw new Error("setup");
-    const e = reduceEditor(reduceEditor(e0, caret(host, 0), base), { type: "INSERT_CROSS_REFERENCE", targetId: t, refMode: "text" }, base);
+    const e = reduceEditor(reduceEditor(e0, caret(host, 0)), { type: "INSERT_CROSS_REFERENCE", targetId: t, refMode: "text" });
     // [start] "Title" [end]
     expect(getBlock(e.state, t)?.inlineContent?.items.map((i) => i.kind)).toEqual(["embed", "text", "embed"]);
     const { controller, el, bridge } = mount(e.state);
@@ -369,7 +369,7 @@ describe("digital caret affinity (markers are never caret stops)", () => {
     const e0 = paras(["Title", "after"]);
     const [t, host] = leaves(e0.state);
     if (t === undefined || host === undefined) throw new Error("setup");
-    const e = reduceEditor(reduceEditor(e0, caret(host, 0), base), { type: "INSERT_CROSS_REFERENCE", targetId: t, refMode: "text" }, base);
+    const e = reduceEditor(reduceEditor(e0, caret(host, 0)), { type: "INSERT_CROSS_REFERENCE", targetId: t, refMode: "text" });
     const { controller, el, bridge, container } = mount(e.state);
     const sel = window.getSelection();
     if (sel === null) throw new Error("selection");

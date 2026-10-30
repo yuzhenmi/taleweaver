@@ -41,7 +41,7 @@ function layoutOf(editor: EditorState, config: EditorConfig): VirtualLayoutTree 
 
 function buildPasted(config: EditorConfig, n: number): EditorState {
   const text = Array.from({ length: n }, (_, i) => `para ${i}`).join("\n");
-  return reduceEditor(createInitialEditorState(config), { type: "PASTE", text }, config);
+  return reduceEditor(createInitialEditorState(config), { type: "PASTE", text });
 }
 
 function nthBlockId(editor: EditorState, n: number): BlockId {
