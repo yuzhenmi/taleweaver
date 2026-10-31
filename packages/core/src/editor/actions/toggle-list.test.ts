@@ -20,24 +20,24 @@ import {
   createPosition,
   createSpan,
 } from "./test-helpers";
-import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { createEditorStateFromDocument, type EditorState } from "../editor-state";
 import {
   getBlock,
   setListType,
-  getListDefsForState,
+  getListDefsForDocument,
 } from "../../state";
-import type { BlockId, State } from "../../state";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import type { BlockId, Document } from "../../state";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 
 // Phase 0b: core's `EditorState` is geometry-free — these state-level action
 // tests build only the geometry-free fields (the handler reads no layout).
-function makeEditor(state: State, selection: EditorState["selection"]): EditorState {
-  return createEditorStateFromState(state, selection, config);
+function makeEditor(document: Document, selection: EditorState["selection"]): EditorState {
+  return createEditorStateFromDocument(document, selection, config);
 }
 
 /** Classify a listId's def via the level-0 marker style (test mirror of the handler). */
-function listKindOf(state: State, listId: string): "ordered" | "unordered" | undefined {
-  const def = getListDefsForState(state).get(listId);
+function listKindOf(document: Document, listId: string): "ordered" | "unordered" | undefined {
+  const def = getListDefsForDocument(document).get(listId);
   const level0 = def?.levels[0];
   if (level0 === undefined) return undefined;
   const style = level0.style;
@@ -70,7 +70,7 @@ describe("handleToggleList — flat list model (#L14)", () => {
 
   it("(b) toggling a paragraph adjacent to a same-type list JOINS it (shared listId)", () => {
     // li(L1, unordered) followed by a plain paragraph p.
-    let state: State = buildState({
+    let document: Document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "p" }),
@@ -92,9 +92,9 @@ describe("handleToggleList — flat list model (#L14)", () => {
       ],
     });
     // Establish L1's def so the handler can classify it as unordered.
-    state = setListType(state, "L1", "unordered").state;
+    document = setListType(document, "L1", "unordered").document;
 
-    const editor = makeEditor(state, {
+    const editor = makeEditor(document, {
       anchor: createPosition("p" as BlockId, 0),
       focus: createPosition("p" as BlockId, 0),
     });
@@ -107,7 +107,7 @@ describe("handleToggleList — flat list model (#L14)", () => {
   });
 
   it("(c) list-item → paragraph: clears listId/listLevel", () => {
-    let state: State = buildState({
+    let document: Document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "li" }),
@@ -120,9 +120,9 @@ describe("handleToggleList — flat list model (#L14)", () => {
         }),
       ],
     });
-    state = setListType(state, "L1", "unordered").state;
+    document = setListType(document, "L1", "unordered").document;
 
-    const editor = makeEditor(state, {
+    const editor = makeEditor(document, {
       anchor: createPosition("li" as BlockId, 0),
       focus: createPosition("li" as BlockId, 0),
     });
@@ -135,7 +135,7 @@ describe("handleToggleList — flat list model (#L14)", () => {
   });
 
   it("(d) multi-block selection toggles every eligible block into one list", () => {
-    const state: State = buildState({
+    const document: Document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: "p1" }),
@@ -156,7 +156,7 @@ describe("handleToggleList — flat list model (#L14)", () => {
       ],
     });
     const editor = makeEditor(
-      state,
+      document,
       createSpan(createPosition("p0" as BlockId, 0), createPosition("p1" as BlockId, 3)),
     );
 
@@ -173,7 +173,7 @@ describe("handleToggleList — flat list model (#L14)", () => {
   });
 
   it("cross-type: clicking ordered on an unordered item converts it (new ordered list)", () => {
-    let state: State = buildState({
+    let document: Document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "li" }),
@@ -186,9 +186,9 @@ describe("handleToggleList — flat list model (#L14)", () => {
         }),
       ],
     });
-    state = setListType(state, "L1", "unordered").state;
+    document = setListType(document, "L1", "unordered").document;
 
-    const editor = makeEditor(state, {
+    const editor = makeEditor(document, {
       anchor: createPosition("li" as BlockId, 0),
       focus: createPosition("li" as BlockId, 0),
     });
@@ -205,7 +205,7 @@ describe("handleToggleList — flat list model (#L14)", () => {
   it("cross-type adjacent to a same-(requested-)type list joins it (reuses neighbour id)", () => {
     // ord(L1 ordered) then a bulleted item li(L2). Clicking ORDERED on li → it
     // is not already ordered → ON; its before-sibling is an ordered list → join L1.
-    let state: State = buildState({
+    let document: Document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "ord", lastChildId: "li" }),
@@ -227,10 +227,10 @@ describe("handleToggleList — flat list model (#L14)", () => {
         }),
       ],
     });
-    state = setListType(state, "L1", "ordered").state;
-    state = setListType(state, "L2", "unordered").state;
+    document = setListType(document, "L1", "ordered").document;
+    document = setListType(document, "L2", "unordered").document;
 
-    const editor = makeEditor(state, {
+    const editor = makeEditor(document, {
       anchor: createPosition("li" as BlockId, 0),
       focus: createPosition("li" as BlockId, 0),
     });
@@ -241,7 +241,7 @@ describe("handleToggleList — flat list model (#L14)", () => {
   });
 
   it("tie-break: a paragraph between two same-type but different lists joins the BEFORE one", () => {
-    let state: State = buildState({
+    let document: Document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "a", lastChildId: "b" }),
@@ -271,10 +271,10 @@ describe("handleToggleList — flat list model (#L14)", () => {
         }),
       ],
     });
-    state = setListType(state, "L1", "unordered").state;
-    state = setListType(state, "L2", "unordered").state;
+    document = setListType(document, "L1", "unordered").document;
+    document = setListType(document, "L2", "unordered").document;
 
-    const editor = makeEditor(state, {
+    const editor = makeEditor(document, {
       anchor: createPosition("p" as BlockId, 0),
       focus: createPosition("p" as BlockId, 0),
     });
@@ -285,7 +285,7 @@ describe("handleToggleList — flat list model (#L14)", () => {
   });
 
   it("cross-type conversion preserves an existing nesting level", () => {
-    let state: State = buildState({
+    let document: Document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "li" }),
@@ -298,9 +298,9 @@ describe("handleToggleList — flat list model (#L14)", () => {
         }),
       ],
     });
-    state = setListType(state, "L1", "unordered").state;
+    document = setListType(document, "L1", "unordered").document;
 
-    const editor = makeEditor(state, {
+    const editor = makeEditor(document, {
       anchor: createPosition("li" as BlockId, 0),
       focus: createPosition("li" as BlockId, 0),
     });

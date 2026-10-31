@@ -7,15 +7,15 @@
  */
 import { describe, it, expect } from "vitest";
 import { config, measurer, reduceEditor } from "./test-helpers";
-import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { createEditorStateFromDocument, type EditorState } from "../editor-state";
 import { getBlock } from "../../state";
-import type { BlockId, State } from "../../state";
+import type { BlockId, Document } from "../../state";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
-} from "../../test-utils/state-builders";
+} from "../../test-utils/document-builders";
 import { render } from "../../render/render";
 import { cascadePass } from "../../cascade";
 import { layoutTree } from "@taleweaver/print";
@@ -26,8 +26,8 @@ import { layoutTree } from "@taleweaver/print";
  * directly (what the driver does) so a test can prove the post-break document
  * still lays out without error.
  */
-function layoutOf(state: State): unknown {
-  const rendered = render(state, config.componentRegistry, config.attrRegistry);
+function layoutOf(document: Document): unknown {
+  const rendered = render(document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   return layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
 }
@@ -38,7 +38,7 @@ function layoutOf(state: State): unknown {
  * geometry-free (no render/cascade/layout fields).
  */
 function makeEditor(cursorBlock: BlockId): EditorState {
-  const initialState = buildState({
+  const initialDocument = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -80,7 +80,7 @@ function makeEditor(cursorBlock: BlockId): EditorState {
     ],
   });
   const cursor = { blockId: cursorBlock, offset: 0 };
-  return createEditorStateFromState(initialState, { anchor: cursor, focus: cursor }, config);
+  return createEditorStateFromDocument(initialDocument, { anchor: cursor, focus: cursor }, config);
 }
 
 /** Ordered list of a block's direct children (the root's: its sections). */

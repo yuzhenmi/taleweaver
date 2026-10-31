@@ -7,9 +7,9 @@
 import type { IdAllocator } from "./block-id";
 import type { BlockKindResolver } from "./block-kinds";
 import { productionAllocator } from "./block-id";
-import { createState, type Document } from "./state";
+import { createDocument, type Document } from "./document";
 import { writeRoot } from "./flow-ops";
-import { STATE_INTERNAL } from "./state-internal";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 
 export interface CreateEmptyDocumentArgs {
   /** Storage-shape authority (the component registry). */
@@ -18,7 +18,7 @@ export interface CreateEmptyDocumentArgs {
 }
 
 /**
- * Build an empty document State: a root "document" block containing one
+ * Build an empty document Document: a root "document" block containing one
  * empty "paragraph" child. The document is the canonical starting point
  * for a new editor session.
  */
@@ -27,8 +27,8 @@ export function createEmptyDocument(args: CreateEmptyDocumentArgs): Document {
   const rootId = allocator.allocate();
   const paragraphId = allocator.allocate();
 
-  const state = createState({ rootId, resolver: args.resolver });
-  const doc = state[STATE_INTERNAL].doc;
+  const document = createDocument({ rootId, resolver: args.resolver });
+  const doc = document[DOCUMENT_INTERNAL].doc;
   doc.transact(() => {
     writeRoot(
       doc,
@@ -42,5 +42,5 @@ export function createEmptyDocument(args: CreateEmptyDocumentArgs): Document {
       "block",
     );
   });
-  return state;
+  return document;
 }

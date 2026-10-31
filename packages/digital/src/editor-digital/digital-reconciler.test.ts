@@ -256,14 +256,14 @@ describe("DigitalReconciler.reconcile — host-hidden blocks", () => {
     const second = getBlock(st.document, root?.lastChildId ?? st.document.rootId)?.lastChildId; // root → final section → paragraphs
     if (second == null) throw new Error("setup");
     const hide = setBlockAttrs(st.document, second, { hidden: true });
-    const hidden: EditorState = { ...st, document: hide.state, lastDirtyIds: hide.dirtyIds };
+    const hidden: EditorState = { ...st, document: hide.document, lastDirtyIds: hide.dirtyIds };
     const container = document.createElement("div");
     document.body.appendChild(container);
     const r = createDigitalReconciler(config.componentRegistry, config.attrRegistry, document);
     r.mount(container, hidden);
     expect(container.querySelector(`[data-block-id="${second}"]`)).toBeNull();
     const show = setBlockAttrs(hidden.document, second, { hidden: false });
-    r.reconcile(hidden, { ...hidden, document: show.state, lastDirtyIds: show.dirtyIds }, false);
+    r.reconcile(hidden, { ...hidden, document: show.document, lastDirtyIds: show.dirtyIds }, false);
     expect(container.querySelector(`[data-block-id="${second}"]`)?.textContent).toBe("cd");
   });
 });

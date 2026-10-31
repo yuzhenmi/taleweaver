@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { setTableHeaderRows } from "./set-table-header-rows";
-import { getBlock } from "../state";
+import { getBlock } from "../document";
 import { createHistory } from "../history";
 import { createPosition, createSpan } from "../block-position";
-import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent } from "../../test-utils/document-builders";
 import type { BlockId } from "../block-id";
-import type { Document } from "../state";
+import type { Document } from "../document";
 import type { Block } from "../block";
 
 /** One 1×1 cell: a `table-cell` + its empty paragraph. */
@@ -51,7 +51,7 @@ function plainTable(rowCount: number): Document {
       ...cell(`c${r}`, `r${r}`, null, null),
     );
   }
-  return buildState({ rootId: "doc", blocks });
+  return buildDocument({ rootId: "doc", blocks });
 }
 
 /**
@@ -72,65 +72,65 @@ function spanTable(): Document {
     buildBlock({ id: "Bp", type: "paragraph", parentId: "B", inlineContent: inlineContent([]) }),
     ...cell("D", "r3", null, null),
   ];
-  return buildState({ rootId: "doc", blocks });
+  return buildDocument({ rootId: "doc", blocks });
 }
 
-function headerRowCountOf(state: Document): unknown {
-  return getBlock(state, "table" as BlockId)?.attrs.headerRowCount;
+function headerRowCountOf(document: Document): unknown {
+  return getBlock(document, "table" as BlockId)?.attrs.headerRowCount;
 }
 
 describe("setTableHeaderRows", () => {
   it("writes headerRowCount clamped to [0, rowCount]", () => {
     // A fresh table per call (all Documents of one fixture share its Y.Doc).
-    const state = plainTable(3);
-    const two = setTableHeaderRows(state, "table" as BlockId, 2).state;
-    expect(two).not.toBe(state);
+    const document = plainTable(3);
+    const two = setTableHeaderRows(document, "table" as BlockId, 2).document;
+    expect(two).not.toBe(document);
     expect(headerRowCountOf(two)).toBe(2);
     // Above rowCount → clamps to 3.
-    expect(headerRowCountOf(setTableHeaderRows(plainTable(3), "table" as BlockId, 9).state)).toBe(3);
+    expect(headerRowCountOf(setTableHeaderRows(plainTable(3), "table" as BlockId, 9).document)).toBe(3);
     // Negative → clamps to 0 (attr dropped — 0 is the absent default).
-    expect(headerRowCountOf(setTableHeaderRows(two, "table" as BlockId, -2).state)).toBeUndefined();
+    expect(headerRowCountOf(setTableHeaderRows(two, "table" as BlockId, -2).document)).toBeUndefined();
   });
 
   it("clamps a straddling request DOWN to the clean boundary", () => {
     // requested=2 would straddle B's rowSpan → clamps to 1.
-    const state = spanTable();
-    expect(headerRowCountOf(setTableHeaderRows(state, "table" as BlockId, 2).state)).toBe(1);
+    const document = spanTable();
+    expect(headerRowCountOf(setTableHeaderRows(document, "table" as BlockId, 2).document)).toBe(1);
     // requested=3: B at row 1 with rowSpan 2 reaches 1+2=3, which is NOT > 3 (it
     // ends exactly AT the count=3 boundary, not past it) → no straddle at count=3
     // → clean → stays 3.
-    expect(headerRowCountOf(setTableHeaderRows(state, "table" as BlockId, 3).state)).toBe(3);
+    expect(headerRowCountOf(setTableHeaderRows(document, "table" as BlockId, 3).document)).toBe(3);
   });
 
   it("is a no-op (same state ref) when headerRowCount is already equal", () => {
-    const state = plainTable(3);
-    const once = setTableHeaderRows(state, "table" as BlockId, 2).state;
+    const document = plainTable(3);
+    const once = setTableHeaderRows(document, "table" as BlockId, 2).document;
     const twice = setTableHeaderRows(once, "table" as BlockId, 2);
-    expect(twice.state).toBe(once); // identity preserved (no spurious dirty)
+    expect(twice.document).toBe(once); // identity preserved (no spurious dirty)
   });
 
   it("is a no-op when setting 0 on a table that has no headerRowCount", () => {
-    const state = plainTable(3);
-    const result = setTableHeaderRows(state, "table" as BlockId, 0);
-    expect(result.state).toBe(state);
+    const document = plainTable(3);
+    const result = setTableHeaderRows(document, "table" as BlockId, 0);
+    expect(result.document).toBe(document);
   });
 
   it("throws on a non-table block id", () => {
-    const state = plainTable(3);
-    expect(() => setTableHeaderRows(state, "r0" as BlockId, 1)).toThrow(/table/);
-    expect(() => setTableHeaderRows(state, "missing" as BlockId, 1)).toThrow();
+    const document = plainTable(3);
+    expect(() => setTableHeaderRows(document, "r0" as BlockId, 1)).toThrow(/table/);
+    expect(() => setTableHeaderRows(document, "missing" as BlockId, 1)).toThrow();
   });
 
   it("is one undo entry (a single applyOperation transaction)", () => {
-    const state = plainTable(3);
-    const history = createHistory(state);
+    const document = plainTable(3);
+    const history = createHistory(document);
     const sel = createSpan(createPosition("c0p" as BlockId, 0), createPosition("c0p" as BlockId, 0));
-    const result = setTableHeaderRows(state, "table" as BlockId, 2);
+    const result = setTableHeaderRows(document, "table" as BlockId, 2);
     history.commit(result, { before: sel, after: sel });
-    expect(headerRowCountOf(result.state)).toBe(2);
+    expect(headerRowCountOf(result.document)).toBe(2);
     const undone = history.undo();
     expect(undone).not.toBeNull();
     if (undone === null) throw new Error("expected undo to succeed");
-    expect(headerRowCountOf(undone.state)).toBeUndefined();
+    expect(headerRowCountOf(undone.document)).toBeUndefined();
   });
 });

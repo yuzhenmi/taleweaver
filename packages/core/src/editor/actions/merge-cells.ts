@@ -24,16 +24,16 @@ export function handleMergeCells(editor: EditorState): Edit | null {
   if (range === null) return null;
 
   const result = mergeCells(editor.document, range);
-  if (result.state === editor.document) return null; // single-cell range → nothing merged
+  if (result.document === editor.document) return null; // single-cell range → nothing merged
 
   // Survivor = the cell originating at the range's top-left (pre-op grid); its id
   // is stable across the merge, so read its first paragraph from the post-op state.
   const grid = buildTableGrid(editor.document, range.tableId);
   const survivor = grid?.cells.find((c) => c.gridRow === range.minRow && c.gridCol === range.minCol) ?? null;
-  const caretBlockId = survivor !== null ? getBlock(result.state, survivor.cellId)?.firstChildId ?? null : null;
+  const caretBlockId = survivor !== null ? getBlock(result.document, survivor.cellId)?.firstChildId ?? null : null;
   if (caretBlockId === null) return null; // defensive: a survivor always has a first paragraph
 
   const cursor = createPosition(caretBlockId, 0);
   const after = createSpan(cursor, cursor);
-  return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: after };
+  return { change: { document: result.document, dirtyIds: result.dirtyIds }, selection: after };
 }

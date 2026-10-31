@@ -26,7 +26,7 @@ export function handleSetListRestart(
 
   // `null` clears the override; `mergeAttrs` deletes the key on `undefined`.
   const result = setListRestart(editor.document, blockId, value ?? undefined);
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
 
-  return { change: { state: result.state, dirtyIds: result.dirtyIds } };
+  return { change: { document: result.document, dirtyIds: result.dirtyIds } };
 }

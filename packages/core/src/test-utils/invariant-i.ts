@@ -19,8 +19,8 @@
  */
 import * as Y from "yjs";
 import type { BlockId } from "../state/block-id";
-import { getBlock, resolveBlock, type Document } from "../state/state";
-import { STATE_INTERNAL } from "../state/state-internal";
+import { getBlock, resolveBlock, type Document } from "../state/document";
+import { DOCUMENT_INTERNAL } from "../state/document-internal";
 import { inlineContentLength } from "../state/inline-content";
 import { getRegistry, entryFlow } from "../state/registry";
 import { readCtx, eff, clen, deriveBlock, type ReadCtx } from "../state/flow-read";
@@ -44,8 +44,8 @@ function tokensOf(ctx: ReadCtx, flow: Y.Array<Y.Text>): Token[] {
 }
 
 /** Ids of every holder whose flow is read (visible), with its flow. */
-function visibleFlows(state: Document): { id: string; flow: Y.Array<Y.Text> }[] {
-  const doc = state[STATE_INTERNAL].doc;
+function visibleFlows(document: Document): { id: string; flow: Y.Array<Y.Text> }[] {
+  const doc = document[DOCUMENT_INTERNAL].doc;
   const ctx = readCtx(doc);
   const out: { id: string; flow: Y.Array<Y.Text> }[] = [];
   for (const [id, entry] of getRegistry(doc).entries()) {
@@ -58,10 +58,10 @@ function visibleFlows(state: Document): { id: string; flow: Y.Array<Y.Text> }[] 
 }
 
 /** The first storage violation of I (and the state check), or null. */
-export function storageViolation(state: Document, stateCheck = true): string | null {
-  const doc = state[STATE_INTERNAL].doc;
+export function storageViolation(document: Document, stateCheck = true): string | null {
+  const doc = document[DOCUMENT_INTERNAL].doc;
   const ctx = readCtx(doc);
-  for (const { id, flow } of visibleFlows(state)) {
+  for (const { id, flow } of visibleFlows(document)) {
     const toks = tokensOf(ctx, flow);
     if (toks.length === 0) return `flow ${id}: empty`;
     let pending = false;
@@ -80,11 +80,11 @@ export function storageViolation(state: Document, stateCheck = true): string | n
 }
 
 /** The first read-model violation of I (or a lost character), or null. */
-export function readViolation(state: Document): string | null {
-  const doc = state[STATE_INTERNAL].doc;
+export function readViolation(document: Document): string | null {
+  const doc = document[DOCUMENT_INTERNAL].doc;
   const ctx = readCtx(doc);
-  for (const { id, flow } of visibleFlows(state)) {
-    const holder = resolveBlock(state, id as BlockId)?.block;
+  for (const { id, flow } of visibleFlows(document)) {
+    const holder = resolveBlock(document, id as BlockId)?.block;
     if (holder === undefined) continue;
     // Covered cells read inside their anchor's concatenation: checked there.
     if (holder.type === "table-cell" && deriveBlock(ctx, id)?.block.id !== id) continue;
@@ -92,7 +92,7 @@ export function readViolation(state: Document): string | null {
     const walk = (first: BlockId | null, inSection: boolean): string | null => {
       if (inSection && first === null) return "empty section";
       for (let c = first; c !== null; ) {
-        const b = getBlockAny(state, c);
+        const b = getBlockAny(document, c);
         if (b === null) return `dangling ${c}`;
         if (b.type === "section") {
           const bad = walk(b.firstChildId, true);
@@ -118,16 +118,16 @@ export function readViolation(state: Document): string | null {
   return null;
 }
 
-function getBlockAny(state: Document, id: BlockId) {
-  return getBlock(state, id) ?? resolveBlock(state, id)?.block ?? null;
+function getBlockAny(document: Document, id: BlockId) {
+  return getBlock(document, id) ?? resolveBlock(document, id)?.block ?? null;
 }
 
 /**
  * The storage of `holderId`'s flow as a string: each ¶ as `id:"text"` (a section-end
  * as `id:"text"/S`), each object as `[id]`, an unterminated tail as `~"text"`.
  */
-export function flowShape(state: Document, holderId: string): string {
-  const doc = state[STATE_INTERNAL].doc;
+export function flowShape(document: Document, holderId: string): string {
+  const doc = document[DOCUMENT_INTERNAL].doc;
   const ctx = readCtx(doc);
   const entry = getRegistry(doc).get(holderId);
   const flow = entry === undefined ? null : entryFlow(entry);
@@ -159,7 +159,7 @@ export function flowShape(state: Document, holderId: string): string {
  * Assert invariant I: in STORAGE (+ the plain-¶ state check) after a local
  * primitive op, in the READ MODEL after a remote transaction / undo / redo.
  */
-export function assertInvariantI(state: Document, mode: "storage" | "read", label = ""): void {
-  const bad = mode === "storage" ? (storageViolation(state) ?? readViolation(state)) : readViolation(state);
+export function assertInvariantI(document: Document, mode: "storage" | "read", label = ""): void {
+  const bad = mode === "storage" ? (storageViolation(document) ?? readViolation(document)) : readViolation(document);
   if (bad !== null) throw new Error(`invariant I (${mode}) ${label}: ${bad}`);
 }

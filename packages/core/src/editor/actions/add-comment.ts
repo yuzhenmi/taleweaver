@@ -72,7 +72,7 @@ export function handleAddComment(
   });
   // Identity invariant: a valid expanded range always mutates, but keep the
   // "no change → same reference" contract robust against a surprise no-op.
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
 
   // Re-derive the visible selection against the +2 marker offsets (markers
   // OUTSIDE the selection), preserving the originally-selected characters.

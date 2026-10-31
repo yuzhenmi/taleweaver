@@ -1,14 +1,14 @@
 /**
  * Transaction-derived exact position mapping: positions map from the transaction's
- * own structure changes — a block the previous State never read maps exactly (no
+ * own structure changes — a block the previous Document never read maps exactly (no
  * "unknown"), repeated text resolves to the side the edit happened on without a hint,
  * and renames (split, join, materialization, canonical change, collapse) map on the
  * local AND the remote side.
  */
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import { createState, getBlock, type Document } from "./state";
-import { STATE_INTERNAL } from "./state-internal";
+import { createDocument, getBlock, type Document } from "./document";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import { insertText } from "./ops/insert-text";
 import { deleteRange } from "./ops/delete-range";
 import { splitBlockAtPosition } from "./ops/split-block";
@@ -19,14 +19,14 @@ import { createPosition, createSpan, type Position } from "./block-position";
 import { createTestAllocator, type BlockId } from "./block-id";
 import { createPositionMapping, type PositionMapping } from "./position-mapping";
 import { subscribeForeignChanges } from "./collab";
-import { TEST_RESOLVER, buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
+import { TEST_RESOLVER, buildBlock, buildDocument, inlineContent, text } from "../test-utils/document-builders";
 
 const id = (s: string) => s as BlockId;
 const pos = (b: string, o: number): Position => createPosition(id(b), o);
 
 function docOf(blocks: ReadonlyArray<{ id: string; type?: string; text?: string }>): Document {
   const ids = blocks.map((b) => b.id);
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: ids[0] ?? null, lastChildId: ids[ids.length - 1] ?? null }),
@@ -47,20 +47,20 @@ function docOf(blocks: ReadonlyArray<{ id: string; type?: string; text?: string 
 function peer(s: Document, clientID: number): Document {
   const doc = new Y.Doc();
   doc.clientID = clientID;
-  Y.applyUpdate(doc, Y.encodeStateAsUpdate(s[STATE_INTERNAL].doc));
-  return createState({ resolver: TEST_RESOLVER, rootId: s.rootId, doc });
+  Y.applyUpdate(doc, Y.encodeStateAsUpdate(s[DOCUMENT_INTERNAL].doc));
+  return createDocument({ resolver: TEST_RESOLVER, rootId: s.rootId, doc });
 }
 
-/** Map through a local op: `prev` is a FRESH State (nothing cached). */
-function local(prev: Document, op: (s: Document) => { state: Document; dirtyIds: ReadonlySet<BlockId> }): { next: Document; m: PositionMapping } {
+/** Map through a local op: `prev` is a FRESH Document (nothing cached). */
+function local(prev: Document, op: (s: Document) => { document: Document; dirtyIds: ReadonlySet<BlockId> }): { next: Document; m: PositionMapping } {
   const r = op(prev);
-  return { next: r.state, m: createPositionMapping(prev, r.state, r.dirtyIds) };
+  return { next: r.document, m: createPositionMapping(prev, r.document, r.dirtyIds) };
 }
 
 const at = (m: PositionMapping, p: Position, assoc: -1 | 1 = 1) => m.map(p, assoc);
 
 describe("exact mapping — never-cached blocks map exactly (local)", () => {
-  it("typing before a position in a block the previous State never read", () => {
+  it("typing before a position in a block the previous Document never read", () => {
     const prev = docOf([{ id: "A", text: "hello world" }]);
     const { m } = local(prev, (s) => insertText(s, pos("A", 0), "XX", {}));
     expect(at(m, pos("A", 6))).toEqual({ position: pos("A", 8), deleted: false });
@@ -80,13 +80,13 @@ describe("exact mapping — never-cached blocks map exactly (local)", () => {
   it("split: the head maps into the new block (its ¶ is new); join: the left block maps before the right (R survives)", () => {
     const prev = docOf([{ id: "A", text: "hello world" }, { id: "B", text: "next" }]);
     const split = splitBlockAtPosition(prev, pos("A", 5), createTestAllocator("n"));
-    const m = createPositionMapping(prev, split.state, split.dirtyIds);
+    const m = createPositionMapping(prev, split.document, split.dirtyIds);
     expect(at(m, pos("A", 3)).position).toEqual(createPosition(split.newBlockId, 3));
     expect(at(m, pos("A", 8)).position).toEqual(pos("A", 3));
     expect(at(m, pos("B", 2)).position).toEqual(pos("B", 2));
-    const fresh = createState({ resolver: TEST_RESOLVER, rootId: split.state.rootId, doc: split.state[STATE_INTERNAL].doc });
+    const fresh = createDocument({ resolver: TEST_RESOLVER, rootId: split.document.rootId, doc: split.document[DOCUMENT_INTERNAL].doc });
     const join = mergeAdjacentBlocks(fresh, split.newBlockId, id("A"));
-    const jm = createPositionMapping(fresh, join.state, join.dirtyIds);
+    const jm = createPositionMapping(fresh, join.document, join.dirtyIds);
     expect(at(jm, createPosition(split.newBlockId, 2)).position).toEqual(pos("A", 2));
     expect(at(jm, pos("A", 2)).position).toEqual(pos("A", 7));
   });
@@ -116,19 +116,19 @@ describe("exact mapping — renames (materialization, collapse), local and remot
   function strayAfterImage(): Document {
     const a0 = peer(docOf([{ id: "img", type: "image" }, { id: "P", text: "abc" }, { id: "Q", text: "q" }, { id: "img2", type: "image" }, { id: "Z", text: "z" }]), 1);
     const b0 = peer(a0, 2);
-    const a = removeBlock(a0, id("P")).state;
-    const b = removeBlock(insertText(b0, pos("P", 2), "XYZ", {}).state, id("Q")).state;
-    Y.applyUpdate(a[STATE_INTERNAL].doc, Y.encodeStateAsUpdate(b[STATE_INTERNAL].doc), "remote");
-    return createState({ resolver: TEST_RESOLVER, rootId: a.rootId, doc: a[STATE_INTERNAL].doc });
+    const a = removeBlock(a0, id("P")).document;
+    const b = removeBlock(insertText(b0, pos("P", 2), "XYZ", {}).document, id("Q")).document;
+    Y.applyUpdate(a[DOCUMENT_INTERNAL].doc, Y.encodeStateAsUpdate(b[DOCUMENT_INTERNAL].doc), "remote");
+    return createDocument({ resolver: TEST_RESOLVER, rootId: a.rootId, doc: a[DOCUMENT_INTERNAL].doc });
   }
 
   it("materializing `${obj}#i` maps (derived, j) → (fresh, j) on the writer", () => {
     const prev = strayAfterImage();
     expect(getBlock(prev, id("img#i"))).not.toBeNull();
-    const r = setBlockAttrs(createState({ resolver: TEST_RESOLVER, rootId: prev.rootId, doc: prev[STATE_INTERNAL].doc }), id("img#i"), { align: "center" });
-    const fresh = getBlock(r.state, id("img"))?.nextSiblingId;
+    const r = setBlockAttrs(createDocument({ resolver: TEST_RESOLVER, rootId: prev.rootId, doc: prev[DOCUMENT_INTERNAL].doc }), id("img#i"), { align: "center" });
+    const fresh = getBlock(r.document, id("img"))?.nextSiblingId;
     expect(fresh).not.toBe("img#i");
-    const m = createPositionMapping(prev, r.state, r.dirtyIds);
+    const m = createPositionMapping(prev, r.document, r.dirtyIds);
     expect(at(m, pos("img#i", 2)).position).toEqual(createPosition(id(String(fresh)), 2));
   });
 
@@ -136,12 +136,12 @@ describe("exact mapping — renames (materialization, collapse), local and remot
     const writer = strayAfterImage();
     const reader = peer(writer, 7);
     const seen: { dirty: ReadonlySet<BlockId> }[] = [];
-    const before = createState({ resolver: TEST_RESOLVER, rootId: reader.rootId, doc: reader[STATE_INTERNAL].doc });
+    const before = createDocument({ resolver: TEST_RESOLVER, rootId: reader.rootId, doc: reader[DOCUMENT_INTERNAL].doc });
     const off = subscribeForeignChanges(before, "self", (dirty) => seen.push({ dirty }), () => {});
-    const r = setBlockAttrs(createState({ resolver: TEST_RESOLVER, rootId: writer.rootId, doc: writer[STATE_INTERNAL].doc }), id("img#i"), { align: "center" });
-    Y.applyUpdate(reader[STATE_INTERNAL].doc, Y.encodeStateAsUpdate(r.state[STATE_INTERNAL].doc, Y.encodeStateVector(reader[STATE_INTERNAL].doc)), "peer");
+    const r = setBlockAttrs(createDocument({ resolver: TEST_RESOLVER, rootId: writer.rootId, doc: writer[DOCUMENT_INTERNAL].doc }), id("img#i"), { align: "center" });
+    Y.applyUpdate(reader[DOCUMENT_INTERNAL].doc, Y.encodeStateAsUpdate(r.document[DOCUMENT_INTERNAL].doc, Y.encodeStateVector(reader[DOCUMENT_INTERNAL].doc)), "peer");
     off();
-    const after = createState({ resolver: TEST_RESOLVER, rootId: reader.rootId, doc: reader[STATE_INTERNAL].doc });
+    const after = createDocument({ resolver: TEST_RESOLVER, rootId: reader.rootId, doc: reader[DOCUMENT_INTERNAL].doc });
     const fresh = getBlock(after, id("img"))?.nextSiblingId;
     expect(seen).toHaveLength(1);
     const m = createPositionMapping(before, after, seen[0]?.dirty ?? new Set());
@@ -154,9 +154,9 @@ describe("exact mapping — renames (materialization, collapse), local and remot
     const seen: ReadonlySet<BlockId>[] = [];
     const off = subscribeForeignChanges(reader, "self", (d) => seen.push(d), () => {});
     const w = insertText(peer(writer, 3), pos("B", 0), ">>", {});
-    Y.applyUpdate(reader[STATE_INTERNAL].doc, Y.encodeStateAsUpdate(w.state[STATE_INTERNAL].doc, Y.encodeStateVector(reader[STATE_INTERNAL].doc)), "peer");
+    Y.applyUpdate(reader[DOCUMENT_INTERNAL].doc, Y.encodeStateAsUpdate(w.document[DOCUMENT_INTERNAL].doc, Y.encodeStateVector(reader[DOCUMENT_INTERNAL].doc)), "peer");
     off();
-    const after = createState({ resolver: TEST_RESOLVER, rootId: reader.rootId, doc: reader[STATE_INTERNAL].doc });
+    const after = createDocument({ resolver: TEST_RESOLVER, rootId: reader.rootId, doc: reader[DOCUMENT_INTERNAL].doc });
     const m = createPositionMapping(reader, after, seen[0] ?? new Set());
     expect(at(m, pos("B", 3))).toEqual({ position: pos("B", 5), deleted: false });
     expect(at(m, pos("A", 3))).toEqual({ position: pos("A", 3), deleted: false });
@@ -173,7 +173,7 @@ describe("exact mapping — every kept character maps onto itself (fuzz)", () =>
   }
   /** Every text block in document order: id → text. */
   function texts(s: Document): Map<string, string> {
-    const fresh = createState({ resolver: TEST_RESOLVER, rootId: s.rootId, doc: s[STATE_INTERNAL].doc });
+    const fresh = createDocument({ resolver: TEST_RESOLVER, rootId: s.rootId, doc: s[DOCUMENT_INTERNAL].doc });
     const out = new Map<string, string>();
     for (let cur = getBlock(fresh, fresh.rootId)?.firstChildId ?? null; cur !== null; ) {
       const b = getBlock(fresh, cur);
@@ -207,12 +207,12 @@ describe("exact mapping — every kept character maps onto itself (fuzz)", () =>
       const last: (ReadonlySet<BlockId> | null)[] = [null, null];
       const offs = peers.map((p, i) => subscribeForeignChanges(p, "self", (d) => (last[i] = d), () => {}));
       const undos = peers.map(
-        (p) => new Y.UndoManager([p[STATE_INTERNAL].doc.getMap("registry")], { captureTimeout: 0 }),
+        (p) => new Y.UndoManager([p[DOCUMENT_INTERNAL].doc.getMap("registry")], { captureTimeout: 0 }),
       );
       const alloc = createTestAllocator(`x${seed}`);
       for (let step = 0; step < 80; step++) {
         const k = r() < 0.5 ? 0 : 1;
-        const s = createState({ resolver: TEST_RESOLVER, rootId: id("doc"), doc: (peers[k] as Document)[STATE_INTERNAL].doc });
+        const s = createDocument({ resolver: TEST_RESOLVER, rootId: id("doc"), doc: (peers[k] as Document)[DOCUMENT_INTERNAL].doc });
         const before = texts(s);
         const ids = [...before.keys()];
         const target = ids[Math.floor(r() * ids.length)];
@@ -222,8 +222,8 @@ describe("exact mapping — every kept character maps onto itself (fuzz)", () =>
         const op = r();
         let dirty: ReadonlySet<BlockId> | null = null;
         let next: Document = s;
-        const run = (res: { state: Document; dirtyIds: ReadonlySet<BlockId> }): void => {
-          next = res.state;
+        const run = (res: { document: Document; dirtyIds: ReadonlySet<BlockId> }): void => {
+          next = res.document;
           dirty = res.dirtyIds;
         };
         if (op < 0.35) run(insertText(s, pos(target, off), word(), {}));
@@ -243,14 +243,14 @@ describe("exact mapping — every kept character maps onto itself (fuzz)", () =>
           if (r() < 0.6) undos[k]?.undo();
           else undos[k]?.redo();
           dirty = last[k];
-          next = createState({ resolver: TEST_RESOLVER, rootId: id("doc"), doc: s[STATE_INTERNAL].doc });
+          next = createDocument({ resolver: TEST_RESOLVER, rootId: id("doc"), doc: s[DOCUMENT_INTERNAL].doc });
         } else {
           // A remote transaction on peer k.
           const other = peers[1 - k] as Document;
           last[k] = null;
-          Y.applyUpdate(s[STATE_INTERNAL].doc, Y.encodeStateAsUpdate(other[STATE_INTERNAL].doc, Y.encodeStateVector(s[STATE_INTERNAL].doc)), "remote");
+          Y.applyUpdate(s[DOCUMENT_INTERNAL].doc, Y.encodeStateAsUpdate(other[DOCUMENT_INTERNAL].doc, Y.encodeStateVector(s[DOCUMENT_INTERNAL].doc)), "remote");
           dirty = last[k];
-          next = createState({ resolver: TEST_RESOLVER, rootId: id("doc"), doc: s[STATE_INTERNAL].doc });
+          next = createDocument({ resolver: TEST_RESOLVER, rootId: id("doc"), doc: s[DOCUMENT_INTERNAL].doc });
         }
         if (dirty === null || next === s) continue;
         check(before, texts(next), createPositionMapping(s, next, dirty), `seed ${seed} step ${step} op ${op.toFixed(2)}`);

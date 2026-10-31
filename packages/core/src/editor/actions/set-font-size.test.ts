@@ -1,4 +1,4 @@
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   createInitialEditorState,

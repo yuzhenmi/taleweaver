@@ -1,5 +1,5 @@
-import { finalSectionOf } from "../test-utils/state-builders";
-import { TEST_RESOLVER } from "../test-utils/state-builders";
+import { finalSectionOf } from "../test-utils/document-builders";
+import { TEST_RESOLVER } from "../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import {
@@ -20,12 +20,12 @@ import {
   createPosition,
   createSpan,
   getYDoc,
-  createState,
+  createDocument,
   subscribeForeignChanges,
   subscribeRemoteChanges,
   runWithTransactionOrigin,
-  createEditorStateFromState,
-  initialSelectionForState,
+  createEditorStateFromDocument,
+  initialSelectionForDocument,
   serializeDocument,
   deserializeDocument,
   createDefaultSerializerRegistry,
@@ -145,7 +145,7 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
   it("an untracked proposal is SELF to its own host's subscriptions, FOREIGN to a second host on the same doc", () => {
     const { s, p1 } = twoParagraphs();
     // A collab host: its edits carry its own origin, which its History tracks.
-    const hostA = createEditorStateFromState(s.document, s.selection, config, "hostA");
+    const hostA = createEditorStateFromDocument(s.document, s.selection, config, "hostA");
     const seenByA: ReadonlySet<BlockId>[] = [];
     const seenByB: ReadonlySet<BlockId>[] = [];
     const remoteA: ReadonlySet<BlockId>[] = [];
@@ -157,12 +157,12 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
     docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "sync"));
-    const stateB = createState({ resolver: TEST_RESOLVER, rootId: s.document.rootId, doc: docB });
+    const documentB = createDocument({ resolver: TEST_RESOLVER, rootId: s.document.rootId, doc: docB });
     const unsubs = [
       subscribeForeignChanges(s.document, "hostA", (ids) => seenByA.push(ids), noLegacy),
       subscribeForeignChanges(s.document, "hostB", (ids) => seenByB.push(ids), noLegacy),
       subscribeRemoteChanges(s.document, (ids) => remoteA.push(ids), noLegacy),
-      subscribeRemoteChanges(stateB, (ids) => remoteB.push(ids), noLegacy),
+      subscribeRemoteChanges(documentB, (ids) => remoteB.push(ids), noLegacy),
     ];
     const proposal: Proposal = {
       groupId: newSuggestionGroupId(),
@@ -423,7 +423,7 @@ describe("rendering hook and compatibility", () => {
     const loaded = deserializeDocument(serializeDocument(old.document, BINARY_FORMAT, reg), BINARY_FORMAT, reg);
     const groups = getSuggestionGroups(loaded);
     expect(groups.map((g) => [g.id, g.author, g.metadata, g.suggestions.length])).toEqual([[legacyId, "legacy", undefined, 1]]);
-    const editor = createEditorStateFromState(loaded, initialSelectionForState(loaded), config);
+    const editor = createEditorStateFromDocument(loaded, initialSelectionForDocument(loaded), config);
     const accepted = run(editor, config, { type: "ACCEPT_SUGGESTION_GROUP", groupId: legacyId ?? "" });
     expect(getSuggestions(accepted.document)).toHaveLength(0);
     expect(runsOf(accepted, accepted.selection.focus.blockId)).toEqual([["abc", {}]]);

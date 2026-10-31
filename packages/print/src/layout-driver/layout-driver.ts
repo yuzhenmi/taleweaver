@@ -8,7 +8,7 @@ import {
   documentFootnotePolicy,
   footnoteNumbers,
   footnoteRenumberedBlocks,
-  type State,
+  type Document,
   type BlockId,
   type RenderOutput,
   type RenderNode,
@@ -30,7 +30,7 @@ import type { LayoutConfig } from "./layout-config";
  * each rebuild reuses unchanged render / cascade / layout subtrees by reference
  * (the incremental path keys reuse off `lastDirtyIds`).
  *
- * This is a relocation of what `rebuildTrees` / `createEditorStateFromState`
+ * This is a relocation of what `rebuildTrees` / `createEditorStateFromDocument`
  * used to do inside core — the SAME render→cascade→layout pipeline, now living
  * behind the print-mode seam so `@taleweaver/core` carries no geometry.
  */
@@ -67,7 +67,7 @@ interface PipelineResult {
 /** Prior-cycle inputs that opt one `renderCascadeLayout` call into incremental. */
 interface PipelinePrev {
   readonly prevRenderOutput: RenderOutput;
-  readonly prevState: State;
+  readonly prevDocument: Document;
   readonly prevCascaded: RenderNode;
   readonly prevCascadedTemplate: ReadonlyMap<BlockId, ElementBox>;
   readonly prevCascadedEmbed: ReadonlyMap<BlockId, ElementBox>;
@@ -95,7 +95,7 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
   // Retained prior-cycle trees (the closure state feeding incremental reuse).
   // Null until the first rebuild populates them.
   let prev: PipelineResult | null = null;
-  let prevState: State | null = null;
+  let prevDocument: Document | null = null;
   let prevWidth: number | null = null;
   let prevConfig: EditorConfig | null = null;
 
@@ -106,7 +106,7 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
    * the SAME pipeline with a numbering override.
    */
   function renderCascadeLayout(
-    state: State,
+    document: Document,
     containerWidth: number,
     config: EditorConfig,
     cycle: PipelinePrev | null,
@@ -116,13 +116,13 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
 
     const rendered =
       incremental && cycle !== null
-        ? render(state, componentRegistry, attrRegistry, {
+        ? render(document, componentRegistry, attrRegistry, {
             prev: cycle.prevRenderOutput,
-            prevState: cycle.prevState,
+            prevDocument: cycle.prevDocument,
             dirtyIds: cycle.dirtyIds,
             footnoteNumbersOverride: cycle.footnoteNumbersOverride,
           })
-        : render(state, componentRegistry, attrRegistry);
+        : render(document, componentRegistry, attrRegistry);
 
     const cascadedRoot =
       incremental && cycle !== null
@@ -152,7 +152,7 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
 
     // Layout parent-lookup so a `cross-ref-page` field to a NESTED target resolves
     // via its top-level ancestor's page on every rebuild cycle.
-    const parentOf = makeBlockParentLookup(state);
+    const parentOf = makeBlockParentLookup(document);
 
     const layout = layoutTreeIncremental(
       cascadedRoot,
@@ -185,12 +185,12 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
    * changed markers. Every OTHER case is a no-op returning `first` unchanged.
    */
   function applyRestartPerPageNumbering(
-    state: State,
+    document: Document,
     containerWidth: number,
     config: EditorConfig,
     first: PipelineResult,
   ): PipelineResult {
-    const policy = documentFootnotePolicy(state);
+    const policy = documentFootnotePolicy(document);
     if (policy.reset !== "restart-per-page") return first;
 
     const anchors = first.rendered.footnoteAnchors;
@@ -227,9 +227,9 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
         }
       }
 
-      const next = renderCascadeLayout(state, containerWidth, config, {
+      const next = renderCascadeLayout(document, containerWidth, config, {
         prevRenderOutput: current.rendered,
-        prevState: state,
+        prevDocument: document,
         prevCascaded: current.cascadedRoot,
         prevCascadedTemplate: current.cascadedTemplateContents,
         prevCascadedEmbed: current.cascadedEmbedContents,
@@ -256,7 +256,7 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
   }
 
   function rebuild(editor: EditorState): LayoutBox | VirtualLayoutTree {
-    const { document: state, containerWidth, lastDirtyIds, config } = editor;
+    const { document, containerWidth, lastDirtyIds, config } = editor;
     // The retained trees were built with the previous registries / page setup: a change
     // to any of them invalidates all of it.
     if (
@@ -266,21 +266,21 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
         config.pageConfig !== prevConfig.pageConfig)
     ) {
       prev = null;
-      prevState = null;
+      prevDocument = null;
     }
     // Nothing the pipeline reads changed (a selection-only / inert dispatch: same
-    // State, same width, no dirty set): the prior tree stands. Without this a caret
+    // Document, same width, no dirty set): the prior tree stands. Without this a caret
     // move re-rendered and re-laid-out the whole document (O(doc) per caret move).
-    if (prev !== null && state === prevState && containerWidth === prevWidth && lastDirtyIds === null) return prev.layout;
+    if (prev !== null && document === prevDocument && containerWidth === prevWidth && lastDirtyIds === null) return prev.layout;
     // The incremental cycle inputs: present only when we have BOTH prior trees
     // AND a dirty set. `lastDirtyIds === null` ≡ a full rebuild (initial build /
     // resize) — but still reuse the prior CASCADED tree as the layout `prev` when
     // one exists, matching the legacy SET_CONTAINER_WIDTH full-build-from-cascade.
     const cycle: PipelinePrev | null =
-      prev !== null && prevState !== null && lastDirtyIds !== null
+      prev !== null && prevDocument !== null && lastDirtyIds !== null
         ? {
             prevRenderOutput: prev.rendered,
-            prevState,
+            prevDocument,
             prevCascaded: prev.cascadedRoot,
             prevCascadedTemplate: prev.cascadedTemplateContents,
             prevCascadedEmbed: prev.cascadedEmbedContents,
@@ -289,11 +289,11 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
           }
         : null;
 
-    const first = renderCascadeLayout(state, containerWidth, config, cycle);
-    const converged = applyRestartPerPageNumbering(state, containerWidth, config, first);
+    const first = renderCascadeLayout(document, containerWidth, config, cycle);
+    const converged = applyRestartPerPageNumbering(document, containerWidth, config, first);
 
     prev = converged;
-    prevState = state;
+    prevDocument = document;
     prevWidth = containerWidth;
     prevConfig = config;
     return converged.layout;

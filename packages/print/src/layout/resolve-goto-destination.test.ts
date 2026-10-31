@@ -22,14 +22,14 @@ import type { TextShaper } from "@taleweaver/core";
 import type { PageConfig } from "./page-config";
 import type { VirtualLayoutTree } from "./virtual-layout-tree";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
 import { makeBlockParentLookup } from "@taleweaver/core";
 import { asBlockId } from "@taleweaver/core";
-import type { State } from "@taleweaver/core";
+import type { Document } from "@taleweaver/core";
 
 const SHAPER_CHAR_W = 8;
 const SHAPER_LINE_H = 16;
@@ -56,7 +56,7 @@ function pageConfig(): PageConfig {
 }
 
 interface Built {
-  state: State;
+  document: Document;
   virtual: VirtualLayoutTree;
   shaper: TextShaper;
 }
@@ -64,7 +64,7 @@ interface Built {
 /** Build a flat document of single-line paragraphs, laid out paginated. */
 function buildDoc(paragraphTexts: readonly string[], cfg: PageConfig): Built {
   const blockIds = paragraphTexts.map((_, i) => `p${i}`);
-  const state = buildState({
+  const document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -86,7 +86,7 @@ function buildDoc(paragraphTexts: readonly string[], cfg: PageConfig): Built {
     ],
   });
   const root = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -95,7 +95,7 @@ function buildDoc(paragraphTexts: readonly string[], cfg: PageConfig): Built {
   if (lt.type !== "virtual-root") {
     throw new Error("expected a VirtualLayoutTree (paginated supported doc)");
   }
-  return { state, virtual: lt, shaper };
+  return { document, virtual: lt, shaper };
 }
 
 describe("resolveGotoDestination", () => {
@@ -105,11 +105,11 @@ describe("resolveGotoDestination", () => {
   const TARGET_PAGE = 2;
 
   it("resolves a target on a later page to its exact page-relative top-left", () => {
-    const { state, virtual, shaper } = buildDoc(texts, pageConfig());
-    const parentOf = makeBlockParentLookup(state);
+    const { document, virtual, shaper } = buildDoc(texts, pageConfig());
+    const parentOf = makeBlockParentLookup(document);
 
     const dest = resolveGotoDestination(
-      state,
+      document,
       asBlockId("p8"),
       virtual,
       shaper,
@@ -128,11 +128,11 @@ describe("resolveGotoDestination", () => {
   });
 
   it("resolves a first-page target to page 0", () => {
-    const { state, virtual, shaper } = buildDoc(texts, pageConfig());
-    const parentOf = makeBlockParentLookup(state);
+    const { document, virtual, shaper } = buildDoc(texts, pageConfig());
+    const parentOf = makeBlockParentLookup(document);
 
     const dest = resolveGotoDestination(
-      state,
+      document,
       asBlockId("p2"),
       virtual,
       shaper,
@@ -145,11 +145,11 @@ describe("resolveGotoDestination", () => {
   });
 
   it("returns null for a missing (broken-ref) target id", () => {
-    const { state, virtual, shaper } = buildDoc(texts, pageConfig());
-    const parentOf = makeBlockParentLookup(state);
+    const { document, virtual, shaper } = buildDoc(texts, pageConfig());
+    const parentOf = makeBlockParentLookup(document);
 
     const dest = resolveGotoDestination(
-      state,
+      document,
       asBlockId("no-such-block"),
       virtual,
       shaper,
@@ -164,11 +164,11 @@ describe("makeInternalDestinationResolver", () => {
   const texts = Array.from({ length: 14 }, (_, i) => `Heading ${i}`);
 
   it("partial-applies the document context into a (targetId: string) => dest closure", () => {
-    const { state, virtual, shaper } = buildDoc(texts, pageConfig());
-    const parentOf = makeBlockParentLookup(state);
+    const { document, virtual, shaper } = buildDoc(texts, pageConfig());
+    const parentOf = makeBlockParentLookup(document);
 
     const resolve = makeInternalDestinationResolver(
-      state,
+      document,
       virtual,
       shaper,
       parentOf,

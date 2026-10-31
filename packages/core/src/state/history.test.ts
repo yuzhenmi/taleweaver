@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
 import { createHistory, UNDO_COALESCE_PAUSE_MS, type History } from "./history";
-import { createEmptyDocument as createBlankDocument } from "./initial-state";
+import { createEmptyDocument as createBlankDocument } from "./create-empty-document";
 import { setBlockAttrs, setBlockAttrsInTx } from "./ops/set-block-attrs";
 import { insertText } from "./ops/insert-text";
 import { deleteRange } from "./ops/delete-range";
-import { applyOperation, getBlock } from "./state";
+import { applyOperation, getBlock } from "./document";
 import { getMetaMap, getYBlock, runWithTransactionOrigin } from "./yjs-doc";
 import { getRegistry } from "./registry";
 import { requireBlockText } from "./block-text";
@@ -14,8 +14,8 @@ import { createPosition, createSpan } from "./block-position";
 import { inlineContentLength } from "./inline-content";
 import { extractText } from "./extract-text";
 import type { BlockId } from "./block-id";
-import { STATE_INTERNAL } from "./state-internal";
-import { TEST_RESOLVER, buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
+import { DOCUMENT_INTERNAL } from "./document-internal";
+import { TEST_RESOLVER, buildDocument, buildBlock, inlineContent, text } from "../test-utils/document-builders";
 // A non-null origin opts a transaction out of undo tracking (e.g. a collaborator's edit).
 const UNTRACKED_ORIGIN = Symbol("untracked");
 
@@ -37,7 +37,7 @@ function createEmptyDocument(): ReturnType<typeof createBlankDocument> {
       requireBlockText(doc, firstId, "fixture").insert(0, "0123456789", {});
     },
     { origin: UNTRACKED_ORIGIN },
-  ).state;
+  ).document;
 }
 
 describe("Yjs UndoManager no-op behavior (empirical baseline)", () => {
@@ -50,7 +50,7 @@ describe("Yjs UndoManager no-op behavior (empirical baseline)", () => {
   // is no StackItem to attach the SelectionEntry to (the entry lives on
   // `StackItem.meta`, not in a parallel array), so commit returns early
   // before any mutation. Handlers conventionally short-circuit FIRST via
-  // the identity-no-op contract (`result.state === editor.document`), but commit
+  // the identity-no-op contract (`result.document === editor.document`), but commit
   // is itself no-op-safe.
   it("empty transaction does not produce an undoStack entry", () => {
     const doc = new Y.Doc();
@@ -73,41 +73,41 @@ describe("Yjs UndoManager no-op behavior (empirical baseline)", () => {
 });
 
 describe("history (Y.UndoManager wrapper)", () => {
-  function firstChild(state: ReturnType<typeof createEmptyDocument>) {
-    const rootSection = getBlock(state, state.rootId)?.firstChildId ?? null;
-    const root = rootSection === null ? null : getBlock(state, rootSection);
+  function firstChild(document: ReturnType<typeof createEmptyDocument>) {
+    const rootSection = getBlock(document, document.rootId)?.firstChildId ?? null;
+    const root = rootSection === null ? null : getBlock(document, rootSection);
     if (root === null) throw new Error("test fixture: missing root");
     const childId = root.firstChildId;
     if (childId === null) throw new Error("test fixture: missing first child id");
-    const child = getBlock(state, childId);
+    const child = getBlock(document, childId);
     if (child === null) throw new Error("test fixture: missing first child");
     return child;
   }
 
   it("starts with no undo/redo available", () => {
-    const state = createEmptyDocument();
-    const history = createHistory(state);
+    const document = createEmptyDocument();
+    const history = createHistory(document);
     expect(history.canUndo()).toBe(false);
     expect(history.canRedo()).toBe(false);
   });
 
   it("commit silently drops a no-op (empty dirtyIds) BEFORE mutating; stacks stay aligned (S-B2)", () => {
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
     const before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
     const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
 
     // Hand-built no-op result (empty dirtyIds), independent of S-B1's no-op path.
-    const noop = { state: state0, dirtyIds: new Set<BlockId>() };
+    const noop = { document: document0, dirtyIds: new Set<BlockId>() };
     expect(() => history.commit(noop, { before, after })).not.toThrow();
     expect(history.canUndo()).toBe(false);
 
     // The no-op must NOT have partially mutated (pushed a selection entry /
-    // advanced currentState): a subsequent REAL commit + undo round-trips
+    // advanced currentDocument): a subsequent REAL commit + undo round-trips
     // cleanly. If the no-op had pushed an unmatched selection entry, this
     // real commit would trip the alignment assertion.
-    const real = setBlockAttrs(state0, child.id, { bold: true });
+    const real = setBlockAttrs(document0, child.id, { bold: true });
     history.commit(real, { before, after });
     expect(history.canUndo()).toBe(true);
     const undone = history.undo();
@@ -115,10 +115,10 @@ describe("history (Y.UndoManager wrapper)", () => {
   });
 
   it("commit(opResult, {before, after}) advances state and records the entry", () => {
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
-    const opResult = setBlockAttrs(state0, child.id, { bold: true });
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
+    const opResult = setBlockAttrs(document0, child.id, { bold: true });
     const before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
     const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
     history.commit(opResult, { before, after });
@@ -127,11 +127,11 @@ describe("history (Y.UndoManager wrapper)", () => {
   });
 
   it("destroy() disposes the UndoManager and detaches its observers", () => {
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
     const sel = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
-    history.commit(setBlockAttrs(state0, child.id, { bold: true }), {
+    history.commit(setBlockAttrs(document0, child.id, { bold: true }), {
       before: sel,
       after: sel,
     });
@@ -144,15 +144,15 @@ describe("history (Y.UndoManager wrapper)", () => {
     // A post-destroy tracked mutation must NOT push a new entry onto the (now
     // empty) undo stack: proves the afterTransaction observer was detached. If
     // it were still live, this op would make canUndo() true again.
-    setBlockAttrs(state0, child.id, { italic: true });
+    setBlockAttrs(document0, child.id, { italic: true });
     expect(history.canUndo()).toBe(false);
   });
 
   it("undo after a single commit restores the prior Y.Doc state and returns 'before' selection", () => {
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
-    const opResult = setBlockAttrs(state0, child.id, { bold: true });
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
+    const opResult = setBlockAttrs(document0, child.id, { bold: true });
     const before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
     const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
     history.commit(opResult, { before, after });
@@ -160,15 +160,15 @@ describe("history (Y.UndoManager wrapper)", () => {
     const undone = history.undo();
     expect(undone).not.toBeNull();
     if (undone === null) throw new Error("expected undo to succeed");
-    expect(getBlock(undone.state, child.id)?.attrs.bold).toBeUndefined();
+    expect(getBlock(undone.document, child.id)?.attrs.bold).toBeUndefined();
     expect(undone.selection).toEqual(before);
   });
 
   it("redo after undo restores the post-commit state and returns 'after' selection", () => {
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
-    const opResult = setBlockAttrs(state0, child.id, { bold: true });
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
+    const opResult = setBlockAttrs(document0, child.id, { bold: true });
     const before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
     const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
     history.commit(opResult, { before, after });
@@ -179,7 +179,7 @@ describe("history (Y.UndoManager wrapper)", () => {
     const redone = history.redo();
     expect(redone).not.toBeNull();
     if (redone === null) throw new Error("expected redo to succeed");
-    expect(getBlock(redone.state, child.id)?.attrs.bold).toBe(true);
+    expect(getBlock(redone.document, child.id)?.attrs.bold).toBe(true);
     expect(redone.selection).toEqual(after);
   });
 
@@ -190,10 +190,10 @@ describe("history (Y.UndoManager wrapper)", () => {
     // afterTransaction with a non-trivial change set; capturing it the
     // same way runTransaction does lets undo participate in incremental
     // render.
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
-    const opResult = setBlockAttrs(state0, child.id, { bold: true });
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
+    const opResult = setBlockAttrs(document0, child.id, { bold: true });
     const before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
     const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
     history.commit(opResult, { before, after });
@@ -205,10 +205,10 @@ describe("history (Y.UndoManager wrapper)", () => {
   });
 
   it("redo returns dirtyIds matching the blocks re-applied (S-A3)", () => {
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
-    const opResult = setBlockAttrs(state0, child.id, { bold: true });
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
+    const opResult = setBlockAttrs(document0, child.id, { bold: true });
     const before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
     const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
     history.commit(opResult, { before, after });
@@ -225,13 +225,13 @@ describe("history (Y.UndoManager wrapper)", () => {
     // unchanged blocks. Specifically, the new Document produced by undo
     // overlays the prior state's cache with `dirtyIds` invalidated;
     // sibling reads still hit the warm entry by reference.
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
     // Warm a sibling read on the pre-commit state by reading the root.
-    const rootBefore = getBlock(state0, state0.rootId);
+    const rootBefore = getBlock(document0, document0.rootId);
     expect(rootBefore).not.toBeNull();
-    const opResult = setBlockAttrs(state0, child.id, { bold: true });
+    const opResult = setBlockAttrs(document0, child.id, { bold: true });
     const sel = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
     history.commit(opResult, { before: sel, after: sel });
 
@@ -240,24 +240,24 @@ describe("history (Y.UndoManager wrapper)", () => {
     if (undone === null) throw new Error("expected undo");
     // The undo's dirty set covers child.id only (root is unchanged).
     expect(undone.dirtyIds.has(child.id)).toBe(true);
-    expect(undone.dirtyIds.has(state0.rootId)).toBe(false);
+    expect(undone.dirtyIds.has(document0.rootId)).toBe(false);
   });
 
   it("multiple commits, undos and redos in sequence", () => {
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
 
     // #420: open a fresh non-coalescing "command" group per commit so the two
     // commits remain distinct undo entries (commit no longer owns boundaries).
     history.beginEntry("command", 0);
-    const r1 = setBlockAttrs(state0, child.id, { bold: true });
+    const r1 = setBlockAttrs(document0, child.id, { bold: true });
     const sel1Before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
     const sel1After = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
     history.commit(r1, { before: sel1Before, after: sel1After });
 
     history.beginEntry("command", 1);
-    const r2 = setBlockAttrs(state0, child.id, { bold: true, italic: true });
+    const r2 = setBlockAttrs(document0, child.id, { bold: true, italic: true });
     const sel2Before = sel1After;
     const sel2After = createSpan(createPosition(child.id, 2), createPosition(child.id, 2));
     history.commit(r2, { before: sel2Before, after: sel2After });
@@ -279,16 +279,16 @@ describe("history (Y.UndoManager wrapper)", () => {
     //   redo  → returns {selection: pos1}, undoStack=[{pos0,pos1}], redoStack=[]
     //   commit({before: pos1, after: pos2})  ← "type 'def'"
     //   undo  → returns {selection: pos1}, undoStack=[{pos0,pos1}], redoStack=[{pos1,pos2}]
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
 
     const pos0 = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
     const pos1 = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
     const pos2 = createSpan(createPosition(child.id, 2), createPosition(child.id, 2));
 
     // Step 1: first commit
-    const r1 = setBlockAttrs(state0, child.id, { bold: true });
+    const r1 = setBlockAttrs(document0, child.id, { bold: true });
     history.commit(r1, { before: pos0, after: pos1 });
 
     // Step 2: undo → returns BEFORE side
@@ -309,7 +309,7 @@ describe("history (Y.UndoManager wrapper)", () => {
     expect(history.canRedo()).toBe(false);
 
     // Step 4: second commit
-    const r2 = setBlockAttrs(state0, child.id, { bold: true, italic: true });
+    const r2 = setBlockAttrs(document0, child.id, { bold: true, italic: true });
     history.commit(r2, { before: pos1, after: pos2 });
 
     // Step 5: undo → returns r2's BEFORE side
@@ -325,9 +325,9 @@ describe("history (Y.UndoManager wrapper)", () => {
     // Build three distinct commits with non-aliased before/after pairs,
     // undo them all, then redo twice. Each step asserts the exact
     // selection returned.
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
 
     const p0 = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
     const p1 = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
@@ -337,13 +337,13 @@ describe("history (Y.UndoManager wrapper)", () => {
     // #420: open a fresh non-coalescing "command" group per commit so all three
     // commits remain distinct undo entries (commit no longer owns boundaries).
     history.beginEntry("command", 0);
-    const r1 = setBlockAttrs(state0, child.id, { bold: true });
+    const r1 = setBlockAttrs(document0, child.id, { bold: true });
     history.commit(r1, { before: p0, after: p1 });
     history.beginEntry("command", 1);
-    const r2 = setBlockAttrs(state0, child.id, { bold: true, italic: true });
+    const r2 = setBlockAttrs(document0, child.id, { bold: true, italic: true });
     history.commit(r2, { before: p1, after: p2 });
     history.beginEntry("command", 2);
-    const r3 = setBlockAttrs(state0, child.id, {
+    const r3 = setBlockAttrs(document0, child.id, {
       bold: true,
       italic: true,
       underline: true,
@@ -387,11 +387,11 @@ describe("history (Y.UndoManager wrapper)", () => {
   });
 
   it("History does not undo direct writes to the meta map", () => {
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
 
-    const opResult = setBlockAttrs(state0, child.id, { bold: true });
+    const opResult = setBlockAttrs(document0, child.id, { bold: true });
     const before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
     const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
     history.commit(opResult, { before, after });
@@ -399,14 +399,14 @@ describe("history (Y.UndoManager wrapper)", () => {
 
     // Directly write to the meta map — intentionally NOT tracked by the
     // UndoManager (see History docstring + getMetaMap docstring).
-    getMetaMap(state0[STATE_INTERNAL].doc).set("foo", "bar");
-    expect(getMetaMap(state0[STATE_INTERNAL].doc).get("foo")).toBe("bar");
+    getMetaMap(document0[DOCUMENT_INTERNAL].doc).set("foo", "bar");
+    expect(getMetaMap(document0[DOCUMENT_INTERNAL].doc).get("foo")).toBe("bar");
 
     const undone = history.undo();
     expect(undone).not.toBeNull();
     if (undone === null) throw new Error("expected undo to succeed");
-    expect(getBlock(undone.state, child.id)?.attrs.bold).toBeUndefined();
-    expect(getMetaMap(state0[STATE_INTERNAL].doc).get("foo")).toBe("bar");
+    expect(getBlock(undone.document, child.id)?.attrs.bold).toBeUndefined();
+    expect(getMetaMap(document0[DOCUMENT_INTERNAL].doc).get("foo")).toBe("bar");
   });
 
   it("undo/redo reverts and re-applies an edit to a template-content body (C.2a-T2)", () => {
@@ -417,7 +417,7 @@ describe("history (Y.UndoManager wrapper)", () => {
     // getTemplateContent accessor lands in T4) to keep this test
     // self-contained.
     const bodyId = "tmplBody";
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [
         buildBlock({ id: "root", type: "doc", firstChildId: null, lastChildId: null }),
@@ -427,14 +427,14 @@ describe("history (Y.UndoManager wrapper)", () => {
         buildBlock({ id: "tp", type: "paragraph", parentId: bodyId, inlineContent: inlineContent([]) }),
       ],
     });
-    const doc = state[STATE_INTERNAL].doc;
+    const doc = document[DOCUMENT_INTERNAL].doc;
 
     // Pre-edit value at the raw Y.Doc level.
     expect(getRegistry(doc).get(bodyId)?.get("type")).toBe("header-body");
 
-    const history = createHistory(state);
+    const history = createHistory(document);
     // Edit the template body's `type` field inside a tracked transaction.
-    const opResult = applyOperation(state, () => {
+    const opResult = applyOperation(document, () => {
       getYBlock(doc, bodyId as BlockId, "test", "templateContent").set("type", "footer-body");
     });
     expect(getRegistry(doc).get(bodyId)?.get("type")).toBe("footer-body");
@@ -465,9 +465,9 @@ describe("history (Y.UndoManager wrapper)", () => {
     // undo path we mutate a real block in the SAME op so dirtyIds is non-empty
     // (the natural workaround documented in the task); the listDef revert is
     // what we assert. Asserted at the raw Y.Doc level via getListDef.
-    const state = createEmptyDocument();
-    const doc = state[STATE_INTERNAL].doc;
-    const child = firstChild(state);
+    const document = createEmptyDocument();
+    const doc = document[DOCUMENT_INTERNAL].doc;
+    const child = firstChild(document);
     const sample: ListDef = {
       levels: [
         { style: "decimal", start: 1, restart: "after-break" },
@@ -477,8 +477,8 @@ describe("history (Y.UndoManager wrapper)", () => {
 
     expect(getListDef(doc, "L1")).toBeUndefined();
 
-    const history = createHistory(state);
-    const opResult = applyOperation(state, () => {
+    const history = createHistory(document);
+    const opResult = applyOperation(document, () => {
       writeListDefInTx(doc, "L1", sample);
       // Co-mutate a real block so dirtyIds is non-empty (listDefs is not a
       // dirty-capture dimension); this keeps both writes in one undo group.
@@ -504,16 +504,16 @@ describe("history (Y.UndoManager wrapper)", () => {
   });
 
   it("a new commit after undo clears the redo stack", () => {
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
 
-    const r1 = setBlockAttrs(state0, child.id, { bold: true });
+    const r1 = setBlockAttrs(document0, child.id, { bold: true });
     const sel = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
     history.commit(r1, { before: sel, after: sel });
     history.undo();
     expect(history.canRedo()).toBe(true);
-    const r2 = setBlockAttrs(state0, child.id, { italic: true });
+    const r2 = setBlockAttrs(document0, child.id, { italic: true });
     history.commit(r2, { before: sel, after: sel });
     expect(history.canRedo()).toBe(false);
   });
@@ -531,11 +531,11 @@ describe("history (Y.UndoManager wrapper)", () => {
     // is no parallel array to verify; the surviving contract is observed
     // through behavior — canUndo() stays true and the retried undo returns
     // the correct `before` selection.
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
 
-    const opResult = setBlockAttrs(state0, child.id, { bold: true });
+    const opResult = setBlockAttrs(document0, child.id, { bold: true });
     const before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
     const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
     history.commit(opResult, { before, after });
@@ -559,15 +559,15 @@ describe("history (Y.UndoManager wrapper)", () => {
     expect(retried).not.toBeNull();
     if (retried === null) throw new Error("expected retry undo to succeed");
     expect(retried.selection).toEqual(before);
-    expect(getBlock(retried.state, child.id)?.attrs.bold).toBeUndefined();
+    expect(getBlock(retried.document, child.id)?.attrs.bold).toBeUndefined();
   });
 
   it("redo() error-recovery: if undoManager.redo throws, history stays consistent and a retry round-trips (T33)", () => {
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
 
-    const opResult = setBlockAttrs(state0, child.id, { bold: true });
+    const opResult = setBlockAttrs(document0, child.id, { bold: true });
     const before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
     const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
     history.commit(opResult, { before, after });
@@ -589,7 +589,7 @@ describe("history (Y.UndoManager wrapper)", () => {
     expect(retried).not.toBeNull();
     if (retried === null) throw new Error("expected retry redo to succeed");
     expect(retried.selection).toEqual(after);
-    expect(getBlock(retried.state, child.id)?.attrs.bold).toBe(true);
+    expect(getBlock(retried.document, child.id)?.attrs.bold).toBe(true);
   });
 
   it("mutate-then-throw-before-commit leaves history desync-free; undo/redo behave (#318)", () => {
@@ -609,13 +609,13 @@ describe("history (Y.UndoManager wrapper)", () => {
     // threw). Yjs's afterTransaction clears its redoStack on that new
     // tracked edit. canRedo() must now be false (the real Yjs stack is the
     // source of truth) and undo/redo must still return correct selections.
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
 
     const before = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
     const after = createSpan(createPosition(child.id, 1), createPosition(child.id, 1));
-    const r1 = setBlockAttrs(state0, child.id, { bold: true });
+    const r1 = setBlockAttrs(document0, child.id, { bold: true });
     history.commit(r1, { before, after });
 
     // Undo → entry travels to redo; Yjs holds a redo StackItem.
@@ -626,8 +626,8 @@ describe("history (Y.UndoManager wrapper)", () => {
     // Now mutate the doc through a tracked transaction but DO NOT commit —
     // this is the "applyOperation then throw before commit" shape. Yjs's
     // afterTransaction handler clears its own redoStack on this edit.
-    applyOperation(state0, () => {
-      getYBlock(state0[STATE_INTERNAL].doc, child.id, "test").set(
+    applyOperation(document0, () => {
+      getYBlock(document0[DOCUMENT_INTERNAL].doc, child.id, "test").set(
         "attrs",
         new Y.Map<unknown>(),
       );
@@ -641,7 +641,7 @@ describe("history (Y.UndoManager wrapper)", () => {
     // before-selection read off the new StackItem's `.meta`.
     const sel2Before = createSpan(createPosition(child.id, 2), createPosition(child.id, 2));
     const sel2After = createSpan(createPosition(child.id, 3), createPosition(child.id, 3));
-    const r2 = setBlockAttrs(state0, child.id, { italic: true });
+    const r2 = setBlockAttrs(document0, child.id, { italic: true });
     history.commit(r2, { before: sel2Before, after: sel2After });
     const u2 = history.undo();
     expect(u2).not.toBeNull();
@@ -655,15 +655,15 @@ describe("history (Y.UndoManager wrapper)", () => {
     // short-circuit. That contract has been relaxed: commit silently drops the
     // no-op in BOTH dev and prod — there is no StackItem produced by Yjs's
     // no-op group, so there is nothing to record. The handler-side identity guard
-    // (`result.state === editor.document`) remains the conventional first stop;
+    // (`result.document === editor.document`) remains the conventional first stop;
     // commit is the safe backstop.
-    const state0 = createEmptyDocument();
-    const history = createHistory(state0);
-    const child = firstChild(state0);
+    const document0 = createEmptyDocument();
+    const history = createHistory(document0);
+    const child = firstChild(document0);
 
     // Synthesize a no-op OperationResult by re-using `state0` and
     // passing an empty dirtyIds set.
-    const noopResult = { state: state0, dirtyIds: new Set<BlockId>() };
+    const noopResult = { document: document0, dirtyIds: new Set<BlockId>() };
     const sel = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
 
     expect(() =>
@@ -684,11 +684,11 @@ describe("history (Y.UndoManager wrapper)", () => {
     // no StackItem produced, prior selection untouched.
     vi.stubEnv("NODE_ENV", "development");
     try {
-      const state0 = createEmptyDocument();
-      const history = createHistory(state0);
-      const child = firstChild(state0);
+      const document0 = createEmptyDocument();
+      const history = createHistory(document0);
+      const child = firstChild(document0);
 
-      const r1 = setBlockAttrs(state0, child.id, { testMark: "x" });
+      const r1 = setBlockAttrs(document0, child.id, { testMark: "x" });
       const selA = createSpan(
         createPosition(child.id, 0),
         createPosition(child.id, 0),
@@ -697,7 +697,7 @@ describe("history (Y.UndoManager wrapper)", () => {
 
       const posB = createPosition(child.id, 1);
       const selB = createSpan(posB, posB);
-      const noop = { state: r1.state, dirtyIds: new Set<BlockId>() };
+      const noop = { document: r1.document, dirtyIds: new Set<BlockId>() };
       expect(() =>
         history.commit(noop, { before: selB, after: selB }),
       ).not.toThrow();
@@ -718,12 +718,12 @@ describe("history (Y.UndoManager wrapper)", () => {
     // corrupting it. The fix returns early instead.
     vi.stubEnv("NODE_ENV", "production");
     try {
-      const state0 = createEmptyDocument();
-      const history = createHistory(state0);
-      const child = firstChild(state0);
+      const document0 = createEmptyDocument();
+      const history = createHistory(document0);
+      const child = firstChild(document0);
 
       // A real edit → commit with selection A.
-      const r1 = setBlockAttrs(state0, child.id, { testMark: "x" });
+      const r1 = setBlockAttrs(document0, child.id, { testMark: "x" });
       expect(r1.dirtyIds.size).toBeGreaterThan(0);
       const selA = createSpan(
         createPosition(child.id, 0),
@@ -735,7 +735,7 @@ describe("history (Y.UndoManager wrapper)", () => {
       // selA on the top StackItem.
       const posB = createPosition(child.id, 1);
       const selB = createSpan(posB, posB);
-      const noop = { state: r1.state, dirtyIds: new Set<BlockId>() };
+      const noop = { document: r1.document, dirtyIds: new Set<BlockId>() };
       expect(() =>
         history.commit(noop, { before: selB, after: selB }),
       ).not.toThrow();
@@ -751,9 +751,9 @@ describe("history (Y.UndoManager wrapper)", () => {
 });
 
 describe("history undo-depth cap (#234)", () => {
-  function firstChildOf(state: ReturnType<typeof createEmptyDocument>): BlockId {
-    const rootSection = getBlock(state, state.rootId)?.firstChildId ?? null;
-    const root = rootSection === null ? null : getBlock(state, rootSection);
+  function firstChildOf(document: ReturnType<typeof createEmptyDocument>): BlockId {
+    const rootSection = getBlock(document, document.rootId)?.firstChildId ?? null;
+    const root = rootSection === null ? null : getBlock(document, rootSection);
     if (root === null || root.firstChildId === null) {
       throw new Error("test fixture: missing first child");
     }
@@ -763,7 +763,7 @@ describe("history undo-depth cap (#234)", () => {
   /** Commit a REPLACE of the child's attrs to `{ v }`; returns the new state. */
   function commitV(
     history: ReturnType<typeof createHistory>,
-    state: ReturnType<typeof createEmptyDocument>,
+    document: ReturnType<typeof createEmptyDocument>,
     childId: BlockId,
     v: number,
   ): ReturnType<typeof createEmptyDocument> {
@@ -773,33 +773,33 @@ describe("history undo-depth cap (#234)", () => {
     // is exactly what these depth-cap tests assert). The injected time is
     // arbitrary because "command" never merges.
     history.beginEntry("command", v);
-    const r = setBlockAttrs(state, childId, { v });
+    const r = setBlockAttrs(document, childId, { v });
     const sel = createSpan(createPosition(childId, 0), createPosition(childId, 0));
     history.commit(r, { before: sel, after: sel });
-    return r.state;
+    return r.document;
   }
 
   it("caps the undo stack at maxDepth, dropping the OLDEST entries", () => {
-    let state = createEmptyDocument();
-    const childId = firstChildOf(state);
-    const history = createHistory(state, 2);
+    let document = createEmptyDocument();
+    const childId = firstChildOf(document);
+    const history = createHistory(document, 2);
 
     // Four distinct mutations; cap = 2 retains only the last two groups.
-    state = commitV(history, state, childId, 1);
-    state = commitV(history, state, childId, 2);
-    state = commitV(history, state, childId, 3);
-    state = commitV(history, state, childId, 4);
-    expect(getBlock(state, childId)?.attrs).toEqual({ v: 4 });
+    document = commitV(history, document, childId, 1);
+    document = commitV(history, document, childId, 2);
+    document = commitV(history, document, childId, 3);
+    document = commitV(history, document, childId, 4);
+    expect(getBlock(document, childId)?.attrs).toEqual({ v: 4 });
 
     // Undo reverts v:4 → v:3.
     const u1 = history.undo();
     if (u1 === null) throw new Error("expected undo 1");
-    expect(getBlock(u1.state, childId)?.attrs).toEqual({ v: 3 });
+    expect(getBlock(u1.document, childId)?.attrs).toEqual({ v: 3 });
 
     // Undo reverts v:3 → v:2.
     const u2 = history.undo();
     if (u2 === null) throw new Error("expected undo 2");
-    expect(getBlock(u2.state, childId)?.attrs).toEqual({ v: 2 });
+    expect(getBlock(u2.document, childId)?.attrs).toEqual({ v: 2 });
 
     // Commits 1 and 2 (initial→v:1, v:1→v:2) were trimmed; the retained
     // window starts at the v:2→v:3 group, so v:2 is its floor — no further back.
@@ -814,9 +814,9 @@ describe("history undo-depth cap (#234)", () => {
     // parallel array to splice in lockstep. This test gives every commit a
     // DISTINCT before/after pair (unlike commitV's aliased pair) so we can
     // prove the surviving items still carry their OWN selection after trim.
-    let state = createEmptyDocument();
-    const childId = firstChildOf(state);
-    const history = createHistory(state, 2);
+    let document = createEmptyDocument();
+    const childId = firstChildOf(document);
+    const history = createHistory(document, 2);
 
     const mkSel = (off: number) =>
       createSpan(createPosition(childId, off), createPosition(childId, off));
@@ -833,9 +833,9 @@ describe("history undo-depth cap (#234)", () => {
       // #420: open a fresh non-coalescing "command" group per commit (see
       // commitV) so each remains its own undo entry.
       history.beginEntry("command", c.v);
-      const r = setBlockAttrs(state, childId, { v: c.v });
+      const r = setBlockAttrs(document, childId, { v: c.v });
       history.commit(r, { before: c.before, after: c.after });
-      state = r.state;
+      document = r.document;
     }
 
     // Undo the v:3→v:4 group: returns its OWN before-selection (offset 3).
@@ -862,93 +862,93 @@ describe("history undo-depth cap (#234)", () => {
   });
 
   it("cap=1 retains only the most recent group", () => {
-    let state = createEmptyDocument();
-    const childId = firstChildOf(state);
-    const history = createHistory(state, 1);
+    let document = createEmptyDocument();
+    const childId = firstChildOf(document);
+    const history = createHistory(document, 1);
 
-    state = commitV(history, state, childId, 1);
-    state = commitV(history, state, childId, 2);
-    state = commitV(history, state, childId, 3);
+    document = commitV(history, document, childId, 1);
+    document = commitV(history, document, childId, 2);
+    document = commitV(history, document, childId, 3);
 
     // Only the last group (v:2→v:3) survives; one undo lands at v:2, then stop.
     const u1 = history.undo();
     if (u1 === null) throw new Error("expected undo 1");
-    expect(getBlock(u1.state, childId)?.attrs).toEqual({ v: 2 });
+    expect(getBlock(u1.document, childId)?.attrs).toEqual({ v: 2 });
     expect(history.canUndo()).toBe(false);
     expect(history.undo()).toBeNull();
   });
 
   it("does not trim when commits stay under the cap (full history undoable)", () => {
-    let state = createEmptyDocument();
-    const childId = firstChildOf(state);
-    const history = createHistory(state, 5);
+    let document = createEmptyDocument();
+    const childId = firstChildOf(document);
+    const history = createHistory(document, 5);
 
-    state = commitV(history, state, childId, 1);
-    state = commitV(history, state, childId, 2);
-    state = commitV(history, state, childId, 3);
+    document = commitV(history, document, childId, 1);
+    document = commitV(history, document, childId, 2);
+    document = commitV(history, document, childId, 3);
 
     history.undo(); // v3 → v2
     history.undo(); // v2 → v1
     const u3 = history.undo(); // v1 → initial {}
     if (u3 === null) throw new Error("expected undo 3");
-    expect(getBlock(u3.state, childId)?.attrs).toEqual({});
+    expect(getBlock(u3.document, childId)?.attrs).toEqual({});
     expect(history.canUndo()).toBe(false);
   });
 
   it("redo works within the retained post-cap window", () => {
-    let state = createEmptyDocument();
-    const childId = firstChildOf(state);
-    const history = createHistory(state, 2);
+    let document = createEmptyDocument();
+    const childId = firstChildOf(document);
+    const history = createHistory(document, 2);
 
-    state = commitV(history, state, childId, 1);
-    state = commitV(history, state, childId, 2);
-    state = commitV(history, state, childId, 3);
-    state = commitV(history, state, childId, 4);
+    document = commitV(history, document, childId, 1);
+    document = commitV(history, document, childId, 2);
+    document = commitV(history, document, childId, 3);
+    document = commitV(history, document, childId, 4);
 
     history.undo(); // v4 → v3
     history.undo(); // v3 → v2 (canUndo now false)
 
     const r1 = history.redo(); // v2 → v3
     if (r1 === null) throw new Error("expected redo 1");
-    expect(getBlock(r1.state, childId)?.attrs).toEqual({ v: 3 });
+    expect(getBlock(r1.document, childId)?.attrs).toEqual({ v: 3 });
 
     const r2 = history.redo(); // v3 → v4
     if (r2 === null) throw new Error("expected redo 2");
-    expect(getBlock(r2.state, childId)?.attrs).toEqual({ v: 4 });
+    expect(getBlock(r2.document, childId)?.attrs).toEqual({ v: 4 });
   });
 
   it("rejects maxDepth < 1", () => {
-    const state = createEmptyDocument();
-    expect(() => createHistory(state, 0)).toThrow(/maxDepth must be >= 1/);
+    const document = createEmptyDocument();
+    expect(() => createHistory(document, 0)).toThrow(/maxDepth must be >= 1/);
   });
 });
 
 describe("History — typing coalescing (#420)", () => {
   // Build an empty one-paragraph doc and return its first leaf block id.
   function freshDocWithParagraph(): {
-    state: ReturnType<typeof createEmptyDocument>;
+    document: ReturnType<typeof createEmptyDocument>;
     blockId: BlockId;
   } {
-    const state = createBlankDocument({ resolver: TEST_RESOLVER });
-    const rootSection = getBlock(state, state.rootId)?.firstChildId ?? null;
-    const root = rootSection === null ? null : getBlock(state, rootSection);
+    const document = createBlankDocument({ resolver: TEST_RESOLVER });
+    const rootSection = getBlock(document, document.rootId)?.firstChildId ?? null;
+    const root = rootSection === null ? null : getBlock(document, rootSection);
     if (root === null || root.firstChildId === null) {
       throw new Error("test fixture: missing first child");
     }
-    return { state, blockId: root.firstChildId };
+    return { document, blockId: root.firstChildId };
   }
 
   // Read the first leaf block's full text via a content-wide span.
   function extractFirstLeafText(
-    state: ReturnType<typeof createEmptyDocument>,
+    document: ReturnType<typeof createEmptyDocument>,
     blockId: BlockId,
   ): string {
-    const block = getBlock(state, blockId);
+    const block = getBlock(document, blockId);
     if (block === null) throw new Error("test fixture: missing block");
     const len =
       block.inlineContent === null ? 0 : inlineContentLength(block.inlineContent);
     return extractText(
-      state,
+      document,
       createSpan(createPosition(blockId, 0), createPosition(blockId, len)),
     );
   }
@@ -957,7 +957,7 @@ describe("History — typing coalescing (#420)", () => {
   // production flow: beginEntry(key, now) BEFORE the op, then commit after.
   function typeChar(
     history: History,
-    state: ReturnType<typeof createEmptyDocument>,
+    document: ReturnType<typeof createEmptyDocument>,
     blockId: BlockId,
     offset: number,
     ch: string,
@@ -972,97 +972,97 @@ describe("History — typing coalescing (#420)", () => {
     // the pre-action doc, so an undo restores it even though the action's own
     // characters are removed).
     history.beginEntry(key, now, before);
-    const result = insertText(state, createPosition(blockId, offset), ch, {});
+    const result = insertText(document, createPosition(blockId, offset), ch, {});
     const after = createSpan(
       createPosition(blockId, offset + ch.length),
       createPosition(blockId, offset + ch.length),
     );
     history.commit(result, { before, after });
-    return result.state;
+    return result.document;
   }
 
   it("coalesces consecutive same-kind inserts within the pause window into ONE undo entry", () => {
-    let { state, blockId } = freshDocWithParagraph();
-    const history = createHistory(state);
-    state = typeChar(history, state, blockId, 0, "a", "insert", 0);
-    state = typeChar(history, state, blockId, 1, "b", "insert", 10);
-    state = typeChar(history, state, blockId, 2, "c", "insert", 20);
+    let { document, blockId } = freshDocWithParagraph();
+    const history = createHistory(document);
+    document = typeChar(history, document, blockId, 0, "a", "insert", 0);
+    document = typeChar(history, document, blockId, 1, "b", "insert", 10);
+    document = typeChar(history, document, blockId, 2, "c", "insert", 20);
     // One undo removes the whole "abc" run.
-    expect(extractFirstLeafText(state, blockId)).toBe("abc");
+    expect(extractFirstLeafText(document, blockId)).toBe("abc");
     const undone = history.undo();
     expect(undone).not.toBeNull();
     if (undone === null) throw new Error("expected undo to succeed");
-    expect(extractFirstLeafText(undone.state, blockId)).toBe("");
+    expect(extractFirstLeafText(undone.document, blockId)).toBe("");
     expect(history.canUndo()).toBe(false);
   });
 
   it("a pause >= UNDO_COALESCE_PAUSE_MS splits the run into two undo entries", () => {
-    let { state, blockId } = freshDocWithParagraph();
-    const history = createHistory(state);
-    state = typeChar(history, state, blockId, 0, "a", "insert", 0);
+    let { document, blockId } = freshDocWithParagraph();
+    const history = createHistory(document);
+    document = typeChar(history, document, blockId, 0, "a", "insert", 0);
     // gap == threshold => split (the merge predicate is strictly `<`).
-    state = typeChar(history, state, blockId, 1, "b", "insert", UNDO_COALESCE_PAUSE_MS);
+    document = typeChar(history, document, blockId, 1, "b", "insert", UNDO_COALESCE_PAUSE_MS);
     let u = history.undo();
     if (u === null) throw new Error("expected undo to succeed");
-    expect(extractFirstLeafText(u.state, blockId)).toBe("a"); // first undo removes "b"
+    expect(extractFirstLeafText(u.document, blockId)).toBe("a"); // first undo removes "b"
     u = history.undo();
     if (u === null) throw new Error("expected undo to succeed");
-    expect(extractFirstLeafText(u.state, blockId)).toBe(""); // second removes "a"
+    expect(extractFirstLeafText(u.document, blockId)).toBe(""); // second removes "a"
   });
 
   it("a kind switch (insert -> delete) splits into two undo entries", () => {
-    let { state, blockId } = freshDocWithParagraph();
-    const history = createHistory(state);
-    state = typeChar(history, state, blockId, 0, "a", "insert", 0);
-    state = typeChar(history, state, blockId, 1, "b", "insert", 5);
+    let { document, blockId } = freshDocWithParagraph();
+    const history = createHistory(document);
+    document = typeChar(history, document, blockId, 0, "a", "insert", 0);
+    document = typeChar(history, document, blockId, 1, "b", "insert", 5);
     // delete the "b" (a coalescible delete) — kind switch from insert.
     history.beginEntry("delete", 10);
     const delResult = deleteRange(
-      state,
+      document,
       createSpan(createPosition(blockId, 1), createPosition(blockId, 2)),
     );
     history.commit(delResult, {
       before: createSpan(createPosition(blockId, 2), createPosition(blockId, 2)),
       after: createSpan(createPosition(blockId, 1), createPosition(blockId, 1)),
     });
-    state = delResult.state;
-    expect(extractFirstLeafText(state, blockId)).toBe("a");
+    document = delResult.document;
+    expect(extractFirstLeafText(document, blockId)).toBe("a");
     const u1 = history.undo(); // reverses the delete run
     if (u1 === null) throw new Error("expected undo to succeed");
-    expect(extractFirstLeafText(u1.state, blockId)).toBe("ab");
+    expect(extractFirstLeafText(u1.document, blockId)).toBe("ab");
     const u2 = history.undo(); // reverses the insert run
     if (u2 === null) throw new Error("expected undo to succeed");
-    expect(extractFirstLeafText(u2.state, blockId)).toBe("");
+    expect(extractFirstLeafText(u2.document, blockId)).toBe("");
   });
 
   it("a command key never coalesces (each is its own undo entry)", () => {
-    let { state, blockId } = freshDocWithParagraph();
-    const history = createHistory(state);
-    state = typeChar(history, state, blockId, 0, "a", "command", 0);
-    state = typeChar(history, state, blockId, 1, "b", "command", 5); // < window, but command never merges
+    let { document, blockId } = freshDocWithParagraph();
+    const history = createHistory(document);
+    document = typeChar(history, document, blockId, 0, "a", "command", 0);
+    document = typeChar(history, document, blockId, 1, "b", "command", 5); // < window, but command never merges
     expect(history.undo()).not.toBeNull(); // removes "b"
     expect(history.undo()).not.toBeNull(); // removes "a"
   });
 
   it("breakCoalescing() closes the open group so the next insert is a fresh entry", () => {
-    let { state, blockId } = freshDocWithParagraph();
-    const history = createHistory(state);
-    state = typeChar(history, state, blockId, 0, "a", "insert", 0);
+    let { document, blockId } = freshDocWithParagraph();
+    const history = createHistory(document);
+    document = typeChar(history, document, blockId, 0, "a", "insert", 0);
     history.breakCoalescing();
-    state = typeChar(history, state, blockId, 1, "b", "insert", 5); // same window, but break forced a split
+    document = typeChar(history, document, blockId, 1, "b", "insert", 5); // same window, but break forced a split
     const u1 = history.undo();
     if (u1 === null) throw new Error("expected undo to succeed");
-    expect(extractFirstLeafText(u1.state, blockId)).toBe("a");
+    expect(extractFirstLeafText(u1.document, blockId)).toBe("a");
     const u2 = history.undo();
     if (u2 === null) throw new Error("expected undo to succeed");
-    expect(extractFirstLeafText(u2.state, blockId)).toBe("");
+    expect(extractFirstLeafText(u2.document, blockId)).toBe("");
   });
 
   it("a coalesced run keeps the group's ORIGINAL before-selection and the LATEST after-selection", () => {
-    let { state, blockId } = freshDocWithParagraph();
-    const history = createHistory(state);
-    state = typeChar(history, state, blockId, 0, "a", "insert", 0); // before = offset 0
-    state = typeChar(history, state, blockId, 1, "b", "insert", 5); // after = offset 2
+    let { document, blockId } = freshDocWithParagraph();
+    const history = createHistory(document);
+    document = typeChar(history, document, blockId, 0, "a", "insert", 0); // before = offset 0
+    document = typeChar(history, document, blockId, 1, "b", "insert", 5); // after = offset 2
     const undone = history.undo();
     if (undone === null) throw new Error("expected undo to succeed");
     // undo restores the caret to BEFORE the first keystroke (offset 0), not offset 1.
@@ -1074,13 +1074,13 @@ describe("History — typing coalescing (#420)", () => {
   });
 });
 
-describe("History.advanceState — C1 stale-snapshot hazard (slice 2 piece C)", () => {
+describe("History.advanceDocument — C1 stale-snapshot hazard (slice 2 piece C)", () => {
   const BLOCK_A = "a" as BlockId;
   const BLOCK_B = "b" as BlockId;
 
   /** doc > [ a("AAA"), b("BBB") ] */
-  function twoBlockDoc(): ReturnType<typeof buildState> {
-    return buildState({
+  function twoBlockDoc(): ReturnType<typeof buildDocument> {
+    return buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "a", lastChildId: "b" }),
@@ -1107,9 +1107,9 @@ describe("History.advanceState — C1 stale-snapshot hazard (slice 2 piece C)", 
    * onto B's attrs under UNTRACKED_ORIGIN (the txn the slice-3
    * accept/reject ops produce — origin-tagged, undo-manager-invisible).
    */
-  function resolveOnB(state: ReturnType<typeof buildState>) {
+  function resolveOnB(document: ReturnType<typeof buildDocument>) {
     return applyOperation(
-      state,
+      document,
       (doc) => {
         setBlockAttrsInTx(doc, BLOCK_B, { resolved: true }, "test-resolve");
         return new Set<BlockId>([BLOCK_B]);
@@ -1129,36 +1129,36 @@ describe("History.advanceState — C1 stale-snapshot hazard (slice 2 piece C)", 
 
     // Read block B from the PRE-resolve snapshot so it is CACHED as "BBB" with no
     // `resolved` attr. This is what makes the C1 staleness observable: a stale
-    // `currentState` then has block B already snapshotted pre-resolve, and the
-    // undo's `freshState(currentState, dirtyIds)` overlay serves that cached
+    // `currentDocument` then has block B already snapshotted pre-resolve, and the
+    // undo's `freshDocument(currentDocument, dirtyIds)` overlay serves that cached
     // snapshot for any block the undo did not re-dirty (here, B).
-    expect(getBlock(edit1.state, BLOCK_B)?.attrs.resolved).toBeUndefined();
+    expect(getBlock(edit1.document, BLOCK_B)?.attrs.resolved).toBeUndefined();
 
     // (3) Non-undoable resolve that changes block B (origin-tagged, skips commit)
-    // + advanceState to reconcile History's cached currentState to the
+    // + advanceDocument to reconcile History's cached currentDocument to the
     // POST-resolve snapshot.
-    const resolve = resolveOnB(edit1.state);
-    history.advanceState(resolve.state);
+    const resolve = resolveOnB(edit1.document);
+    history.advanceDocument(resolve.document);
 
     // (4) Undo the block-A edit from step 2. The undo's dirty set is {A} (only A
-    // was reversed), so block B is served from `currentState`'s overlay base.
-    // With advanceState, that base is the POST-resolve cache → B carries the
+    // was reversed), so block B is served from `currentDocument`'s overlay base.
+    // With advanceDocument, that base is the POST-resolve cache → B carries the
     // resolve. A reverts to "AAA" (length 3).
     const undone = history.undo();
     if (undone === null) throw new Error("expected undo to return a result");
-    const blockA = getBlock(undone.state, BLOCK_A);
-    const blockB = getBlock(undone.state, BLOCK_B);
+    const blockA = getBlock(undone.document, BLOCK_A);
+    const blockB = getBlock(undone.document, BLOCK_B);
     if (blockA === null || blockB === null) throw new Error("missing block");
     if (blockA.inlineContent === null) throw new Error("missing block-A content");
     expect(inlineContentLength(blockA.inlineContent)).toBe(3); // "AAA"
     expect(blockB.attrs.resolved).toBe(true);
-    // Proven by manual removal: deleting the `history.advanceState(resolve.state)`
+    // Proven by manual removal: deleting the `history.advanceDocument(resolve.document)`
     // call above makes the `expect(blockB.attrs.resolved).toBe(true)` assertion
-    // FAIL — the undo's `freshState(stale-currentState=edit1.state, {A})` overlays
+    // FAIL — the undo's `freshDocument(stale-currentDocument=edit1.document, {A})` overlays
     // the PRE-resolve cache (where B was snapshotted above), so block B (not
     // re-dirtied by the undo) is served the stale no-`resolved` snapshot even
-    // though the live Y.Doc holds the resolve. advanceState reconciles
-    // currentState to the post-resolve cache so the overlay serves the fresh B.
+    // though the live Y.Doc holds the resolve. advanceDocument reconciles
+    // currentDocument to the post-resolve cache so the overlay serves the fresh B.
     // (This is the exact silent-stale-render C1 hazard the design review caught.)
   });
 

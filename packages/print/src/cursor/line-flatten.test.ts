@@ -13,7 +13,7 @@ import { createPosition } from "@taleweaver/core";
 import type { BlockId } from "@taleweaver/core";
 import { collectLineBoxes, collectLineLeaves, findLineForPosition, getLineIndex, type AbsoluteLineBox } from "./line-flatten";
 import { resolvePositionFromPixel } from "./hit-test";
-import { buildState, buildBlock, inlineContent, text } from "@taleweaver/core";
+import { buildDocument, buildBlock, inlineContent, text } from "@taleweaver/core";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -310,10 +310,10 @@ describe("collectLineBoxes — descends absoluteChildren (slice 3)", () => {
 
   it("a click inside the abs paragraph resolves to the correct caret offset (reachability)", () => {
     const root = relativeRootWithAbs();
-    // State whose `pabs` block carries the same text, so the picked line's
+    // Document whose `pabs` block carries the same text, so the picked line's
     // ownerBlockId resolves to a real block and the within-line offset maps to a
     // Position. (Mirror of the layout: a document root + two paragraphs.)
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "pnorm", lastChildId: "pabs" }),
@@ -323,7 +323,7 @@ describe("collectLineBoxes — descends absoluteChildren (slice 3)", () => {
     });
     // Click ~3 chars into the abs line (each glyph 8px; line baseline at y≈100..116).
     // x = 30 (line start) + 3*8 + 1 = 55 lands in the 4th char's cell → offset 3.
-    const hit = resolvePositionFromPixel(state, root, shaper, 55, 108);
+    const hit = resolvePositionFromPixel(document, root, shaper, 55, 108);
     expect(hit).not.toBeNull();
     if (hit === null) throw new Error("hit-test returned null inside abs paragraph");
     expect(hit.position.blockId).toBe("pabs" as BlockId);

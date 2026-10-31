@@ -11,27 +11,27 @@ import {
   requireInTransaction,
   dirtyIdsFromTransaction,
 } from "./yjs-doc";
-import { getBlock } from "./state";
+import { getBlock } from "./document";
 import { splitBlockAtPosition } from "./ops/split-block";
 import { mergeAdjacentBlocks } from "./ops/merge-blocks";
 import { createTestAllocator } from "./block-id";
-import { buildFlowDoc, finalSectionOf, withTestAttrs } from "../test-utils/state-builders";
+import { buildFlowDoc, finalSectionOf, withTestAttrs } from "../test-utils/document-builders";
 import { getRegistry } from "./registry";
 import type { BlockId } from "./block-id";
 import { createPosition } from "./block-position";
-import { STATE_INTERNAL } from "./state-internal";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import { insertText } from "./ops/insert-text";
 import { setBlockAttrs } from "./ops/set-block-attrs";
 import { removeBlock } from "./ops/remove-block";
 import { applyAttrsToRange } from "./ops/apply-attrs";
 import { createSpan } from "./block-position";
-import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent, text } from "../test-utils/document-builders";
 
 const id = (s: string) => s as BlockId;
 
 /** A document `doc` with paragraphs p1, p2 and a header body `hdr` > `hp`. */
 function fixture() {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -84,7 +84,7 @@ describe("yjs-doc", () => {
     it("counts the registry entries of every tree", () => {
       // doc + p1 + p2 + hdr + hp.
       // doc + its final section + p1 + p2, hdr + hp.
-      expect(allTreeBlockCount(fixture()[STATE_INTERNAL].doc)).toBe(6);
+      expect(allTreeBlockCount(fixture()[DOCUMENT_INTERNAL].doc)).toBe(6);
     });
   });
 
@@ -152,11 +152,11 @@ describe("yjs-doc", () => {
     it("a remote keystroke dirties exactly its owner", () => {
       const a = four();
       const b = new Y.Doc();
-      Y.applyUpdate(b, Y.encodeStateAsUpdate(a[STATE_INTERNAL].doc));
+      Y.applyUpdate(b, Y.encodeStateAsUpdate(a[DOCUMENT_INTERNAL].doc));
       const seen: string[][] = [];
       b.on("afterTransaction", (tx: Y.Transaction) => seen.push(ids(dirtyIdsFromTransaction(b, tx))));
-      const typed = insertText(a, createPosition(id("p2"), 2), "X", {}).state;
-      Y.applyUpdate(b, Y.encodeStateAsUpdate(typed[STATE_INTERNAL].doc, Y.encodeStateVector(b)), "remote");
+      const typed = insertText(a, createPosition(id("p2"), 2), "X", {}).document;
+      Y.applyUpdate(b, Y.encodeStateAsUpdate(typed[DOCUMENT_INTERNAL].doc, Y.encodeStateVector(b)), "remote");
       expect(seen).toEqual([["p2"]]);
     });
 
@@ -178,14 +178,14 @@ describe("yjs-doc", () => {
 
     it("a ¶-key write (formatting exactly the ¶) dirties exactly its owner", () => {
       const r = applyAttrsToRange(withTestAttrs(four()), createSpan(createPosition(id("p1"), 3), createPosition(id("p2"), 0)), { italic: true });
-      expect(getBlock(r.state, id("p1"))?.markAttrs).toEqual({ italic: true });
+      expect(getBlock(r.document, id("p1"))?.markAttrs).toEqual({ italic: true });
       expect(ids(r.dirtyIds)).toEqual(["p1"]);
     });
   });
 
   describe("getYBlock", () => {
     it("returns the block's registry entry", () => {
-      const doc = fixture()[STATE_INTERNAL].doc;
+      const doc = fixture()[DOCUMENT_INTERNAL].doc;
       doc.transact(() => {
         const entry = getYBlock(doc, id("p1"), "test");
         expect(entry).toBe(getRegistry(doc).get("p1"));
@@ -194,7 +194,7 @@ describe("yjs-doc", () => {
     });
 
     it("returns template-body entries from the same registry", () => {
-      const doc = fixture()[STATE_INTERNAL].doc;
+      const doc = fixture()[DOCUMENT_INTERNAL].doc;
       doc.transact(() => {
         expect(getYBlock(doc, id("hp"), "test").get("type")).toBe("paragraph");
       });

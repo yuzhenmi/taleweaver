@@ -10,12 +10,12 @@ import { createPosition, createSpan } from "../block-position";
 import type { BlockId } from "../block-id";
 import { createHistory } from "../history";
 import { extractText } from "../extract-text";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 import { relAt, survives } from "../../test-utils/relpos-survival";
 
 /** doc > [ p( ...runs ) ] — one leaf paragraph whose inline content is `runs`. */
 function blockOf(runs: ReturnType<typeof text>[]) {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -35,21 +35,21 @@ describe("same-block replaceRange — character survival", () => {
   it("a position in the PREFIX survives a same-block replaceRange", () => {
     const s = blockOf([text("AB", { bold: true }), text("CD"), text("EF", { italic: true })]);
     const rel = relAt(s, "p", 0); // 'A' in the bold prefix
-    const after = replaceRange(s, span(2, 4), "X", { underline: true }).state;
+    const after = replaceRange(s, span(2, 4), "X", { underline: true }).document;
     expect(survives(rel, after, "A")).toBe(true);
   });
 
   it("a position in the SUFFIX survives a same-block replaceRange", () => {
     const s = blockOf([text("AB", { bold: true }), text("CD"), text("EF", { italic: true })]);
     const rel = relAt(s, "p", 4); // 'E' in the italic suffix
-    const after = replaceRange(s, span(2, 4), "X", { underline: true }).state;
+    const after = replaceRange(s, span(2, 4), "X", { underline: true }).document;
     expect(survives(rel, after, "E")).toBe(true);
   });
 
   it("a position in the run the differently-formatted insertion lands INSIDE survives", () => {
     const s = blockOf([text("ABCD")]);
     const rel = relAt(s, "p", 3); // 'D', after the insertion point inside the run
-    const after = replaceRange(s, span(1, 2), "X", { underline: true }).state;
+    const after = replaceRange(s, span(1, 2), "X", { underline: true }).document;
     expect(survives(rel, after, "D")).toBe(true);
   });
 
@@ -59,12 +59,12 @@ describe("same-block replaceRange — character survival", () => {
     const rel = relAt(s, "p", 0); // 'A' in the bold prefix
     const op = replaceRange(s, span(2, 4), "X", { underline: true }); // "ABXEF"
     history.commit(op, { before: span(2, 4), after: span(3, 3) });
-    expect(survives(rel, op.state, "A")).toBe(true); // survives the replace itself
+    expect(survives(rel, op.document, "A")).toBe(true); // survives the replace itself
 
     const undone = history.undo();
     expect(undone).not.toBeNull();
     if (undone === null) throw new Error("expected undo to succeed");
-    expect(extractText(undone.state, span(0, 6))).toBe("ABCDEF"); // content restored
-    expect(survives(rel, undone.state, "A")).toBe(true); // undo did not orphan the prefix anchor
+    expect(extractText(undone.document, span(0, 6))).toBe("ABCDEF"); // content restored
+    expect(survives(rel, undone.document, "A")).toBe(true); // undo did not orphan the prefix anchor
   });
 });

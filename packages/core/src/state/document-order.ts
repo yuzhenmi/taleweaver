@@ -8,13 +8,13 @@ import {
   blockCount,
   createWalkGuard,
   type Document,
-} from "./state";
+} from "./document";
 
 /** A block resolver: main-tree-only (`getBlock`) or any-tree (`resolveBlock`). */
-type BlockResolver = (state: Document, id: BlockId) => Block | null;
+type BlockResolver = (document: Document, id: BlockId) => Block | null;
 
 /** Resolve from ANY of the three trees (main → embedContents → templateContents). */
-const resolveAnyTree: BlockResolver = (state, id) => resolveBlock(state, id)?.block ?? null;
+const resolveAnyTree: BlockResolver = (document, id) => resolveBlock(document, id)?.block ?? null;
 
 /**
  * Yield every BODY block in document order (depth-first: a block, then its
@@ -34,10 +34,10 @@ const resolveAnyTree: BlockResolver = (state, id) => resolveBlock(state, id)?.bl
  *     blocks a doc-order traversal can visit (it sums all three trees; see
  *     `nextBlockInDocOrder`). A sibling chain longer than this can only be a cycle.
  */
-export function* iterateBlocksInDocumentOrder(state: Document): Iterable<Block> {
-  const root = getBlock(state, state.rootId);
+export function* iterateBlocksInDocumentOrder(document: Document): Iterable<Block> {
+  const root = getBlock(document, document.rootId);
   if (root === null) return;
-  yield* walk(state, state.rootId, new Set<BlockId>(), getBlock);
+  yield* walk(document, document.rootId, new Set<BlockId>(), getBlock);
 }
 
 /**
@@ -64,8 +64,8 @@ export function* iterateBlocksInDocumentOrder(state: Document): Iterable<Block> 
  * exactly the consumed set. (The old sweep additionally surfaced some
  * sibling-reached containers, which every consumer already filtered out.)
  */
-export function* iterateLeafBlocksInDocumentOrder(state: Document): Iterable<Block> {
-  for (const block of iterateBlocksInDocumentOrder(state)) {
+export function* iterateLeafBlocksInDocumentOrder(document: Document): Iterable<Block> {
+  for (const block of iterateBlocksInDocumentOrder(document)) {
     if (block.firstChildId === null) yield block;
   }
 }
@@ -87,13 +87,13 @@ export function* iterateLeafBlocksInDocumentOrder(state: Document): Iterable<Blo
  * it tags lives in one tree — so each id's tagged items are visited contiguously,
  * in document order, within that tree's segment of this walk.
  */
-export function* iterateAllBlocksInDocumentOrder(state: Document): Iterable<Block> {
-  yield* iterateBlocksInDocumentOrder(state);
-  for (const rootId of getEmbedContentIds(state)) {
-    yield* walk(state, rootId, new Set<BlockId>(), resolveAnyTree);
+export function* iterateAllBlocksInDocumentOrder(document: Document): Iterable<Block> {
+  yield* iterateBlocksInDocumentOrder(document);
+  for (const rootId of getEmbedContentIds(document)) {
+    yield* walk(document, rootId, new Set<BlockId>(), resolveAnyTree);
   }
-  for (const rootId of getTemplateContentIds(state)) {
-    yield* walk(state, rootId, new Set<BlockId>(), resolveAnyTree);
+  for (const rootId of getTemplateContentIds(document)) {
+    yield* walk(document, rootId, new Set<BlockId>(), resolveAnyTree);
   }
 }
 
@@ -110,15 +110,15 @@ export function* iterateAllBlocksInDocumentOrder(state: Document): Iterable<Bloc
  * and a list-free doc pays one full walk (the same walk `collectListEvents`
  * would do, but allocation-free).
  */
-export function docHasLists(state: Document): boolean {
-  for (const block of iterateBlocksInDocumentOrder(state)) {
+export function docHasLists(document: Document): boolean {
+  for (const block of iterateBlocksInDocumentOrder(document)) {
     if (block.type === "list-item") return true;
   }
   return false;
 }
 
 function* walk(
-  state: Document,
+  document: Document,
   id: BlockId,
   visited: Set<BlockId>,
   resolve: BlockResolver,
@@ -128,22 +128,22 @@ function* walk(
       `iterateBlocksInDocumentOrder: cycle detected — block "${id}" is its own ancestor`,
     );
   }
-  const block = resolve(state, id);
+  const block = resolve(document, id);
   if (block === null) return;
   visited.add(id);
   try {
     yield block;
     // Sibling-chain cycle bound: see the module docstring + block-traversal.ts.
     let childId = block.firstChildId;
-    const guard = createWalkGuard(state);
+    const guard = createWalkGuard(document);
     while (childId !== null) {
       if (guard.step()) {
         throw new Error(
-          `iterateBlocksInDocumentOrder: cycle detected in block tree (visited >${blockCount(state) + 1} children of "${id}")`,
+          `iterateBlocksInDocumentOrder: cycle detected in block tree (visited >${blockCount(document) + 1} children of "${id}")`,
         );
       }
-      yield* walk(state, childId, visited, resolve);
-      const child = resolve(state, childId);
+      yield* walk(document, childId, visited, resolve);
+      const child = resolve(document, childId);
       childId = child === null ? null : child.nextSiblingId;
     }
   } finally {

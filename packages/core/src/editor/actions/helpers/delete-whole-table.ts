@@ -19,12 +19,12 @@ export function deleteWholeTable(
   const siblingId = table.nextSiblingId ?? table.prevSiblingId; // pre-op; survives the delete
 
   const result = deleteTable(editor.document, tableId);
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
 
   const caretBlockId = siblingId;
   if (caretBlockId === null) return null; // unreachable: a paragraph follows every table (invariant I)
 
   const cursor = createPosition(caretBlockId, 0);
   const after = createSpan(cursor, cursor);
-  return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: after };
+  return { change: { document: result.document, dirtyIds: result.dirtyIds }, selection: after };
 }

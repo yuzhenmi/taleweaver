@@ -1,5 +1,5 @@
-import type { Document } from "./state";
-import { resolveBlock, createWalkGuard } from "./state";
+import type { Document } from "./document";
+import { resolveBlock, createWalkGuard } from "./document";
 import type { Span } from "./block-position";
 import { comparePositions, selectionContextOf } from "./block-compare";
 import type { Block } from "./block";
@@ -28,8 +28,8 @@ export function isObjectBlock(block: Block): boolean {
  * comparePositions throws via compareBlocksInDocOrder if they have no
  * common ancestor (different roots).
  */
-export function normalizeSpan(state: Document, span: Span): Span {
-  if (comparePositions(state, span.anchor, span.focus) <= 0) return span;
+export function normalizeSpan(document: Document, span: Span): Span {
+  if (comparePositions(document, span.anchor, span.focus) <= 0) return span;
   return createSpan(span.focus, span.anchor);
 }
 
@@ -71,11 +71,11 @@ export interface BlockRange {
  *     model; the action-handler layer is responsible for rejecting or
  *     collapsing them, but this function defends against bad input.
  */
-export function* iterateSpan(state: Document, span: Span): Iterable<BlockRange> {
+export function* iterateSpan(document: Document, span: Span): Iterable<BlockRange> {
   // Pre-normalize precondition checks (validate raw endpoints before
   // normalizeSpan does cross-block compare, which itself requires same-context).
-  const anchorBlockRaw = resolveBlock(state, span.anchor.blockId)?.block ?? null;
-  const focusBlockRaw = resolveBlock(state, span.focus.blockId)?.block ?? null;
+  const anchorBlockRaw = resolveBlock(document, span.anchor.blockId)?.block ?? null;
+  const focusBlockRaw = resolveBlock(document, span.focus.blockId)?.block ?? null;
   if (anchorBlockRaw === null) throw new Error(`iterateSpan: anchor block "${span.anchor.blockId}" not found`);
   if (focusBlockRaw === null) throw new Error(`iterateSpan: focus block "${span.focus.blockId}" not found`);
   if (!anchorBlockRaw.inlineContent && !isObjectBlock(anchorBlockRaw)) {
@@ -84,8 +84,8 @@ export function* iterateSpan(state: Document, span: Span): Iterable<BlockRange> 
   if (!focusBlockRaw.inlineContent && !isObjectBlock(focusBlockRaw)) {
     throw new Error(`iterateSpan: focus block "${span.focus.blockId}" is a container, not a leaf`);
   }
-  const anchorCtx = selectionContextOf(state, span.anchor.blockId);
-  const focusCtx = selectionContextOf(state, span.focus.blockId);
+  const anchorCtx = selectionContextOf(document, span.anchor.blockId);
+  const focusCtx = selectionContextOf(document, span.focus.blockId);
   if (anchorCtx !== focusCtx) {
     throw new Error(
       `iterateSpan: anchor and focus are in different selection contexts ` +
@@ -93,18 +93,18 @@ export function* iterateSpan(state: Document, span: Span): Iterable<BlockRange> 
     );
   }
 
-  const normalized = normalizeSpan(state, span);
+  const normalized = normalizeSpan(document, span);
 
   if (normalized.anchor.blockId === normalized.focus.blockId) {
-    const block = resolveBlock(state, normalized.anchor.blockId)?.block ?? null;
+    const block = resolveBlock(document, normalized.anchor.blockId)?.block ?? null;
     if (block === null) throw new Error(`iterateSpan: block "${normalized.anchor.blockId}" not found`);
     if (block.inlineContent === null) return; // a collapsed span on an object
     yield { block, rangeStart: normalized.anchor.offset, rangeEnd: normalized.focus.offset };
     return;
   }
 
-  const anchorBlock = resolveBlock(state, normalized.anchor.blockId)?.block ?? null;
-  const focusBlock = resolveBlock(state, normalized.focus.blockId)?.block ?? null;
+  const anchorBlock = resolveBlock(document, normalized.anchor.blockId)?.block ?? null;
+  const focusBlock = resolveBlock(document, normalized.focus.blockId)?.block ?? null;
   if (anchorBlock === null) throw new Error(`iterateSpan: block "${normalized.anchor.blockId}" not found`);
   if (focusBlock === null) throw new Error(`iterateSpan: block "${normalized.focus.blockId}" not found`);
 
@@ -128,7 +128,7 @@ export function* iterateSpan(state: Document, span: Span): Iterable<BlockRange> 
   // error that names the anchor + focus block IDs — useful for debugging
   // corrupt block trees. Bound source: blockCount(), same as the inner
   // guards in block-traversal.ts (map-agnostic).
-  const guard = createWalkGuard(state);
+  const guard = createWalkGuard(document);
   const step = (): void => {
     if (guard.step()) {
       throw new Error(
@@ -136,10 +136,10 @@ export function* iterateSpan(state: Document, span: Span): Iterable<BlockRange> 
       );
     }
   };
-  let currentId = nextBlockInDocOrder(state, normalized.anchor.blockId);
+  let currentId = nextBlockInDocOrder(document, normalized.anchor.blockId);
   while (currentId && currentId !== normalized.focus.blockId) {
     step();
-    const current = resolveBlock(state, currentId)?.block ?? null;
+    const current = resolveBlock(document, currentId)?.block ?? null;
     if (current !== null && current.inlineContent) {
       yield {
         block: current,
@@ -147,7 +147,7 @@ export function* iterateSpan(state: Document, span: Span): Iterable<BlockRange> 
         rangeEnd: inlineContentLength(current.inlineContent),
       };
     }
-    currentId = nextBlockInDocOrder(state, currentId);
+    currentId = nextBlockInDocOrder(document, currentId);
   }
 
   if (currentId !== normalized.focus.blockId) {
@@ -163,10 +163,10 @@ export function* iterateSpan(state: Document, span: Span): Iterable<BlockRange> 
     return;
   }
   // An object end covers its whole block: a table end's cell paragraphs, fully.
-  const after = nextBlockAfterSubtree(state, focusBlock.id);
-  for (let id = nextBlockInDocOrder(state, focusBlock.id); id !== null && id !== after; id = nextBlockInDocOrder(state, id)) {
+  const after = nextBlockAfterSubtree(document, focusBlock.id);
+  for (let id = nextBlockInDocOrder(document, focusBlock.id); id !== null && id !== after; id = nextBlockInDocOrder(document, id)) {
     step();
-    const inner = resolveBlock(state, id)?.block ?? null;
+    const inner = resolveBlock(document, id)?.block ?? null;
     if (inner !== null && inner.inlineContent) {
       yield { block: inner, rangeStart: 0, rangeEnd: inlineContentLength(inner.inlineContent) };
     }
@@ -184,20 +184,20 @@ export function* iterateSpan(state: Document, span: Span): Iterable<BlockRange> 
  * tracking is not built, so a covered object stays in place (its strike still
  * covers a table's cell text — `iterateSpan`). O(span).
  */
-export function clipSpanToText(state: Document, span: Span): Span {
-  const n = normalizeSpan(state, span);
-  const start = resolveBlock(state, n.anchor.blockId)?.block ?? null;
-  const end = resolveBlock(state, n.focus.blockId)?.block ?? null;
+export function clipSpanToText(document: Document, span: Span): Span {
+  const n = normalizeSpan(document, span);
+  const start = resolveBlock(document, n.anchor.blockId)?.block ?? null;
+  const end = resolveBlock(document, n.focus.blockId)?.block ?? null;
   if (start === null || end === null) return n;
   if (start.inlineContent !== null && end.inlineContent !== null) return n;
   let first: Position | null = start.inlineContent !== null ? n.anchor : null;
   let last: Position | null = start.inlineContent !== null ? createPosition(start.id, inlineContentLength(start.inlineContent)) : null;
-  const guard = createWalkGuard(state);
+  const guard = createWalkGuard(document);
   const next = (b: Block): BlockId | null =>
-    isObjectBlock(b) ? nextBlockAfterSubtree(state, b.id) : nextBlockInDocOrder(state, b.id);
+    isObjectBlock(b) ? nextBlockAfterSubtree(document, b.id) : nextBlockInDocOrder(document, b.id);
   for (let id = next(start); id !== null && id !== end.id; ) {
     if (guard.step()) throw new Error(`clipSpanToText: step bound exceeded — block tree may be corrupt`);
-    const b = resolveBlock(state, id)?.block ?? null;
+    const b = resolveBlock(document, id)?.block ?? null;
     if (b === null) break;
     if (b.inlineContent !== null) {
       first ??= createPosition(b.id, 0);
@@ -207,19 +207,19 @@ export function clipSpanToText(state: Document, span: Span): Span {
   }
   if (end.inlineContent !== null) return createSpan(first ?? createPosition(end.id, 0), n.focus);
   if (first !== null && last !== null) return createSpan(first, last);
-  const after = firstTextAfter(state, end.id);
+  const after = firstTextAfter(document, end.id);
   return after === null ? n : createSpan(after, after);
 }
 
 /** The start of the first text block after `blockId`'s subtree (objects skipped), or null. */
-export function firstTextAfter(state: Document, blockId: BlockId): Position | null {
-  const guard = createWalkGuard(state);
-  for (let id = nextBlockAfterSubtree(state, blockId); id !== null; ) {
+export function firstTextAfter(document: Document, blockId: BlockId): Position | null {
+  const guard = createWalkGuard(document);
+  for (let id = nextBlockAfterSubtree(document, blockId); id !== null; ) {
     if (guard.step()) throw new Error(`firstTextAfter: step bound exceeded — block tree may be corrupt`);
-    const b = resolveBlock(state, id)?.block ?? null;
+    const b = resolveBlock(document, id)?.block ?? null;
     if (b === null) return null;
     if (b.inlineContent !== null) return createPosition(b.id, 0);
-    id = isObjectBlock(b) ? nextBlockAfterSubtree(state, b.id) : nextBlockInDocOrder(state, b.id);
+    id = isObjectBlock(b) ? nextBlockAfterSubtree(document, b.id) : nextBlockInDocOrder(document, b.id);
   }
   return null;
 }
@@ -241,17 +241,17 @@ export function firstTextAfter(state: Document, blockId: BlockId): Position | nu
  *
  * The span is normalized first.
  */
-export function* iterateBlocksInSpan(state: Document, span: Span): Iterable<Block> {
+export function* iterateBlocksInSpan(document: Document, span: Span): Iterable<Block> {
   // Pre-normalize precondition checks (must validate before normalizeSpan
   // runs cross-block compare, which itself requires same-context).
-  if (resolveBlock(state, span.anchor.blockId) === null) {
+  if (resolveBlock(document, span.anchor.blockId) === null) {
     throw new Error(`iterateBlocksInSpan: anchor block "${span.anchor.blockId}" not found`);
   }
-  if (resolveBlock(state, span.focus.blockId) === null) {
+  if (resolveBlock(document, span.focus.blockId) === null) {
     throw new Error(`iterateBlocksInSpan: focus block "${span.focus.blockId}" not found`);
   }
-  const anchorCtx = selectionContextOf(state, span.anchor.blockId);
-  const focusCtx = selectionContextOf(state, span.focus.blockId);
+  const anchorCtx = selectionContextOf(document, span.anchor.blockId);
+  const focusCtx = selectionContextOf(document, span.focus.blockId);
   if (anchorCtx !== focusCtx) {
     throw new Error(
       `iterateBlocksInSpan: anchor and focus are in different selection contexts ` +
@@ -259,9 +259,9 @@ export function* iterateBlocksInSpan(state: Document, span: Span): Iterable<Bloc
     );
   }
 
-  const normalized = normalizeSpan(state, span);
+  const normalized = normalizeSpan(document, span);
 
-  const anchorBlock = resolveBlock(state, normalized.anchor.blockId)?.block ?? null;
+  const anchorBlock = resolveBlock(document, normalized.anchor.blockId)?.block ?? null;
   if (anchorBlock === null) throw new Error(`iterateBlocksInSpan: block "${normalized.anchor.blockId}" not found`);
   yield anchorBlock;
 
@@ -270,30 +270,30 @@ export function* iterateBlocksInSpan(state: Document, span: Span): Iterable<Bloc
   // Outer cycle/step guard: see iterateSpan above for rationale.
   // Catches sibling-level cycles that span multiple nextBlockInDocOrder
   // calls (which the per-call inner guard cannot see).
-  const guard = createWalkGuard(state);
-  let currentId = nextBlockInDocOrder(state, normalized.anchor.blockId);
+  const guard = createWalkGuard(document);
+  let currentId = nextBlockInDocOrder(document, normalized.anchor.blockId);
   while (currentId) {
     if (guard.step()) {
       throw new Error(
         `iterateBlocksInSpan: step bound exceeded walking from anchor "${normalized.anchor.blockId}" to focus "${normalized.focus.blockId}" — block tree may be corrupt`,
       );
     }
-    const current = resolveBlock(state, currentId)?.block ?? null;
+    const current = resolveBlock(document, currentId)?.block ?? null;
     if (current !== null) yield current;
     if (currentId === normalized.focus.blockId) {
       // An object end covers its whole block: a table end's rows / cells / paragraphs too.
       if (current === null || !isObjectBlock(current)) return;
-      const after = nextBlockAfterSubtree(state, currentId);
-      for (let id = nextBlockInDocOrder(state, currentId); id !== null && id !== after; id = nextBlockInDocOrder(state, id)) {
+      const after = nextBlockAfterSubtree(document, currentId);
+      for (let id = nextBlockInDocOrder(document, currentId); id !== null && id !== after; id = nextBlockInDocOrder(document, id)) {
         if (guard.step()) {
           throw new Error(`iterateBlocksInSpan: step bound exceeded walking object "${currentId}" — block tree may be corrupt`);
         }
-        const inner = resolveBlock(state, id)?.block ?? null;
+        const inner = resolveBlock(document, id)?.block ?? null;
         if (inner !== null) yield inner;
       }
       return;
     }
-    currentId = nextBlockInDocOrder(state, currentId);
+    currentId = nextBlockInDocOrder(document, currentId);
   }
 
   throw new Error(

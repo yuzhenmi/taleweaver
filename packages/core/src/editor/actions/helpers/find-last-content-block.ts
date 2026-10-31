@@ -1,5 +1,5 @@
 import { iterateLeafBlocksInDocumentOrder } from "../../../state";
-import type { State, BlockId } from "../../../state";
+import type { Document, BlockId } from "../../../state";
 
 /**
  * Find the last content-bearing leaf block in the document. Symmetric to
@@ -9,9 +9,9 @@ import type { State, BlockId } from "../../../state";
  * boundary-expand / document-load, never per-keystroke, and trades a negligible
  * walk for immunity to the malformed-topology hang.)
  */
-export function findLastContentBlock(state: State): BlockId | null {
+export function findLastContentBlock(document: Document): BlockId | null {
   let last: BlockId | null = null;
-  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+  for (const block of iterateLeafBlocksInDocumentOrder(document)) {
     if (block.inlineContent !== null) last = block.id;
   }
   return last;

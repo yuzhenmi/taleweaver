@@ -43,13 +43,13 @@ import type { ElementBox, RenderNode } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
 import type { PageConfig } from "../layout/page-config";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
 import { createPosition, createSpan } from "@taleweaver/core";
-import type { State, BlockId } from "@taleweaver/core";
+import type { Document, BlockId } from "@taleweaver/core";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -91,7 +91,7 @@ function templateBody(root: BlockId, para: BlockId, content: string) {
 }
 
 interface Built {
-  state: State;
+  document: Document;
   virtual: VirtualLayoutTree;
   shaper: TextShaper;
 }
@@ -110,7 +110,7 @@ function buildDocWithHeader(opts: {
   const templateBlocks = templateBody(HEADER_ROOT, HEADER_P, opts.headerText);
   if (opts.footerText !== undefined) templateBlocks.push(...templateBody(FOOTER_ROOT, FOOTER_P, opts.footerText));
 
-  const state = buildState({
+  const document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -124,7 +124,7 @@ function buildDocWithHeader(opts: {
     templateContents: templateBlocks,
   });
 
-  const out = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry());
+  const out = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry());
   // Cascade the document root + each template body (the real pipeline cascades
   // every RenderOutput tree).
   const cascadedRoot = cascadePass(out.root);
@@ -157,7 +157,7 @@ function buildDocWithHeader(opts: {
   const virtual = makeVirtualLayoutTree(
     plan, cascadedRoot, ctx, shaper, cfg, undefined, cascadedTemplateContents,
   );
-  return { state, virtual, shaper };
+  return { document, virtual, shaper };
 }
 
 /** Rebuild a PagePlan from base entries, overriding per-entry fields. */
@@ -220,7 +220,7 @@ describe("C.2c T6 — header slot is single-page (precondition)", () => {
 
 describe("C.2c T6 — hit-test into the header band", () => {
   it("a click over the header text resolves to the header body block + a sensible offset", () => {
-    const { state, virtual, shaper } = buildDocWithHeader({
+    const { document, virtual, shaper } = buildDocWithHeader({
       bodyText: "body text here",
       headerText: "header",
     });
@@ -235,14 +235,14 @@ describe("C.2c T6 — hit-test into the header band", () => {
     const yInHeader = hdrLine.absoluteY + hdrLine.line.blockSize / 2;
 
     // Click at x=0 → offset 0 of the header.
-    const atStart = resolvePositionFromPixel(state, positioned, shaper, 0.1, yInHeader);
+    const atStart = resolvePositionFromPixel(document, positioned, shaper, 0.1, yInHeader);
     expect(atStart).not.toBeNull();
     if (atStart === null) return;
     expect(atStart.blockId).toBe(HEADER_P);
     expect(atStart.offset).toBe(0);
 
     // Click at x=24 (3 chars * 8px) → offset 3 of the header.
-    const atMid = resolvePositionFromPixel(state, positioned, shaper, 24, yInHeader);
+    const atMid = resolvePositionFromPixel(document, positioned, shaper, 24, yInHeader);
     expect(atMid).not.toBeNull();
     if (atMid === null) return;
     expect(atMid.blockId).toBe(HEADER_P);
@@ -250,7 +250,7 @@ describe("C.2c T6 — hit-test into the header band", () => {
   });
 
   it("body-content hit-test is unaffected (clicks below the header land in the body)", () => {
-    const { state, virtual, shaper } = buildDocWithHeader({
+    const { document, virtual, shaper } = buildDocWithHeader({
       bodyText: "body text here",
       headerText: "header",
     });
@@ -259,7 +259,7 @@ describe("C.2c T6 — hit-test into the header band", () => {
     expect(bodyLines.length).toBe(1);
     const bodyLine = nth(bodyLines, 0, "body line");
     const yInBody = bodyLine.absoluteY + bodyLine.line.blockSize / 2;
-    const got = resolvePositionFromPixel(state, positioned, shaper, 16, yInBody);
+    const got = resolvePositionFromPixel(document, positioned, shaper, 16, yInBody);
     expect(got).not.toBeNull();
     if (got === null) return;
     expect(got.blockId).toBe("p");
@@ -269,13 +269,13 @@ describe("C.2c T6 — hit-test into the header band", () => {
 
 describe("C.2c T6 — caret (position→pixel) into the header slot", () => {
   it("a slot caret resolves to a y in the top margin band, x at the offset", () => {
-    const { state, virtual, shaper } = buildDocWithHeader({
+    const { document, virtual, shaper } = buildDocWithHeader({
       bodyText: "body",
       headerText: "header",
     });
 
     const pos = createPosition(HEADER_P, 3);
-    const got = resolvePixelPosition(state, pos, virtual, shaper);
+    const got = resolvePixelPosition(document, pos, virtual, shaper);
     expect(got).not.toBeNull();
     if (got === null) return;
     // Header is in the top margin band: y < blockStart (40px).
@@ -286,21 +286,21 @@ describe("C.2c T6 — caret (position→pixel) into the header slot", () => {
   });
 
   it("oracle-equivalence: slot caret equals the materialized-tree path", () => {
-    const { state, virtual, shaper } = buildDocWithHeader({
+    const { document, virtual, shaper } = buildDocWithHeader({
       bodyText: "body",
       headerText: "header",
     });
     const positioned = positionTreeForTest(virtual);
     for (const offset of [0, 2, 6]) {
       const pos = createPosition(HEADER_P, offset);
-      const got = resolvePixelPosition(state, pos, virtual, shaper);
-      const oracle = resolvePixelPosition(state, pos, positioned, shaper);
+      const got = resolvePixelPosition(document, pos, virtual, shaper);
+      const oracle = resolvePixelPosition(document, pos, positioned, shaper);
       expect(got, `offset ${offset}`).toEqual(oracle);
     }
   });
 
   it("drives exactly one page for a slot-root caret (fast path, never the whole doc)", () => {
-    const { state, virtual, shaper } = buildDocWithHeader({
+    const { document, virtual, shaper } = buildDocWithHeader({
       bodyText: "body",
       headerText: "header",
     });
@@ -308,7 +308,7 @@ describe("C.2c T6 — caret (position→pixel) into the header slot", () => {
     // layoutBlock call (page 0 via the fast path), NOT the whole document.
     __resetGetPageDriverCountForTest();
     const pos = createPosition(HEADER_P, 2);
-    const got = resolvePixelPosition(state, pos, virtual, shaper);
+    const got = resolvePixelPosition(document, pos, virtual, shaper);
     expect(got).not.toBeNull();
     expect(__getGetPageDriverCountForTest()).toBe(1);
   });
@@ -316,7 +316,7 @@ describe("C.2c T6 — caret (position→pixel) into the header slot", () => {
 
 describe("C.2c T6 — selection-geometry into the header slot", () => {
   it("a span anchored+focused inside the header produces rects in the top band", () => {
-    const { state, virtual, shaper } = buildDocWithHeader({
+    const { document, virtual, shaper } = buildDocWithHeader({
       bodyText: "body",
       headerText: "header",
     });
@@ -327,7 +327,7 @@ describe("C.2c T6 — selection-geometry into the header slot", () => {
       createPosition(HEADER_P, 0),
       createPosition(HEADER_P, 4),
     );
-    const rects = computeSelectionRects(state, span, positioned, shaper);
+    const rects = computeSelectionRects(document, span, positioned, shaper);
     expect(rects.length).toBeGreaterThan(0);
     const rect = nth(rects, 0, "rect");
     // Rect in the top margin band.

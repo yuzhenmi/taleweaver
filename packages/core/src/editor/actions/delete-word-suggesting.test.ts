@@ -18,7 +18,7 @@
  * DELETE_WORD is structurally simple — a cross-block word delete is already a
  * NO-OP in BOTH modes (no merge path), so there is no structural gate.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,

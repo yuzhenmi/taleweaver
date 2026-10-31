@@ -1,14 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { buildState, buildBlock, finalSectionOf } from "../test-utils/state-builders";
+import { buildDocument, buildBlock, finalSectionOf } from "../test-utils/document-builders";
 import { asBlockId } from "../state/block-id";
 import { makeBlockParentLookup } from "./block-parent-lookup";
 
 describe("makeBlockParentLookup", () => {
-  it("returns a block's parent id from real State", () => {
+  it("returns a block's parent id from real Document", () => {
     // Root `document` block wrapping one child `paragraph` — the child's
-    // parentId is a real link into the materialized Y.Doc-backed State.
+    // parentId is a real link into the materialized Y.Doc-backed Document.
     // a top-level block's parent is the (final) section, the section's is the root.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [
         buildBlock({ id: "root", type: "document", firstChildId: "child", lastChildId: "child" }),
@@ -16,31 +16,31 @@ describe("makeBlockParentLookup", () => {
       ],
     });
 
-    const parentOf = makeBlockParentLookup(state);
+    const parentOf = makeBlockParentLookup(document);
 
     const section = parentOf(asBlockId("child"));
-    expect(section).toBe(finalSectionOf(state));
+    expect(section).toBe(finalSectionOf(document));
     expect(parentOf(section ?? asBlockId("?"))).toBe(asBlockId("root"));
   });
 
   it("returns null for an id not in the document", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
     });
 
-    const parentOf = makeBlockParentLookup(state);
+    const parentOf = makeBlockParentLookup(document);
 
     expect(parentOf(asBlockId("does-not-exist"))).toBeNull();
   });
 
   it("returns null for the root block (parentId === null)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
     });
 
-    const parentOf = makeBlockParentLookup(state);
+    const parentOf = makeBlockParentLookup(document);
 
     expect(parentOf(asBlockId("root"))).toBeNull();
   });

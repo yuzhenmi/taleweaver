@@ -3,10 +3,10 @@ import {
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   createInitialEditorState,
-  createEditorStateFromState,
-  initialSelectionForState,
+  createEditorStateFromDocument,
+  initialSelectionForDocument,
   reduceEditor,
-  createState,
+  createDocument,
   getYDoc,
   type EditorAction,
   type EditorState,
@@ -15,7 +15,7 @@ import {
   type EditorExtensions,
   type PageConfig,
   type IncompatibleDocumentReport,
-  type State,
+  type Document,
 } from "@taleweaver/core";
 import { createCanvasShaper, browserHtmlParser } from "@taleweaver/print";
 
@@ -154,8 +154,8 @@ export function useEditor(options?: UseEditorOptions) {
   }, []);
   /** Show another document (fresh history, caret at its start) — also how a halted editor resumes. */
   const replaceDocument = useCallback(
-    (state: State) => {
-      const next = createEditorStateFromState(state, initialSelectionForState(state), config);
+    (document: Document) => {
+      const next = createEditorStateFromDocument(document, initialSelectionForDocument(document), config);
       historyRef.current.destroy(); // detach the old document's undo manager
       historyRef.current = next.history;
       haltedRef.current = false;
@@ -171,7 +171,7 @@ export function useEditor(options?: UseEditorOptions) {
   const onDocumentCompatible = useCallback(() => {
     if (!haltedRef.current || haltReasonRef.current !== "legacy-schema") return;
     const halted = stateRef.current.document;
-    replaceDocument(createState({ rootId: halted.rootId, doc: getYDoc(halted), resolver: config.componentRegistry }));
+    replaceDocument(createDocument({ rootId: halted.rootId, doc: getYDoc(halted), resolver: config.componentRegistry }));
   }, [replaceDocument, config]);
   if (!haltLinks.has(dispatch)) {
     haltLinks.set(dispatch, { halted: () => haltedRef.current, onIncompatibleDocument, onDocumentCompatible });

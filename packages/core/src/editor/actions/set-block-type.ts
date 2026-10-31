@@ -29,7 +29,7 @@ export function handleSetBlockType(
   const newAttrs = target.type === blockType ? {} : properties;
 
   const typeResult = setBlockType(editor.document, targetId, newType, config.componentRegistry);
-  const attrsResult = setBlockAttrs(typeResult.state, targetId, newAttrs);
+  const attrsResult = setBlockAttrs(typeResult.document, targetId, newAttrs);
 
   // Union dirtyIds across the chained ops so the renderer sees one
   // OperationResult that reflects both mutations.
@@ -40,7 +40,7 @@ export function handleSetBlockType(
   // the identity-no-op contract: state-equality is the authoritative no-op
   // signal across the editor module, preserving the "no change → same
   // editor reference" invariant. (`history.commit` is itself no-op-safe.)
-  if (attrsResult.state === editor.document) return null;
+  if (attrsResult.document === editor.document) return null;
 
-  return { change: { state: attrsResult.state, dirtyIds: mergedDirtyIds } };
+  return { change: { document: attrsResult.document, dirtyIds: mergedDirtyIds } };
 }

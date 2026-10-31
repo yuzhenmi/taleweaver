@@ -168,7 +168,7 @@ in-package PNG decode + embedding.
   content wrapped in marked-content sequences (`/Span <</MCID n>> BDC … EMC`) and a
   `/ParentTree` correlating each `(page, mcid)` to its owning `StructElem` (via per-page
   `/StructParents`). The controller maps the core accessibility projection to the
-  pdf-package structure model (`mapAccessibilityTree(buildAccessibilityTree(state))`)
+  pdf-package structure model (`mapAccessibilityTree(buildAccessibilityTree(document))`)
   and passes it as `EmitPdfInput.structureTree`; `emit-pdf` derives the tagged-leaf
   block-id set, threads it to the page-emitter (activating the `/Span`/`/Artifact`
   tagging), collects per-page `structRefs`, and assembles the `StructElem` graph +

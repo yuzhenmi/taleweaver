@@ -121,9 +121,9 @@ const click = (m: ReturnType<typeof mount>, x: number, y: number, detail = 1): v
   document.dispatchEvent(new MouseEvent("mouseup", { clientX: x, clientY: y, bubbles: true }));
 };
 /** The body paragraphs in document order (one section). */
-function paragraphs(state: core.State): core.BlockId[] {
+function paragraphs(document: core.Document): core.BlockId[] {
   const out: core.BlockId[] = [];
-  for (let id: core.BlockId | null = core.firstLeafBlock(state, state.rootId); id !== null; id = core.getBlock(state, id)?.nextSiblingId ?? null) out.push(id);
+  for (let id: core.BlockId | null = core.firstLeafBlock(document, document.rootId); id !== null; id = core.getBlock(document, id)?.nextSiblingId ?? null) out.push(id);
   return out;
 }
 /** "Ab" ¶ "Cd": two paragraphs (Enter after "Ab"). */

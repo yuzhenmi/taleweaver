@@ -1,8 +1,8 @@
 import type { EditorState } from "../editor/editor-state";
 import type { DocumentChange } from "../editor/document-change";
-import type { Block, BlockId, Position, State, TextMatch, SuggestionGroup } from "../state";
+import type { Block, BlockId, Position, Document, TextMatch, SuggestionGroup } from "../state";
 import { mappingAcross, IDENTITY_MAPPING, UNKNOWN_MAPPING, type PositionMapping } from "../state/position-mapping";
-import { peekBlock, resolveBlock } from "../state/state";
+import { peekBlock, resolveBlock } from "../state/document";
 import { recordSample } from "../perf/perf-trace";
 import {
   COMMENT_START_EMBED_TYPE,
@@ -39,10 +39,10 @@ import {
 export function transitionMapping(prev: EditorState, next: EditorState): PositionMapping {
   if (prev.document === next.document) return IDENTITY_MAPPING;
   // `lastChange` links the recent document changes. Walk back to the one made from
-  // `prev.state` (a host may batch several dispatches before handing the controller a
-  // state) and diff `prev.state` → `next.state` ONCE over the union of their dirty blocks.
+  // `prev.document` (a host may batch several dispatches before handing the controller a
+  // state) and diff `prev.document` → `next.document` ONCE over the union of their dirty blocks.
   // Only the two endpoints are read — `prev` through the cache-only peek, `next` live —
-  // never a superseded intermediate State (whose uncached blocks would read the current
+  // never a superseded intermediate Document (whose uncached blocks would read the current
   // Y.Doc). Past the bounded chain the extent is unknown: map conservatively.
   const links: DocumentChange[] = [];
   for (let c = next.lastChange; c !== null; c = c.prior) {
@@ -55,7 +55,7 @@ export function transitionMapping(prev: EditorState, next: EditorState): Positio
 /**
  * A position the edit from `prev` touches: the selection's start when both ends share a
  * block, else the focus. Computed from the selection alone — ordering a cross-block span
- * would read the superseded `prev.state`, whose Y.Doc has already been mutated.
+ * would read the superseded `prev.document`, whose Y.Doc has already been mutated.
  */
 function editStart(editor: EditorState): Position {
   const { anchor, focus } = editor.selection;
@@ -74,7 +74,7 @@ function markerSignature(block: Block | undefined): string {
 }
 
 /** Did the transition add, remove or move a comment marker between blocks? Unknown ⇒ yes. */
-function markersChanged(prev: State, next: State, dirty: ReadonlySet<BlockId> | null): boolean {
+function markersChanged(prev: Document, next: Document, dirty: ReadonlySet<BlockId> | null): boolean {
   if (dirty === null) return true;
   let before = "";
   let after = "";
@@ -99,8 +99,8 @@ function holdsSuggestion(block: Block | undefined): boolean {
 
 /** Does the transition touch (before or after) a block matching `pred`? Unknown ⇒ yes. */
 function dirtyTouches(
-  prev: State,
-  next: State,
+  prev: Document,
+  next: Document,
   dirty: ReadonlySet<BlockId> | null,
   pred: (b: Block | undefined) => boolean,
 ): boolean {
@@ -122,18 +122,18 @@ export interface DecorationLayers {
   readonly host: DecorationSet;
   /** Every layer merged — what a backend draws. */
   readonly merged: DecorationSet;
-  setHost(state: State, decorations: readonly Decoration[]): void;
-  setFind(state: State, matches: readonly TextMatch[], activeIndex: number): void;
+  setHost(document: Document, decorations: readonly Decoration[]): void;
+  setFind(document: Document, matches: readonly TextMatch[], activeIndex: number): void;
   /** Redraw only the find highlights in `blocks` (an incremental find refresh). */
-  patchFind(state: State, matches: readonly TextMatch[], activeIndex: number, blocks: ReadonlySet<BlockId>): void;
-  setComments(state: State, highlights: readonly CommentHighlight[] | null): void;
-  setSuggestions(state: State, highlights: readonly SuggestionHighlight[] | null): void;
+  patchFind(document: Document, matches: readonly TextMatch[], activeIndex: number, blocks: ReadonlySet<BlockId>): void;
+  setComments(document: Document, highlights: readonly CommentHighlight[] | null): void;
+  setSuggestions(document: Document, highlights: readonly SuggestionHighlight[] | null): void;
   /**
    * Host per-group styling of suggestions (e.g. a colour per `metadata.source`), kept
    * LIVE: re-derived from the document whenever an edit touches tracked runs or group
    * records (a proposal landing, accept / reject, undo). `null` clears it.
    */
-  setSuggestionStyles(state: State, styleOf: SuggestionGroupStyle | null): void;
+  setSuggestionStyles(document: Document, styleOf: SuggestionGroupStyle | null): void;
   /** Carry every layer through the transition `prev → next`. */
   advance(prev: EditorState, next: EditorState, mapping?: PositionMapping): void;
 }
@@ -157,20 +157,20 @@ export function createDecorationLayers(): DecorationLayers {
   };
   // Each content-derived layer is re-derived on its own (a setter / trigger never
   // re-scans the others). The counters let tests prove it.
-  const deriveComments = (state: State): DecorationSet => {
+  const deriveComments = (document: Document): DecorationSet => {
     if (comments === null) return EMPTY_DECORATION_SET;
     recordSample("decorations.deriveComments", 0);
-    return createDecorationSet(state, commentHighlightDecorations(state, comments));
+    return createDecorationSet(document, commentHighlightDecorations(document, comments));
   };
-  const deriveSuggestions = (state: State): DecorationSet => {
+  const deriveSuggestions = (document: Document): DecorationSet => {
     if (suggestions === null) return EMPTY_DECORATION_SET;
     recordSample("decorations.deriveSuggestions", 0);
-    return createDecorationSet(state, suggestionHighlightDecorations(state, suggestions));
+    return createDecorationSet(document, suggestionHighlightDecorations(document, suggestions));
   };
-  const deriveGroupStyles = (state: State): DecorationSet => {
+  const deriveGroupStyles = (document: Document): DecorationSet => {
     if (groupStyle === null) return EMPTY_DECORATION_SET;
     recordSample("decorations.deriveGroupStyles", 0);
-    return createDecorationSet(state, suggestionGroupDecorations(state, groupStyle));
+    return createDecorationSet(document, suggestionGroupDecorations(document, groupStyle));
   };
 
   return {
@@ -180,31 +180,31 @@ export function createDecorationLayers(): DecorationLayers {
     get merged() {
       return merged;
     },
-    setHost(state, decorations) {
-      host = createDecorationSet(state, decorations);
+    setHost(document, decorations) {
+      host = createDecorationSet(document, decorations);
       remerge();
     },
-    setFind(state, matches, activeIndex) {
-      find = createDecorationSet(state, findHighlightDecorations(matches, activeIndex));
+    setFind(document, matches, activeIndex) {
+      find = createDecorationSet(document, findHighlightDecorations(matches, activeIndex));
       remerge();
     },
-    patchFind(state, matches, activeIndex, blocks) {
-      find = patchDecorationSet(find, state, blocks, findHighlightDecorations(matches, activeIndex, blocks));
+    patchFind(document, matches, activeIndex, blocks) {
+      find = patchDecorationSet(find, document, blocks, findHighlightDecorations(matches, activeIndex, blocks));
       remerge();
     },
-    setComments(state, highlights) {
+    setComments(document, highlights) {
       comments = highlights;
-      commentSet = deriveComments(state);
+      commentSet = deriveComments(document);
       remerge();
     },
-    setSuggestions(state, highlights) {
+    setSuggestions(document, highlights) {
       suggestions = highlights;
-      suggestionSet = deriveSuggestions(state);
+      suggestionSet = deriveSuggestions(document);
       remerge();
     },
-    setSuggestionStyles(state, styleOf) {
+    setSuggestionStyles(document, styleOf) {
       groupStyle = styleOf;
-      groupStyleSet = deriveGroupStyles(state);
+      groupStyleSet = deriveGroupStyles(document);
       remerge();
     },
     advance(prev, next, given) {

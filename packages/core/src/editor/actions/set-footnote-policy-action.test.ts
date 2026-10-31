@@ -12,7 +12,7 @@
  *
  * Tests run through the real `reduceEditor`. The section/format/undo/no-op
  * cases use a non-paginated two-section fixture; the restart-per-page case
- * drives a paginated editor built straight from a multi-page footnote State.
+ * drives a paginated editor built straight from a multi-page footnote Document.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -23,7 +23,7 @@ import {
 import { documentFootnotePolicy } from "../../footnotes";
 import type { EditorState } from "../editor-state";
 import { render } from "../../render/render";
-import type { State, BlockId } from "../../state";
+import type { Document, BlockId } from "../../state";
 
 // Phase 0b: core's `EditorState` carries NO render output. The policy WRITE is a
 // geometry-free core action (it stamps `footnoteNumberingReset`/`Format` on the
@@ -33,8 +33,8 @@ import type { State, BlockId } from "../../state";
 // The layout-dependent restart-per-page DISPLAY (FN-6.4's second pass) lives in
 // the print backend; its end-to-end action→display coverage is the dom
 // `footnote-restart-per-page.test.ts`.
-function footnoteNumbersOf(state: State): ReadonlyMap<BlockId, { value: number; formatted: string }> {
-  return render(state, config.componentRegistry, config.attrRegistry).footnoteNumbers;
+function footnoteNumbersOf(document: Document): ReadonlyMap<BlockId, { value: number; formatted: string }> {
+  return render(document, config.componentRegistry, config.attrRegistry).footnoteNumbers;
 }
 
 /**
@@ -152,9 +152,9 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
         reset: "restart-per-paragraph" as never,
       },
     );
-    // No valid field → no-op: the document `state` is untouched (same reference,
+    // No valid field → no-op: the document `document` is untouched (same reference,
     // no history commit). The editor WRAPPER may differ only by the reducer's
-    // Phase 0b entry-clear of `lastDirtyIds` — so assert on `state` identity, the
+    // Phase 0b entry-clear of `lastDirtyIds` — so assert on `document` identity, the
     // real "nothing was written" signal, not the wrapper reference.
     expect(next.document).toBe(editor.document);
     expect(documentFootnotePolicy(next.document).reset).toBe("continuous");
@@ -171,7 +171,7 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
       { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" },
     );
     // mergeBlockAttrs is a no-op → no document mutation, no history commit. The
-    // `state` reference is preserved; the editor wrapper may differ only by the
+    // `document` reference is preserved; the editor wrapper may differ only by the
     // reducer's Phase 0b entry-clear of `lastDirtyIds`.
     expect(again.document).toBe(withReset.document);
   });

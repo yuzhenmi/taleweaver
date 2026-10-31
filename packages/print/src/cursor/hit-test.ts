@@ -1,5 +1,5 @@
 import { resolveBlock, createPosition, selectionContextOf, caretAfterMarkers } from "@taleweaver/core";
-import type { State, Position, BlockKindResolver } from "@taleweaver/core";
+import type { Document, Position, BlockKindResolver } from "@taleweaver/core";
 import { getAtomicBoxIndex } from "./atomic-box-index";
 import { getBoundaryMarkIndex } from "./boundary-mark-index";
 import { insideOuterClips } from "./ancestor-clip";
@@ -101,11 +101,11 @@ function mapClickForLine(
  *
  * Returns `null` when:
  *   - The layout has no lines (e.g., empty document).
- *   - The picked line's `ownerBlockId` is unknown to `state`
+ *   - The picked line's `ownerBlockId` is unknown to `document`
  *     (defensive — shouldn't happen with consistent state + layout).
  */
 export function resolvePositionFromPixel(
-  state: State,
+  document: Document,
   layoutTree: LayoutBox,
   shaperOrMeasurer: TextShaper | TextMeasurer,
   x: number,
@@ -113,16 +113,16 @@ export function resolvePositionFromPixel(
   pageIndex: number = 0,
   resolver?: BlockKindResolver,
 ): { position: Position; caretAffinity: CaretAffinity } | null {
-  const hit = hitTest(state, layoutTree, shaperOrMeasurer, x, y, pageIndex, resolver);
+  const hit = hitTest(document, layoutTree, shaperOrMeasurer, x, y, pageIndex, resolver);
   if (hit === null) return null;
   // A structural marker (bookmark / comment) is never a caret stop:
   // a gap just before markers stands after them (core `caretAfterMarkers`).
-  const position = caretAfterMarkers(state, hit.position);
+  const position = caretAfterMarkers(document, hit.position);
   return position.offset === hit.position.offset ? hit : { position, caretAffinity: "after" };
 }
 
 function hitTest(
-  state: State,
+  document: Document,
   layoutTree: LayoutBox,
   shaperOrMeasurer: TextShaper | TextMeasurer,
   x: number,
@@ -153,7 +153,7 @@ function hitTest(
     // caller. Half-open `[rect.x, rect.x + width)` / `[rect.y, rect.y + height)`
     // matches the line band/leaf picks' half-open convention.
     if (resolver !== undefined) {
-      const atomicIndex = getAtomicBoxIndex(layoutTree, resolver, state);
+      const atomicIndex = getAtomicBoxIndex(layoutTree, resolver, document);
       for (const [blockId, rect] of atomicIndex) {
         if (rect.pageIndex !== pageIndex) continue;
         if (
@@ -210,7 +210,7 @@ function hitTest(
     // nearest-y loop walks past the body lines and lands on a slot line. We
     // classify `visible` into a body set and slot zones, then pick the zone the
     // click `y` falls in.
-    const bandRegion = pickRegionByBand(state, layoutTree, pageIndex, visible, x, y);
+    const bandRegion = pickRegionByBand(document, layoutTree, pageIndex, visible, x, y);
 
     // 2c. Table-cell restriction. The flat band-pick below is column-
     // UNAWARE — it picks the first line whose block-axis band contains the click,
@@ -332,7 +332,7 @@ function hitTest(
     // map, not the main `blocks` map — `getBlock` only checks main, so it would
     // reject the slot line. `resolveBlock` checks all three trees (main /
     // embed / template).
-    if (resolveBlock(state, ownerBlockId) === null) return null;
+    if (resolveBlock(document, ownerBlockId) === null) return null;
 
     // 4-5. Build the line's bidi view. `visualLeaves` is the line's caret-target
     // leaves in COLLECTION (visual, post-reorder) order — the same order the X
@@ -516,7 +516,7 @@ function findPageBox(root: LayoutBox, pageIndex: number): PageBox | null {
  * Runs per click/drag (not per keystroke), so the partition is fine.
  */
 function pickRegionByBand(
-  state: State,
+  document: Document,
   layoutTree: LayoutBox,
   pageIndex: number,
   visible: readonly AbsoluteLineBox[],
@@ -527,7 +527,7 @@ function pickRegionByBand(
   const bodyLines: AbsoluteLineBox[] = [];
   const slotLines: AbsoluteLineBox[] = [];
   for (const l of visible) {
-    if (selectionContextOf(state, l.line.ownerBlockId) === state.rootId) {
+    if (selectionContextOf(document, l.line.ownerBlockId) === document.rootId) {
       bodyLines.push(l);
     } else {
       slotLines.push(l);

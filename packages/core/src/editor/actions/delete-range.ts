@@ -26,7 +26,7 @@ export function handleDeleteRange(editor: EditorState, { span }: ActionOf<"DELET
   // Normalized, and grown over any atomic mark it only partly covers.
   const norm = expandSpanOverAtomicMarks(editor.document, span);
   const result = deleteRangeOrSuggest(editor, norm);
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
   // Direct mode: the seam in the survivor R, as Backspace over a selection.
   const start = isSuggestingInBlock(editor, spanStart(editor.document, norm).blockId)
     ? clipSpanToText(editor.document, norm).anchor

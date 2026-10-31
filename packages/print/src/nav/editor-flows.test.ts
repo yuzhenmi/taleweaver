@@ -361,12 +361,12 @@ describe("editor flow: EXPAND_WORD selects the surrounding word", () => {
 
 // The incremental RENDER pipeline (RenderCache + dirtyIds) left core's
 // `EditorState` in Phase 0b — `render()` is now driven by the print backend's
-// LayoutDriver with `{prev, prevState, dirtyIds}`, keyed off the geometry-free
+// LayoutDriver with `{prev, prevDocument, dirtyIds}`, keyed off the geometry-free
 // `editor.lastDirtyIds` core still surfaces after each dispatch. These tests
 // drive that exact seam directly (the same call the driver makes) and assert the
 // same ref-equality the old `EditorState.renderOutput` assertions did.
 describe("R-D incremental pipeline (end-to-end)", () => {
-  /** Render `editor.document`, reusing `prev`/`prevState` against the just-applied
+  /** Render `editor.document`, reusing `prev`/`prevDocument` against the just-applied
    *  `editor.lastDirtyIds` (the incremental path the driver takes). */
   function renderIncremental(
     editor: EditorState,
@@ -377,7 +377,7 @@ describe("R-D incremental pipeline (end-to-end)", () => {
     if (editor.lastDirtyIds === null) throw new Error("expected a dirty set after the edit");
     return render(editor.document, config.componentRegistry, config.attrRegistry, {
       prev,
-      prevState: prevState.document,
+      prevDocument: prevState.document,
       dirtyIds: editor.lastDirtyIds,
     });
   }

@@ -6,7 +6,7 @@ import {
   inlineContentLength,
   selectionContextOf,
 } from "@taleweaver/core";
-import type { State, Position, BlockId } from "@taleweaver/core";
+import type { Document, Position, BlockId } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import type { TextShaper } from "@taleweaver/core";
@@ -85,7 +85,7 @@ type LineMoveResult = {
  * an edit O(1 page) on a large doc instead of O(N_pages).
  */
 export function moveToLine(
-  state: State,
+  document: Document,
   position: Position,
   layoutTree: LayoutBox | VirtualLayoutTree,
   shaperOrMeasurer: TextShaper | TextMeasurer,
@@ -104,9 +104,9 @@ export function moveToLine(
       : shaperOrMeasurer;
 
     if (layoutTree.type === "virtual-root") {
-      return moveToLineVirtual(state, position, layoutTree, measurer, direction, targetX, caretPageHint);
+      return moveToLineVirtual(document, position, layoutTree, measurer, direction, targetX, caretPageHint);
     }
-    return moveToLineInPositioned(state, position, layoutTree, measurer, direction, targetX);
+    return moveToLineInPositioned(document, position, layoutTree, measurer, direction, targetX);
   } finally {
     markEnd("cursor.line-navigation.moveToLine", t);
   }
@@ -127,19 +127,19 @@ export function moveToLine(
  * for blocks that span pages.
  */
 function moveToLineInPositioned(
-  state: State,
+  document: Document,
   position: Position,
   layoutTree: LayoutBox,
   measurer: TextMeasurer,
   direction: "up" | "down",
   targetX: number | null,
 ): LineMoveResult | null {
-  const currentPixel = resolvePixelPosition(state, position, layoutTree, measurer);
+  const currentPixel = resolvePixelPosition(document, position, layoutTree, measurer);
   if (currentPixel === null) return null;
   const x = targetX ?? currentPixel.x;
 
-  const caretContext = selectionContextOf(state, position.blockId);
-  const filter = makeContextFilter(state, caretContext);
+  const caretContext = selectionContextOf(document, position.blockId);
+  const filter = makeContextFilter(document, caretContext);
   const lines = filter(getLineIndex(layoutTree).all);
   if (lines.length === 0) return null;
 
@@ -151,24 +151,24 @@ function moveToLineInPositioned(
       // No same-context line above. In the main body this is the top of the
       // document; for an isolated slot context (header/footer) there is no
       // document boundary to fall to, so stay put (no-op).
-      return caretContext === state.rootId ? startOfDocument(state, x) : null;
+      return caretContext === document.rootId ? startOfDocument(document, x) : null;
     }
     const above = lines[currentLineIdx - 1];
     if (above === undefined) {
       throw new Error(`line-navigation: lines[${currentLineIdx - 1}] missing (unreachable)`);
     }
-    return resolveTargetLine(state, layoutTree, measurer, x, above);
+    return resolveTargetLine(document, layoutTree, measurer, x, above);
   }
 
   // direction === "down"
   if (currentLineIdx === lines.length - 1) {
-    return caretContext === state.rootId ? endOfDocument(state, x) : null;
+    return caretContext === document.rootId ? endOfDocument(document, x) : null;
   }
   const below = lines[currentLineIdx + 1];
   if (below === undefined) {
     throw new Error(`line-navigation: lines[${currentLineIdx + 1}] missing (unreachable)`);
   }
-  return resolveTargetLine(state, layoutTree, measurer, x, below);
+  return resolveTargetLine(document, layoutTree, measurer, x, below);
 }
 
 /**
@@ -192,7 +192,7 @@ function moveToLineInPositioned(
  * flat-document hot path.
  */
 function moveToLineVirtual(
-  state: State,
+  document: Document,
   position: Position,
   tree: VirtualLayoutTree,
   measurer: TextMeasurer,
@@ -211,17 +211,17 @@ function moveToLineVirtual(
   // is single-line within its isolated slot context, so Up/Down is a no-op (the
   // context filter), but it must run on the right page.
   if (endPage < 0) {
-    const templatePage = resolveTemplateBlockPageWithLines(state, tree, position.blockId, caretPageHint);
+    const templatePage = resolveTemplateBlockPageWithLines(document, tree, position.blockId, caretPageHint);
     if (templatePage >= 0) {
-      return moveToLineOnPage(state, position, tree, measurer, direction, targetX, templatePage);
+      return moveToLineOnPage(document, position, tree, measurer, direction, targetX, templatePage);
     }
     // FOOTNOTE-body caret: resolve its slot page per-page (the body lives in the
     // embedContents tree, so neither `pageIndexOfBlock` nor the template resolver
     // maps it). Up/Down is a no-op within the isolated footnote context (context
     // filter), but it must run on the right page.
-    const footnotePage = resolveFootnoteBlockPage(state, tree, position);
+    const footnotePage = resolveFootnoteBlockPage(document, tree, position);
     if (footnotePage >= 0) {
-      return moveToLineOnPage(state, position, tree, measurer, direction, targetX, footnotePage);
+      return moveToLineOnPage(document, position, tree, measurer, direction, targetX, footnotePage);
     }
     // TABLE-CELL (or any MAIN-tree block nested inside a top-level container):
     // walk up parentId to the page-mapped containing top-level block (the table)
@@ -230,9 +230,9 @@ function moveToLineVirtual(
     // paragraph up to `state.rootId`, so the context filter spans the full
     // main body and Up/Down navigates across cells + surrounding paragraphs (the
     // crash fix only ensures it resolves the right page, not table-aware nav).
-    const nestedPage = resolveNestedMainTreeBlockPage(state, tree, position);
+    const nestedPage = resolveNestedMainTreeBlockPage(document, tree, position);
     if (nestedPage >= 0) {
-      return moveToLineOnPage(state, position, tree, measurer, direction, targetX, nestedPage);
+      return moveToLineOnPage(document, position, tree, measurer, direction, targetX, nestedPage);
     }
     // Not a top-level body, header/footer, footnote, or nested main-tree block.
     // In a well-formed doc every caret maps to a page; reaching here is a
@@ -249,12 +249,12 @@ function moveToLineVirtual(
   }
 
   if (span !== null && span.first !== span.last) {
-    return moveToLineInSpanningBlock(state, position, tree, measurer, direction, targetX, span);
+    return moveToLineInSpanningBlock(document, position, tree, measurer, direction, targetX, span);
   }
 
-  const currentPixel = resolvePixelPosition(state, position, tree, measurer);
+  const currentPixel = resolvePixelPosition(document, position, tree, measurer);
   if (currentPixel === null) return null;
-  return moveToLineOnPage(state, position, tree, measurer, direction, targetX, currentPixel.pageIndex);
+  return moveToLineOnPage(document, position, tree, measurer, direction, targetX, currentPixel.pageIndex);
 }
 
 /**
@@ -280,7 +280,7 @@ function moveToLineVirtual(
  * re-measured (and the same context-filter / document-boundary rules apply).
  */
 function moveToLineInSpanningBlock(
-  state: State,
+  document: Document,
   position: Position,
   tree: VirtualLayoutTree,
   measurer: TextMeasurer,
@@ -294,9 +294,9 @@ function moveToLineInSpanningBlock(
     // Defensive: the caret isn't on any of this block's lines (shouldn't happen
     // for a spanning-block caret). Resolve the caret's page and fall back to the
     // per-page walk there.
-    const currentPixel = resolvePixelPosition(state, position, tree, measurer);
+    const currentPixel = resolvePixelPosition(document, position, tree, measurer);
     if (currentPixel === null) return null;
-    return moveToLineOnPage(state, position, tree, measurer, direction, targetX, currentPixel.pageIndex);
+    return moveToLineOnPage(document, position, tree, measurer, direction, targetX, currentPixel.pageIndex);
   }
 
   // Resolve goal-x on the caret line's OWN page (page-invariant inline coord).
@@ -305,7 +305,7 @@ function moveToLineInSpanningBlock(
     throw new Error(`line-navigation: blockLines[${idx}] missing (unreachable — idx >= 0)`);
   }
   const caretPage = caretLine.pageIndex;
-  const currentPixel = resolvePixelPosition(state, position, tree, measurer, caretPage);
+  const currentPixel = resolvePixelPosition(document, position, tree, measurer, caretPage);
   if (currentPixel === null) return null;
   const x = targetX ?? currentPixel.x;
 
@@ -316,7 +316,7 @@ function moveToLineInSpanningBlock(
       if (target === undefined) {
         throw new Error(`line-navigation: blockLines[${idx - 1}] missing (unreachable)`);
       }
-      return resolveTargetLine(state, tree.getPage(target.pageIndex), measurer, x, target);
+      return resolveTargetLine(document, tree.getPage(target.pageIndex), measurer, x, target);
     }
     // The block's FIRST line — the line above is cross-block. Delegate to the
     // per-page walk on the block's first page (passing the resolved goal-x so it
@@ -326,7 +326,7 @@ function moveToLineInSpanningBlock(
     if (first === undefined) {
       throw new Error("line-navigation: blockLines[0] missing (unreachable — idx >= 0)");
     }
-    return moveToLineOnPage(state, position, tree, measurer, "up", x, first.pageIndex);
+    return moveToLineOnPage(document, position, tree, measurer, "up", x, first.pageIndex);
   }
 
   // direction === "down"
@@ -335,7 +335,7 @@ function moveToLineInSpanningBlock(
     if (target === undefined) {
       throw new Error(`line-navigation: blockLines[${idx + 1}] missing (unreachable)`);
     }
-    return resolveTargetLine(state, tree.getPage(target.pageIndex), measurer, x, target);
+    return resolveTargetLine(document, tree.getPage(target.pageIndex), measurer, x, target);
   }
   // The block's LAST line — the line below is cross-block. Delegate on the
   // block's last page.
@@ -343,7 +343,7 @@ function moveToLineInSpanningBlock(
   if (last === undefined) {
     throw new Error("line-navigation: last blockLine missing (unreachable — idx >= 0)");
   }
-  return moveToLineOnPage(state, position, tree, measurer, "down", x, last.pageIndex);
+  return moveToLineOnPage(document, position, tree, measurer, "down", x, last.pageIndex);
 }
 
 /**
@@ -356,7 +356,7 @@ function moveToLineInSpanningBlock(
  * first-page default).
  */
 function moveToLineOnPage(
-  state: State,
+  document: Document,
   position: Position,
   tree: VirtualLayoutTree,
   measurer: TextMeasurer,
@@ -365,7 +365,7 @@ function moveToLineOnPage(
   p: number,
 ): LineMoveResult | null {
   const plan = tree.plan;
-  const currentPixel = resolvePixelPosition(state, position, tree, measurer, p);
+  const currentPixel = resolvePixelPosition(document, position, tree, measurer, p);
   if (currentPixel === null) return null;
   const x = targetX ?? currentPixel.x;
 
@@ -373,8 +373,8 @@ function moveToLineOnPage(
   // cross the body↔header/footer (slot) boundary. The header/footer slot lines
   // live in the SAME per-page index as the body lines, so an
   // unfiltered ArrowUp from a page's top body line would step into the header.
-  const caretContext = selectionContextOf(state, position.blockId);
-  const filter = makeContextFilter(state, caretContext);
+  const caretContext = selectionContextOf(document, position.blockId);
+  const filter = makeContextFilter(document, caretContext);
 
   const pageLines = filter(getLineIndex(tree.getPage(p)).all);
   const idx = findLineForPosition(pageLines, position);
@@ -398,11 +398,11 @@ function moveToLineOnPage(
       if (above === undefined) {
         throw new Error(`moveToLineOnPage: pageLines[${idx - 1}] missing (unreachable)`);
       }
-      return resolveTargetLine(state, tree.getPage(p), measurer, x, above);
+      return resolveTargetLine(document, tree.getPage(p), measurer, x, above);
     }
     // For an isolated slot context (header/footer) there is no adjacent-page
     // continuation and no document boundary to fall to — stay put (no-op).
-    if (caretContext !== state.rootId) return null;
+    if (caretContext !== document.rootId) return null;
     if (p > 0) {
       const prev = filter(getLineIndex(tree.getPage(p - 1)).all);
       const prevLast = prev[prev.length - 1];
@@ -410,12 +410,12 @@ function moveToLineOnPage(
         // Degenerate previous page with zero context-lines: clamp to the document
         // start (the same fallback the `p === 0` branch below uses) rather than
         // materializing. Crash-free, sensible behavior.
-        return startOfDocument(state, x);
+        return startOfDocument(document, x);
       }
       // Target the adjacent visual line directly (NOT filtered by blockId).
-      return resolveTargetLine(state, tree.getPage(p - 1), measurer, x, prevLast);
+      return resolveTargetLine(document, tree.getPage(p - 1), measurer, x, prevLast);
     }
-    return startOfDocument(state, x);
+    return startOfDocument(document, x);
   }
 
   // direction === "down"
@@ -424,9 +424,9 @@ function moveToLineOnPage(
     if (below === undefined) {
       throw new Error(`moveToLineOnPage: pageLines[${idx + 1}] missing (unreachable)`);
     }
-    return resolveTargetLine(state, tree.getPage(p), measurer, x, below);
+    return resolveTargetLine(document, tree.getPage(p), measurer, x, below);
   }
-  if (caretContext !== state.rootId) return null;
+  if (caretContext !== document.rootId) return null;
   if (p < plan.entries.length - 1) {
     const next = filter(getLineIndex(tree.getPage(p + 1)).all);
     const nextFirst = next[0];
@@ -434,11 +434,11 @@ function moveToLineOnPage(
       // Degenerate next page with zero context-lines: clamp to the document end
       // (the same fallback the last-page branch below uses) rather than
       // materializing. Crash-free, sensible behavior.
-      return endOfDocument(state, x);
+      return endOfDocument(document, x);
     }
-    return resolveTargetLine(state, tree.getPage(p + 1), measurer, x, nextFirst);
+    return resolveTargetLine(document, tree.getPage(p + 1), measurer, x, nextFirst);
   }
-  return endOfDocument(state, x);
+  return endOfDocument(document, x);
 }
 
 /**
@@ -451,18 +451,18 @@ function moveToLineOnPage(
  * candidate page(s).
  */
 function resolveTemplateBlockPageWithLines(
-  state: State,
+  document: Document,
   tree: VirtualLayoutTree,
   blockId: BlockId,
   caretPageHint: number | undefined,
 ): number {
-  const page = resolveTemplateBlockPage(state, tree.plan, blockId, caretPageHint);
+  const page = resolveTemplateBlockPage(document, tree.plan, blockId, caretPageHint);
   if (page < 0) return -1;
   if (getLineIndex(tree.getPage(page)).byBlock.get(blockId)?.length) return page;
   if (caretPageHint !== undefined) {
     // STALE-FALLBACK: the hinted page's slot doesn't carry this body. Retry
     // on the template-root default carrying page (no hint).
-    const defaultPage = resolveTemplateBlockPage(state, tree.plan, blockId, undefined);
+    const defaultPage = resolveTemplateBlockPage(document, tree.plan, blockId, undefined);
     if (defaultPage >= 0 && defaultPage !== page &&
         getLineIndex(tree.getPage(defaultPage)).byBlock.get(blockId)?.length) {
       return defaultPage;
@@ -507,7 +507,7 @@ function resolveTemplateBlockPageWithLines(
  * `clickX = target.absoluteX + blockSize`, `clickY = x`.
  */
 function resolveTargetLine(
-  state: State,
+  document: Document,
   pageBoxOrRoot: LayoutBox,
   measurer: TextMeasurer,
   x: number,
@@ -550,14 +550,14 @@ function resolveTargetLine(
   // hit-test returns the same affinity the caret would have anyway, so threading
   // it is inert. `targetX` stays the ORIGINAL unclamped goal-x (preserve column).
   const hit = resolvePositionFromPixel(
-    state, pageBoxOrRoot, measurer, clickX, clickY, target.pageIndex,
+    document, pageBoxOrRoot, measurer, clickX, clickY, target.pageIndex,
   );
   if (hit === null) return null;
   return { position: hit.position, targetX: x, caretAffinity: hit.caretAffinity };
 }
 
-function startOfDocument(state: State, x: number): LineMoveResult | null {
-  const firstLeaf = firstLeafBlock(state, state.rootId);
+function startOfDocument(document: Document, x: number): LineMoveResult | null {
+  const firstLeaf = firstLeafBlock(document, document.rootId);
   if (firstLeaf === null) return null;
   // No hit-test here (the up-move fell off the top). The offset-0 caret can only
   // sit on the first line's START, so "after" is correct (and matches the prior
@@ -566,10 +566,10 @@ function startOfDocument(state: State, x: number): LineMoveResult | null {
   return { position: createPosition(firstLeaf, 0), targetX: x, caretAffinity: "after" };
 }
 
-function endOfDocument(state: State, x: number): LineMoveResult | null {
-  const lastLeaf = lastLeafBlock(state, state.rootId);
+function endOfDocument(document: Document, x: number): LineMoveResult | null {
+  const lastLeaf = lastLeafBlock(document, document.rootId);
   if (lastLeaf === null) return null;
-  const lastBlock = getBlock(state, lastLeaf);
+  const lastBlock = getBlock(document, lastLeaf);
   if (lastBlock === null) return null;
   const endOffset =
     lastBlock.inlineContent === null ? 0 : inlineContentLength(lastBlock.inlineContent);
@@ -600,7 +600,7 @@ function endOfDocument(state: State, x: number): LineMoveResult | null {
  * path) — no pixel resolution, no whole-document positioning.
  */
 export function moveToLineBoundary(
-  state: State,
+  document: Document,
   position: Position,
   layoutTree: LayoutBox | VirtualLayoutTree,
   _shaperOrMeasurer: TextShaper | TextMeasurer,
@@ -635,16 +635,16 @@ export function moveToLineBoundary(
         // A header/footer SLOT (template) block — resolve its page on the
         // HINTED page (with the empty-slot fallback) instead of falling to
         // whole-document positioning. Home/End stays inside the slot context (one LineBox).
-        p = resolveTemplateBlockPageWithLines(state, layoutTree, position.blockId, caretPageHint);
+        p = resolveTemplateBlockPageWithLines(document, layoutTree, position.blockId, caretPageHint);
         if (p < 0) {
           // FOOTNOTE-body caret: resolve its slot page per-page (embedContents
           // body — neither pageIndexOfBlock nor the template resolver maps it).
-          p = resolveFootnoteBlockPage(state, layoutTree, position);
+          p = resolveFootnoteBlockPage(document, layoutTree, position);
           if (p < 0) {
             // TABLE-CELL (or any MAIN-tree block nested in a top-level container):
             // walk up parentId to the page-mapped containing top-level block (the
             // table) and run Home/End on its page.
-            p = resolveNestedMainTreeBlockPage(state, layoutTree, position);
+            p = resolveNestedMainTreeBlockPage(document, layoutTree, position);
           }
           if (p < 0) {
             // Not a top-level body, header/footer, footnote, or nested main-tree

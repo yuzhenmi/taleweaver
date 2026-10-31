@@ -24,5 +24,5 @@ export function handleSectionBreak(editor: EditorState): Edit | null {
   const cursor = createPosition(result.newCursorBlockId, 0);
   const selectionAfter = createSpan(cursor, cursor);
 
-  return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: selectionAfter };
+  return { change: { document: result.document, dirtyIds: result.dirtyIds }, selection: selectionAfter };
 }

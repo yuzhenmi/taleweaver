@@ -1,5 +1,5 @@
 import { resolveCommentRange, createSpan } from "@taleweaver/core";
-import type { State, CommentId } from "@taleweaver/core";
+import type { Document, CommentId } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 import type { TextShaper } from "@taleweaver/core";
 import type { SelectionRect } from "./selection-geometry";
@@ -43,7 +43,7 @@ import { computeSelectionRects } from "./selection-geometry";
  * Both paths share `resolveCommentRange` + the selection-geometry core, so they
  * agree; this helper serves a host that already has a flat positioned tree.
  *
- * @param state      Current document state.
+ * @param document      Current document state.
  * @param layoutTree The materialized layout tree to resolve positions against.
  * @param shaper     Text shaper for sub-leaf pixel measurement.
  * @param commentId  The (branded) id of the comment to highlight.
@@ -51,16 +51,16 @@ import { computeSelectionRects } from "./selection-geometry";
  *   absent or orphaned.
  */
 export function getCommentRangeRects(
-  state: State,
+  document: Document,
   layoutTree: LayoutBox,
   shaper: TextShaper,
   commentId: CommentId,
 ): SelectionRect[] {
-  const range = resolveCommentRange(state, commentId);
+  const range = resolveCommentRange(document, commentId);
   if (range === null || range.orphaned) return [];
 
   return computeSelectionRects(
-    state,
+    document,
     createSpan(range.start, range.end),
     layoutTree,
     shaper,

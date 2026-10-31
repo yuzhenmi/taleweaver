@@ -5,9 +5,9 @@ import {
   createTestAllocator,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
-  createEditorStateFromState,
+  createEditorStateFromDocument,
   createPosition,
-  createState,
+  createDocument,
   createSpan,
   getBlock,
   getYDoc,
@@ -52,20 +52,20 @@ function median(samples: number[]): number {
 
 /** Select paragraphs [0, from) and Shift+Down `STEPS` times; per-step touches / renders / ms. */
 function shiftDown(from: number): { touched: number[]; walked: number[]; rendered: number; medianMs: number; selected: number } {
-  const container = document.createElement("div");
-  document.body.replaceChildren(container);
+  const container = globalThis.document.createElement("div");
+  globalThis.document.body.replaceChildren(container);
   const controller = createDigitalController({
     container,
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
-    initialState: buildDocumentFromTree(chapter(1000), {}, createTestAllocator(), createDefaultComponentRegistry()),
-    doc: document,
+    initialDocument: buildDocumentFromTree(chapter(1000), {}, createTestAllocator(), createDefaultComponentRegistry()),
+    doc: globalThis.document,
   });
-  const state = controller.editorState.document;
+  const document = controller.editorState.document;
   // The root's children are sections: the body is the final section.
-  const body = getBlock(state, getBlock(state, state.rootId)?.lastChildId ?? state.rootId);
+  const body = getBlock(document, getBlock(document, document.rootId)?.lastChildId ?? document.rootId);
   const ids: BlockId[] = [];
-  for (let id = body?.firstChildId ?? null; id !== null; id = getBlock(state, id)?.nextSiblingId ?? null) ids.push(id);
+  for (let id = body?.firstChildId ?? null; id !== null; id = getBlock(document, id)?.nextSiblingId ?? null) ids.push(id);
   const at = (i: number): BlockId => {
     const id = ids[i];
     if (id === undefined) throw new Error("setup");
@@ -91,7 +91,7 @@ function shiftDown(from: number): { touched: number[]; walked: number[]; rendere
     const t = performance.now();
     try {
       sel.setBaseAndExtent(anchorText, 0, focusText, 0); // Shift+Down: the focus moves one paragraph
-      document.dispatchEvent(new Event("selectionchange"));
+      globalThis.document.dispatchEvent(new Event("selectionchange"));
     } finally {
       samples.push(performance.now() - t);
       setPerfTraceEnabled(false);
@@ -126,17 +126,17 @@ describe("digital selected-¶ latency (Shift+Down, 1-page vs 100-page selection)
 describe("digital selected-¶ under a peer's edit", () => {
   it("a remote keystroke while a 900-paragraph selection is held walks a constant number of blocks", () => {
     const cfg = { componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800 };
-    const stateA = buildDocumentFromTree(chapter(1000), {}, createTestAllocator(), createDefaultComponentRegistry());
-    const body = getBlock(stateA, getBlock(stateA, stateA.rootId)?.lastChildId ?? stateA.rootId);
+    const documentA = buildDocumentFromTree(chapter(1000), {}, createTestAllocator(), createDefaultComponentRegistry());
+    const body = getBlock(documentA, getBlock(documentA, documentA.rootId)?.lastChildId ?? documentA.rootId);
     const ids: BlockId[] = [];
-    for (let id = body?.firstChildId ?? null; id !== null; id = getBlock(stateA, id)?.nextSiblingId ?? null) ids.push(id);
+    for (let id = body?.firstChildId ?? null; id !== null; id = getBlock(documentA, id)?.nextSiblingId ?? null) ids.push(id);
     const at = (i: number): BlockId => {
       const id = ids[i];
       if (id === undefined) throw new Error("setup");
       return id;
     };
-    let peer = createEditorStateFromState(stateA, caret(at(450), 3), cfg);
-    const docA = getYDoc(stateA);
+    let peer = createEditorStateFromDocument(documentA, caret(at(450), 3), cfg);
+    const docA = getYDoc(documentA);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
     docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
@@ -146,7 +146,7 @@ describe("digital selected-¶ under a peer's edit", () => {
       container,
       componentRegistry: createDefaultComponentRegistry(),
       attrRegistry: createDefaultAttrRegistry(),
-      initialState: createState({ resolver: createDefaultComponentRegistry(), rootId: stateA.rootId, doc: docB }),
+      initialDocument: createDocument({ resolver: createDefaultComponentRegistry(), rootId: documentA.rootId, doc: docB }),
       doc: document,
     });
     controller.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(at(0), 0), createPosition(at(900), 0)) });

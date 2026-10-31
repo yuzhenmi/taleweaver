@@ -29,7 +29,7 @@ export function insertAtomicBlockAfterFocus(
     [atomicInit, { type: "paragraph", inlineContent: { items: [] } }],
     productionAllocator,
   );
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
 
   // newBlockIds = [atomic, paragraph]; caret lands in the paragraph.
   const paragraphId = result.newBlockIds[1];

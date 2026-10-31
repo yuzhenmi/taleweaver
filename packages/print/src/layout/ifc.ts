@@ -1698,7 +1698,7 @@ export function layoutInlineContent(
   // Track the first and last token index for the units accumulated on the current line.
   let currentLineStartTokenIdx = -1;
   let currentLineEndTokenIdx = -1;
-  // State-model offset accumulator for stamping
+  // Document-model offset accumulator for stamping
   // `inlineOffsetStart` / `inlineOffsetEnd` on each emitted LineBox.
   // Advances per unit consumed via `pushUnit`. Each token contributes its
   // `sourceLength` — the count of STATE-model characters it owns: 1 for an
@@ -3268,7 +3268,7 @@ function buildLineChildrenForAncestorLevel(
       } else {
         // Regular token — emit a TextRunBox (merging tokens in the unit).
         const text = unit.tokens.map(t => t.text).join("");
-        // State-character span this run owns: the SUM of its tokens'
+        // Document-character span this run owns: the SUM of its tokens'
         // sourceLength (each token's rendered chars + any collapsed-away
         // trailing whitespace it absorbed). This is ≥ the rendered text length
         // and is what the cursor layer uses to keep offsets state-aligned.

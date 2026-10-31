@@ -2,7 +2,7 @@
  * Behavior-regression lock: caret / hit-test / selection around a FLOATED image
  * (image text-wrap, Task 5). The spec's named load-bearing risk is that there is
  * zero existing coverage for editor interaction around a float — this file closes
- * that gap by driving the REAL editor (`createEditorStateFromState` →
+ * that gap by driving the REAL editor (`createEditorStateFromDocument` →
  * `reduceEditor`) end-to-end (render → cascade → layout → cursor/hit-test/
  * selection), NOT internal units.
  *
@@ -39,7 +39,7 @@
  * untested.
  */
 import { describe, it, expect } from "vitest";
-import { createEditorStateFromState, type EditorState } from "./editor-state";
+import { createEditorStateFromDocument, type EditorState } from "./editor-state";
 import { reduceEditor } from "./reduce-editor";
 import { type EditorConfig } from "./editor-config";
 import { createMockShaper } from "../layout/mock-shaper";
@@ -49,11 +49,11 @@ import { render } from "../render/render";
 import { cascadePass } from "../cascade/cascade-pass";
 import { layoutTree } from "@taleweaver/print";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
-} from "../test-utils/state-builders";
+} from "../test-utils/document-builders";
 import { createPosition, createSpan, getBlock } from "../state";
 import type { BlockId, Selection } from "../state";
 import type { LayoutBox } from "@taleweaver/print";
@@ -121,7 +121,7 @@ function seed(wrap?: string, direction?: string) {
   if (direction !== undefined) imgAttrs.direction = direction;
   const paraAttrs: Record<string, unknown> = { whiteSpace: "normal" };
   if (direction !== undefined) paraAttrs.direction = direction;
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "img", lastChildId: "para" }),
@@ -151,7 +151,7 @@ function seed(wrap?: string, direction?: string) {
  * side (the image-first seed has no such position; doc-start is the para).
  */
 function seedWithPredecessor(wrap = "left") {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "pre", lastChildId: "para" }),
@@ -184,8 +184,8 @@ function seedWithPredecessor(wrap = "left") {
   });
 }
 
-function editorFrom(state: ReturnType<typeof seed>, sel: Selection): EditorState {
-  return createEditorStateFromState(state, sel, makeConfig());
+function editorFrom(document: ReturnType<typeof seed>, sel: Selection): EditorState {
+  return createEditorStateFromDocument(document, sel, makeConfig());
 }
 
 /** The editor's (non-paginated) plain LayoutBox tree, built via the driver recipe. */

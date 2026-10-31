@@ -40,7 +40,7 @@ export function deleteAdjacentAtomicLeaf(
   }
 
   const result = removeBlock(editor.document, neighbourId);
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
 
   return { change: result, selection: createSpan(caret, caret) };
 }

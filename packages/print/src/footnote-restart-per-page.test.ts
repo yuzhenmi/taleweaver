@@ -56,7 +56,7 @@ function caretTo(editor: EditorState, blockId: BlockId, offset: number): EditorS
 /**
  * Build a doc through the editor API: a host paragraph with a footnote, then
  * `filler` empty paragraphs, then a second host paragraph with a footnote.
- * Returns the editor (its `state` is fed to the driver).
+ * Returns the editor (its `document` is fed to the driver).
  */
 function twoFootnotes(config: EditorConfig, filler: number): EditorState {
   let editor = createInitialEditorState(config);

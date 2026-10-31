@@ -9,7 +9,7 @@ import { createDefaultComponentRegistry } from "../../components/component-regis
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
 import { getBlock, createPosition, createSpan, inlineContentLength } from "../../state";
 import { topLevelBlockIds } from "../../state/block-traversal";
-import type { State, BlockId, Selection } from "../../state";
+import type { Document, BlockId, Selection } from "../../state";
 import { createInitialEditorState, type EditorState } from "../editor-state";
 import { reduceEditor } from "../reduce-editor";
 import { type EditorConfig } from "../editor-config";
@@ -28,8 +28,8 @@ export const config: EditorConfig = {
 };
 
 /** Get plain text of a block (concatenation of its text-item runs). */
-export function getTextOf(state: State, blockId: BlockId): string {
-  const block = getBlock(state, blockId);
+export function getTextOf(document: Document, blockId: BlockId): string {
+  const block = getBlock(document, blockId);
   if (block === null || block.inlineContent === null) return "";
   return block.inlineContent.items
     .map((it) => (it.kind === "text" ? it.text : ""))
@@ -70,18 +70,18 @@ export function typeChars(state: EditorState, chars: string): EditorState {
  * The first top-level body block (the root's children are sections,
  * so this is the first section's first child).
  */
-export function firstChildId(state: State): BlockId | null {
-  return topLevelBlockIds(state)[0] ?? null;
+export function firstChildId(document: Document): BlockId | null {
+  return topLevelBlockIds(document)[0] ?? null;
 }
 
 /** The top-level body blocks in document order (every section's children). */
-export function bodyBlockIds(state: State): BlockId[] {
-  return topLevelBlockIds(state);
+export function bodyBlockIds(document: Document): BlockId[] {
+  return topLevelBlockIds(document);
 }
 
 /** Block content length helper for cursor-end positions. */
-export function blockEnd(state: State, blockId: BlockId): number {
-  const block = getBlock(state, blockId);
+export function blockEnd(document: Document, blockId: BlockId): number {
+  const block = getBlock(document, blockId);
   if (block === null || block.inlineContent === null) return 0;
   return inlineContentLength(block.inlineContent);
 }

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { headingComponent, HEADING_FONT_SIZES } from "./heading";
 import type { LeafBlockView, RenderContext } from "../render/block-view";
 import type { ElementBox } from "../render/render-node";
-import type { BlockId, State, ReadonlyAttrs } from "../state";
+import type { BlockId, Document, ReadonlyAttrs } from "../state";
 import type { ComputedStyle } from "../styles";
 
 function leafView(attrs: ReadonlyAttrs = {}): LeafBlockView {
@@ -18,7 +18,7 @@ function leafView(attrs: ReadonlyAttrs = {}): LeafBlockView {
 
 function stubCtx(): RenderContext {
   return {
-    state: {} as State,
+    document: {} as Document,
     footnoteNumber: () => undefined,
   };
 }

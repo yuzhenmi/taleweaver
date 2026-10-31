@@ -9,7 +9,7 @@
  * (non-undoable) transaction, so the key assertion (beyond resolution) is that
  * accept/reject add NO undo step (Ctrl+Z cannot revert them).
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
@@ -24,7 +24,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
   return v;
 }
-import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { createEditorStateFromDocument, type EditorState } from "../editor-state";
 import { type EditorConfig } from "../editor-config";
 import {
   getBlock,
@@ -33,15 +33,15 @@ import {
   createPosition,
   createSpan,
   attrsAtOffset,
-  type State,
+  type Document,
   type BlockId,
   type Selection,
   type SuggestionId,
 } from "../../state";
 
 /** The first body paragraph id under the document root. */
-function bodyParaId(state: State): BlockId {
-  const root = getBlock(state, finalSectionOf(state));
+function bodyParaId(document: Document): BlockId {
+  const root = getBlock(document, finalSectionOf(document));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -50,10 +50,10 @@ function bodyParaId(state: State): BlockId {
 }
 
 /** Build a Document with a single paragraph of `text`, return it + the para id. */
-function stateWithText(text: string): { state: State; paraId: BlockId } {
+function stateWithText(text: string): { document: Document; paraId: BlockId } {
   const initial = createInitialEditorState(config);
   const typed = reduceEditor(initial, { type: "INSERT_TEXT", text });
-  return { state: typed.document, paraId: bodyParaId(typed.document) };
+  return { document: typed.document, paraId: bodyParaId(typed.document) };
 }
 
 /** A collapsed caret selection at the start of `paraId`. */
@@ -63,25 +63,25 @@ function caretAt(paraId: BlockId, offset: number): Selection {
 
 /** Seed a formatting suggestion over `[from, to)` of `paraId` with the given id. */
 function seedFormatting(
-  state: State,
+  document: Document,
   paraId: BlockId,
   from: number,
   to: number,
   proposed: Record<string, unknown>,
   id: SuggestionId,
   author = "alice",
-): State {
+): Document {
   const span = createSpan(createPosition(paraId, from), createPosition(paraId, to));
-  return markFormatting(state, span, proposed, { id, author, createdAt: 1 }).state;
+  return markFormatting(document, span, proposed, { id, author, createdAt: 1 }).document;
 }
 
 const SID = "s1" as SuggestionId;
 
 describe("handleAcceptSuggestion — ACCEPT_SUGGESTION", () => {
   it("resolves the suggestion and applies the formatting proposal LIVE", () => {
-    const { state, paraId } = stateWithText("abcdef");
-    const seeded = seedFormatting(state, paraId, 1, 4, { bold: true }, SID);
-    const editor = createEditorStateFromState(seeded, caretAt(paraId, 0), config);
+    const { document, paraId } = stateWithText("abcdef");
+    const seeded = seedFormatting(document, paraId, 1, 4, { bold: true }, SID);
+    const editor = createEditorStateFromDocument(seeded, caretAt(paraId, 0), config);
     expect(getSuggestions(editor.document)).toHaveLength(1);
 
     const next = reduceEditor(editor, { type: "ACCEPT_SUGGESTION", id: SID });
@@ -98,9 +98,9 @@ describe("handleAcceptSuggestion — ACCEPT_SUGGESTION", () => {
 
 describe("handleRejectSuggestion — REJECT_SUGGESTION", () => {
   it("resolves the suggestion and does NOT apply the proposal", () => {
-    const { state, paraId } = stateWithText("abcdef");
-    const seeded = seedFormatting(state, paraId, 1, 4, { bold: true }, SID);
-    const editor = createEditorStateFromState(seeded, caretAt(paraId, 0), config);
+    const { document, paraId } = stateWithText("abcdef");
+    const seeded = seedFormatting(document, paraId, 1, 4, { bold: true }, SID);
+    const editor = createEditorStateFromDocument(seeded, caretAt(paraId, 0), config);
     expect(getSuggestions(editor.document)).toHaveLength(1);
 
     const next = reduceEditor(editor, { type: "REJECT_SUGGESTION", id: SID });
@@ -117,10 +117,10 @@ describe("handleRejectSuggestion — REJECT_SUGGESTION", () => {
 describe("ACCEPT_ALL_SUGGESTIONS / REJECT_ALL_SUGGESTIONS", () => {
   /** Seed two distinct (non-adjacent) formatting suggestions in one paragraph. */
   function seedTwo(): EditorState {
-    const { state, paraId } = stateWithText("abcdefgh");
-    let s = seedFormatting(state, paraId, 0, 2, { bold: true }, "sA" as SuggestionId);
+    const { document, paraId } = stateWithText("abcdefgh");
+    let s = seedFormatting(document, paraId, 0, 2, { bold: true }, "sA" as SuggestionId);
     s = seedFormatting(s, paraId, 5, 7, { italic: true }, "sB" as SuggestionId);
-    return createEditorStateFromState(s, caretAt(paraId, 0), config);
+    return createEditorStateFromDocument(s, caretAt(paraId, 0), config);
   }
 
   it("ACCEPT_ALL resolves every suggestion", () => {
@@ -154,7 +154,7 @@ describe("resolve actions are UNDOABLE (one history entry each)", () => {
     const seeded = seedFormatting(s.document, paraA, 0, 3, { bold: true }, SID);
     const paraB = getBlock(seeded, finalSectionOf(seeded))?.lastChildId;
     if (paraB === undefined || paraB === null) throw new Error("no para B");
-    let editor = createEditorStateFromState(seeded, caretAt(paraB, 0), config);
+    let editor = createEditorStateFromDocument(seeded, caretAt(paraB, 0), config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "typed" });
     const beforeAccept = getBlock(editor.document, paraA)?.inlineContent?.items;
 
@@ -208,9 +208,9 @@ describe("same-block resolve then undo (S1 — identity-preserving, #484)", () =
 
 describe("absent-id resolve is a safe no-op", () => {
   it("ACCEPT_SUGGESTION on an absent id leaves suggestions untouched and does not crash", () => {
-    const { state, paraId } = stateWithText("abcdef");
-    const seeded = seedFormatting(state, paraId, 1, 4, { bold: true }, SID);
-    const editor = createEditorStateFromState(seeded, caretAt(paraId, 0), config);
+    const { document, paraId } = stateWithText("abcdef");
+    const seeded = seedFormatting(document, paraId, 1, 4, { bold: true }, SID);
+    const editor = createEditorStateFromDocument(seeded, caretAt(paraId, 0), config);
 
     const next = reduceEditor(
       editor,

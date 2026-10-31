@@ -1,5 +1,5 @@
-import type { Document, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
 import type { BlockId } from "../block-id";
 import { writeBlockType } from "../flow-ops";
 import type { BlockKindResolver } from "../block-kinds";
@@ -27,8 +27,8 @@ import type { BlockKindResolver } from "../block-kinds";
  *
  * No-op short-circuit (matches `setBlockAttrs` / `mergeBlockAttrs`): when
  * the requested `type` equals the block's existing type we skip the Y.Map
- * write and return the LITERAL input `state` reference with an empty
- * `dirtyIds`, so callers can use `result.state === state` as an O(1) "did
+ * write and return the LITERAL input `document` reference with an empty
+ * `dirtyIds`, so callers can use `result.document === state` as an O(1) "did
  * anything change?" guard. Without it, a same-value `Y.Map.set("type", …)`
  * fires a spurious change event that dirties the block and cascades into
  * re-render/re-layout. The short-circuit is positioned AFTER the existence
@@ -40,12 +40,12 @@ import type { BlockKindResolver } from "../block-kinds";
  * (typically the editor's `ComponentRegistry`).
  */
 export function setBlockType(
-  state: Document,
+  document: Document,
   blockId: BlockId,
   type: string,
   resolver: BlockKindResolver,
 ): OperationResult {
-  const resolved = resolveBlock(state, blockId);
+  const resolved = resolveBlock(document, blockId);
   if (resolved === null) {
     throw new Error(`setBlockType: block "${blockId}" not found`);
   }
@@ -84,9 +84,9 @@ export function setBlockType(
     // reference unchanged (identity-preserving "did anything change?"
     // contract); placed after the guards above so a same-type call on a
     // missing/unregistered/shape-invalid block still throws.
-    return { state, dirtyIds: new Set() };
+    return { document, dirtyIds: new Set() };
   }
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     writeBlockType(doc, blockId, type);
   });
 }

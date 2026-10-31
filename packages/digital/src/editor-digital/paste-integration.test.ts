@@ -9,7 +9,7 @@ import {
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   getBlock,
-  type State,
+  type Document,
   type BlockId,
 } from "@taleweaver/core";
 
@@ -27,12 +27,12 @@ function makePasteEvent(flavors: { html?: string; text?: string }): Event {
 
 // Recurse into children so nested blocks (table cells, etc.) aren't silently
 // skipped — a leaf contributes its text; a container recurses into its children.
-function blockTexts(state: State): string[] {
+function blockTexts(document: Document): string[] {
   const out: string[] = [];
   const walk = (startId: BlockId | null): void => {
     let id = startId;
     while (id) {
-      const b = getBlock(state, id);
+      const b = getBlock(document, id);
       if (!b) break;
       if (b.firstChildId !== null) {
         walk(b.firstChildId);
@@ -42,7 +42,7 @@ function blockTexts(state: State): string[] {
       id = b.nextSiblingId;
     }
   };
-  const root = getBlock(state, state.rootId);
+  const root = getBlock(document, document.rootId);
   walk(root?.firstChildId ?? null);
   return out;
 }

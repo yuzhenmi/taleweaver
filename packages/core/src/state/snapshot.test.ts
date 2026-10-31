@@ -3,8 +3,8 @@ import * as Y from "yjs";
 import { createYDoc, runTransaction } from "./yjs-doc";
 import { getRegistry } from "./registry";
 import { blockText } from "./block-text";
-import { STATE_INTERNAL } from "./state-internal";
-import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
+import { DOCUMENT_INTERNAL } from "./document-internal";
+import { buildBlock, buildDocument, inlineContent, text } from "../test-utils/document-builders";
 import {
   getBlockSnapshot,
   getTemplateContentSnapshot,
@@ -22,7 +22,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 
 /** doc > p1 "hello", p2 "world"; template bodies tmplP > hp "header", other > op "footer". */
 function seedDoc(): Y.Doc {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -35,7 +35,7 @@ function seedDoc(): Y.Doc {
       buildBlock({ id: "other", type: "footer-body", firstChildId: "op", lastChildId: "op" }),
       buildBlock({ id: "op", type: "paragraph", parentId: "other", inlineContent: inlineContent([text("footer")]) }),
     ],
-  })[STATE_INTERNAL].doc;
+  })[DOCUMENT_INTERNAL].doc;
 }
 
 /** Retype block `id` directly in its registry entry (a raw Y.Doc mutation). */
@@ -78,7 +78,7 @@ describe("snapshot", () => {
 
     it("produces a fresh snapshot after invalidation (via the production overlay path)", () => {
       // Production drives invalidation through createOverlayCache: a new
-      // State minted by applyOperation/freshState carries an overlay whose
+      // Document minted by applyOperation/freshDocument carries an overlay whose
       // `invalidated` set contains the dirty ids. The next read of an
       // invalidated id skips fall-through and re-snapshots from the Y.Doc.
       const doc = seedDoc();
@@ -205,7 +205,7 @@ describe("snapshot", () => {
       expect(overlaySnap).not.toBeNull();
       expect(overlaySnap).not.toBe(baseSnap);
       expect(overlaySnap?.type).toBe("heading");
-      // The base cache itself is untouched (per-State view stability).
+      // The base cache itself is untouched (per-Document view stability).
       expect(base.snapshots.block.get("p1" as BlockId)).toBe(baseSnap);
     });
 

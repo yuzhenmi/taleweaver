@@ -27,24 +27,24 @@ import type { TextShaper } from "@taleweaver/core";
 import { adaptShaperToMeasurer } from "@taleweaver/core";
 import type { TextMeasurer } from "@taleweaver/core";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
 import { createPosition } from "@taleweaver/core";
-import type { BlockId, State } from "@taleweaver/core";
+import type { BlockId, Document } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 import { resolvePixelPosition } from "./cursor-position";
 import { resolveLineForPosition } from "./visual-motion";
 
-function pipeline(state: State): {
+function pipeline(document: Document): {
   layout: LayoutBox;
   shaper: TextShaper;
   measurer: TextMeasurer;
 } {
   const root = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -59,10 +59,10 @@ function pipeline(state: State): {
  * a break opportunity. Line 0 spans [0,100], line 1 spans [100,200]; offset 100
  * is the wrap boundary (line 0's end AND line 1's start).
  */
-function wrappingParagraph(): State {
+function wrappingParagraph(): Document {
   let s = "";
   for (let i = 0; i < 20; i++) s += "abcdefghi ";
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -78,14 +78,14 @@ function wrappingParagraph(): State {
 
 describe("resolveLineForPosition — soft-wrap line-pick honors caretAffinity (CUR-1)", () => {
   it("picks line N's END for 'before' and line N+1's START for 'after'/undefined", () => {
-    const state = wrappingParagraph();
-    const { layout, measurer } = pipeline(state);
+    const document = wrappingParagraph();
+    const { layout, measurer } = pipeline(document);
     const pos = createPosition("p" as BlockId, 100); // the wrap boundary
 
     // "before" → the caret is the END of line 0, so the picker must return line 0
     // (whose `inlineOffsetEnd === 100`). Pre-CUR-1 `pickLine` ignored affinity and
     // returned line 1 here — this is the assertion that would FAIL without the fix.
-    const before = resolveLineForPosition(state, pos, layout, measurer, undefined, "before");
+    const before = resolveLineForPosition(document, pos, layout, measurer, undefined, "before");
     expect(before).not.toBeNull();
     if (before === null) return;
     expect(before.line.inlineOffsetEnd).toBe(100);
@@ -93,12 +93,12 @@ describe("resolveLineForPosition — soft-wrap line-pick honors caretAffinity (C
 
     // "after" (and undefined) → the caret is the START of line 1, so the picker
     // returns line 1 (`inlineOffsetStart === 100`) — the unchanged default.
-    const after = resolveLineForPosition(state, pos, layout, measurer, undefined, "after");
+    const after = resolveLineForPosition(document, pos, layout, measurer, undefined, "after");
     expect(after).not.toBeNull();
     if (after === null) return;
     expect(after.line.inlineOffsetStart).toBe(100);
 
-    const noAffinity = resolveLineForPosition(state, pos, layout, measurer, undefined, undefined);
+    const noAffinity = resolveLineForPosition(document, pos, layout, measurer, undefined, undefined);
     expect(noAffinity).not.toBeNull();
     if (noAffinity === null) return;
     expect(noAffinity.line.inlineOffsetStart).toBe(100);
@@ -107,8 +107,8 @@ describe("resolveLineForPosition — soft-wrap line-pick honors caretAffinity (C
     // the same affinity (the CUR-1 invariant: the caret the user sees and the line
     // the next motion reasons about agree). `cursor-position` renders "before" at
     // line 0's y (0) and "after" at line 1's y (16).
-    const beforePixel = resolvePixelPosition(state, pos, layout, measurer, undefined, "before");
-    const afterPixel = resolvePixelPosition(state, pos, layout, measurer, undefined, "after");
+    const beforePixel = resolvePixelPosition(document, pos, layout, measurer, undefined, "before");
+    const afterPixel = resolvePixelPosition(document, pos, layout, measurer, undefined, "after");
     expect(beforePixel?.lineY).toBe(before.absoluteY);
     expect(afterPixel?.lineY).toBe(after.absoluteY);
     // And the two lines are genuinely different (the seam is real).
@@ -125,7 +125,7 @@ describe("resolveLineForPosition — soft-wrap line-pick honors caretAffinity (C
     // unverified (task #474 open). Here we pin the line-pick invariant only.
     let s = "";
     for (let i = 0; i < 20; i++) s += "אבגדהוזחט "; // 200 RTL chars, breakable every 10
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -138,11 +138,11 @@ describe("resolveLineForPosition — soft-wrap line-pick honors caretAffinity (C
         }),
       ],
     });
-    const { layout, measurer } = pipeline(state);
+    const { layout, measurer } = pipeline(document);
     const pos = createPosition("p" as BlockId, 100);
 
-    const before = resolveLineForPosition(state, pos, layout, measurer, undefined, "before");
-    const after = resolveLineForPosition(state, pos, layout, measurer, undefined, "after");
+    const before = resolveLineForPosition(document, pos, layout, measurer, undefined, "before");
+    const after = resolveLineForPosition(document, pos, layout, measurer, undefined, "after");
     expect(before).not.toBeNull();
     expect(after).not.toBeNull();
     if (before === null || after === null) return;

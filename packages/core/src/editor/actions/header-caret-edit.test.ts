@@ -26,7 +26,7 @@
 
 import { describe, it, expect } from "vitest";
 import { reduceEditor } from "../reduce-editor";
-import { type EditorState, createEditorStateFromState } from "../editor-state";
+import { type EditorState, createEditorStateFromDocument } from "../editor-state";
 import { type EditorConfig } from "../editor-config";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
@@ -36,8 +36,8 @@ import {
   getBlock,
   getTemplateContent,
 } from "../../state";
-import type { State, BlockId } from "../../state";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import type { Document, BlockId } from "../../state";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 
 const componentRegistry = createDefaultComponentRegistry();
 const attrRegistry = createDefaultAttrRegistry();
@@ -62,8 +62,8 @@ const BODY_P = "p" as BlockId;
  * editor-behavior test renders through the full pipeline (the state-level
  * structural-ops test could use a bare `"header"` type since it never renders).
  */
-function buildStateWithHeaderBody(): State {
-  return buildState({
+function buildDocumentWithHeaderBody(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -106,9 +106,9 @@ function buildStateWithHeaderBody(): State {
  * body) read only caret/selection/context state — no layout — so the synthetic
  * state needs only the geometry-free fields.
  */
-function buildEditor(state: State, caret: { blockId: BlockId; offset: number }): EditorState {
+function buildEditor(document: Document, caret: { blockId: BlockId; offset: number }): EditorState {
   const cursor = createPosition(caret.blockId, caret.offset);
-  return createEditorStateFromState(state, createSpan(cursor, cursor), config);
+  return createEditorStateFromDocument(document, createSpan(cursor, cursor), config);
 }
 
 function joinText(
@@ -119,13 +119,13 @@ function joinText(
     .join("");
 }
 
-function headerText(state: State, id: BlockId): string {
-  return joinText(getTemplateContent(state, id)?.inlineContent?.items);
+function headerText(document: Document, id: BlockId): string {
+  return joinText(getTemplateContent(document, id)?.inlineContent?.items);
 }
 
 describe("C.2c T7d — mid-header DELETE_BACKWARD reaches the op", () => {
   it("backspace after a char in a header paragraph deletes the preceding grapheme (in templateContents)", () => {
-    const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P1, offset: 3 });
+    const editor = buildEditor(buildDocumentWithHeaderBody(), { blockId: HDR_P1, offset: 3 });
     // "alpha", caret after "alp" → backspace removes "p".
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
@@ -144,7 +144,7 @@ describe("C.2c T7d — mid-header DELETE_BACKWARD reaches the op", () => {
     // the normal same-parent path — NOT fire the doc-root section-merge branch
     // (the header root is not a doc-root `section`). So the two header
     // paragraphs join in templateContents, and no main-tree section is touched.
-    const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P2, offset: 0 });
+    const editor = buildEditor(buildDocumentWithHeaderBody(), { blockId: HDR_P2, offset: 0 });
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     // The two header paragraphs merged: "alpha" + "beta" = "alphabeta"; ¶c1 goes and
@@ -161,7 +161,7 @@ describe("C.2c T7d — mid-header DELETE_BACKWARD reaches the op", () => {
 
 describe("C.2c T7d — mid-header DELETE_FORWARD reaches the op", () => {
   it("forward-delete before a char in a header paragraph removes that grapheme (in templateContents)", () => {
-    const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P1, offset: 2 });
+    const editor = buildEditor(buildDocumentWithHeaderBody(), { blockId: HDR_P1, offset: 2 });
     // "alpha", caret after "al" → forward-delete removes "p".
     const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
 
@@ -174,7 +174,7 @@ describe("C.2c T7d — mid-header DELETE_FORWARD reaches the op", () => {
 
   it("forward-delete at end of a header paragraph merges the next header paragraph in (not a section op)", () => {
     // Caret at end of the FIRST header child → forward-delete merges c2 into c1.
-    const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P1, offset: 5 });
+    const editor = buildEditor(buildDocumentWithHeaderBody(), { blockId: HDR_P1, offset: 5 });
     const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
 
     // ¶c1 goes; c2 survives.
@@ -189,7 +189,7 @@ describe("C.2c T7d — mid-header DELETE_FORWARD reaches the op", () => {
 
 describe("C.2c T7d — mid-header SPLIT_NODE (Enter) reaches the op", () => {
   it("Enter mid-header-paragraph splits into two header paragraphs in templateContents; caret moves to the tail", () => {
-    const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P1, offset: 3 });
+    const editor = buildEditor(buildDocumentWithHeaderBody(), { blockId: HDR_P1, offset: 3 });
     // "alpha", caret after "alp" → split into "alp" | "ha".
     const next = reduceEditor(editor, { type: "SPLIT_NODE" });
 

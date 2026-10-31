@@ -3,7 +3,7 @@ import type { Edit } from "../edit";
 import {
   insertCrossReference,
   getBlock,
-  getListDefsForState,
+  getListDefsForDocument,
   classifyListDef,
   selectionContextOf,
   createPosition,
@@ -78,7 +78,7 @@ export function handleInsertCrossReference(
     const listIdRaw = target.attrs["listId"];
     const def =
       typeof listIdRaw === "string"
-        ? getListDefsForState(editor.document).get(listIdRaw)
+        ? getListDefsForDocument(editor.document).get(listIdRaw)
         : undefined;
     if (def === undefined || classifyListDef(def) !== "ordered") return null;
   }
@@ -101,7 +101,7 @@ export function handleInsertCrossReference(
   if (!prep.ok) return null;
 
   const result = insertCrossReference(
-    prep.state,
+    prep.document,
     prep.position,
     targetId,
     refMode,
@@ -111,7 +111,7 @@ export function handleInsertCrossReference(
   );
   // Identity invariant: nothing changed (no delete AND a no-op insert) → return
   // the editor unchanged so the "no change → same reference" contract holds.
-  if (result.state === prep.state && prep.dirtyIds.size === 0) return null;
+  if (result.document === prep.document && prep.dirtyIds.size === 0) return null;
   const dirtyIds = new Set<BlockId>(prep.dirtyIds);
   for (const id of result.dirtyIds) dirtyIds.add(id);
 
@@ -119,5 +119,5 @@ export function handleInsertCrossReference(
   const cursor = createPosition(prep.position.blockId, prep.position.offset + 1);
   const selectionAfter = createSpan(cursor, cursor);
 
-  return { change: { state: result.state, dirtyIds }, selection: selectionAfter };
+  return { change: { document: result.document, dirtyIds }, selection: selectionAfter };
 }

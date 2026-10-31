@@ -21,12 +21,12 @@ import {
   lastLeafBlock,
   newListId,
   classifyListDef,
-  getListDefsForState,
+  getListDefsForDocument,
   FOOTNOTE_ANCHOR_EMBED_TYPE,
   INLINE_IMAGE_EMBED_TYPE,
   HTML_FORMAT,
   createHtmlDocumentSerializer,
-  type State,
+  type Document,
   type BlockId,
   type ContainerBlockNode,
   type BlockNode,
@@ -48,7 +48,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Fixture builders (declarative BlockNode trees → State).
+// Fixture builders (declarative BlockNode trees → Document).
 // ─────────────────────────────────────────────────────────────────────────
 
 function text(s: string, attrs: ReadonlyAttrs = {}): TextItem {
@@ -85,7 +85,7 @@ function table(rows: ContainerBlockNode[], attrs: ReadonlyAttrs = {}): Container
 function build(
   children: BlockNode[],
   listDefs: Record<string, ListDef> = {},
-): State {
+): Document {
   const root: ContainerBlockNode = { type: "document", children };
   return buildDocumentFromTree(root, listDefs, createTestAllocator("fx"), TEST_RESOLVER);
 }
@@ -108,12 +108,12 @@ function markSet(attrs: ReadonlyAttrs): string[] {
 }
 
 /** Walk the main tree in document order, returning the FLAT leaf sequence. */
-function readLeaves(state: State): SemBlock[] {
+function readLeaves(document: Document): SemBlock[] {
   const out: SemBlock[] = [];
-  const root = getBlock(state, state.rootId);
+  const root = getBlock(document, document.rootId);
   if (root === null) return out;
   const visit = (id: BlockId): void => {
-    const block = getBlock(state, id);
+    const block = getBlock(document, id);
     if (block === null) return;
     if (block.inlineContent !== null) {
       const inlineParts: Array<[string, string[]]> = [];
@@ -131,20 +131,20 @@ function readLeaves(state: State): SemBlock[] {
     } else {
       let childId: BlockId | null = block.firstChildId;
       while (childId !== null) {
-        const child = getBlock(state, childId);
+        const child = getBlock(document, childId);
         if (child === null) break;
         visit(childId);
         childId = child.nextSiblingId;
       }
     }
   };
-  visit(state.rootId);
+  visit(document.rootId);
   return out;
 }
 
-function roundTrip(state: State): State {
+function roundTrip(document: Document): Document {
   const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("dec") });
-  return ser.decode(ser.encode(state));
+  return ser.decode(ser.encode(document));
 }
 
 afterEach(() => {
@@ -162,7 +162,7 @@ describe("createHtmlDocumentSerializer", () => {
   it("semantically round-trips headings, paragraphs, nested lists, marks, image, hard-break", () => {
     const olId = newListId();
     const ulId = newListId();
-    const state = build(
+    const document = build(
       [
         heading(1, inline(text("Chapter One"))),
         para(inline(text("Once "), text("upon", { italic: true }), text(" a time."))),
@@ -177,8 +177,8 @@ describe("createHtmlDocumentSerializer", () => {
       { [olId]: decimalDef(), [ulId]: discDef() },
     );
 
-    const before = readLeaves(state);
-    const after = readLeaves(roundTrip(state));
+    const before = readLeaves(document);
+    const after = readLeaves(roundTrip(document));
 
     // Same doc-order sequence of block types.
     expect(after.map((b) => b.type)).toEqual(before.map((b) => b.type));
@@ -191,17 +191,17 @@ describe("createHtmlDocumentSerializer", () => {
     const listItems = after.filter((b) => b.type === "list-item");
     expect(listItems.map((b) => b.attrs.listLevel)).toEqual([0, 1, 0, 0]);
     // The first three share ONE listId (the ordered list); the fourth is the bullet list.
-    const defs = getListDefsForState(roundTrip(state));
+    const defs = getListDefsForDocument(roundTrip(document));
     // Re-derive from a single decode so ids line up:
     const dec = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("once") });
-    const decoded = dec.decode(dec.encode(state));
+    const decoded = dec.decode(dec.encode(document));
     const decItems = readLeaves(decoded).filter((b) => b.type === "list-item");
     const olDecId = nth(decItems, 0, "list-item").attrs.listId;
     expect(nth(decItems, 1, "list-item").attrs.listId).toBe(olDecId);
     expect(nth(decItems, 2, "list-item").attrs.listId).toBe(olDecId);
     const ulDecId = nth(decItems, 3, "list-item").attrs.listId;
     expect(ulDecId).not.toBe(olDecId);
-    const decDefs = getListDefsForState(decoded);
+    const decDefs = getListDefsForDocument(decoded);
     const olDef = decDefs.get(typeof olDecId === "string" ? olDecId : "");
     const ulDef = decDefs.get(typeof ulDecId === "string" ? ulDecId : "");
     expect(olDef).toBeDefined();
@@ -278,12 +278,12 @@ describe("createHtmlDocumentSerializer", () => {
   });
 
   it("round-trips image alt through encode→decode (all 3 states preserved)", () => {
-    const state = build([
+    const document = build([
       { type: "image", attrs: { src: "barn.png", alt: "A red barn" }, inlineContent: inline() },
       { type: "image", attrs: { src: "spacer.png", alt: "" }, inlineContent: inline() },
       { type: "image", attrs: { src: "plain.png" }, inlineContent: inline() },
     ]);
-    const after = readLeaves(roundTrip(state)).filter((b) => b.type === "image");
+    const after = readLeaves(roundTrip(document)).filter((b) => b.type === "image");
     expect(nth(after, 0, "image").attrs.alt).toBe("A red barn");
     expect(nth(after, 1, "image").attrs.alt).toBe("");
     expect("alt" in nth(after, 1, "image").attrs).toBe(true);
@@ -296,7 +296,7 @@ describe("createHtmlDocumentSerializer", () => {
   // src/width/height/alt. Binary owns lossless round-trip; HTML must at least
   // emit the <img> so it survives an HTML export.
   it("encodes an inline-image embed as an inline <img> inside its <p>", () => {
-    const state = build([
+    const document = build([
       para(inline(
         text("see "),
         {
@@ -309,7 +309,7 @@ describe("createHtmlDocumentSerializer", () => {
       )),
     ]);
     const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("inimg") });
-    const html = ser.encode(state);
+    const html = ser.encode(document);
     // The <img> is INLINE — it sits inside the <p>, between the two text runs,
     // NOT as a block sibling of the <p>.
     expect(html).toContain(
@@ -322,7 +322,7 @@ describe("createHtmlDocumentSerializer", () => {
   // vbscript:/file: from <img src> for consistency with <a href> + the decode
   // side (defense-in-depth), keeping the two image paths byte-identical.
   it("sanitizes a dangerous src on an inline-image <img> (mirrors block <img>)", () => {
-    const inlineState = build([
+    const inlineDocument = build([
       para(inline({
         kind: "embed",
         embedType: INLINE_IMAGE_EMBED_TYPE,
@@ -330,12 +330,12 @@ describe("createHtmlDocumentSerializer", () => {
         properties: { src: "javascript:alert(1)", width: 40, height: 30, alt: "x" },
       })),
     ]);
-    const blockState = build([
+    const blockDocument = build([
       { type: "image", attrs: { src: "javascript:alert(1)", width: 40, height: 30, alt: "x" }, inlineContent: inline() },
     ]);
     const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("xssimg") });
-    const inlineHtml = ser.encode(inlineState);
-    const blockHtml = ser.encode(blockState);
+    const inlineHtml = ser.encode(inlineDocument);
+    const blockHtml = ser.encode(blockDocument);
     // The dangerous scheme is dropped from BOTH, identically.
     expect(inlineHtml).not.toContain("javascript:");
     expect(blockHtml).not.toContain("javascript:");
@@ -428,7 +428,7 @@ describe("createHtmlDocumentSerializer", () => {
     const decItems = readLeaves(decoded).filter((b) => b.type === "list-item");
     const decUlId = nth(decItems, 0, "list-item").attrs.listId;
     const decOlId = nth(decItems, 3, "list-item").attrs.listId;
-    const defs = getListDefsForState(decoded);
+    const defs = getListDefsForDocument(decoded);
     const ulDef = defs.get(typeof decUlId === "string" ? decUlId : "");
     const olDef = defs.get(typeof decOlId === "string" ? decOlId : "");
     expect(ulDef).toBeDefined();
@@ -526,7 +526,7 @@ describe("createHtmlDocumentSerializer", () => {
     const decoded = ser.decode(`<body><ol start="5"><li>a</li><li>b</li></ol></body>`);
     const items = readLeaves(decoded).filter((b) => b.type === "list-item");
     const listId = nth(items, 0, "list-item").attrs.listId;
-    const def = getListDefsForState(decoded).get(typeof listId === "string" ? listId : "");
+    const def = getListDefsForDocument(decoded).get(typeof listId === "string" ? listId : "");
     expect(def).toBeDefined();
     expect(def?.levels[0]?.start).toBe(5);
   });
@@ -545,7 +545,7 @@ describe("createHtmlDocumentSerializer", () => {
     const decoded = ser.decode(`<body><ol><li>a<ol start="3"><li>b</li></ol></li></ol></body>`);
     const items = readLeaves(decoded).filter((b) => b.type === "list-item");
     const listId = nth(items, 0, "list-item").attrs.listId;
-    const def = getListDefsForState(decoded).get(typeof listId === "string" ? listId : "");
+    const def = getListDefsForDocument(decoded).get(typeof listId === "string" ? listId : "");
     expect(def).toBeDefined();
     // level 0 default start 1; level 1 start 3.
     expect(def?.levels[0]?.start).toBe(1);
@@ -560,7 +560,7 @@ describe("createHtmlDocumentSerializer", () => {
     // renumber from 5 and re-encode would emit <ol start="5">, diverging from the
     // original bare <ol>. This is the ONLY assertion that fails if the fill is removed.
     const listId = "L";
-    const state = build(
+    const document = build(
       [
         listItem(listId, 0, inline(text("a"))),
         listItem(listId, 1, inline(text("b"))),
@@ -577,7 +577,7 @@ describe("createHtmlDocumentSerializer", () => {
       },
     );
     const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("fill") });
-    const html = ser.encode(state);
+    const html = ser.encode(document);
     // Level 1 carries the explicit start; level 2 is a BARE <ol> (default 1).
     expect(html).toContain(`<ol start="5">`);
     expect(html).toContain(`<ol><li>c`);
@@ -587,7 +587,7 @@ describe("createHtmlDocumentSerializer", () => {
   it("ROUND-TRIPS list start/restart ordinals through HTML (encode→decode→encode stable) [#554]", () => {
     // An ordered list that starts at 5 with a mid-list restart to 9.
     const listId = "L1";
-    const state = build(
+    const document = build(
       [
         listItem(listId, 0, inline(text("a"))),
         { type: "list-item", attrs: { listId, listLevel: 0, listCounterOverride: 9 }, inlineContent: inline(text("b")) },
@@ -596,7 +596,7 @@ describe("createHtmlDocumentSerializer", () => {
       { [listId]: { levels: [{ style: "decimal", start: 5, restart: "after-break" }] } },
     );
     const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("rt") });
-    const html = ser.encode(state);
+    const html = ser.encode(document);
     // Sanity: the encode side emits the ordinals (already shipped in #552).
     expect(html).toBe(`<body><ol start="5"><li>a</li><li value="9">b</li><li>c</li></ol></body>`);
     // The round-trip is STABLE: decoding then re-encoding reproduces the same HTML
@@ -653,7 +653,7 @@ describe("createHtmlDocumentSerializer", () => {
     setNodeEnv("development");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      const state = build([
+      const document = build([
         para(inline(
           text("body "),
           { kind: "embed", embedType: FOOTNOTE_ANCHOR_EMBED_TYPE, attrs: {}, properties: {} },
@@ -661,7 +661,7 @@ describe("createHtmlDocumentSerializer", () => {
         )),
       ]);
       const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("fn") });
-      const html = ser.encode(state);
+      const html = ser.encode(document);
       // (a) The anchor is omitted from the HTML.
       expect(html).not.toContain(FOOTNOTE_ANCHOR_EMBED_TYPE);
       // (b) A dev-mode warning fired, naming the dropped type + the binary escape.
@@ -685,7 +685,7 @@ describe("createHtmlDocumentSerializer", () => {
   // decode to two distinct listIds.
   it("encodes non-consecutive same-listId runs as two lists → two distinct ids (I4)", () => {
     const shared = newListId();
-    const state = build(
+    const document = build(
       [
         listItem(shared, 0, inline(text("a"))),
         para(inline(text("interlude"))),
@@ -694,7 +694,7 @@ describe("createHtmlDocumentSerializer", () => {
       { [shared]: decimalDef() },
     );
     const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("i4") });
-    const html = ser.encode(state);
+    const html = ser.encode(document);
     // Two separate <ol> elements in the output.
     expect((html.match(/<ol>/g) ?? []).length).toBe(2);
     const decoded = ser.decode(html);
@@ -705,9 +705,9 @@ describe("createHtmlDocumentSerializer", () => {
 
   // §4 — HTML escaping on encode.
   it("HTML-escapes special characters in text on encode", () => {
-    const state = build([para(inline(text('a < b & c > d "q"')))]);
+    const document = build([para(inline(text('a < b & c > d "q"')))]);
     const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("esc") });
-    const html = ser.encode(state);
+    const html = ser.encode(document);
     expect(html).toContain("&lt;");
     expect(html).toContain("&amp;");
     expect(html).toContain("&gt;");
@@ -728,12 +728,12 @@ describe("createHtmlDocumentSerializer", () => {
 
   // §4 — <hr> round-trips to a horizontal-line block.
   it("round-trips <hr> to a horizontal-line block", () => {
-    const state = build([
+    const document = build([
       para(inline(text("above"))),
       { type: "horizontal-line", inlineContent: inline() },
       para(inline(text("below"))),
     ]);
-    const after = readLeaves(roundTrip(state));
+    const after = readLeaves(roundTrip(document));
     expect(after.map((b) => b.type)).toEqual(["paragraph", "horizontal-line", "paragraph"]);
   });
 
@@ -741,21 +741,21 @@ describe("createHtmlDocumentSerializer", () => {
   // (where a downstream consumer could open it and run script). The wrapper is
   // dropped; the link TEXT is preserved. Mirrors the Cmd/Ctrl-click allowlist.
   it("drops the <a> wrapper for a javascript: link on encode (keeps the text)", () => {
-    const state = build([para(inline(text("click "), text("here", { link: "javascript:alert(1)" })))]);
+    const document = build([para(inline(text("click "), text("here", { link: "javascript:alert(1)" })))]);
     const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("xss") });
-    const html = ser.encode(state);
+    const html = ser.encode(document);
     expect(html).not.toContain("javascript:");
     expect(html).not.toContain("<a ");
     expect(html).toContain("here"); // the link text still renders
   });
 
   it("keeps the <a> wrapper for a safe https link AND a relative link on encode", () => {
-    const state = build([
+    const document = build([
       para(inline(text("a", { link: "https://ok.test/x" }))),
       para(inline(text("b", { link: "/relative/path" }))),
     ]);
     const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("safe") });
-    const html = ser.encode(state);
+    const html = ser.encode(document);
     expect(html).toContain('<a href="https://ok.test/x">a</a>');
     expect(html).toContain('<a href="/relative/path">b</a>');
   });
@@ -763,13 +763,13 @@ describe("createHtmlDocumentSerializer", () => {
   // #470: tables were silently dropped on encode (a container block hit
   // encodeLeaf's default → ""). They now serialize to <table>/<tr>/<td>.
   it("encodes a table (was silently dropped) — <table>/<tr>/<td> with cell text", () => {
-    const state = build([
+    const document = build([
       table([
         tableRow([cell([para(inline(text("A")))]), cell([para(inline(text("B")))])]),
         tableRow([cell([para(inline(text("C")))]), cell([para(inline(text("D")))])]),
       ]),
     ]);
-    const html = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("t") }).encode(state);
+    const html = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("t") }).encode(document);
     expect(html).toContain("<table>");
     expect(html).toContain("</table>");
     expect(html).toContain("<tr><td><p>A</p></td><td><p>B</p></td></tr>");
@@ -777,20 +777,20 @@ describe("createHtmlDocumentSerializer", () => {
   });
 
   it("emits a <colgroup> with per-column widths from columnWidths", () => {
-    const state = build([
+    const document = build([
       table(
         [tableRow([cell([para(inline(text("X")))]), cell([para(inline(text("Y")))])])],
         { columnWidths: [0.25, 0.75] },
       ),
     ]);
-    const html = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("cw") }).encode(state);
+    const html = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("cw") }).encode(document);
     expect(html).toContain("<colgroup>");
     expect(html).toContain('<col style="width:25%">');
     expect(html).toContain('<col style="width:75%">');
   });
 
   it("emits rowspan/colspan only for a cell whose span attr is > 1", () => {
-    const state = build([
+    const document = build([
       table([
         tableRow([
           cell([para(inline(text("S")))], { rowSpan: 2, colSpan: 3 }),
@@ -800,22 +800,22 @@ describe("createHtmlDocumentSerializer", () => {
         tableRow([cell([para(inline(text("U")))])]),
       ]),
     ]);
-    const html = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("sp") }).encode(state);
+    const html = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("sp") }).encode(document);
     expect(html).toContain('<td rowspan="2" colspan="3"><p>S</p></td>');
     expect(html).toContain("<td><p>T</p></td>"); // omitted span → no attrs
   });
 
   it("encodes an empty cell as <td></td> (common in pasted tables)", () => {
-    const state = build([
+    const document = build([
       table([tableRow([cell([para(inline())]), cell([para(inline(text("Z")))])])]),
     ]);
-    const html = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("ec") }).encode(state);
+    const html = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("ec") }).encode(document);
     expect(html).toContain("<td><p></p></td><td><p>Z</p></td>");
   });
 
   it("recursively encodes block content inside a cell (a nested list)", () => {
     const lid = "L1";
-    const state = build(
+    const document = build(
       [
         table([
           tableRow([
@@ -825,23 +825,23 @@ describe("createHtmlDocumentSerializer", () => {
       ],
       { [lid]: discDef() },
     );
-    const html = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("nl") }).encode(state);
+    const html = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("nl") }).encode(document);
     expect(html).toContain("<td><ul><li>one</li><li>two</li></ul></td>");
   });
 });
 
 // First leaf of the main tree (helper for link assertions).
-function getMainFirstLeaf(state: State): BlockId {
-  const root = getBlock(state, state.rootId);
+function getMainFirstLeaf(document: Document): BlockId {
+  const root = getBlock(document, document.rootId);
   let id = root?.firstChildId ?? null;
   while (id !== null) {
-    const b = getBlock(state, id);
+    const b = getBlock(document, id);
     if (b === null) break;
     if (b.inlineContent !== null) return id;
     id = b.firstChildId;
   }
   // Fallback to root (never expected in these fixtures).
-  return state.rootId;
+  return document.rootId;
 }
 
 // NODE_ENV helpers (typed globalThis read/write — mirrors the dom dev-gate).
@@ -953,7 +953,7 @@ describe("createHtmlDocumentSerializer — table DECODE (#480)", () => {
   function makeSer() {
     return createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("tbl") });
   }
-  function decodeBody(html: string): State {
+  function decodeBody(html: string): Document {
     return makeSer().decode(`<body>${html}</body>`);
   }
   function reencode(html: string): string {
@@ -965,9 +965,9 @@ describe("createHtmlDocumentSerializer — table DECODE (#480)", () => {
   interface TableShape { attrs: ReadonlyAttrs; rows: CellShape[][] }
 
   /** Find the first `table` block; return its attrs + a per-cell [colSpan,rowSpan,text] matrix. */
-  function firstTable(state: State): TableShape | null {
+  function firstTable(document: Document): TableShape | null {
     const collectText = (bid: BlockId): string => {
-      const blk = getBlock(state, bid);
+      const blk = getBlock(document, bid);
       if (blk === null) return "";
       if (blk.inlineContent !== null) {
         return blk.inlineContent.items.map((it) => (it.kind === "text" ? it.text : "")).join("");
@@ -975,7 +975,7 @@ describe("createHtmlDocumentSerializer — table DECODE (#480)", () => {
       let out = "";
       let c = blk.firstChildId;
       while (c !== null) {
-        const cb = getBlock(state, c);
+        const cb = getBlock(document, c);
         if (cb === null) break;
         out += collectText(c);
         c = cb.nextSiblingId;
@@ -984,27 +984,27 @@ describe("createHtmlDocumentSerializer — table DECODE (#480)", () => {
     };
 
     // the root holds sections only; the body blocks live in the final section.
-    const section = getBlock(state, getBlock(state, state.rootId)?.lastChildId ?? state.rootId);
+    const section = getBlock(document, getBlock(document, document.rootId)?.lastChildId ?? document.rootId);
     let id = section?.firstChildId ?? null;
     let tableId: BlockId | null = null;
     while (id !== null) {
-      const b = getBlock(state, id);
+      const b = getBlock(document, id);
       if (b === null) break;
       if (b.type === "table") { tableId = id; break; }
       id = b.nextSiblingId;
     }
     if (tableId === null) return null;
-    const tableB = getBlock(state, tableId);
+    const tableB = getBlock(document, tableId);
     if (tableB === null) return null;
     const rows: CellShape[][] = [];
     let rowId = tableB.firstChildId;
     while (rowId !== null) {
-      const rowB = getBlock(state, rowId);
+      const rowB = getBlock(document, rowId);
       if (rowB === null) break;
       const cells: CellShape[] = [];
       let cellId = rowB.firstChildId;
       while (cellId !== null) {
-        const cellB = getBlock(state, cellId);
+        const cellB = getBlock(document, cellId);
         if (cellB === null) break;
         cells.push({ colSpan: cellB.attrs.colSpan, rowSpan: cellB.attrs.rowSpan, text: collectText(cellId) });
         cellId = cellB.nextSiblingId;

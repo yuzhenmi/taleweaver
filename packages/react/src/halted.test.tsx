@@ -81,15 +81,15 @@ function legacyBlock(type: string, parentId: string | null, inline: Y.Array<Y.Ma
  * A NOT-YET-UPGRADED document: a Document bound to an empty Y.Doc, then a schema-1
  * document (`doc > p1("legacy")`) synced in.
  */
-function notYetUpgraded(): { doc: Y.Doc; state: core.State } {
+function notYetUpgraded(): { doc: Y.Doc; document: core.Document; } {
   const doc = new Y.Doc();
-  const state = core.createState({ resolver: RESOLVER, rootId: "doc" as core.BlockId, doc });
+  const document = core.createDocument({ resolver: RESOLVER, rootId: "doc" as core.BlockId, doc });
   doc.transact(() => {
     const blocks = doc.getMap<Y.Map<unknown>>("blocks");
     blocks.set("doc", legacyBlock("document", null, null, "p1"));
     blocks.set("p1", legacyBlock("paragraph", "doc", legacyRuns("legacy")));
   });
-  return { doc, state };
+  return { doc, document };
 }
 
 const P1 = "p1" as core.BlockId;
@@ -188,7 +188,7 @@ describe("useEditor — HALTED", () => {
 
     // Exit: the host replaces the document (a fresh Document over the same Y.Doc).
     fills = [];
-    act(() => m.api().replaceDocument(core.createState({ resolver: RESOLVER, rootId: halted.document.rootId, doc: m.doc })));
+    act(() => m.api().replaceDocument(core.createDocument({ resolver: RESOLVER, rootId: halted.document.rootId, doc: m.doc })));
     expect(m.api().halted).toBe(false);
     // The replacement dropped every layer; the view set its `decorations` prop again.
     expect(fills).toContain(tint);
@@ -217,7 +217,7 @@ describe("useEditor — HALTED", () => {
   it("a replacement over a NOT-YET-UPGRADED document halts the hook; its upgrade resumes the hook by itself — also after the view was re-created while halted", () => {
     const m = mount();
     const x = notYetUpgraded();
-    act(() => m.api().replaceDocument(x.state));
+    act(() => m.api().replaceDocument(x.document));
     expect(m.api().halted).toBe(true);
     expect(m.hook).toHaveBeenCalledTimes(1);
     expect(m.hook).toHaveBeenCalledWith(LEGACY_SCHEMA);
@@ -237,7 +237,7 @@ describe("useEditor — HALTED", () => {
   it("the controller is the source of truth: a legacy write before the resume renders, or a refused replacement, halts the hook again", () => {
     const m = mount();
     const x = notYetUpgraded();
-    act(() => m.api().replaceDocument(x.state));
+    act(() => m.api().replaceDocument(x.document));
     expect(m.api().halted).toBe(true);
     // The upgrade resumes the hook, but an old client writes into the frozen legacy root
     // before the replacement reaches the controller.
@@ -254,7 +254,7 @@ describe("useEditor — HALTED", () => {
     // The host replaces the document with another not-yet-upgraded one: the controller
     // refuses it, the hook halts again — and that document's upgrade resumes it.
     const y = notYetUpgraded();
-    act(() => m.api().replaceDocument(y.state));
+    act(() => m.api().replaceDocument(y.document));
     expect(m.api().halted).toBe(true);
     expect(m.hook).toHaveBeenCalledTimes(3);
     expect(m.hook).toHaveBeenLastCalledWith(LEGACY_SCHEMA);
@@ -272,7 +272,7 @@ describe("useEditor — HALTED", () => {
   it("an upgrade while the view is unmounted resumes the hook when the view mounts again", async () => {
     const m = mount();
     const x = notYetUpgraded();
-    act(() => m.api().replaceDocument(x.state));
+    act(() => m.api().replaceDocument(x.document));
     expect(m.api().halted).toBe(true);
     m.showView(false);
     core.upgradeDocument(x.doc, { resolver: RESOLVER }); // no view watches: the hook is not told yet
@@ -305,10 +305,10 @@ describe("useEditor — HALTED", () => {
       destroyed.add(this);
     });
     const original = m.api().editorState.history;
-    const copy = (): core.State => {
+    const copy = (): core.Document => {
       const d = new Y.Doc();
       Y.applyUpdate(d, Y.encodeStateAsUpdate(m.doc));
-      return core.createState({ resolver: RESOLVER, rootId: m.api().editorState.document.rootId, doc: d });
+      return core.createDocument({ resolver: RESOLVER, rootId: m.api().editorState.document.rootId, doc: d });
     };
     act(() => {
       m.api().replaceDocument(copy());

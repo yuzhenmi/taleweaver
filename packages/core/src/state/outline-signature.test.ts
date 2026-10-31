@@ -11,7 +11,7 @@ import {
   outlineSignaturesEqual,
   EMPTY_OUTLINE_SIGNATURE,
 } from "./outline";
-import { buildBlock, buildState, text, inlineContent } from "../test-utils/state-builders";
+import { buildBlock, buildDocument, text, inlineContent } from "../test-utils/document-builders";
 import { asBlockId, insertText, createPosition } from "../state";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -26,7 +26,7 @@ const TOC = "toc";
 
 /** A doc: h1 "Introduction", a paragraph, h2 "Details", then a TOC block. */
 function docWithHeadingsAndToc() {
-  return buildState({
+  return buildDocument({
     rootId: asBlockId("doc"),
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: H1, lastChildId: TOC }),
@@ -86,18 +86,18 @@ describe("computeOutlineSignature", () => {
 
 describe("outlineSignaturesEqual", () => {
   it("is true for the same signature instance and for two equal signatures", () => {
-    const state = docWithHeadingsAndToc();
-    const a = computeOutlineSignature(state, "suggesting");
-    const b = computeOutlineSignature(state, "suggesting");
+    const document = docWithHeadingsAndToc();
+    const a = computeOutlineSignature(document, "suggesting");
+    const b = computeOutlineSignature(document, "suggesting");
     expect(outlineSignaturesEqual(a, a)).toBe(true);
     expect(outlineSignaturesEqual(a, b)).toBe(true);
   });
 
   it("is FALSE after a heading's display text changes", () => {
-    const state = docWithHeadingsAndToc();
-    const before = computeOutlineSignature(state, "suggesting");
-    const { state: next } = insertText(
-      state,
+    const document = docWithHeadingsAndToc();
+    const before = computeOutlineSignature(document, "suggesting");
+    const { document: next } = insertText(
+      document,
       createPosition(asBlockId(H1), "Introduction".length),
       "!",
       {},
@@ -108,10 +108,10 @@ describe("outlineSignaturesEqual", () => {
   });
 
   it("is TRUE after a NON-heading change (editing a paragraph)", () => {
-    const state = docWithHeadingsAndToc();
-    const before = computeOutlineSignature(state, "suggesting");
-    const { state: next } = insertText(
-      state,
+    const document = docWithHeadingsAndToc();
+    const before = computeOutlineSignature(document, "suggesting");
+    const { document: next } = insertText(
+      document,
       createPosition(asBlockId("p"), "body".length),
       " more",
       {},

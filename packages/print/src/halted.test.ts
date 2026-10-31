@@ -5,7 +5,7 @@
  * APPLY_FOREIGN_CHANGE is dispatched, typing does nothing (browser defaults are not
  * prevented), the screen keeps the last good render, every member of the controller
  * interface has a defined no-op result without reading the Y.Doc, decoration setters
- * are no-ops, and a document replacement through `update` (a FRESH State holding no
+ * are no-ops, and a document replacement through `update` (a FRESH Document holding no
  * legacy storage — the same Y.Doc or another one) resumes editing.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -121,8 +121,8 @@ function legacyBlock(type: string, parentId: string | null, inline: Y.Array<Y.Ma
  */
 function notYetUpgraded(): { doc: Y.Doc; editorState: core.EditorState } {
   const doc = new Y.Doc();
-  const state = core.createState({ resolver: TEST_RESOLVER, rootId: "doc" as core.BlockId, doc });
-  const editorState = core.createEditorStateFromState(state, core.initialSelectionForState(state), cfg);
+  const document = core.createDocument({ resolver: TEST_RESOLVER, rootId: "doc" as core.BlockId, doc });
+  const editorState = core.createEditorStateFromDocument(document, core.initialSelectionForDocument(document), cfg);
   doc.transact(() => {
     const blocks = doc.getMap<Y.Map<unknown>>("blocks");
     blocks.set("doc", legacyBlock("document", null, null, "p1"));
@@ -133,8 +133,8 @@ function notYetUpgraded(): { doc: Y.Doc; editorState: core.EditorState } {
 
 /** A FRESH EditorState over `doc` (a document replacement, not a descendant). */
 function freshOver(doc: Y.Doc, rootId: core.BlockId): core.EditorState {
-  const state = core.createState({ resolver: TEST_RESOLVER, rootId, doc });
-  return core.createEditorStateFromState(state, core.initialSelectionForState(state), cfg);
+  const document = core.createDocument({ resolver: TEST_RESOLVER, rootId, doc });
+  return core.createEditorStateFromDocument(document, core.initialSelectionForDocument(document), cfg);
 }
 
 declare function require(id: "node:module"): { createRequire(url: string): (id: string) => unknown };
@@ -157,8 +157,8 @@ function setup(text = "hello", extra: Partial<EditorControllerOptions> = {}, con
   const docB = new Y.Doc();
   Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
   docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
-  const stateB = core.createState({ resolver: TEST_RESOLVER, rootId: peerA.document.rootId, doc: docB });
-  let current = core.createEditorStateFromState(stateB, core.initialSelectionForState(stateB), config);
+  const documentB = core.createDocument({ resolver: TEST_RESOLVER, rootId: peerA.document.rootId, doc: docB });
+  let current = core.createEditorStateFromDocument(documentB, core.initialSelectionForDocument(documentB), config);
   const actions: core.EditorAction[] = [];
   const reports: core.IncompatibleDocumentReport[] = [];
   let compatible = 0;
@@ -391,7 +391,7 @@ describe("print — HALTED on an incompatible document", () => {
     }
   });
 
-  it("resumes only on a FRESH State: a Document reduced from the halted one is ignored", () => {
+  it("resumes only on a FRESH Document: a Document reduced from the halted one is ignored", () => {
     const m = setup();
     legacyWrite(m.docA, "old");
     // A descendant of the halted Document (the host kept reducing it): not a replacement.

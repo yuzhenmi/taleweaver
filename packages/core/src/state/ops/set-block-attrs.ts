@@ -1,7 +1,7 @@
 import { attrRegistryOf } from "../mark-attrs";
 import type * as Y from "yjs";
-import type { Document, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { attrsEqual } from "../attrs";
@@ -14,8 +14,8 @@ import { writeBlockAttrs } from "../flow-ops";
  *
  * No-op short-circuit (matches `mergeBlockAttrs`): when the new bag equals
  * the block's existing attrs we skip the Y.Map write, so `applyOperation`'s
- * no-op contract returns the input `state` reference unchanged (callers can
- * use `result.state === state` as an O(1) "did anything change?" guard).
+ * no-op contract returns the input `document` reference unchanged (callers can
+ * use `result.document === state` as an O(1) "did anything change?" guard).
  * Without this, a same-value `Y.Map.set("attrs", …)` fires a spurious change
  * event that dirties the block and cascades into re-render/re-layout.
  *
@@ -27,16 +27,16 @@ import { writeBlockAttrs } from "../flow-ops";
  * Throws if the block does not exist.
  */
 export function setBlockAttrs(
-  state: Document,
+  document: Document,
   blockId: BlockId,
   attrs: ReadonlyAttrs,
 ): OperationResult {
-  const resolved = resolveBlock(state, blockId);
+  const resolved = resolveBlock(document, blockId);
   if (resolved === null) {
     throw new Error(`setBlockAttrs: block "${blockId}" not found`);
   }
   const { block } = resolved;
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     if (attrsEqual(block.attrs, attrs, attrRegistryOf(doc))) {
       return;
     }

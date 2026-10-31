@@ -24,15 +24,15 @@ export function unlistBlock(
     editor.config.componentRegistry,
   );
   const attrResult = mergeBlockAttrs(
-    typeResult.state,
+    typeResult.document,
     block.id,
     { listId: undefined, listLevel: undefined, listCounterOverride: undefined },
   );
-  if (attrResult.state === editor.document) return null;
+  if (attrResult.document === editor.document) return null;
 
   const dirtyIds = new Set<BlockId>([
     ...typeResult.dirtyIds,
     ...attrResult.dirtyIds,
   ]);
-  return { change: { state: attrResult.state, dirtyIds } };
+  return { change: { document: attrResult.document, dirtyIds } };
 }

@@ -19,7 +19,7 @@ import { topLevelBlockIds } from "../../state";
 import { describe, it, expect } from "vitest";
 import {
   createInitialEditorState,
-  createEditorStateFromState,
+  createEditorStateFromDocument,
   reduceEditor,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
@@ -35,11 +35,11 @@ import type { PageBox } from "@taleweaver/print";
 import type { LayoutBox } from "@taleweaver/print";
 import type { VirtualLayoutTree } from "@taleweaver/print";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
-} from "../../test-utils/state-builders";
+} from "../../test-utils/document-builders";
 import { render } from "../../render/render";
 import { cascadePass } from "../../cascade";
 import { layoutTree } from "@taleweaver/print";
@@ -271,7 +271,7 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
     const config = makeConfig();
     if (config.pageConfig === undefined) throw new Error("config.pageConfig required");
 
-    const initialState = buildState({
+    const initialDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "sec", lastChildId: "sec" }),
@@ -288,7 +288,7 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
       ],
     });
     const cursor = createPosition("li" as BlockId, 0);
-    const editor: EditorState = createEditorStateFromState(initialState, { anchor: cursor, focus: cursor }, config);
+    const editor: EditorState = createEditorStateFromDocument(initialDocument, { anchor: cursor, focus: cursor }, config);
 
     // Sanity: the cursor's block is NOT a direct child of the section.
     const focusBlock = getBlock(editor.document, editor.selection.focus.blockId);

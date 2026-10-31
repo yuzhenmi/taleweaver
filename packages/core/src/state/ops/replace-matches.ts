@@ -1,7 +1,7 @@
-import type { Document, OperationResult } from "../state";
+import type { Document, OperationResult } from "../document";
 import { attrRegistryOf } from "../mark-attrs";
 import { requireBlockText } from "../block-text";
-import { applyOperation, resolveBlock } from "../state";
+import { applyOperation, resolveBlock } from "../document";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import {
@@ -76,7 +76,7 @@ export interface ReplaceAllPlan {
  * Pure — no mutation; reads the immutable `Document` snapshot.
  */
 export function planReplaceMatches(
-  state: Document,
+  document: Document,
   matches: readonly TextMatch[],
   replacement: string,
 ): ReplaceAllPlan {
@@ -96,7 +96,7 @@ export function planReplaceMatches(
   const embedContentIdsToDelete = new Set<BlockId>();
 
   for (const [blockId, blockMatches] of groups) {
-    const resolved = resolveBlock(state, blockId);
+    const resolved = resolveBlock(document, blockId);
     if (resolved === null) {
       throw new Error(`planReplaceMatches: block "${blockId}" not found`);
     }
@@ -139,7 +139,7 @@ export function planReplaceMatches(
         m.end - m.start,
       )[0];
       collectEmbedContentSubtreeFromInlineContent(
-        state,
+        document,
         { items: removedSlice },
         embedContentIdsToDelete,
       );
@@ -149,7 +149,7 @@ export function planReplaceMatches(
       // semantics). NOT `getActiveFormatting`/`cursorTextItem`, which use
       // left-of-cursor caret semantics (the opposite direction).
       const attrs = attrsAtOffset({ items }, m.start);
-      const { span, removed } = bookmarkDeletionSpan(state, createSpan(createPosition(blockId, m.start), createPosition(blockId, m.end)));
+      const { span, removed } = bookmarkDeletionSpan(document, createSpan(createPosition(blockId, m.start), createPosition(blockId, m.end)));
       replacements.push({ start: span.anchor.offset, end: span.focus.offset, removedBookmarks: removed, text: replacement, attrs });
     }
 
@@ -160,7 +160,7 @@ export function planReplaceMatches(
 }
 
 /**
- * Apply a `ReplaceAllPlan` to `state` in ONE `applyOperation` (= ONE Y
+ * Apply a `ReplaceAllPlan` to `document` in ONE `applyOperation` (= ONE Y
  * transaction = ONE undo step). Each replacement is an offset
  * delete + insert on the block's inline `Y.Text`. Embed bodies referenced by removed slices are
  * cascade-deleted from the embedContents map inside the same transaction.
@@ -170,15 +170,15 @@ export function planReplaceMatches(
  * an empty transaction, so the identity contract holds.
  */
 export function replaceAllMatches(
-  state: Document,
+  document: Document,
   matches: readonly TextMatch[],
   replacement: string,
 ): OperationResult {
-  const plan = planReplaceMatches(state, matches, replacement);
+  const plan = planReplaceMatches(document, matches, replacement);
   if (plan.blockWrites.length === 0 && plan.embedContentIdsToDelete.size === 0) {
-    return { state, dirtyIds: new Set<BlockId>() };
+    return { document, dirtyIds: new Set<BlockId>() };
   }
-  return applyReplaceAllPlan(state, plan);
+  return applyReplaceAllPlan(document, plan);
 }
 
 /**
@@ -187,10 +187,10 @@ export function replaceAllMatches(
  * (reading the result for cursor placement) and apply.
  */
 export function applyReplaceAllPlan(
-  state: Document,
+  document: Document,
   plan: ReplaceAllPlan,
 ): OperationResult {
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     const registry = attrRegistryOf(doc);
     for (const w of plan.blockWrites) {
       const yText = requireBlockText(doc, w.blockId, "replaceAllMatches");

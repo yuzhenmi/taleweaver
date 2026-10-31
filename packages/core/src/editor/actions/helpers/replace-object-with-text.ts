@@ -3,7 +3,7 @@ import type { Edit } from "../../edit";
 import { inheritedAttrsAt } from "../../typing-attrs";
 import { getBlock, createPosition, createSpan, replaceBlockWithText } from "../../../state";
 import type { BlockId, ReadonlyAttrs } from "../../../state";
-import { contentLengthForState } from "./content-length-for-state";
+import { contentLengthForDocument } from "./content-length-for-document";
 
 /**
  * Replace the selected object by `text` (Google Docs: typing over a selected
@@ -43,7 +43,7 @@ export function replaceObjectWithText(
     text,
     attrs,
   );
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
 
   const caret = createPosition(target.blockId, target.offset + text.length);
   return { change: result, selection: createSpan(caret, caret) };
@@ -65,7 +65,7 @@ function textTargetSibling(
     return { blockId: nextSiblingId, offset: 0 };
   }
   if (prevSiblingId !== null && isTextLeaf(editor, prevSiblingId)) {
-    return { blockId: prevSiblingId, offset: contentLengthForState(editor.document, prevSiblingId) };
+    return { blockId: prevSiblingId, offset: contentLengthForDocument(editor.document, prevSiblingId) };
   }
   return null;
 }

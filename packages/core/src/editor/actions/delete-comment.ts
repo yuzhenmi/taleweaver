@@ -19,7 +19,7 @@ import type { ActionOf } from "../editor-action";
  */
 export function handleDeleteComment(editor: EditorState, { id }: ActionOf<"DELETE_COMMENT">): Edit | null {
   const result = deleteComment(editor.document, id);
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
   const remap = (p: Position): Position => {
     const stripped = strippedMarkersBefore(editor, id, p);
     return stripped === 0 ? p : createPosition(p.blockId, p.offset - stripped);

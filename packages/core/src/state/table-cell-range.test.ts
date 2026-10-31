@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { resolveCellRange } from "./table-cell-range";
 import { createPosition, createSpan } from "./block-position";
-import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent } from "../test-utils/document-builders";
 import type { BlockId } from "./block-id";
-import type { Document } from "./state";
+import type { Document } from "./document";
 import type { Block } from "./block";
 
 /** A 2×2 table: doc > table > [row0(cA,cB), row1(cC,cD)], each cell one paragraph. */
@@ -22,7 +22,7 @@ function build2x2(): Document {
     buildBlock({ id: "pC", type: "paragraph", parentId: "cC", inlineContent: inlineContent([]) }),
     buildBlock({ id: "pD", type: "paragraph", parentId: "cD", inlineContent: inlineContent([]) }),
   ];
-  return buildState({ rootId: "doc", blocks });
+  return buildDocument({ rootId: "doc", blocks });
 }
 
 const sel = (a: string, f: string) =>
@@ -42,7 +42,7 @@ describe("resolveCellRange", () => {
   });
 
   it("returns null when an endpoint is not in a table", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "p" }),
@@ -53,8 +53,8 @@ describe("resolveCellRange", () => {
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", prevSiblingId: "table", inlineContent: inlineContent([]) }),
       ],
     });
-    expect(resolveCellRange(state, sel("pA", "p"))).toBeNull(); // focus outside any table
-    expect(resolveCellRange(state, sel("p", "p"))).toBeNull();
+    expect(resolveCellRange(document, sel("pA", "p"))).toBeNull(); // focus outside any table
+    expect(resolveCellRange(document, sel("p", "p"))).toBeNull();
   });
 
   it("returns null when the endpoints are in two DIFFERENT tables", () => {
@@ -66,7 +66,7 @@ describe("resolveCellRange", () => {
       buildBlock({ id: `c${suffix}`, type: "table-cell", parentId: `r${suffix}`, firstChildId: `p${suffix}`, lastChildId: `p${suffix}` }),
       buildBlock({ id: `p${suffix}`, type: "paragraph", parentId: `c${suffix}`, inlineContent: inlineContent([]) }),
     ];
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "t1", lastChildId: "t2" }),
@@ -74,7 +74,7 @@ describe("resolveCellRange", () => {
         ...oneCellTable("2", "t1", null),
       ],
     });
-    expect(resolveCellRange(state, sel("p1", "p2"))).toBeNull();
+    expect(resolveCellRange(document, sel("p1", "p2"))).toBeNull();
   });
 
   it("expands to whole span-rectangles: a merged cell partially in the bbox pulls the range out (F3)", () => {
@@ -98,8 +98,8 @@ describe("resolveCellRange", () => {
       buildBlock({ id: "pM", type: "paragraph", parentId: "cM", inlineContent: inlineContent([]) }),
       buildBlock({ id: "pD", type: "paragraph", parentId: "cD", inlineContent: inlineContent([]) }),
     ];
-    const state = buildState({ rootId: "doc", blocks });
-    const range = resolveCellRange(state, sel("pB", "pD")); // cB (0,1) .. cD (1,2)
+    const document = buildDocument({ rootId: "doc", blocks });
+    const range = resolveCellRange(document, sel("pB", "pD")); // cB (0,1) .. cD (1,2)
     expect(range).toEqual({ tableId: "table", minRow: 0, minCol: 0, maxRow: 1, maxCol: 2 });
   });
 });

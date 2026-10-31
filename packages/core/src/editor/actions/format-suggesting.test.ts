@@ -15,7 +15,7 @@
  * Plus a guard-lock: CLEAR_FORMATTING in DIRECT mode must NOT strip a
  * suggestion-provenance id (`INLINE_FORMAT_ATTR_KEYS` is a curated allow-list).
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,
@@ -233,13 +233,13 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
 
     const id = nth(getSuggestions(cleared.document), 0, "suggestion").id;
     const accepted = acceptSuggestion(cleared.document, id);
-    const runs = (getBlock(accepted.state, paraId)?.inlineContent?.items ?? []).filter(
+    const runs = (getBlock(accepted.document, paraId)?.inlineContent?.items ?? []).filter(
       (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",
     );
     for (const run of runs) {
       expect(run.attrs.bold).toBe(true);
       expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
     }
-    expect(getSuggestions(accepted.state)).toHaveLength(0);
+    expect(getSuggestions(accepted.document)).toHaveLength(0);
   });
 });

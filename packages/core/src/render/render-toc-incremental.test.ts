@@ -17,7 +17,7 @@ import { render } from "./render";
 import type { RenderNode, ElementBox } from "./render-node";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
-import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent, text } from "../test-utils/document-builders";
 import { asBlockId, insertText, createPosition, mergeBlockAttrs } from "../state";
 
 const reg = createDefaultComponentRegistry();
@@ -65,7 +65,7 @@ function firstTextOf(node: RenderNode): string {
 
 /** A doc: h1 "Introduction", a paragraph "body", h2 "Details", then a TOC. */
 function docWithToc() {
-  return buildState({
+  return buildDocument({
     rootId: asBlockId("doc"),
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: H1, lastChildId: TOC }),
@@ -107,7 +107,7 @@ function docWithToc() {
 
 /** A doc with two headings but NO table-of-contents block. */
 function docNoToc() {
-  return buildState({
+  return buildDocument({
     rootId: asBlockId("doc"),
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: H1, lastChildId: H2 }),
@@ -145,78 +145,78 @@ describe("render — TOC incremental outline-signature perf contract", () => {
   });
 
   it("REUSES the TOC RenderNode by reference when a non-heading block edits (O(1))", () => {
-    const state = docWithToc();
-    const prev = render(state, reg, attrReg);
+    const document = docWithToc();
+    const prev = render(document, reg, attrReg);
     const prevToc = findToc(prev.root);
 
     // Edit the paragraph only — no heading changed, so the outline is unchanged
     // and the TOC RenderNode must be reused by reference (the load-bearing perf
     // assertion).
-    const { state: next, dirtyIds } = insertText(
-      state,
+    const { document: next, dirtyIds } = insertText(
+      document,
       createPosition(asBlockId(P), "body".length),
       " more",
       {},
     );
     expect(dirtyIds.has(asBlockId(TOC))).toBe(false);
-    const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
+    const out = render(next, reg, attrReg, { prev, prevDocument: document, dirtyIds });
     expect(findToc(out.root)).toBe(prevToc);
     // The signature is reused by reference too.
     expect(out.outlineSignature).toBe(prev.outlineSignature);
   });
 
   it("force-rebuilds the TOC (new node + new entry text) when a heading edits", () => {
-    const state = docWithToc();
-    const prev = render(state, reg, attrReg);
+    const document = docWithToc();
+    const prev = render(document, reg, attrReg);
     const prevToc = findToc(prev.root);
     expect(firstTextOf(nth(prevToc.children, 0, "entry 0"))).toBe("Introduction");
 
     // Edit the first heading's text. The host TOC block is NOT in dirtyIds, but
     // the outline changed, so the expansion must force the TOC to re-derive.
-    const { state: next, dirtyIds } = insertText(
-      state,
+    const { document: next, dirtyIds } = insertText(
+      document,
       createPosition(asBlockId(H1), "Introduction".length),
       "!",
       {},
     );
     expect(dirtyIds.has(asBlockId(TOC))).toBe(false);
-    const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
+    const out = render(next, reg, attrReg, { prev, prevDocument: document, dirtyIds });
     const nextToc = findToc(out.root);
     expect(nextToc).not.toBe(prevToc);
     expect(firstTextOf(nth(nextToc.children, 0, "entry 0"))).toBe("Introduction!");
   });
 
   it("REUSES the TOC when a heading edit does NOT change the outline (format-only change)", () => {
-    const state = docWithToc();
-    const prev = render(state, reg, attrReg);
+    const document = docWithToc();
+    const prev = render(document, reg, attrReg);
     const prevToc = findToc(prev.root);
 
     // A format-only heading edit (textAlign) dirties the heading — so the outline
     // GATE fires (outlineMightHaveChanged is true) — but the heading's outline text +
     // level are unchanged, so the signature is EQUAL and the TOC must NOT be re-derived.
     // This is the over-invalidation-avoidance the signature comparison buys.
-    const { state: next, dirtyIds } = mergeBlockAttrs(
-      state,
+    const { document: next, dirtyIds } = mergeBlockAttrs(
+      document,
       asBlockId(H1),
       { textAlign: "center" },
     );
     expect(dirtyIds.has(asBlockId(H1))).toBe(true);
-    const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
+    const out = render(next, reg, attrReg, { prev, prevDocument: document, dirtyIds });
     expect(findToc(out.root)).toBe(prevToc);
   });
 
   it("no-ops on a doc with no TOC: empty tocAnchorIds; a heading edit does not crash", () => {
-    const state = docNoToc();
-    const prev = render(state, reg, attrReg);
+    const document = docNoToc();
+    const prev = render(document, reg, attrReg);
     expect(prev.outlineSignature.tocAnchorIds.size).toBe(0);
 
-    const { state: next, dirtyIds } = insertText(
-      state,
+    const { document: next, dirtyIds } = insertText(
+      document,
       createPosition(asBlockId(H1), "Introduction".length),
       "!",
       {},
     );
-    const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
+    const out = render(next, reg, attrReg, { prev, prevDocument: document, dirtyIds });
     // Valid output: the edited heading reflects the new text, signature updated.
     expect(nth(out.outlineSignature.signature, 0, "signature entry").text).toBe("Introduction!");
     expect(out.outlineSignature.tocAnchorIds.size).toBe(0);

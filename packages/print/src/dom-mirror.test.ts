@@ -488,7 +488,7 @@ describe("buildDomMirror", () => {
 });
 
 describe("buildDomMirror — integration with buildAccessibilityTree", () => {
-  it("builds a semantic mirror from a real State accessibility tree", () => {
+  it("builds a semantic mirror from a real Document accessibility tree", () => {
     const listId = newListId();
     const root: ContainerBlockNode = {
       type: "document",
@@ -499,13 +499,13 @@ describe("buildDomMirror — integration with buildAccessibilityTree", () => {
         listItem(listId, 0, inline(text("Second"))),
       ],
     };
-    const state = buildDocumentFromTree(
+    const document = buildDocumentFromTree(
       root,
       { [listId]: decimalDef() },
       createTestAllocator("int"), TEST_RESOLVER
     );
 
-    const tree = buildAccessibilityTree(state);
+    const tree = buildAccessibilityTree(document);
     const mirror = buildDomMirror(tree);
 
     expect(mirror.getAttribute("role")).toBe("document");

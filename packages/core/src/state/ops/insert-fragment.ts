@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { Document, OperationResult } from "../state";
-import { applyOperation, getBlock, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, getBlock, resolveBlock } from "../document";
 import type { Block } from "../block";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { Position, Span } from "../block-position";
@@ -20,16 +20,16 @@ import { clonePastedSubtree } from "../clone-pasted-subtree";
 import type { ClonedSubtree } from "../clone-pasted-subtree";
 import { isCrossContextSelection } from "../../editor/actions/helpers/is-cross-context-selection";
 import { isCollapsed } from "../../cursor/selection";
-import { getListDefsForState } from "../list-defs";
+import { getListDefsForDocument } from "../list-defs";
 import { writeListDefInTx } from "../list-defs";
 import { newListId } from "../block-id";
 import { getSuggestionsMap, type BlockTreeKind } from "../yjs-doc";
 import { insertChildren, writeRoot, writeBlockAttrs, writeBlockType, writeTypedMarkAttrs, type TreeNode } from "../flow-ops";
 import type { ReadonlyAttrs } from "../attrs";
-import { treesOf } from "../build-state-from-blocks";
+import { treesOf } from "../build-document-from-blocks";
 import { ancestorChain, topLevelBlockIds } from "../block-traversal";
 import { FOOTNOTE_ANCHOR_EMBED_TYPE } from "./insert-footnote";
-import { STATE_INTERNAL } from "../state-internal";
+import { DOCUMENT_INTERNAL } from "../document-internal";
 import type { SuggestionId, SuggestionRecord } from "../suggestions";
 import {
   newSuggestionId,
@@ -62,11 +62,11 @@ export interface InsertFragmentResult extends OperationResult {
  * Uses `newSuggestionId()` (crypto.randomUUID-based) — the same minting path
  * the suggestion subsystem uses for brand-new suggestions.
  */
-function buildSuggestionIdRemap(fragmentState: Document): {
+function buildSuggestionIdRemap(fragmentDocument: Document): {
   idMap: ReadonlyMap<SuggestionId, SuggestionId>;
   records: SuggestionRecord[];
 } {
-  const doc = fragmentState[STATE_INTERNAL].doc;
+  const doc = fragmentDocument[DOCUMENT_INTERNAL].doc;
   const suggestionsMap = getSuggestionsMap(doc);
   const idMap = new Map<SuggestionId, SuggestionId>();
   const records: SuggestionRecord[] = [];
@@ -221,10 +221,10 @@ function rewriteClonedSubtreeSuggestionIds(
  * Check if `blockId` lives inside a table-cell by walking the
  * ancestor chain. Returns true when any ancestor has type "table-cell".
  */
-function isInsideTableCell(state: Document, blockId: BlockId): boolean {
-  const chain = ancestorChain(state, blockId);
+function isInsideTableCell(document: Document, blockId: BlockId): boolean {
+  const chain = ancestorChain(document, blockId);
   return chain.some((id) => {
-    const b = resolveBlock(state, id)?.block;
+    const b = resolveBlock(document, id)?.block;
     return b !== undefined && b.type === "table-cell";
   });
 }
@@ -319,7 +319,7 @@ function middleNodes(
 
 /**
  * Insert a fragment `Document` (produced by `extractFragment` / `decodeHtml` / `decodeFragmentClip`)
- * into `state` at `selection`, in DIRECT (non-suggesting) mode.
+ * into `document` at `selection`, in DIRECT (non-suggesting) mode.
  *
  * **Boundary semantics:**
  * - Cross-context selection → identity no-op.
@@ -338,28 +338,28 @@ function middleNodes(
  * references. Break tags are never carried: a pasted boundary is a real break.
  */
 export function insertFragment(
-  state: Document,
+  document: Document,
   selection: Span,
   fragment: Document,
   allocator: IdAllocator,
 ): InsertFragmentResult {
   // Step 1: cross-context guard → identity no-op.
-  if (isCrossContextSelection(state, selection)) {
-    return { state, dirtyIds: new Set<BlockId>(), endPosition: selection.focus };
+  if (isCrossContextSelection(document, selection)) {
+    return { document, dirtyIds: new Set<BlockId>(), endPosition: selection.focus };
   }
 
   const accumulatedDirtyIds = new Set<BlockId>();
 
   // Step 2: non-collapsed selection → deleteRange; accumulate dirtyIds; caret = the
   // seam the delete leaves (`deleteRangeSeam`: in the surviving block).
-  let currentState: Document = state;
+  let currentDocument: Document = document;
   let caretPos: Position = selection.focus;
 
   if (!isCollapsed(selection)) {
-    const seam = deleteRangeSeam(state, selection);
-    if (seam === null) return { state, dirtyIds: new Set<BlockId>(), endPosition: selection.focus };
-    const deleteResult = deleteRange(currentState, selection);
-    currentState = deleteResult.state;
+    const seam = deleteRangeSeam(document, selection);
+    if (seam === null) return { document, dirtyIds: new Set<BlockId>(), endPosition: selection.focus };
+    const deleteResult = deleteRange(currentDocument, selection);
+    currentDocument = deleteResult.document;
     for (const id of deleteResult.dirtyIds) accumulatedDirtyIds.add(id);
     caretPos = seam;
   }
@@ -368,7 +368,7 @@ export function insertFragment(
   const fragRoot = getBlock(fragment, fragment.rootId);
   if (fragRoot === null) {
     // Malformed fragment — identity no-op.
-    return { state, dirtyIds: new Set<BlockId>(), endPosition: caretPos };
+    return { document, dirtyIds: new Set<BlockId>(), endPosition: caretPos };
   }
 
   // Build the suggestion-id remap BEFORE walking/cloning so the rewrite can be
@@ -419,7 +419,7 @@ export function insertFragment(
     // holds exactly one entry; for a container, `blocks` holds the whole
     // subtree (table + rows + cells + leaf paragraphs). `embedContents` holds
     // any footnote bodies reachable from inline content at any depth.
-    const rawCloned = clonePastedSubtree(fragment, fragBlock.id, allocator, state);
+    const rawCloned = clonePastedSubtree(fragment, fragBlock.id, allocator, document);
     // Rewrite suggestion ids in the cloned subtree (leaf items and all
     // container-block items) so spliced blocks already carry the new ids.
     const cloned = rewriteClonedSubtreeSuggestionIds(rawCloned, suggestionIdMap);
@@ -452,7 +452,7 @@ export function insertFragment(
 
   // Step 3 continued: merge fragment listDefs under fresh ids.
   // Build a listId remap: old fragment listId → new destination listId.
-  const fragListDefs = getListDefsForState(fragment);
+  const fragListDefs = getListDefsForDocument(fragment);
   const listIdRemap = new Map<string, string>();
   for (const [oldListId] of fragListDefs) {
     listIdRemap.set(oldListId, newListId());
@@ -461,13 +461,13 @@ export function insertFragment(
   // Step 4: splice.
   // Step 4a: 0 top-level blocks → identity no-op.
   if (topLevelItems.length === 0) {
-    return { state, dirtyIds: new Set<BlockId>(), endPosition: caretPos };
+    return { document, dirtyIds: new Set<BlockId>(), endPosition: caretPos };
   }
 
   const caretBlockId = caretPos.blockId;
   const caretOffset = caretPos.offset;
   // Use resolveBlock so embedContent caret positions (e.g. footnote body) work.
-  const caretResolvedForSplice = resolveBlock(currentState, caretBlockId);
+  const caretResolvedForSplice = resolveBlock(currentDocument, caretBlockId);
   if (caretResolvedForSplice === null) {
     throw new Error(`insertFragment: caret block "${caretBlockId}" not found`);
   }
@@ -500,7 +500,7 @@ export function insertFragment(
   // Table-into-cell flatten.
   // If the caret is inside a table-cell, replace any cloned table containers with
   // their cell leaf paragraphs (no nested tables).
-  if (isInsideTableCell(currentState, caretPos.blockId)) {
+  if (isInsideTableCell(currentDocument, caretPos.blockId)) {
     const flattenedItems: TopLevelItem[] = [];
     for (const item of remappedItems) {
       if (item.kind === "container" && (() => {
@@ -521,7 +521,7 @@ export function insertFragment(
   // Find the minimum listLevel across all leaf list-items in the fragment.
   // Subtract minLevel from each, then add the target block's listLevel (if in a list).
   {
-    const caretBlockForRebase = resolveBlock(currentState, caretPos.blockId)?.block ?? null;
+    const caretBlockForRebase = resolveBlock(currentDocument, caretPos.blockId)?.block ?? null;
     const targetLevel: number =
       caretBlockForRebase?.type === "list-item"
         ? (typeof caretBlockForRebase.attrs["listLevel"] === "number"
@@ -558,7 +558,7 @@ export function insertFragment(
   // Footnote-in-footnote stripping.
   // If the caret is inside an embed-content (e.g. a footnote body), strip
   // footnote-anchor embeds from any leaf items' inline content.
-  const caretResolvedBlock = resolveBlock(currentState, caretPos.blockId);
+  const caretResolvedBlock = resolveBlock(currentDocument, caretPos.blockId);
   if (caretResolvedBlock?.kind === "embedContent") {
     remappedItems = remappedItems.map((item) => {
       if (item.kind !== "leaf") return item;
@@ -594,7 +594,7 @@ export function insertFragment(
       0,
     );
 
-    const result = applyOperation(currentState, (doc) => {
+    const result = applyOperation(currentDocument, (doc) => {
       // Materialize cloned footnote bodies into the destination embedContents tree.
       materializeEmbedContentsInTx(doc, clonedEmbedContents);
       // Write fragment listDefs under fresh ids.
@@ -612,7 +612,7 @@ export function insertFragment(
       insertItemsInTx(doc, insertPlan);
     });
 
-    currentState = result.state;
+    currentDocument = result.document;
     for (const id of result.dirtyIds) accumulatedDirtyIds.add(id);
     endPosition = createPosition(caretBlockId, caretOffset + insertedLength);
   } else {
@@ -677,7 +677,7 @@ export function insertFragment(
     if (!skipSplit) {
       // Split (Word): the HEAD [0, caretOffset) takes the new id — the prefix; the
       // caret block keeps its id as the suffix.
-      const splitPlan = planSplitBlockAtPosition(currentState, caretPos, allocator);
+      const splitPlan = planSplitBlockAtPosition(currentDocument, caretPos, allocator);
       const prefixBlockId = splitPlan.newBlockId;
       const suffixBlockId = caretBlockId;
 
@@ -705,7 +705,7 @@ export function insertFragment(
           ? lastLeaf.items.reduce((s, it) => s + (it.kind === "text" ? it.text.length : 1), 0)
           : 0;
 
-      const result = applyOperation(currentState, (doc) => {
+      const result = applyOperation(currentDocument, (doc) => {
         // Materialize cloned footnote bodies into the destination embedContents tree.
         materializeEmbedContentsInTx(doc, clonedEmbedContents);
         // Write fragment listDefs under fresh ids.
@@ -742,7 +742,7 @@ export function insertFragment(
         }
       });
 
-      currentState = result.state;
+      currentDocument = result.document;
       for (const id of result.dirtyIds) accumulatedDirtyIds.add(id);
 
       // endPosition: if last item was a leaf, offset = lastInsertedLength (into suffix).
@@ -784,7 +784,7 @@ export function insertFragment(
             ? firstLeaf.items.reduce((s, it) => s + (it.kind === "text" ? it.text.length : 1), 0)
             : 0;
 
-      const result = applyOperation(currentState, (doc) => {
+      const result = applyOperation(currentDocument, (doc) => {
         // Materialize cloned footnote bodies into the destination embedContents tree.
         materializeEmbedContentsInTx(doc, clonedEmbedContents);
         // Write fragment listDefs under fresh ids.
@@ -815,7 +815,7 @@ export function insertFragment(
         }
       });
 
-      currentState = result.state;
+      currentDocument = result.document;
       for (const id of result.dirtyIds) accumulatedDirtyIds.add(id);
 
       if (skipSplitAtStart) {
@@ -829,12 +829,12 @@ export function insertFragment(
   }
 
   // Step 5: identity check (handles the case where all operations were no-ops — unlikely but correct).
-  if (currentState === state) {
-    return { state, dirtyIds: new Set<BlockId>(), endPosition: caretPos };
+  if (currentDocument === document) {
+    return { document, dirtyIds: new Set<BlockId>(), endPosition: caretPos };
   }
 
   return {
-    state: currentState,
+    document: currentDocument,
     dirtyIds: accumulatedDirtyIds,
     endPosition,
   };

@@ -10,7 +10,7 @@
  * Phase 0b: `reduceEditor` no longer produces a `renderOutput` (core is
  * geometry-free; render moved to the print backend's layout-driver). These
  * tests therefore drive `render(state, componentRegistry, attrRegistry, {prev,
- * prevState, dirtyIds: editor.lastDirtyIds})` DIRECTLY — the EXACT call the
+ * prevDocument, dirtyIds: editor.lastDirtyIds})` DIRECTLY — the EXACT call the
  * driver's incremental cycle makes — and OBSERVE the walk being skipped (the
  * win) vs re-run (correctness) via the cached anchor array: when the walk is
  * skipped, `rendered.footnoteAnchors === prev.footnoteAnchors` (the cached array
@@ -31,7 +31,7 @@ import {
   createDefaultAttrRegistry,
   render,
   type EditorConfig,
-  type State,
+  type Document,
   type BlockId,
   type RenderOutput,
 } from "@taleweaver/core";
@@ -44,9 +44,9 @@ const config: EditorConfig = {
   containerWidth: 200,
 };
 
-/** A FULL render of `state` (the driver's first / non-incremental cycle). */
-function renderFull(state: State): RenderOutput {
-  return render(state, componentRegistry, attrRegistry);
+/** A FULL render of `document` (the driver's first / non-incremental cycle). */
+function renderFull(document: Document): RenderOutput {
+  return render(document, componentRegistry, attrRegistry);
 }
 
 /**
@@ -54,14 +54,14 @@ function renderFull(state: State): RenderOutput {
  * dispatch: prev render output + prev state + the dispatch's `lastDirtyIds`.
  */
 function renderIncrementalCycle(
-  state: State,
+  document: Document,
   prev: RenderOutput,
-  prevState: State,
+  prevDocument: Document,
   dirtyIds: ReadonlySet<BlockId>,
 ): RenderOutput {
-  return render(state, componentRegistry, attrRegistry, {
+  return render(document, componentRegistry, attrRegistry, {
     prev,
-    prevState,
+    prevDocument,
     dirtyIds,
     suggestionView: prev.suggestionView,
   });
@@ -75,14 +75,14 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
     editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     editor = reduceEditor(editor, { type: "SPLIT_NODE" });
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "xyz" });
-    const prevState = editor.document;
-    const prev = renderFull(prevState);
+    const prevDocument = editor.document;
+    const prev = renderFull(prevDocument);
 
     // Cursor is now in the SECOND paragraph (no anchor). Typing there cannot
     // change the anchor list, so the walk must be skipped → the prev cycle's
     // cached anchor array is reused BY REFERENCE.
     const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "d" });
-    const rendered = renderIncrementalCycle(after.document, prev, prevState, after.lastDirtyIds ?? new Set<BlockId>());
+    const rendered = renderIncrementalCycle(after.document, prev, prevDocument, after.lastDirtyIds ?? new Set<BlockId>());
     expect(rendered.footnoteAnchors).toBe(prev.footnoteAnchors);
   });
 
@@ -105,13 +105,13 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
         },
       },
     );
-    const prevState = editor.document;
-    const prev = renderFull(prevState);
+    const prevDocument = editor.document;
+    const prev = renderFull(prevDocument);
 
     // The doc already has a footnote; inserting a SECOND one must re-walk
     // (the dirty block gains a new anchor → rule 2).
     const after = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
-    const rendered = renderIncrementalCycle(after.document, prev, prevState, after.lastDirtyIds ?? new Set<BlockId>());
+    const rendered = renderIncrementalCycle(after.document, prev, prevDocument, after.lastDirtyIds ?? new Set<BlockId>());
     expect(rendered.footnoteAnchors).not.toBe(prev.footnoteAnchors);
     // Both footnotes are numbered (1 and 2) in the cycle's map.
     const formattedValues = [...rendered.footnoteNumbers.values()]
@@ -159,11 +159,11 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
         },
       },
     );
-    const prevState = editor.document;
-    const prev = renderFull(prevState);
+    const prevDocument = editor.document;
+    const prev = renderFull(prevDocument);
 
     const after = reduceEditor(editor, { type: "DELETE_BACKWARD" });
-    const rendered = renderIncrementalCycle(after.document, prev, prevState, after.lastDirtyIds ?? new Set<BlockId>());
+    const rendered = renderIncrementalCycle(after.document, prev, prevDocument, after.lastDirtyIds ?? new Set<BlockId>());
     expect(rendered.footnoteAnchors).not.toBe(prev.footnoteAnchors);
     // Exactly one anchor remains, still numbered "1".
     const formattedValues = [...rendered.footnoteNumbers.values()].map((n) => n.formatted);
@@ -189,11 +189,11 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
         },
       },
     );
-    const prevState = editor.document;
-    const prev = renderFull(prevState);
+    const prevDocument = editor.document;
+    const prev = renderFull(prevDocument);
 
     const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "z" });
-    const rendered = renderIncrementalCycle(after.document, prev, prevState, after.lastDirtyIds ?? new Set<BlockId>());
+    const rendered = renderIncrementalCycle(after.document, prev, prevDocument, after.lastDirtyIds ?? new Set<BlockId>());
     expect(rendered.footnoteAnchors).not.toBe(prev.footnoteAnchors);
   });
 
@@ -230,11 +230,11 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
         },
       },
     );
-    const prevState = editor.document;
-    const prev = renderFull(prevState);
+    const prevDocument = editor.document;
+    const prev = renderFull(prevDocument);
 
     const after = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
-    const rendered = renderIncrementalCycle(after.document, prev, prevState, after.lastDirtyIds ?? new Set<BlockId>());
+    const rendered = renderIncrementalCycle(after.document, prev, prevDocument, after.lastDirtyIds ?? new Set<BlockId>());
 
     // Invariant: every footnote body's RENDERED leading number (markerText,
     // baked from ctx.footnoteNumber at render time) must track its current
@@ -284,11 +284,11 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
       },
     );
     editor = reduceEditor(editor, { type: "SPLIT_NODE" });
-    const prevState = editor.document;
-    const prev = renderFull(prevState);
+    const prevDocument = editor.document;
+    const prev = renderFull(prevDocument);
 
     const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "c" });
-    const rendered = renderIncrementalCycle(after.document, prev, prevState, after.lastDirtyIds ?? new Set<BlockId>());
+    const rendered = renderIncrementalCycle(after.document, prev, prevDocument, after.lastDirtyIds ?? new Set<BlockId>());
     // Walk skipped (anchor-free dirty block) → cached anchor array reused.
     expect(rendered.footnoteAnchors).toBe(prev.footnoteAnchors);
     // The reused numbering map still has both footnotes numbered 1 and 2.

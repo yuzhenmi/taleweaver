@@ -10,13 +10,13 @@ import {
   getEmbedContentIds,
   getTemplateContentIds,
   applyOperation,
-} from "./state";
+} from "./document";
 import { insertText } from "./ops/insert-text";
 import { createPosition } from "./block-position";
-import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent, text } from "../test-utils/document-builders";
 import { getRegistry } from "./registry";
 import { insertChildren, writeRoot } from "./flow-ops";
-import { STATE_INTERNAL } from "./state-internal";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import type { BlockId } from "./block-id";
 
 /** A body root (footnote / header body) holding one paragraph `${id}-p` with `inlineText`. */
@@ -32,7 +32,7 @@ function body(id: string, type: string, inlineText: string) {
 
 describe("root-id-cache: #313 root-only contract preserved", () => {
   it("getEmbedContentIds yields ONLY the root of a multi-level embed body", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
       embedContents: [
@@ -58,11 +58,11 @@ describe("root-id-cache: #313 root-only contract preserved", () => {
         }),
       ],
     });
-    expect(Array.from(getEmbedContentIds(state))).toEqual(["emb-root"]);
+    expect(Array.from(getEmbedContentIds(document))).toEqual(["emb-root"]);
   });
 
   it("getTemplateContentIds yields ONLY the root of a multi-level template body", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
       templateContents: [
@@ -88,11 +88,11 @@ describe("root-id-cache: #313 root-only contract preserved", () => {
         }),
       ],
     });
-    expect(Array.from(getTemplateContentIds(state))).toEqual(["tpl-root"]);
+    expect(Array.from(getTemplateContentIds(document))).toEqual(["tpl-root"]);
   });
 
   it("yields a single-level leaf root and an empty set when empty", () => {
-    const leaf = buildState({
+    const leaf = buildDocument({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
       embedContents: [
@@ -101,7 +101,7 @@ describe("root-id-cache: #313 root-only contract preserved", () => {
     });
     expect(Array.from(getEmbedContentIds(leaf))).toEqual(["fn-leaf"]);
 
-    const empty = buildState({
+    const empty = buildDocument({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
     });
@@ -110,7 +110,7 @@ describe("root-id-cache: #313 root-only contract preserved", () => {
   });
 
   it("yields both roots when two sibling roots exist", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
       embedContents: [
@@ -118,7 +118,7 @@ describe("root-id-cache: #313 root-only contract preserved", () => {
         buildBlock({ id: "fn-2", type: "paragraph", inlineContent: inlineContent([text("b")]) }),
       ],
     });
-    expect(Array.from(getEmbedContentRootIds(state[STATE_INTERNAL].doc)).sort()).toEqual([
+    expect(Array.from(getEmbedContentRootIds(document[DOCUMENT_INTERNAL].doc)).sort()).toEqual([
       "fn-1",
       "fn-2",
     ]);
@@ -127,14 +127,14 @@ describe("root-id-cache: #313 root-only contract preserved", () => {
 
 describe("root-id-cache: invalidation across add/remove", () => {
   it("includes a newly added root and drops a removed root (embed)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
       embedContents: [
         buildBlock({ id: "fn-1", type: "paragraph", inlineContent: inlineContent([text("a")]) }),
       ],
     });
-    const doc = state[STATE_INTERNAL].doc;
+    const doc = document[DOCUMENT_INTERNAL].doc;
     // Prime the cache (lazy attach + initial scan).
     expect(Array.from(getEmbedContentRootIds(doc)).sort()).toEqual(["fn-1"]);
 
@@ -152,14 +152,14 @@ describe("root-id-cache: invalidation across add/remove", () => {
   });
 
   it("includes a newly added root and drops a removed root (template)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
       templateContents: [
         buildBlock({ id: "tpl-1", type: "header-body", inlineContent: inlineContent([text("a")]) }),
       ],
     });
-    const doc = state[STATE_INTERNAL].doc;
+    const doc = document[DOCUMENT_INTERNAL].doc;
     expect(Array.from(getTemplateContentRootIds(doc)).sort()).toEqual(["tpl-1"]);
 
     doc.transact(() => {
@@ -174,14 +174,14 @@ describe("root-id-cache: invalidation across add/remove", () => {
   });
 
   it("excludes a non-root child added to a body", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
       embedContents: [
         buildBlock({ id: "fn-root", type: "body-container" }),
       ],
     });
-    const doc = state[STATE_INTERNAL].doc;
+    const doc = document[DOCUMENT_INTERNAL].doc;
     expect(Array.from(getEmbedContentRootIds(doc)).sort()).toEqual(["fn-root"]);
 
     // A body child is registered in the same registry; the accessor must
@@ -200,14 +200,14 @@ describe("root-id-cache: invalidation across UNDO/REDO (Yjs surgery path)", () =
   // internal transaction so the cache stays correct — an op-hook would miss
   // this and silently stale the cache.
   it("reflects a resurrected embed root after undo, and re-removal after redo", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
       embedContents: [
         buildBlock({ id: "fn-1", type: "paragraph", inlineContent: inlineContent([text("a")]) }),
       ],
     });
-    const doc = state[STATE_INTERNAL].doc;
+    const doc = document[DOCUMENT_INTERNAL].doc;
     const yEmbeds = getRegistry(doc);
 
     // Prime the cache before any UndoManager activity.
@@ -235,14 +235,14 @@ describe("root-id-cache: invalidation across UNDO/REDO (Yjs surgery path)", () =
   });
 
   it("reflects a resurrected template root after undo", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
       templateContents: [
         buildBlock({ id: "tpl-1", type: "header-body", inlineContent: inlineContent([text("a")]) }),
       ],
     });
-    const doc = state[STATE_INTERNAL].doc;
+    const doc = document[DOCUMENT_INTERNAL].doc;
     const yTemplates = getRegistry(doc);
     expect(Array.from(getTemplateContentRootIds(doc))).toEqual(["tpl-1"]);
 
@@ -267,7 +267,7 @@ describe("root-id-cache: recompute-counter (perf shape)", () => {
   });
 
   it("N main-tree keystrokes trigger 0 embed/template root-set recomputes", () => {
-    let state = buildState({
+    let document = buildDocument({
       rootId: "root",
       blocks: [
         buildBlock({ id: "root", type: "document", firstChildId: "p1", lastChildId: "p1" }),
@@ -288,37 +288,37 @@ describe("root-id-cache: recompute-counter (perf shape)", () => {
 
     // Prime both caches (initial scan happens inside getHolder, NOT via the
     // recompute counter — the counter only counts stale-triggered rescans).
-    void Array.from(getEmbedContentIds(state));
-    void Array.from(getTemplateContentIds(state));
+    void Array.from(getEmbedContentIds(document));
+    void Array.from(getTemplateContentIds(document));
     __resetRootIdRecomputesForTest();
 
     // Simulate 5 keystrokes into the MAIN tree, calling both accessors each
     // time (mirroring render.ts calling both on every render).
     for (let i = 0; i < 5; i++) {
-      const r = insertText(state, createPosition("p1" as BlockId, 2 + i), "x", {});
-      state = r.state;
-      void Array.from(getEmbedContentIds(state));
-      void Array.from(getTemplateContentIds(state));
+      const r = insertText(document, createPosition("p1" as BlockId, 2 + i), "x", {});
+      document = r.document;
+      void Array.from(getEmbedContentIds(document));
+      void Array.from(getTemplateContentIds(document));
     }
 
     expect(__getRootIdRecomputesForTest()).toBe(0);
   });
 
   it("editing an embed BODY's text (not key-set) triggers 0 recomputes", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
       embedContents: [
         buildBlock({ id: "fn-1", type: "paragraph", inlineContent: inlineContent([text("a")]) }),
       ],
     });
-    const doc = state[STATE_INTERNAL].doc;
+    const doc = document[DOCUMENT_INTERNAL].doc;
     void Array.from(getEmbedContentRootIds(doc));
     __resetRootIdRecomputesForTest();
 
     // Mutate a NESTED value inside the body block (not the map key-set). With
     // a flat `observe` (not observeDeep), this must NOT flag staleness.
-    applyOperation(state, () => {
+    applyOperation(document, () => {
       const entry = getRegistry(doc).get("fn-1");
       if (entry === undefined) throw new Error("fn-1 missing");
       entry.set("type", "paragraph-edited");
@@ -329,14 +329,14 @@ describe("root-id-cache: recompute-counter (perf shape)", () => {
   });
 
   it("exactly ONE root add triggers exactly ONE recompute of that map's set", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
       embedContents: [
         buildBlock({ id: "fn-1", type: "paragraph", inlineContent: inlineContent([text("a")]) }),
       ],
     });
-    const doc = state[STATE_INTERNAL].doc;
+    const doc = document[DOCUMENT_INTERNAL].doc;
     void Array.from(getEmbedContentRootIds(doc));
     __resetRootIdRecomputesForTest();
 
@@ -353,7 +353,7 @@ describe("root-id-cache: recompute-counter (perf shape)", () => {
   });
 
   it("exactly ONE root remove triggers exactly ONE recompute of that map's set", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
       templateContents: [
@@ -361,7 +361,7 @@ describe("root-id-cache: recompute-counter (perf shape)", () => {
         buildBlock({ id: "tpl-2", type: "header-body", inlineContent: inlineContent([text("b")]) }),
       ],
     });
-    const doc = state[STATE_INTERNAL].doc;
+    const doc = document[DOCUMENT_INTERNAL].doc;
     void Array.from(getTemplateContentRootIds(doc));
     __resetRootIdRecomputesForTest();
 

@@ -1,7 +1,7 @@
 import { createPosition, createSpan } from "../../../state";
-import type { BlockId, State, Selection } from "../../../state";
+import type { BlockId, Document, Selection } from "../../../state";
 import { findNextContentBlock, findPrevContentBlock } from "../../../cursor/cursor-ops";
-import { contentLengthForState } from "./content-length-for-state";
+import { contentLengthForDocument } from "./content-length-for-document";
 
 /**
  * The PURE selection a `moveOffObject` resolves to — the collapsed caret BESIDE
@@ -14,18 +14,18 @@ import { contentLengthForState } from "./content-length-for-state";
  * across the seam.
  */
 export function objectMoveSelection(
-  state: State,
+  document: Document,
   objId: BlockId,
   direction: "forward" | "backward",
 ): Selection | null {
   if (direction === "forward") {
-    const nextId = findNextContentBlock(state, objId);
+    const nextId = findNextContentBlock(document, objId);
     if (nextId === null) return null;
     const caret = createPosition(nextId, 0);
     return createSpan(caret, caret);
   }
-  const prevId = findPrevContentBlock(state, objId);
+  const prevId = findPrevContentBlock(document, objId);
   if (prevId === null) return null;
-  const caret = createPosition(prevId, contentLengthForState(state, prevId));
+  const caret = createPosition(prevId, contentLengthForDocument(document, prevId));
   return createSpan(caret, caret);
 }

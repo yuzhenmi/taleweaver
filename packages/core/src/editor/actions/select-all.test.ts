@@ -21,7 +21,7 @@
 
 import { describe, it, expect } from "vitest";
 import { reduceEditor } from "../reduce-editor";
-import { type EditorState, createEditorStateFromState } from "../editor-state";
+import { type EditorState, createEditorStateFromDocument } from "../editor-state";
 import { type EditorConfig } from "../editor-config";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
@@ -30,8 +30,8 @@ import {
   createSpan,
   selectionContextOf,
 } from "../../state";
-import type { State, BlockId } from "../../state";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import type { Document, BlockId } from "../../state";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 
 const componentRegistry = createDefaultComponentRegistry();
 const attrRegistry = createDefaultAttrRegistry();
@@ -54,8 +54,8 @@ const FTR_P1 = "ftr-c1" as BlockId;
  * paragraphs) and a footer CONTAINER body (one paragraph), all living in
  * templateContents (parentId === null roots, per #326).
  */
-function buildStateWithHeaderFooter(): State {
-  return buildState({
+function buildDocumentWithHeaderFooter(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "bp0", lastChildId: "bp1" }),
@@ -114,8 +114,8 @@ function buildStateWithHeaderFooter(): State {
 }
 
 /** A main-only doc (no header/footer): two body paragraphs. */
-function buildMainOnlyState(): State {
-  return buildState({
+function buildMainOnlyDocument(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "bp0", lastChildId: "bp1" }),
@@ -137,15 +137,15 @@ function buildMainOnlyState(): State {
   });
 }
 
-function buildEditor(state: State, caret: { blockId: BlockId; offset: number }): EditorState {
+function buildEditor(document: Document, caret: { blockId: BlockId; offset: number }): EditorState {
   // Phase 0b: SELECT_ALL is context-aware but reads no layout — geometry-free.
   const cursor = createPosition(caret.blockId, caret.offset);
-  return createEditorStateFromState(state, createSpan(cursor, cursor), config);
+  return createEditorStateFromDocument(document, createSpan(cursor, cursor), config);
 }
 
 describe("SELECT_ALL — context-aware span", () => {
   it("caret in the MAIN body selects the whole main tree (first→last main leaf)", () => {
-    const editor = buildEditor(buildStateWithHeaderFooter(), { blockId: BODY_P1, offset: 2 });
+    const editor = buildEditor(buildDocumentWithHeaderFooter(), { blockId: BODY_P1, offset: 2 });
     const next = reduceEditor(editor, { type: "SELECT_ALL" });
 
     const { anchor, focus } = next.selection;
@@ -164,7 +164,7 @@ describe("SELECT_ALL — context-aware span", () => {
   });
 
   it("caret in a HEADER body selects ONLY that header (first→last header leaf)", () => {
-    const editor = buildEditor(buildStateWithHeaderFooter(), { blockId: HDR_P1, offset: 1 });
+    const editor = buildEditor(buildDocumentWithHeaderFooter(), { blockId: HDR_P1, offset: 1 });
     const next = reduceEditor(editor, { type: "SELECT_ALL" });
 
     const { anchor, focus } = next.selection;
@@ -184,7 +184,7 @@ describe("SELECT_ALL — context-aware span", () => {
   });
 
   it("caret in a FOOTER body selects ONLY that footer", () => {
-    const editor = buildEditor(buildStateWithHeaderFooter(), { blockId: FTR_P1, offset: 3 });
+    const editor = buildEditor(buildDocumentWithHeaderFooter(), { blockId: FTR_P1, offset: 3 });
     const next = reduceEditor(editor, { type: "SELECT_ALL" });
 
     const { anchor, focus } = next.selection;
@@ -200,7 +200,7 @@ describe("SELECT_ALL — context-aware span", () => {
   });
 
   it("NO-REGRESSION: main-only doc spans the whole main tree", () => {
-    const editor = buildEditor(buildMainOnlyState(), { blockId: BODY_P1, offset: 1 });
+    const editor = buildEditor(buildMainOnlyDocument(), { blockId: BODY_P1, offset: 1 });
     const next = reduceEditor(editor, { type: "SELECT_ALL" });
 
     const { anchor, focus } = next.selection;

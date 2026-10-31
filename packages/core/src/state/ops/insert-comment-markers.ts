@@ -1,7 +1,7 @@
 import type * as Y from "yjs";
 import { requireBlockText } from "../block-text";
-import type { Document, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
 import type { BlockId } from "../block-id";
 import type { Position, Span } from "../block-position";
 import { spanStart, spanEnd } from "../block-compare";
@@ -62,15 +62,15 @@ export interface LeafWrite {
  * offset is out of range.
  */
 export function insertCommentMarkers(
-  state: Document,
+  document: Document,
   span: Span,
   commentId: CommentId,
 ): OperationResult {
-  const start = spanStart(state, span);
-  const end = spanEnd(state, span);
-  const writes = planCommentMarkers(state, start, end, commentId);
+  const start = spanStart(document, span);
+  const end = spanEnd(document, span);
+  const writes = planCommentMarkers(document, start, end, commentId);
 
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     applyCommentMarkerWritesInTx(doc, writes);
   });
 }
@@ -89,7 +89,7 @@ export function insertCommentMarkers(
  * either endpoint.
  */
 export function planCommentMarkers(
-  state: Document,
+  document: Document,
   start: Position,
   end: Position,
   commentId: CommentId,
@@ -98,7 +98,7 @@ export function planCommentMarkers(
   const endMarker = makeMarker(COMMENT_END_EMBED_TYPE, commentId);
 
   if (start.blockId === end.blockId) {
-    const { content, kind } = resolveLeaf(state, start.blockId);
+    const { content, kind } = resolveLeaf(document, start.blockId);
     requireInRange(content, start.offset, start.blockId);
     requireInRange(content, end.offset, end.blockId);
     // End-first: the end marker's insert cannot shift the start offset (start ≤ end).
@@ -114,9 +114,9 @@ export function planCommentMarkers(
     ];
   }
 
-  const startLeaf = resolveLeaf(state, start.blockId);
+  const startLeaf = resolveLeaf(document, start.blockId);
   requireInRange(startLeaf.content, start.offset, start.blockId);
-  const endLeaf = resolveLeaf(state, end.blockId);
+  const endLeaf = resolveLeaf(document, end.blockId);
   requireInRange(endLeaf.content, end.offset, end.blockId);
 
   return [
@@ -147,10 +147,10 @@ function makeMarker(
 
 /** Resolve a leaf block, throwing if missing or not a leaf. */
 function resolveLeaf(
-  state: Document,
+  document: Document,
   blockId: BlockId,
 ): { content: InlineContent; kind: BlockTreeKind } {
-  const resolved = resolveBlock(state, blockId);
+  const resolved = resolveBlock(document, blockId);
   if (resolved === null) {
     throw new Error(`insertCommentMarkers: block "${blockId}" not found`);
   }

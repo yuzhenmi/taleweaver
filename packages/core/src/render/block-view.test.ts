@@ -5,7 +5,7 @@ import type {
   LeafBlockView,
   RenderContext,
 } from "./block-view";
-import type { BlockId, InlineContent, State } from "../state";
+import type { BlockId, InlineContent, Document } from "../state";
 import type { ComputedStyle } from "../styles";
 
 describe("block-view (types)", () => {
@@ -57,10 +57,10 @@ describe("block-view (types)", () => {
     // is implementable. If RenderContext loses any of these members, this
     // assignment stops compiling and the test breaks loudly.
     const stub: RenderContext = {
-      state: {} as State,
+      document: {} as Document,
       footnoteNumber: () => undefined,
     };
     expect(typeof stub.footnoteNumber).toBe("function");
-    expect(stub.state).toBeDefined();
+    expect(stub.document).toBeDefined();
   });
 });

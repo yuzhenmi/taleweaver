@@ -20,10 +20,10 @@ import {
 import { boundaryMergesInView } from "./break-suggestions";
 import { markParagraphMarkDeletion } from "./ops/merge-blocks";
 import { splitWithSuggestion } from "./ops/split-block";
-import { getBlock, type Document } from "./state";
+import { getBlock, type Document } from "./document";
 import { createPosition } from "./block-position";
 import { createTestAllocator, type BlockId } from "./block-id";
-import { text, embed, buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
+import { text, embed, buildBlock, buildDocument, inlineContent } from "../test-utils/document-builders";
 
 const ID = "s1" as SuggestionId;
 
@@ -86,7 +86,7 @@ describe("boundaryMergesInView (paragraph-boundary merge predicate over break ta
   const INPUT = { id: ID, author: "alice", createdAt: 1 };
   /** doc > [ p1("a"), p2("b") ] — re-seeded per call (ops mutate the shared Y.Doc). */
   function twoBlocks(): Document {
-    return buildState({
+    return buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -101,11 +101,11 @@ describe("boundaryMergesInView (paragraph-boundary merge predicate over break ta
     if (l === null || r === null) throw new Error("expected both blocks");
     return boundaryMergesInView(s, l, r, view);
   }
-  const joined = (): Document => markParagraphMarkDeletion(twoBlocks(), "p1" as BlockId, INPUT).state;
+  const joined = (): Document => markParagraphMarkDeletion(twoBlocks(), "p1" as BlockId, INPUT).document;
   // A split: the NEW head H carries the inserted ¶; p1 keeps the tail.
   const split = (): { s: Document; head: BlockId } => {
     const r = splitWithSuggestion(twoBlocks(), createPosition("p1" as BlockId, 1), createTestAllocator("n"), INPUT);
-    return { s: r.state, head: r.newBlockId };
+    return { s: r.document, head: r.newBlockId };
   };
 
   it('"suggesting" never merges (the literal document)', () => {

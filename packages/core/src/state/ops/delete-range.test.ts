@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { deleteRange, deleteRangeInTx, planDeleteRange } from "./delete-range";
-import { getBlock, getEmbedContent, type Document } from "../state";
-import { STATE_INTERNAL } from "../state-internal";
-import { buildBlock, buildState, buildFlowDoc, text, embed, inlineContent } from "../../test-utils/state-builders";
+import { getBlock, getEmbedContent, type Document } from "../document";
+import { DOCUMENT_INTERNAL } from "../document-internal";
+import { buildBlock, buildDocument, buildFlowDoc, text, embed, inlineContent } from "../../test-utils/document-builders";
 import { flowShape, assertInvariantI } from "../../test-utils/invariant-i";
 import { createPosition, createSpan } from "../block-position";
 import type { BlockId } from "../block-id";
@@ -12,7 +12,7 @@ describe("deleteRange — basic same-block range delete", () => {
   // Delete range [3, 7) — covers "lo w".
   // Expected: p("helorld")
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -21,11 +21,11 @@ describe("deleteRange — basic same-block range delete", () => {
     });
 
   it("deletes the range from a single text item, keeping prefix and suffix", () => {
-    const state = fixture();
+    const document = fixture();
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
-    const result = deleteRange(state, span);
+    const result = deleteRange(document, span);
 
-    const block = getBlock(result.state, "p" as BlockId);
+    const block = getBlock(result.document, "p" as BlockId);
     expect(block?.inlineContent?.items).toHaveLength(1);
     expect(block?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "helorld" });
 
@@ -37,7 +37,7 @@ describe("deleteRange — basic same-block range delete", () => {
 describe("deleteRange — same-block: item shapes and edges", () => {
   it("deletes a range that exactly covers a text item (clean removal at boundary)", () => {
     // [text("hello"), text(" world")] — delete [0, 5) — drops "hello", keeps " world".
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -45,15 +45,15 @@ describe("deleteRange — same-block: item shapes and edges", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
-    const result = deleteRange(state, span);
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = deleteRange(document, span);
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: " world" });
   });
 
   it("deletes a range that spans multiple text items, splitting both endpoints", () => {
     // [text("ab"), text("cd"), text("ef")] — delete [1, 5) — keeps "a" + "f".
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -61,8 +61,8 @@ describe("deleteRange — same-block: item shapes and edges", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 1), createPosition("p" as BlockId, 5));
-    const result = deleteRange(state, span);
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = deleteRange(document, span);
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     // After run-merging: text("a") and text("f") have same attrs ({}), so they merge.
     expect(items?.[0]).toMatchObject({ text: "af", attrs: {} });
@@ -70,7 +70,7 @@ describe("deleteRange — same-block: item shapes and edges", () => {
 
   it("deletes an embed item in the range", () => {
     // [text("a"), embed("img"), text("b")] — delete [1, 2) — drops the embed.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -78,8 +78,8 @@ describe("deleteRange — same-block: item shapes and edges", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 1), createPosition("p" as BlockId, 2));
-    const result = deleteRange(state, span);
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = deleteRange(document, span);
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "ab" }); // run-merged at the seam
   });
@@ -88,7 +88,7 @@ describe("deleteRange — same-block: item shapes and edges", () => {
     // [text("hello world", { bold: true })] — delete [3, 7) drops "lo w" (4 chars)
     // and leaves "hel" + "orld" → run-merged to text("helorld", {bold:true}).
     // Pins the attrs-preservation contract on both prefix and suffix sides.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -96,8 +96,8 @@ describe("deleteRange — same-block: item shapes and edges", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
-    const result = deleteRange(state, span);
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = deleteRange(document, span);
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "helorld", attrs: { bold: true } });
   });
@@ -107,7 +107,7 @@ describe("deleteRange — same-block: item shapes and edges", () => {
     // Delete [2, 3) — drops text("X").
     // Result: [text("a", {bold}), embed, text("b", {bold})] — embed at seam,
     // text("a") and text("b") have same attrs but separated by embed → no merge.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -125,8 +125,8 @@ describe("deleteRange — same-block: item shapes and edges", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 2), createPosition("p" as BlockId, 3));
-    const result = deleteRange(state, span);
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = deleteRange(document, span);
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: { bold: true } });
     expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "img" });
@@ -144,26 +144,26 @@ describe("deleteRange — cross-block (same-parent): the FOCUS survives (Word: �
   };
 
   it("adjacent pair: the anchor prefix + the focus suffix read as the focus; links + dirty ids", () => {
-    const state = flow(["p1", "hello"], ["p2", " world"]);
-    const F = fin(state);
-    const result = deleteRange(state, createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3)));
-    expect(flowShape(result.state, "doc")).toBe('p2:"herld"');
-    expect(getBlock(result.state, "p1" as BlockId)).toBeNull();
-    expect(getBlock(result.state, F)?.firstChildId).toBe("p2");
+    const document = flow(["p1", "hello"], ["p2", " world"]);
+    const F = fin(document);
+    const result = deleteRange(document, createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3)));
+    expect(flowShape(result.document, "doc")).toBe('p2:"herld"');
+    expect(getBlock(result.document, "p1" as BlockId)).toBeNull();
+    expect(getBlock(result.document, F)?.firstChildId).toBe("p2");
     expect([...result.dirtyIds]).toEqual(expect.arrayContaining(["p1", "p2", F]));
-    assertInvariantI(result.state, "storage");
+    assertInvariantI(result.document, "storage");
   });
 
   it("intervening leaves go with their ¶s", () => {
-    const state = flow(["p1", "hello"], ["p2", "middle"], ["p3", "world"]);
-    const result = deleteRange(state, createSpan(createPosition("p1" as BlockId, 2), createPosition("p3" as BlockId, 2)));
-    expect(flowShape(result.state, "doc")).toBe('p3:"herld"');
+    const document = flow(["p1", "hello"], ["p2", "middle"], ["p3", "world"]);
+    const result = deleteRange(document, createSpan(createPosition("p1" as BlockId, 2), createPosition("p3" as BlockId, 2)));
+    expect(flowShape(result.document, "doc")).toBe('p3:"herld"');
     expect([...result.dirtyIds]).toEqual(expect.arrayContaining(["p1", "p2", "p3"]));
   });
 
   it("removes an intervening TABLE whole — its subtree and the footnote bodies its cells reference", () => {
     // p1 | tbl[cp: "item" + footnote → fn] | p2 — a span p1@2 → p2@3 covers the table.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -176,63 +176,63 @@ describe("deleteRange — cross-block (same-parent): the FOCUS survives (Word: �
       ],
       embedContents: [buildBlock({ id: "fn", type: "fn-body", inlineContent: inlineContent([text("F")]) })],
     });
-    const result = deleteRange(state, createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3)));
-    expect(flowShape(result.state, "doc")).toBe('p2:"held"');
-    expect(getBlock(result.state, "tbl" as BlockId)).toBeNull();
-    expect(getBlock(result.state, "cp" as BlockId)).toBeNull();
-    expect(getEmbedContent(result.state, "fn" as BlockId)).toBeNull();
+    const result = deleteRange(document, createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3)));
+    expect(flowShape(result.document, "doc")).toBe('p2:"held"');
+    expect(getBlock(result.document, "tbl" as BlockId)).toBeNull();
+    expect(getBlock(result.document, "cp" as BlockId)).toBeNull();
+    expect(getEmbedContent(result.document, "fn" as BlockId)).toBeNull();
   });
 
   it("normalizes a reverse-order cross-block span before deleting", () => {
     const result = deleteRange(flow(["p1", "hello"], ["p2", " world"]), createSpan(createPosition("p2" as BlockId, 3), createPosition("p1" as BlockId, 2)));
-    expect(flowShape(result.state, "doc")).toBe('p2:"herld"');
+    expect(flowShape(result.document, "doc")).toBe('p2:"herld"');
   });
 
   it("a middle pair rewires the previous sibling onto the survivor; the parent's ends are unchanged", () => {
-    const state = flow(["p0", "zero"], ["p1", "hello"], ["p2", "world"], ["p3", "end"]);
-    const F = fin(state);
-    const result = deleteRange(state, createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 2)));
-    expect(flowShape(result.state, "doc")).toBe('p0:"zero" p2:"herld" p3:"end"');
-    expect(getBlock(result.state, "p0" as BlockId)?.nextSiblingId).toBe("p2");
-    expect(getBlock(result.state, "p3" as BlockId)?.prevSiblingId).toBe("p2");
-    expect(getBlock(result.state, F)?.firstChildId).toBe("p0");
-    expect(getBlock(result.state, F)?.lastChildId).toBe("p3");
+    const document = flow(["p0", "zero"], ["p1", "hello"], ["p2", "world"], ["p3", "end"]);
+    const F = fin(document);
+    const result = deleteRange(document, createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 2)));
+    expect(flowShape(result.document, "doc")).toBe('p0:"zero" p2:"herld" p3:"end"');
+    expect(getBlock(result.document, "p0" as BlockId)?.nextSiblingId).toBe("p2");
+    expect(getBlock(result.document, "p3" as BlockId)?.prevSiblingId).toBe("p2");
+    expect(getBlock(result.document, F)?.firstChildId).toBe("p0");
+    expect(getBlock(result.document, F)?.lastChildId).toBe("p3");
   });
 
   it("deleting both blocks' whole content leaves one empty paragraph (the focus)", () => {
     const result = deleteRange(flow(["p1", "a"], ["p2", "b"]), createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 1)));
-    expect(flowShape(result.state, "doc")).toBe('p2:""');
+    expect(flowShape(result.document, "doc")).toBe('p2:""');
   });
 
   it("inside an explicit section: the section's first child becomes the survivor", () => {
-    const state = buildFlowDoc([{ sec: "section", children: [{ p: "p1", t: "hello" }, { p: "p2", t: "world" }] }]);
-    const result = deleteRange(state, createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 2)));
-    expect(getBlock(result.state, "section" as BlockId)?.firstChildId).toBe("p2");
-    expect(getBlock(result.state, "section" as BlockId)?.lastChildId).toBe("p2");
-    expect(getBlock(result.state, "doc" as BlockId)?.firstChildId).toBe("section");
+    const document = buildFlowDoc([{ sec: "section", children: [{ p: "p1", t: "hello" }, { p: "p2", t: "world" }] }]);
+    const result = deleteRange(document, createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 2)));
+    expect(getBlock(result.document, "section" as BlockId)?.firstChildId).toBe("p2");
+    expect(getBlock(result.document, "section" as BlockId)?.lastChildId).toBe("p2");
+    expect(getBlock(result.document, "doc" as BlockId)?.firstChildId).toBe("section");
   });
 });
 
 describe("deleteRange — formatting of the survivor (the span's first paragraph → the survivor; Google Docs / Quill)", () => {
   it("the anchor keeps content: its type + attrs are written onto the surviving focus", () => {
-    const state = buildFlowDoc([{ p: "p", t: "hello" }, { p: "h", t: " world", type: "heading", attrs: { level: 2 } }]);
-    const result = deleteRange(state, createSpan(createPosition("p" as BlockId, 2), createPosition("h" as BlockId, 2)));
-    expect(getBlock(result.state, "h" as BlockId)?.type).toBe("paragraph");
-    expect(getBlock(result.state, "h" as BlockId)?.attrs).toEqual({});
+    const document = buildFlowDoc([{ p: "p", t: "hello" }, { p: "h", t: " world", type: "heading", attrs: { level: 2 } }]);
+    const result = deleteRange(document, createSpan(createPosition("p" as BlockId, 2), createPosition("h" as BlockId, 2)));
+    expect(getBlock(result.document, "h" as BlockId)?.type).toBe("paragraph");
+    expect(getBlock(result.document, "h" as BlockId)?.attrs).toEqual({});
   });
 
   it("an anchor left EMPTY still wins unless it is a default paragraph", () => {
-    const state = buildFlowDoc([{ p: "li1", t: "a", type: "list-item", attrs: { level: 2 } }, { p: "li2", t: "b", type: "list-item", attrs: { level: 3 } }]);
-    const result = deleteRange(state, createSpan(createPosition("li1" as BlockId, 0), createPosition("li2" as BlockId, 1)));
-    expect(getBlock(result.state, "li2" as BlockId)?.attrs).toEqual({ level: 2 });
+    const document = buildFlowDoc([{ p: "li1", t: "a", type: "list-item", attrs: { level: 2 } }, { p: "li2", t: "b", type: "list-item", attrs: { level: 3 } }]);
+    const result = deleteRange(document, createSpan(createPosition("li1" as BlockId, 0), createPosition("li2" as BlockId, 1)));
+    expect(getBlock(result.document, "li2" as BlockId)?.attrs).toEqual({ level: 2 });
     const plain = buildFlowDoc([{ p: "a", t: "x" }, { p: "h", t: "yz", type: "heading", attrs: { level: 1 } }]);
     const r2 = deleteRange(plain, createSpan(createPosition("a" as BlockId, 0), createPosition("h" as BlockId, 1)));
-    expect(getBlock(r2.state, "h" as BlockId)?.type).toBe("heading");
-    expect(getBlock(r2.state, "h" as BlockId)?.attrs).toEqual({ level: 1 });
+    expect(getBlock(r2.document, "h" as BlockId)?.type).toBe("heading");
+    expect(getBlock(r2.document, "h" as BlockId)?.attrs).toEqual({ level: 1 });
   });
 
   it("preserves embed-referenced content blocks carried by the surviving focus suffix", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -241,17 +241,17 @@ describe("deleteRange — formatting of the survivor (the span's first paragraph
       ],
       embedContents: [buildBlock({ id: "fn-body", type: "footnote-body", inlineContent: inlineContent([text("footnote text")]) })],
     });
-    const result = deleteRange(state, createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 0)));
-    expect(getEmbedContent(result.state, "fn-body" as BlockId)).not.toBeNull();
-    expect(getBlock(result.state, "p2" as BlockId)?.inlineContent?.items).toMatchObject([{ kind: "embed", embedType: "footnote-anchor", properties: { contentBlockId: "fn-body" } }]);
+    const result = deleteRange(document, createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 0)));
+    expect(getEmbedContent(result.document, "fn-body" as BlockId)).not.toBeNull();
+    expect(getBlock(result.document, "p2" as BlockId)?.inlineContent?.items).toMatchObject([{ kind: "embed", embedType: "footnote-anchor", properties: { contentBlockId: "fn-body" } }]);
   });
 
   it("does not mutate the original state", () => {
-    const state = buildFlowDoc([{ p: "p1", t: "hello" }, { p: "p2", t: " world" }]);
-    const before = getBlock(state, "p1" as BlockId);
-    const result = deleteRange(state, createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3)));
-    expect(result.state).not.toBe(state);
-    expect(getBlock(state, "p1" as BlockId)).toBe(before);
+    const document = buildFlowDoc([{ p: "p1", t: "hello" }, { p: "p2", t: " world" }]);
+    const before = getBlock(document, "p1" as BlockId);
+    const result = deleteRange(document, createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3)));
+    expect(result.document).not.toBe(document);
+    expect(getBlock(document, "p1" as BlockId)).toBe(before);
     expect(before?.nextSiblingId).toBe("p2");
   });
 });
@@ -260,7 +260,7 @@ describe("deleteRange — cascade-delete embed-content references in the DELETED
   it("same-block: deleting a span that covers an embed cascade-deletes its fn-body", () => {
     // p[text("a"), embed("fn-anchor", { contentBlockId: "fn-body" }), text("b")]
     // Delete [1, 2) — drops the embed; fn-body must be removed from embedContents.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -279,12 +279,12 @@ describe("deleteRange — cascade-delete embed-content references in the DELETED
         buildBlock({ id: "fn-body", type: "fn-body", inlineContent: inlineContent([text("note")]) }),
       ],
     });
-    expect(getEmbedContent(state, "fn-body" as BlockId)).not.toBeNull();
+    expect(getEmbedContent(document, "fn-body" as BlockId)).not.toBeNull();
 
     const span = createSpan(createPosition("p" as BlockId, 1), createPosition("p" as BlockId, 2));
-    const result = deleteRange(state, span);
+    const result = deleteRange(document, span);
 
-    expect(getEmbedContent(result.state, "fn-body" as BlockId)).toBeNull();
+    expect(getEmbedContent(result.document, "fn-body" as BlockId)).toBeNull();
     expect(result.dirtyIds.has("fn-body" as BlockId)).toBe(true);
   });
 
@@ -292,7 +292,7 @@ describe("deleteRange — cascade-delete embed-content references in the DELETED
     // p[embed("fn-anchor", { contentBlockId: "outer" })]
     // outer body contains another embed → "inner"
     // Delete the whole inline content → both outer and inner must cascade.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -318,10 +318,10 @@ describe("deleteRange — cascade-delete embed-content references in the DELETED
     });
 
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 1));
-    const result = deleteRange(state, span);
+    const result = deleteRange(document, span);
 
-    expect(getEmbedContent(result.state, "outer" as BlockId)).toBeNull();
-    expect(getEmbedContent(result.state, "inner" as BlockId)).toBeNull();
+    expect(getEmbedContent(result.document, "outer" as BlockId)).toBeNull();
+    expect(getEmbedContent(result.document, "inner" as BlockId)).toBeNull();
     expect(result.dirtyIds.has("outer" as BlockId)).toBe(true);
     expect(result.dirtyIds.has("inner" as BlockId)).toBe(true);
   });
@@ -336,7 +336,7 @@ describe("deleteRange — cascade-delete embed-content references in the DELETED
     //   - focus (p3) prefix items[..1] → embed referencing fn-c
     // The transferred suffix from focus is items[1..] → text("y").
     // All three referenced fn-bodies must be removed.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
@@ -377,11 +377,11 @@ describe("deleteRange — cascade-delete embed-content references in the DELETED
     });
 
     const span = createSpan(createPosition("p1" as BlockId, 1), createPosition("p3" as BlockId, 1));
-    const result = deleteRange(state, span);
+    const result = deleteRange(document, span);
 
-    expect(getEmbedContent(result.state, "fn-a" as BlockId)).toBeNull();
-    expect(getEmbedContent(result.state, "fn-b" as BlockId)).toBeNull();
-    expect(getEmbedContent(result.state, "fn-c" as BlockId)).toBeNull();
+    expect(getEmbedContent(result.document, "fn-a" as BlockId)).toBeNull();
+    expect(getEmbedContent(result.document, "fn-b" as BlockId)).toBeNull();
+    expect(getEmbedContent(result.document, "fn-c" as BlockId)).toBeNull();
     expect(result.dirtyIds.has("fn-a" as BlockId)).toBe(true);
     expect(result.dirtyIds.has("fn-b" as BlockId)).toBe(true);
     expect(result.dirtyIds.has("fn-c" as BlockId)).toBe(true);
@@ -395,7 +395,7 @@ describe("deleteRange — cascade-delete embed-content references in the DELETED
     //   p2 prefix items[..1] = embed referencing "drop".
     // Transferred suffix from p2 = items[1..] = embed referencing "keep".
     // Result: "drop" must be cascade-deleted, "keep" must NOT.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -424,17 +424,17 @@ describe("deleteRange — cascade-delete embed-content references in the DELETED
     });
 
     const span = createSpan(createPosition("p1" as BlockId, 1), createPosition("p2" as BlockId, 1));
-    const result = deleteRange(state, span);
+    const result = deleteRange(document, span);
 
-    expect(getEmbedContent(result.state, "drop" as BlockId)).toBeNull();
-    expect(getEmbedContent(result.state, "keep" as BlockId)).not.toBeNull();
+    expect(getEmbedContent(result.document, "drop" as BlockId)).toBeNull();
+    expect(getEmbedContent(result.document, "keep" as BlockId)).not.toBeNull();
     expect(result.dirtyIds.has("drop" as BlockId)).toBe(true);
   });
 });
 
 describe("deleteRange — edge offsets and special cases", () => {
   it("collapsed span (anchor === focus) is a no-op (returns same state, empty dirtyIds)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -442,58 +442,58 @@ describe("deleteRange — edge offsets and special cases", () => {
       ],
     });
     const pos = createPosition("p" as BlockId, 2);
-    const result = deleteRange(state, createSpan(pos, pos));
-    expect(result.state).toBe(state);
+    const result = deleteRange(document, createSpan(pos, pos));
+    expect(result.document).toBe(document);
     expect([...result.dirtyIds]).toEqual([]);
   });
 
   it("same-block delete with anchor.offset === 0 (delete from start)", () => {
     // [text("hello")] — delete [0, 3) — keeps "lo".
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
-    const result = deleteRange(state, createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3)));
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = deleteRange(document, createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3)));
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "lo" });
   });
 
   it("same-block delete with focus.offset === inlineContentLength (delete to end)", () => {
     // [text("hello")] — delete [2, 5) — keeps "he".
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
-    const result = deleteRange(state, createSpan(createPosition("p" as BlockId, 2), createPosition("p" as BlockId, 5)));
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = deleteRange(document, createSpan(createPosition("p" as BlockId, 2), createPosition("p" as BlockId, 5)));
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "he" });
   });
 
   it("same-block delete spanning [0, inlineContentLength] (delete entire block content)", () => {
     // [text("hello")] — delete [0, 5) — keeps nothing.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
-    const result = deleteRange(state, createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5)));
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = deleteRange(document, createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5)));
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toEqual([]);
   });
 
   it("reverse-order span normalizes correctly (focus before anchor in doc order)", () => {
     // Delete from p@7 to p@3 — same as [3, 7) after normalization.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -501,8 +501,8 @@ describe("deleteRange — edge offsets and special cases", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 7), createPosition("p" as BlockId, 3));
-    const result = deleteRange(state, span);
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = deleteRange(document, span);
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "helorld" });
   });
@@ -510,7 +510,7 @@ describe("deleteRange — edge offsets and special cases", () => {
 
 describe("deleteRange — error cases", () => {
   it("throws when the anchor block does not exist (cross-block)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -518,11 +518,11 @@ describe("deleteRange — error cases", () => {
       ],
     });
     const span = createSpan(createPosition("missing" as BlockId, 0), createPosition("p" as BlockId, 1));
-    expect(() => deleteRange(state, span)).toThrow(/anchor block ".+" not found/);
+    expect(() => deleteRange(document, span)).toThrow(/anchor block ".+" not found/);
   });
 
   it("throws when the focus block does not exist (cross-block)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -530,11 +530,11 @@ describe("deleteRange — error cases", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("missing" as BlockId, 1));
-    expect(() => deleteRange(state, span)).toThrow(/focus block ".+" not found/);
+    expect(() => deleteRange(document, span)).toThrow(/focus block ".+" not found/);
   });
 
   it("throws when the same-block target does not exist", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -543,11 +543,11 @@ describe("deleteRange — error cases", () => {
     });
     const span = createSpan(createPosition("missing" as BlockId, 0), createPosition("missing" as BlockId, 1));
     // Same blockId on both endpoints → same-block branch → throws "block not found"
-    expect(() => deleteRange(state, span)).toThrow(/block ".+" not found/);
+    expect(() => deleteRange(document, span)).toThrow(/block ".+" not found/);
   });
 
   it("throws when an endpoint references a container block (firstChildId set)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "p" }),
@@ -557,12 +557,12 @@ describe("deleteRange — error cases", () => {
       ],
     });
     const span = createSpan(createPosition("s" as BlockId, 0), createPosition("p" as BlockId, 1));
-    expect(() => deleteRange(state, span)).toThrow(/anchor block ".+" is a container/);
+    expect(() => deleteRange(document, span)).toThrow(/anchor block ".+" is a container/);
   });
 
   it("throws when an endpoint has null inlineContent (independent of firstChildId)", () => {
     // Pin the inlineContent === null arm of the container guard.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "p" }),
@@ -571,11 +571,11 @@ describe("deleteRange — error cases", () => {
       ],
     });
     const span = createSpan(createPosition("s" as BlockId, 0), createPosition("p" as BlockId, 1));
-    expect(() => deleteRange(state, span)).toThrow(/anchor block ".+" is a container/);
+    expect(() => deleteRange(document, span)).toThrow(/anchor block ".+" is a container/);
   });
 
   it("throws when the focus block is a container (firstChildId set)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "s" }),
@@ -585,11 +585,11 @@ describe("deleteRange — error cases", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("s" as BlockId, 1));
-    expect(() => deleteRange(state, span)).toThrow(/focus block ".+" is a container/);
+    expect(() => deleteRange(document, span)).toThrow(/focus block ".+" is a container/);
   });
 
   it("an OBJECT focus covers its whole block at offset 0 (removed, no join); any other offset is out of range", () => {
-    const state = (): Document => buildState({
+    const state = (): Document => buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "q" }),
@@ -600,12 +600,12 @@ describe("deleteRange — error cases", () => {
     });
     expect(() => deleteRange(state(), createSpan(createPosition("p" as BlockId, 0), createPosition("s" as BlockId, 1)))).toThrow(/focus offset 1 out of range/);
     const result = deleteRange(state(), createSpan(createPosition("p" as BlockId, 1), createPosition("s" as BlockId, 0)));
-    expect(flowShape(result.state, "doc")).toBe('p:"h" q:"yo"');
+    expect(flowShape(result.document, "doc")).toBe('p:"h" q:"yo"');
   });
 
   it("throws when the cross-block span has different parents (cross-parent not supported)", () => {
     // doc > [section1[p_a], section2[p_b]] — span across sections.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "section1", lastChildId: "section2" }),
@@ -616,7 +616,7 @@ describe("deleteRange — error cases", () => {
       ],
     });
     const span = createSpan(createPosition("p_a" as BlockId, 0), createPosition("p_b" as BlockId, 1));
-    expect(() => deleteRange(state, span)).toThrow(/cross-parent spans are not supported/);
+    expect(() => deleteRange(document, span)).toThrow(/cross-parent spans are not supported/);
   });
 
   it("throws when the cross-block span endpoints are in different selection contexts", () => {
@@ -629,7 +629,7 @@ describe("deleteRange — error cases", () => {
     // normalization. (Before T7c the same intent was caught earlier by the
     // getBlock-only existence guard's "focus block not found"; both errors express
     // the same invariant — refuse cross-tree spans — only the guard site differs.)
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -641,11 +641,11 @@ describe("deleteRange — error cases", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("fnp" as BlockId, 1));
-    expect(() => deleteRange(state, span)).toThrow(/have no common ancestor/);
+    expect(() => deleteRange(document, span)).toThrow(/have no common ancestor/);
   });
 
   it("throws when anchor offset is negative (same-block)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -653,11 +653,11 @@ describe("deleteRange — error cases", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, -1), createPosition("p" as BlockId, 1));
-    expect(() => deleteRange(state, span)).toThrow(/out of range/);
+    expect(() => deleteRange(document, span)).toThrow(/out of range/);
   });
 
   it("throws when focus offset exceeds inlineContentLength (same-block)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -665,11 +665,11 @@ describe("deleteRange — error cases", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 999));
-    expect(() => deleteRange(state, span)).toThrow(/out of range/);
+    expect(() => deleteRange(document, span)).toThrow(/out of range/);
   });
 
   it("throws when anchor offset exceeds inlineContentLength (cross-block)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -678,13 +678,13 @@ describe("deleteRange — error cases", () => {
       ],
     });
     const span = createSpan(createPosition("p1" as BlockId, 999), createPosition("p2" as BlockId, 1));
-    expect(() => deleteRange(state, span)).toThrow(/out of range/);
+    expect(() => deleteRange(document, span)).toThrow(/out of range/);
   });
 });
 
 describe("deleteRangeInTx — transaction guard", () => {
   it("throws when called outside any Y.Doc transaction", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -697,10 +697,10 @@ describe("deleteRangeInTx — transaction guard", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
-    const plan = planDeleteRange(state, span);
+    const plan = planDeleteRange(document, span);
     expect(plan).not.toBeNull();
     if (plan === null) return;
-    expect(() => deleteRangeInTx(state[STATE_INTERNAL].doc, plan)).toThrow(
+    expect(() => deleteRangeInTx(document[DOCUMENT_INTERNAL].doc, plan)).toThrow(
       /deleteRange: must be called inside Y\.Doc\.transact/,
     );
   });
@@ -708,7 +708,7 @@ describe("deleteRangeInTx — transaction guard", () => {
 
 describe("deleteRange — cross-block focus inside a surrogate pair", () => {
   it("snaps the focus OUT once: the moved suffix starts after the whole cluster", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "b1", lastChildId: "b2" }),
@@ -717,7 +717,7 @@ describe("deleteRange — cross-block focus inside a surrogate pair", () => {
       ],
     });
     const span = createSpan(createPosition("b1" as BlockId, 1), createPosition("b2" as BlockId, 1));
-    const result = deleteRange(state, span);
-    expect(getBlock(result.state, "b2" as BlockId)?.inlineContent?.items).toMatchObject([{ text: "acd" }]);
+    const result = deleteRange(document, span);
+    expect(getBlock(result.document, "b2" as BlockId)?.inlineContent?.items).toMatchObject([{ text: "acd" }]);
   });
 });

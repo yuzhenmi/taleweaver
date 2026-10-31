@@ -33,7 +33,7 @@ import { yMapAsObject } from "./y-utils";
 import { FORMATTING_SUGGESTION_ATTR, formattingSuggestionKey, type SuggestionId } from "./suggestions";
 import { getRegistry, type TreeKind } from "./registry";
 import { writeRoot, shapeOfNode, type TreeNode } from "./flow-ops";
-import { treesOf } from "./build-state-from-blocks";
+import { treesOf } from "./build-document-from-blocks";
 import type { BreakSuggestion } from "./break-tags";
 import { LEGACY_BREAK_JOIN_EMBED_TYPE, LEGACY_BREAK_SPLIT_EMBED_TYPE } from "./legacy-break-embeds";
 import { CROSS_REFERENCE_EMBED_TYPE } from "./ops/insert-cross-reference";
@@ -404,7 +404,7 @@ function writeLegacyBaseline(doc: Y.Doc): void {
 /**
  * The legacy blocks written since the upgrade froze the legacy roots — including
  * writes that landed while no compatibility gate was watching (between the upgrade /
- * `createState` and a backend subscribing). An item under a legacy root past the
+ * `createDocument` and a backend subscribing). An item under a legacy root past the
  * baseline state vector is a legacy insert; a block's deleted length past its baseline
  * is a legacy delete. A document never upgraded (created at schema 3) has an empty
  * baseline: any legacy item is a legacy write. O(legacy content).

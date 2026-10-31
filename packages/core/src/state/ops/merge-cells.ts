@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { Document, OperationResult } from "../state";
-import { applyOperation, getBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, getBlock } from "../document";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { requireInTransaction } from "../yjs-doc";
@@ -51,20 +51,20 @@ export interface MergeCellsPlan {
  * that is a single empty paragraph contributes nothing (Google Docs parity). Caret
  * positioning is the handler's concern.
  *
- * NO-OP (same `state` ref) when the range resolves to a single cell or the grid
+ * NO-OP (same `document` ref) when the range resolves to a single cell or the grid
  * can't be built. MAIN-TREE ONLY.
  */
-export function mergeCells(state: Document, range: CellRange): OperationResult {
-  const plan = planMergeCells(state, range);
-  if (plan === null) return { state, dirtyIds: new Set<BlockId>() };
-  return applyOperation(state, (doc) => {
+export function mergeCells(document: Document, range: CellRange): OperationResult {
+  const plan = planMergeCells(document, range);
+  if (plan === null) return { document, dirtyIds: new Set<BlockId>() };
+  return applyOperation(document, (doc) => {
     mergeCellsInTx(doc, plan);
   });
 }
 
 /** Build the merge plan, or null when the range is a single cell (nothing to merge). */
-export function planMergeCells(state: Document, range: CellRange): MergeCellsPlan | null {
-  const grid = buildTableGrid(state, range.tableId);
+export function planMergeCells(document: Document, range: CellRange): MergeCellsPlan | null {
+  const grid = buildTableGrid(document, range.tableId);
   if (grid === null) return null;
 
   const inRange = (gridRow: number, gridCol: number): boolean =>
@@ -81,7 +81,7 @@ export function planMergeCells(state: Document, range: CellRange): MergeCellsPla
     .sort((a, b) => (a.gridRow - b.gridRow) || (a.gridCol - b.gridCol));
   if (donors.length === 0) return null; // single-cell range → nothing to merge
 
-  const survivorBlock = getBlock(state, survivor.cellId);
+  const survivorBlock = getBlock(document, survivor.cellId);
   if (survivorBlock === null) return null;
 
   const newRowSpan = range.maxRow - range.minRow + 1;
@@ -93,8 +93,8 @@ export function planMergeCells(state: Document, range: CellRange): MergeCellsPla
   const donorCellIds: BlockId[] = [];
   for (const donor of donors) {
     donorCellIds.push(donor.cellId);
-    const children = getChildIds(state, donor.cellId);
-    if (isSingleEmptyParagraph(state, children)) {
+    const children = getChildIds(document, donor.cellId);
+    if (isSingleEmptyParagraph(document, children)) {
       deletedChildIds.push(...children); // the lone empty paragraph contributes nothing
     } else {
       migratedChildIds.push(...children);
@@ -102,8 +102,8 @@ export function planMergeCells(state: Document, range: CellRange): MergeCellsPla
   }
 
   // Row blocks in document order map 1:1 to grid rows (the table is non-ragged here).
-  const rowIds = getChildIds(state, range.tableId).filter(
-    (id) => getBlock(state, id)?.type === "table-row",
+  const rowIds = getChildIds(document, range.tableId).filter(
+    (id) => getBlock(document, id)?.type === "table-row",
   );
   const donorIdSet = new Set<BlockId>(donorCellIds);
   const rowChains: MergeCellsPlan["rowChains"][number][] = [];
@@ -156,10 +156,10 @@ function withSpan(attrs: ReadonlyAttrs, rowSpan: number, colSpan: number): Reado
  * its attrs). A child with `inlineContent === null` (a container, not a text block)
  * is conservatively NOT empty — its content migrates, never silently dropped.
  */
-function isSingleEmptyParagraph(state: Document, childIds: readonly BlockId[]): boolean {
+function isSingleEmptyParagraph(document: Document, childIds: readonly BlockId[]): boolean {
   const onlyChildId = childIds[0];
   if (childIds.length !== 1 || onlyChildId === undefined) return false;
-  const only = getBlock(state, onlyChildId);
+  const only = getBlock(document, onlyChildId);
   if (only === null || only.inlineContent === null) return false;
   return only.inlineContent.items.length === 0;
 }

@@ -22,7 +22,7 @@
  * SEPARATE (no merge) and the caret unchanged. A section boundary is a tracked
  * section join (`markSectionJoinSuggestion`).
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,

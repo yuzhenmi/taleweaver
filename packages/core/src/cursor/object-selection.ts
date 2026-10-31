@@ -1,5 +1,5 @@
 import { resolveBlock, positionsEqual } from "../state";
-import type { State, Selection, BlockId, BlockKindResolver } from "../state";
+import type { Document, Selection, BlockId, BlockKindResolver } from "../state";
 
 /**
  * Object-selection predicate: returns the selected atomic-leaf block id when
@@ -19,13 +19,13 @@ import type { State, Selection, BlockId, BlockKindResolver } from "../state";
  * guards. A main-tree block resolves identically through `resolveBlock`.
  */
 export function isObjectSelection(
-  state: State,
+  document: Document,
   selection: Selection,
   resolver: BlockKindResolver,
 ): BlockId | null {
   if (!positionsEqual(selection.anchor, selection.focus)) return null;
   if (selection.focus.offset !== 0) return null;
-  const resolved = resolveBlock(state, selection.focus.blockId);
+  const resolved = resolveBlock(document, selection.focus.blockId);
   if (resolved === null) return null;
   return resolver.getBlockKind(resolved.block.type) === "atomic-leaf"
     ? resolved.block.id

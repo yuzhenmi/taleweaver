@@ -8,7 +8,7 @@
 // partial-applies the document context into the `(targetId) => …` closure the
 // PDF page-emitter injects as `EmitPdfInput.resolveInternalDestination`.
 
-import type { State, BlockId } from "@taleweaver/core";
+import type { Document, BlockId } from "@taleweaver/core";
 import { asBlockId } from "@taleweaver/core";
 import type { VirtualLayoutTree } from "./virtual-layout-tree";
 import type { TextShaper } from "@taleweaver/core";
@@ -36,7 +36,7 @@ export interface InternalDestination {
  * `pointYUp`.
  */
 export function resolveGotoDestination(
-  state: State,
+  document: Document,
   targetId: BlockId,
   virtualTree: VirtualLayoutTree,
   shaper: TextShaper | TextMeasurer,
@@ -45,7 +45,7 @@ export function resolveGotoDestination(
   const page = pageOfFieldTarget(virtualTree.plan, targetId, parentOf);
   if (page < 0) return null;
   const pos = resolvePixelPosition(
-    state,
+    document,
     { blockId: targetId, offset: 0 },
     virtualTree,
     shaper,
@@ -61,11 +61,11 @@ export function resolveGotoDestination(
  * (the page-emitter's targetId/navTarget) and brands it via `asBlockId`.
  */
 export function makeInternalDestinationResolver(
-  state: State,
+  document: Document,
   virtualTree: VirtualLayoutTree,
   shaper: TextShaper | TextMeasurer,
   parentOf: BlockParentLookup,
 ): (targetId: string) => InternalDestination | null {
   return (targetId: string) =>
-    resolveGotoDestination(state, asBlockId(targetId), virtualTree, shaper, parentOf);
+    resolveGotoDestination(document, asBlockId(targetId), virtualTree, shaper, parentOf);
 }

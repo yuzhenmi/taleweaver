@@ -22,7 +22,7 @@ and dispatches a geometry-free `SET_SELECTION` / `DELETE_RANGE` back to core.
 specialized helpers it composes.
 
 - **`editor-controller/`** (file: `editor-controller.ts`) — the host
-  orchestrator. Owns one HTML container. On every `update(state)` call,
+  orchestrator. Owns one HTML container. On every `update(document)` call,
   it diffs against the previous state, paints, syncs scroll, repositions
   the cursor, and fires the cursor-blink animation. It also installs DOM
   event listeners (keyboard, mouse, scroll, IME composition, resize) and
@@ -87,7 +87,7 @@ specialized helpers it composes.
   runs render → cascade (main + template + embed bodies) → layout and returns
   the `LayoutBox | VirtualLayoutTree`. It RETAINS the prior cycle's five trees
   (render output, main/template/embed cascaded trees, layout tree) plus the prior
-  `Document` (`prevState`) as closure
+  `Document` (`prevDocument`) as closure
   state, so a non-null `lastDirtyIds` drives an INCREMENTAL rebuild that reuses
   unchanged subtrees by reference (`null` = full rebuild: initial / resize); the same
   `Document` + width with no dirty set (a selection-only dispatch) returns the prior tree
@@ -219,7 +219,7 @@ controller per editor, and the controller composes the other modules.
 
 Two entry surfaces:
 - **Up to the host** (`@taleweaver/react` or other consumers): the
-  controller exposes `update(state)`, `focus()`, `destroy()`. The host
+  controller exposes `update(document)`, `focus()`, `destroy()`. The host
   drives the lifecycle.
 - **Down to `core`**: the controller dispatches `EditorAction`s (resolving
   `NavIntent`s to them first), reads `EditorState` (`.state` +

@@ -23,7 +23,7 @@ import {
 import {
   getBlock,
   getEmbedContent,
-  getListDefsForState,
+  getListDefsForDocument,
   classifyListDef,
   createPosition,
   createSpan,
@@ -143,7 +143,7 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
     // handler's number-mode gate rejects unordered items, so this proves the
     // positive path passes the real gate.
     const listId = targetBlock?.attrs["listId"];
-    const def = typeof listId === "string" ? getListDefsForState(doc.document).get(listId) : undefined;
+    const def = typeof listId === "string" ? getListDefsForDocument(doc.document).get(listId) : undefined;
     expect(def !== undefined && classifyListDef(def) === "ordered").toBe(true);
 
     // Caret back into the host paragraph (the last child), at its end.
@@ -181,7 +181,7 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
     doc = reduceEditor(doc, { type: "SET_SELECTION", selection: createSpan(targetStart, targetStart) });
     doc = reduceEditor(doc, { type: "TOGGLE_LIST", listType: "unordered" });
     const listId = getBlock(doc.document, targetId)?.attrs["listId"];
-    const def = typeof listId === "string" ? getListDefsForState(doc.document).get(listId) : undefined;
+    const def = typeof listId === "string" ? getListDefsForDocument(doc.document).get(listId) : undefined;
     expect(def !== undefined && classifyListDef(def) === "unordered").toBe(true);
 
     const hostId = bodyBlockIds(doc.document).at(-1);

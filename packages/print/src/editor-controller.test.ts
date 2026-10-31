@@ -141,7 +141,7 @@ vi.mock("@taleweaver/core", async () => {
       ),
     ),
     extractText: vi.fn(() => "hello"),
-    extractFragment: vi.fn((state: core.State, _span: core.Span) => state),
+    extractFragment: vi.fn((document: core.Document, _span: core.Span) => document),
     encodeHtml: vi.fn(() => "<p>hello</p>"),
     encodeFragmentClip: vi.fn(() => "MOCK_CLIP_BASE64"),
     TALEWEAVER_CLIP_MIME: actual.TALEWEAVER_CLIP_MIME,
@@ -198,7 +198,7 @@ let originalGetContext: PropertyDescriptor | undefined;
 // Real EditorState produced by the public-API factory. The empty document it
 // creates is geometry-free (Phase 0b: `EditorState` no longer carries
 // `layoutTree`); the controller builds the layout tree via its backend driver
-// from `state.state`. Tests only assert shape, not specific dimensions, so the
+// from `state.document`. Tests only assert shape, not specific dimensions, so the
 // non-paginated tests let the (mocked) driver delegate to the real layout.
 const fakeEditorBase: core.EditorState = core.createInitialEditorState({
   componentRegistry: core.createDefaultComponentRegistry(),

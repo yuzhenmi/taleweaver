@@ -7,7 +7,7 @@
  * embeds (slices 0-2); these tests assert via the `getComments` read surface and
  * via the marker embeds in the affected blocks' inline content.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,

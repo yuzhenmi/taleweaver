@@ -17,13 +17,13 @@ import {
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   reduceEditor,
-  createEditorStateFromState,
-  initialSelectionForState,
+  createEditorStateFromDocument,
+  initialSelectionForDocument,
   type EditorAction,
   type EditorState,
   type EditorConfig,
   type PageConfig,
-  type State,
+  type Document,
   type TextShaper,
   type Hyphenator,
 } from "@taleweaver/core";
@@ -72,7 +72,7 @@ export interface UseCollabEditorResult {
  * Bind one editing pane to the `sharedDoc` (a seed `Document` over the shared
  * Y.Doc). `selfOrigin` is this pane's stable peer identity (e.g. "peer-a").
  */
-export function useCollabEditor(peerDoc: State): UseCollabEditorResult {
+export function useCollabEditor(peerDoc: Document): UseCollabEditorResult {
   const configRef = useRef<EditorConfig | null>(null);
   if (configRef.current === null) {
     configRef.current = createConfig();
@@ -88,7 +88,7 @@ export function useCollabEditor(peerDoc: State): UseCollabEditorResult {
   const [editorState, setEditorState] = useState<EditorState>(() =>
     // Build with this peer's origin so its History's UndoManager tracks ONLY its
     // own edits (undo isolation) — no default-History-then-replace dance.
-    createEditorStateFromState(peerDoc, initialSelectionForState(peerDoc), config),
+    createEditorStateFromDocument(peerDoc, initialSelectionForDocument(peerDoc), config),
   );
 
   // Always-current state ref so the dispatch closure reads the latest without

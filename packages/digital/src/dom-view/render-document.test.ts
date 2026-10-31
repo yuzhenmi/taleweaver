@@ -11,7 +11,7 @@ import {
   createDefaultAttrRegistry,
   productionAllocator,
   type ContainerBlockNode,
-  type State,
+  type Document,
 } from "@taleweaver/core";
 import { renderDocumentToDom } from "./render-to-dom";
 
@@ -26,7 +26,7 @@ const attrs = createDefaultAttrRegistry();
 // carries `{ type: "paragraph", inlineContent: { items: [TextItem] } }`.
 // buildDocumentFromTree(root, listDefs, allocator) — note the 3-arg signature
 // and that `productionAllocator` is a value, not a factory.
-function helloDoc(): State {
+function helloDoc(): Document {
   const tree: ContainerBlockNode = {
     type: "document",
     children: [

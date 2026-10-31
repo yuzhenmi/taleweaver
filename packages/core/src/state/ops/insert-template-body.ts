@@ -1,5 +1,5 @@
-import type { Document, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
 import type { BlockId, IdAllocator } from "../block-id";
 import { mergeAttrs } from "../attrs";
 import { writeRoot, writeBlockAttrs } from "../flow-ops";
@@ -75,13 +75,13 @@ const REGION_ATTR_KEY: Record<TemplateRegion, "headerBlockId" | "footerBlockId">
  * rather than creating a duplicate.
  */
 export function insertTemplateBody(
-  state: Document,
+  document: Document,
   args: InsertTemplateBodyArgs,
   allocator: IdAllocator,
 ): InsertTemplateBodyResult {
   const { region, sectionBlockId } = args;
 
-  const resolved = resolveBlock(state, sectionBlockId);
+  const resolved = resolveBlock(document, sectionBlockId);
   if (resolved === null) {
     throw new Error(`insertTemplateBody: section block "${sectionBlockId}" not found`);
   }
@@ -103,7 +103,7 @@ export function insertTemplateBody(
   const bodyRootId = allocator.allocate();
   const firstParagraphId = allocator.allocate();
 
-  const result = applyOperation(state, (doc) => {
+  const result = applyOperation(document, (doc) => {
     // Dev-mode defense against allocator id collision (counter-based test
     // allocators can collide with seeded state). Checks all three trees.
     assertNoIdCollision(doc, bodyRootId, "insertTemplateBody");
@@ -126,7 +126,7 @@ export function insertTemplateBody(
   });
 
   return {
-    state: result.state,
+    document: result.document,
     dirtyIds: result.dirtyIds,
     bodyRootId,
     firstParagraphId,

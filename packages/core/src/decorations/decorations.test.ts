@@ -137,8 +137,8 @@ describe("DecorationSet", () => {
     const { editor, p1, p2 } = twoParas();
     const flags = (): DecorationSet =>
       createDecorationSet(editor.document, [{ kind: "block", id: "f1", blockId: p1 }, { kind: "block", id: "f2", blockId: p2 }]);
-    const via = (r: { state: typeof editor.document; dirtyIds: ReadonlySet<BlockId> }) =>
-      mapDecorationSet(flags(), createPositionMapping(editor.document, r.state, r.dirtyIds), r.state).decorations.map((d) => d.id);
+    const via = (r: { document: typeof editor.document; dirtyIds: ReadonlySet<BlockId> }) =>
+      mapDecorationSet(flags(), createPositionMapping(editor.document, r.document, r.dirtyIds), r.document).decorations.map((d) => d.id);
     for (const b of iterateLeafBlocksInDocumentOrder(editor.document)) void b;
     // Typing keeps both.
     expect(via(insertText(editor.document, createPosition(p1, 2), "x", {}))).toEqual(["f1", "f2"]);

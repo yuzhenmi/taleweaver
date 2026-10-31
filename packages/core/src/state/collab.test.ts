@@ -1,16 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { subscribeForeignChanges } from "./collab";
-import { applyOperation } from "./state";
+import { applyOperation } from "./document";
 import { getYBlock, runWithTransactionOrigin } from "./yjs-doc";
 import { asBlockId, type BlockId } from "./block-id";
-import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
+import { buildDocument, buildBlock, inlineContent, text } from "../test-utils/document-builders";
 import { legacyInline } from "../test-utils/legacy-fixture";
-import { STATE_INTERNAL } from "./state-internal";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import * as Y from "yjs";
 
 /** A one-paragraph doc whose body block "p" we can mutate to drive transactions. */
-function makeState() {
-  return buildState({
+function makeDocument() {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -25,9 +25,9 @@ function makeState() {
 }
 
 /** Mutate block "p" inside a transaction tagged with `origin` (simulates a peer). */
-function editBlockP(state: ReturnType<typeof makeState>, origin: unknown): void {
+function editBlockP(document: ReturnType<typeof makeDocument>, origin: unknown): void {
   applyOperation(
-    state,
+    document,
     (doc) => {
       // getYBlock throws if "p" is missing — the fixture guarantees it exists.
       getYBlock(doc, asBlockId("p"), "collab-test").set("type", "heading");
@@ -42,38 +42,38 @@ const noLegacy = (): void => {
 
 describe("subscribeForeignChanges (collab seam)", () => {
   it("fires with the dirtied block ids for a FOREIGN-origin transaction", () => {
-    const state = makeState();
+    const document = makeDocument();
     const seen: BlockId[] = [];
-    const unsub = subscribeForeignChanges(state, "self", (ids) => seen.push(...ids), noLegacy);
+    const unsub = subscribeForeignChanges(document, "self", (ids) => seen.push(...ids), noLegacy);
 
-    editBlockP(state, "peerB"); // foreign origin
+    editBlockP(document, "peerB"); // foreign origin
 
     expect(seen).toContain(asBlockId("p"));
     unsub();
   });
 
   it("does NOT fire for a SELF-origin transaction (the host's own edit)", () => {
-    const state = makeState();
+    const document = makeDocument();
     let calls = 0;
-    const unsub = subscribeForeignChanges(state, "self", () => {
+    const unsub = subscribeForeignChanges(document, "self", () => {
       calls += 1;
     }, noLegacy);
 
-    editBlockP(state, "self"); // self origin — applyOperation already handled it
+    editBlockP(document, "self"); // self origin — applyOperation already handled it
 
     expect(calls).toBe(0);
     unsub();
   });
 
   it("stops firing after unsubscribe", () => {
-    const state = makeState();
+    const document = makeDocument();
     let calls = 0;
-    const unsub = subscribeForeignChanges(state, "self", () => {
+    const unsub = subscribeForeignChanges(document, "self", () => {
       calls += 1;
     }, noLegacy);
     unsub();
 
-    editBlockP(state, "peerB");
+    editBlockP(document, "peerB");
 
     expect(calls).toBe(0);
   });
@@ -82,14 +82,14 @@ describe("subscribeForeignChanges (collab seam)", () => {
   // ambient origin (no explicit origin arg on the op needed) — the mechanism a
   // collab host uses to stamp all of one dispatch's edits with its peer origin.
   it("ambient origin (runWithTransactionOrigin) is treated as SELF by the matching observer", () => {
-    const state = makeState();
+    const document = makeDocument();
     let calls = 0;
-    const unsub = subscribeForeignChanges(state, "peerA", () => {
+    const unsub = subscribeForeignChanges(document, "peerA", () => {
       calls += 1;
     }, noLegacy);
 
     runWithTransactionOrigin("peerA", () => {
-      applyOperation(state, (doc) => {
+      applyOperation(document, (doc) => {
         getYBlock(doc, asBlockId("p"), "collab-test").set("type", "heading");
       });
     });
@@ -99,12 +99,12 @@ describe("subscribeForeignChanges (collab seam)", () => {
   });
 
   it("ambient origin is FOREIGN to a different peer's observer", () => {
-    const state = makeState();
+    const document = makeDocument();
     const seen: BlockId[] = [];
-    const unsub = subscribeForeignChanges(state, "peerB", (ids) => seen.push(...ids), noLegacy);
+    const unsub = subscribeForeignChanges(document, "peerB", (ids) => seen.push(...ids), noLegacy);
 
     runWithTransactionOrigin("peerA", () => {
-      applyOperation(state, (doc) => {
+      applyOperation(document, (doc) => {
         getYBlock(doc, asBlockId("p"), "collab-test").set("type", "heading");
       });
     });
@@ -116,11 +116,11 @@ describe("subscribeForeignChanges (collab seam)", () => {
 
 describe("subscribeForeignChanges — legacy storage halts the subscription until compatible", () => {
   it("a peer write into the FROZEN legacy roots halts once (sticky) with the touched block and its legacy text", () => {
-    const state = makeState();
-    const doc = state[STATE_INTERNAL].doc;
+    const document = makeDocument();
+    const doc = document[DOCUMENT_INTERNAL].doc;
     const events: string[] = [];
     const unsub = subscribeForeignChanges(
-      state,
+      document,
       "self",
       (ids) => events.push(`change:${[...ids].join(",")}`),
       (report) => events.push(`incompatible:${report.reason}:${report.legacyBlocks.join(",")}:${JSON.stringify(report.legacyText)}`),
@@ -132,23 +132,23 @@ describe("subscribeForeignChanges — legacy storage halts the subscription unti
       legacy.set("inlineContent", legacyInline([text("old")]));
       doc.getMap<Y.Map<unknown>>("blocks").set("p", legacy);
     }, "peer");
-    editBlockP(state, "peer"); // halted: withheld, no second report
+    editBlockP(document, "peer"); // halted: withheld, no second report
     expect(events).toEqual(['incompatible:legacy-write:p:{"p":"old"}']);
     unsub();
   });
 
   it("startHalted on a document already compatible at subscribe: onCompatible on a microtask, changes reported", async () => {
-    const state = makeState();
+    const document = makeDocument();
     const events: string[] = [];
     const unsub = subscribeForeignChanges(
-      state,
+      document,
       "self",
       () => events.push("change"),
       () => events.push("incompatible"),
       () => events.push("compatible"),
       { startHalted: true },
     );
-    editBlockP(state, "peer"); // inspected at subscribe: no legacy block, not halted
+    editBlockP(document, "peer"); // inspected at subscribe: no legacy block, not halted
     expect(events).toEqual(["change"]);
     await Promise.resolve();
     expect(events).toEqual(["change", "compatible"]);

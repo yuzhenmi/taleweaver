@@ -63,14 +63,14 @@ function buildRealLayout(): {
       },
     ],
   };
-  const state = buildDocumentFromTree(doc, {}, createTestAllocator("pdf-emit"), TEST_RESOLVER);
-  const rendered = render(state, componentRegistry, attrRegistry);
+  const document = buildDocumentFromTree(doc, {}, createTestAllocator("pdf-emit"), TEST_RESOLVER);
+  const rendered = render(document, componentRegistry, attrRegistry);
   const cascaded = cascadePass(rendered.root);
   const layout = layoutTree(cascaded, CONTAINER_WIDTH, measurer, pageConfig());
   if (layout.type !== "virtual-root") {
     throw new Error("buildRealLayout: expected a paginated VirtualLayoutTree");
   }
-  return { tree: layout, accessibilityTree: buildAccessibilityTree(state) };
+  return { tree: layout, accessibilityTree: buildAccessibilityTree(document) };
 }
 
 function emitInput(overrides: Partial<PrintPdfEmitInput>): PrintPdfEmitInput {

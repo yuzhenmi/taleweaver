@@ -1,9 +1,9 @@
 import * as Y from "yjs";
 import { requireBlockText } from "../block-text";
-import type { Document, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
 import { iterateBlocksInDocumentOrder } from "../document-order";
-import { STATE_INTERNAL } from "../state-internal";
+import { DOCUMENT_INTERNAL } from "../document-internal";
 import type { BlockId } from "../block-id";
 import type { Span } from "../block-position";
 import { spanStart, spanEnd } from "../block-compare";
@@ -67,7 +67,7 @@ export interface AddReplyInput {
  * responsible for the collapsed / cross-context / non-main-body guards.)
  */
 export function addComment(
-  state: Document,
+  document: Document,
   span: Span,
   input: AddCommentInput,
 ): OperationResult {
@@ -77,12 +77,12 @@ export function addComment(
   // overwrite the record AND leave a duplicate-marker comment — the precondition
   // the `deleteComment` full-scan defends against). Mirrors `setResolved`'s
   // absent-guard short-circuit (the identity-no-op contract).
-  if (getCommentsMap(state[STATE_INTERNAL].doc).get(input.id) !== undefined) {
-    return { state, dirtyIds: NO_DIRTY };
+  if (getCommentsMap(document[DOCUMENT_INTERNAL].doc).get(input.id) !== undefined) {
+    return { document, dirtyIds: NO_DIRTY };
   }
-  const start = spanStart(state, span);
-  const end = spanEnd(state, span);
-  const writes = planCommentMarkers(state, start, end, input.id);
+  const start = spanStart(document, span);
+  const end = spanEnd(document, span);
+  const writes = planCommentMarkers(document, start, end, input.id);
   const record: CommentRecord = {
     id: input.id,
     author: input.author,
@@ -91,7 +91,7 @@ export function addComment(
     replies: [],
     resolved: false,
   };
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     applyCommentMarkerWritesInTx(doc, writes);
     writeCommentRecordInTx(doc, record);
   });
@@ -99,42 +99,42 @@ export function addComment(
 
 /**
  * Mark a comment resolved. Tracked op (the `comments` map is in the
- * UndoManager's scopes). Identity no-op (returns the same `state` reference, so
+ * UndoManager's scopes). Identity no-op (returns the same `document` reference, so
  * the editor short-circuits per the identity-no-op contract) if the comment is absent or
  * already resolved. A real flip surfaces `state.rootId` as the dirtyId (the
  * `comments` map is excluded from dirty-capture) so the op advances state and
  * lands a committable, undoable entry — see {@link setResolved}.
  */
-export function resolveComment(state: Document, id: CommentId): OperationResult {
-  return setResolved(state, id, true);
+export function resolveComment(document: Document, id: CommentId): OperationResult {
+  return setResolved(document, id, true);
 }
 
 /**
  * Reopen a resolved comment. Tracked op. Identity no-op if the comment is
  * absent or already open.
  */
-export function reopenComment(state: Document, id: CommentId): OperationResult {
-  return setResolved(state, id, false);
+export function reopenComment(document: Document, id: CommentId): OperationResult {
+  return setResolved(document, id, false);
 }
 
-function setResolved(state: Document, id: CommentId, resolved: boolean): OperationResult {
-  const doc = state[STATE_INTERNAL].doc;
+function setResolved(document: Document, id: CommentId, resolved: boolean): OperationResult {
+  const doc = document[DOCUMENT_INTERNAL].doc;
   const yRecord = getCommentsMap(doc).get(id);
-  if (yRecord === undefined) return { state, dirtyIds: NO_DIRTY };
-  if (yRecord.get("resolved") === resolved) return { state, dirtyIds: NO_DIRTY };
-  return applyOperation(state, (d) => {
+  if (yRecord === undefined) return { document, dirtyIds: NO_DIRTY };
+  if (yRecord.get("resolved") === resolved) return { document, dirtyIds: NO_DIRTY };
+  return applyOperation(document, (d) => {
     const rec = getCommentsMap(d).get(id);
     if (rec !== undefined) rec.set("resolved", resolved);
     // The `comments` map is EXCLUDED from dirty-capture (a side-table, not a
     // block tree — see `yjs-doc.ts`), so this flip alone would capture no
-    // dirtyId, making `applyOperation` short-circuit to the input `state`
+    // dirtyId, making `applyOperation` short-circuit to the input `document`
     // (identity) and `History.commit` drop the entry (`dirtyIds.size === 0` →
     // no StackItem committed → the tracked map mutation lands an ORPHAN
     // StackItem with no SelectionEntry, crashing the next undo). Surface the
     // document root so the flip advances state and lands a tracked, undoable
     // entry — the same `extra`-channel pattern `deleteComment` uses for its
     // orphaned-by-absence case.
-    return new Set<BlockId>([state.rootId]);
+    return new Set<BlockId>([document.rootId]);
   });
 }
 
@@ -166,13 +166,13 @@ function setResolved(state: Document, id: CommentId, resolved: boolean): Operati
  * affected dirtyId via the op-contributed `extra` channel (mirrors how
  * `setListType` surfaces affected block ids for its side-table-only write).
  */
-export function deleteComment(state: Document, id: CommentId): OperationResult {
-  const doc = state[STATE_INTERNAL].doc;
+export function deleteComment(document: Document, id: CommentId): OperationResult {
+  const doc = document[DOCUMENT_INTERNAL].doc;
   const hasRecord = getCommentsMap(doc).get(id) !== undefined;
-  const writes = planMarkerStrip(state, id);
-  if (!hasRecord && writes.length === 0) return { state, dirtyIds: NO_DIRTY };
+  const writes = planMarkerStrip(document, id);
+  if (!hasRecord && writes.length === 0) return { document, dirtyIds: NO_DIRTY };
 
-  return applyOperation(state, (d) => {
+  return applyOperation(document, (d) => {
     for (const write of writes) {
       requireInTransaction(d, "deleteComment");
       const yText = requireBlockText(doc, write.blockId, "deleteComment");
@@ -185,31 +185,31 @@ export function deleteComment(state: Document, id: CommentId): OperationResult {
     // delete alone would capture no dirtyId (the map is excluded from
     // dirty-capture). Surface the document root so the record delete advances
     // state and lands a tracked, undoable entry.
-    if (writes.length === 0) return new Set<BlockId>([state.rootId]);
+    if (writes.length === 0) return new Set<BlockId>([document.rootId]);
   });
 }
 
 /**
  * Append a reply to a comment thread. Pushes a reply `Y.Map` onto the record's
- * `replies` `Y.Array` (tracked). Identity no-op (same `state` reference) if the
+ * `replies` `Y.Array` (tracked). Identity no-op (same `document` reference) if the
  * comment is absent. A real push surfaces `state.rootId` as the dirtyId (the
  * `comments` map is excluded from dirty-capture) so the op advances state and
  * lands a committable, undoable entry — mirrors {@link setResolved}.
  */
 export function addReply(
-  state: Document,
+  document: Document,
   id: CommentId,
   input: AddReplyInput,
 ): OperationResult {
-  const doc = state[STATE_INTERNAL].doc;
-  if (getCommentsMap(doc).get(id) === undefined) return { state, dirtyIds: NO_DIRTY };
+  const doc = document[DOCUMENT_INTERNAL].doc;
+  if (getCommentsMap(doc).get(id) === undefined) return { document, dirtyIds: NO_DIRTY };
   const reply: CommentReply = {
     id: input.replyId,
     author: input.author,
     body: input.body,
     createdAt: input.createdAt,
   };
-  return applyOperation(state, (d) => {
+  return applyOperation(document, (d) => {
     const yRecord = getCommentsMap(d).get(id);
     if (yRecord === undefined) return;
     const yReplies = yRecord.get("replies");
@@ -224,10 +224,10 @@ export function addReply(
     // The `comments` map is EXCLUDED from dirty-capture (a side-table, not a
     // block tree), so this reply push alone would capture no dirtyId — the same
     // hazard `setResolved` documents: `applyOperation` short-circuits to the
-    // input `state` (identity) and `History.commit` drops the entry, leaving an
+    // input `document` (identity) and `History.commit` drops the entry, leaving an
     // orphan StackItem that crashes the next undo. Surface the document root so
     // the push advances state and lands a tracked, undoable entry.
-    return new Set<BlockId>([state.rootId]);
+    return new Set<BlockId>([document.rootId]);
   });
 }
 
@@ -249,7 +249,7 @@ interface StripWrite {
  * `resolveBlock` for each owning block — so every marker for `id` is stripped,
  * not only the range index's two first-seen endpoint blocks (see below).
  */
-function planMarkerStrip(state: Document, id: CommentId): StripWrite[] {
+function planMarkerStrip(document: Document, id: CommentId): StripWrite[] {
   // Scan EVERY block (the SAME full-document walk `buildCommentRangeIndex` uses)
   // and strip markers for `id` wherever they appear — NOT only the range index's
   // two first-seen endpoint blocks. The index records only the first start and
@@ -260,7 +260,7 @@ function planMarkerStrip(state: Document, id: CommentId): StripWrite[] {
   // the strip scope uniform with the resolver's scan. `deleteComment` is rare, so
   // the O(N inline-items) walk is not a hot path.
   const writes: StripWrite[] = [];
-  for (const block of iterateBlocksInDocumentOrder(state)) {
+  for (const block of iterateBlocksInDocumentOrder(document)) {
     const content = block.inlineContent;
     if (content === null) continue;
     const offsets: number[] = [];
@@ -270,7 +270,7 @@ function planMarkerStrip(state: Document, id: CommentId): StripWrite[] {
       pos += item.kind === "text" ? item.text.length : 1;
     }
     if (offsets.length === 0) continue;
-    const resolved = resolveBlock(state, block.id);
+    const resolved = resolveBlock(document, block.id);
     if (resolved === null) continue; // unreachable: an iterated block resolves.
     writes.push({
       blockId: block.id,

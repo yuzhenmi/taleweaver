@@ -1,5 +1,5 @@
 import { inlineContentLength, resolveBlock } from "../../../state";
-import type { BlockId, State } from "../../../state";
+import type { BlockId, Document } from "../../../state";
 
 /**
  * The end (last) offset of `blockId` — its inline-content length, or 0 for a
@@ -7,8 +7,8 @@ import type { BlockId, State } from "../../../state";
  * so a footnote/header/footer body block is read from its own tree. Returns null
  * if the block is unresolvable.
  */
-export function endOffsetOf(state: State, blockId: BlockId): number | null {
-  const resolved = resolveBlock(state, blockId);
+export function endOffsetOf(document: Document, blockId: BlockId): number | null {
+  const resolved = resolveBlock(document, blockId);
   if (resolved === null) return null;
   return resolved.block.inlineContent === null
     ? 0

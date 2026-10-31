@@ -3,12 +3,12 @@ import { collectFootnoteAnchors } from "./collect-anchors";
 import { FOOTNOTE_ANCHOR_EMBED_TYPE } from "../state";
 import {
   buildBlock,
-  buildState,
+  buildDocument,
   inlineContent,
   text,
   embed,
   finalSectionOf,
-} from "../test-utils/state-builders";
+} from "../test-utils/document-builders";
 
 /** A footnote-anchor EmbedItem pointing at `bodyRootId`. */
 function fnAnchor(bodyRootId: string) {
@@ -17,7 +17,7 @@ function fnAnchor(bodyRootId: string) {
 
 describe("collectFootnoteAnchors — no anchors", () => {
   it("returns empty for a doc with no footnote embeds", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -29,13 +29,13 @@ describe("collectFootnoteAnchors — no anchors", () => {
         }),
       ],
     });
-    expect(collectFootnoteAnchors(state)).toEqual([]);
+    expect(collectFootnoteAnchors(document)).toEqual([]);
   });
 });
 
 describe("collectFootnoteAnchors — document order across blocks", () => {
   it("emits anchors in document order across multiple paragraphs", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -72,10 +72,10 @@ describe("collectFootnoteAnchors — document order across blocks", () => {
         buildBlock({ id: "fb2", type: "footnote-body", parentId: null }),
       ],
     });
-    const anchors = collectFootnoteAnchors(state);
+    const anchors = collectFootnoteAnchors(document);
     expect(anchors.map((a) => a.contentBlockId)).toEqual(["fb1", "fb2"]);
     // A section-less document's blocks sit in its final section.
-    const F = finalSectionOf(state);
+    const F = finalSectionOf(document);
     expect(anchors[0]).toEqual({ contentBlockId: "fb1", blockId: "p1", sectionId: F });
     expect(anchors[1]).toEqual({ contentBlockId: "fb2", blockId: "p3", sectionId: F });
   });
@@ -83,7 +83,7 @@ describe("collectFootnoteAnchors — document order across blocks", () => {
 
 describe("collectFootnoteAnchors — multiple anchors in one block", () => {
   it("emits in inlineContent order within a single block", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -105,7 +105,7 @@ describe("collectFootnoteAnchors — multiple anchors in one block", () => {
         buildBlock({ id: "fbB", type: "footnote-body", parentId: null }),
       ],
     });
-    const anchors = collectFootnoteAnchors(state);
+    const anchors = collectFootnoteAnchors(document);
     expect(anchors.map((a) => a.contentBlockId)).toEqual(["fbA", "fbB"]);
     expect(anchors.every((a) => a.blockId === "p")).toBe(true);
   });
@@ -121,7 +121,7 @@ describe("collectFootnoteAnchors — sections", () => {
     //  │   └─ p1                          → anchor fb1, sectionId s1
     //  └─ section s2
     //      └─ p2                          → anchor fb2, sectionId s2
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -173,7 +173,7 @@ describe("collectFootnoteAnchors — sections", () => {
         buildBlock({ id: "fb2", type: "footnote-body", parentId: null }),
       ],
     });
-    const anchors = collectFootnoteAnchors(state);
+    const anchors = collectFootnoteAnchors(document);
     expect(anchors).toEqual([
       { contentBlockId: "fb0", blockId: "p0", sectionId: "s1" },
       { contentBlockId: "fb1", blockId: "p1", sectionId: "s1" },
@@ -184,7 +184,7 @@ describe("collectFootnoteAnchors — sections", () => {
 
 describe("collectFootnoteAnchors — ignores non-footnote / malformed embeds", () => {
   it("skips embeds of other types and footnote anchors without a contentBlockId", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -206,7 +206,7 @@ describe("collectFootnoteAnchors — ignores non-footnote / malformed embeds", (
         buildBlock({ id: "fbReal", type: "footnote-body", parentId: null }),
       ],
     });
-    const anchors = collectFootnoteAnchors(state);
+    const anchors = collectFootnoteAnchors(document);
     expect(anchors.map((a) => a.contentBlockId)).toEqual(["fbReal"]);
   });
 });

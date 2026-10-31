@@ -3,11 +3,11 @@
  *
  * Proves the barrel compiles and surfaces a representative symbol from each
  * layer (types/access, utilities, ops, history, boot), and — critically —
- * that the state-module-private `STATE_INTERNAL` symbol plus the internal
+ * that the state-module-private `DOCUMENT_INTERNAL` symbol plus the internal
  * write-list / clone machinery are NOT reachable through the barrel (the Yjs
  * encapsulation and the public-op surface must not leak).
  */
-import { TEST_RESOLVER } from "../test-utils/state-builders";
+import { TEST_RESOLVER } from "../test-utils/document-builders";
 import { describe, expect, it } from "vitest";
 
 // Namespace import: lets us assert the absence of infra symbols by inspecting
@@ -15,14 +15,14 @@ import { describe, expect, it } from "vitest";
 import * as barrel from "./index";
 // The state-module-private encapsulation symbol — imported here (legal from
 // inside state/) so the test can prove its VALUE never leaks through the
-// barrel, not merely that no export is named "STATE_INTERNAL".
-import { STATE_INTERNAL } from "./state-internal";
+// barrel, not merely that no export is named "DOCUMENT_INTERNAL".
+import { DOCUMENT_INTERNAL } from "./document-internal";
 
 // Representative named imports through the barrel — one per layer. If any of
 // these were missing from the barrel this file would fail to compile.
 import {
   // Layer 1 — types & access primitives
-  createState,
+  createDocument,
   getBlock,
   createPosition,
   createSpan,
@@ -50,7 +50,7 @@ import {
 
 describe("state/index barrel — layer surface", () => {
   it("surfaces Layer 1 types & access primitives", () => {
-    expect(typeof createState).toBe("function");
+    expect(typeof createDocument).toBe("function");
     expect(typeof getBlock).toBe("function");
     expect(typeof createPosition).toBe("function");
     expect(typeof createSpan).toBe("function");
@@ -87,17 +87,17 @@ describe("state/index barrel — layer surface", () => {
   it("end-to-end: the barrel's symbols compose into a usable pipeline", () => {
     // Build an empty doc, insert text, read it back — all through the barrel.
     const allocator = createTestAllocator();
-    const state = createEmptyDocument({ resolver: TEST_RESOLVER, allocator });
-    const root = getBlock(state, state.rootId);
+    const document = createEmptyDocument({ resolver: TEST_RESOLVER, allocator });
+    const root = getBlock(document, document.rootId);
     expect(root).not.toBeNull();
     // root → its final section → the seeded paragraph.
     const section = root?.firstChildId;
-    const paragraphId = section ? getBlock(state, section)?.firstChildId : null;
+    const paragraphId = section ? getBlock(document, section)?.firstChildId : null;
     expect(paragraphId).toBeTruthy();
     if (!paragraphId) throw new Error("seeded paragraph missing");
 
-    const { state: next } = insertText(
-      state,
+    const { document: next } = insertText(
+      document,
       createPosition(paragraphId, 0),
       "hi",
       {},
@@ -111,15 +111,15 @@ describe("state/index barrel — layer surface", () => {
 });
 
 describe("state/index barrel — encapsulation", () => {
-  it("does NOT re-export STATE_INTERNAL (Yjs encapsulation stays closed)", () => {
-    // No export NAMED "STATE_INTERNAL"...
-    expect("STATE_INTERNAL" in barrel).toBe(false);
+  it("does NOT re-export DOCUMENT_INTERNAL (Yjs encapsulation stays closed)", () => {
+    // No export NAMED "DOCUMENT_INTERNAL"...
+    expect("DOCUMENT_INTERNAL" in barrel).toBe(false);
     // ...and the symbol VALUE is absent from the barrel's export set under ANY
-    // name (catches a hypothetical `export { STATE_INTERNAL as x }` leak that a
+    // name (catches a hypothetical `export { DOCUMENT_INTERNAL as x }` leak that a
     // string-key check alone would miss). The symbol is a unique symbol, so
     // value-identity is the authoritative test.
-    expect(Object.getOwnPropertySymbols(barrel)).not.toContain(STATE_INTERNAL);
-    expect(Object.values(barrel)).not.toContain(STATE_INTERNAL);
+    expect(Object.getOwnPropertySymbols(barrel)).not.toContain(DOCUMENT_INTERNAL);
+    expect(Object.values(barrel)).not.toContain(DOCUMENT_INTERNAL);
   });
 
   it("does NOT re-export Y.Doc construction / read-write infra", () => {
@@ -134,7 +134,7 @@ describe("state/index barrel — encapsulation", () => {
       "buildYBlock",
       "buildBlockSnapshot",
       "isDevMode",
-      "buildStateFromBlocks",
+      "buildDocumentFromBlocks",
       "getEmbedContentRootIds",
       "getTemplateContentRootIds",
       "BLOCK_FIELDS",

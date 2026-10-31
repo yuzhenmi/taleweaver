@@ -7,7 +7,7 @@
 // the shipped `resolveGotoDestination`. Reuses `getOutline` +
 // `resolveGotoDestination`.
 
-import type { State } from "@taleweaver/core";
+import type { Document } from "@taleweaver/core";
 import { getOutline } from "@taleweaver/core";
 import type { VirtualLayoutTree } from "./virtual-layout-tree";
 import type { TextShaper } from "@taleweaver/core";
@@ -32,12 +32,12 @@ export interface PdfOutlineNode {
  * Returns `[]` for a heading-free document.
  */
 export function buildPdfOutline(
-  state: State,
+  document: Document,
   virtualTree: VirtualLayoutTree,
   shaper: TextShaper | TextMeasurer,
   parentOf: BlockParentLookup,
 ): readonly PdfOutlineNode[] {
-  const entries = getOutline(state, { suggestionView: "final" });
+  const entries = getOutline(document, { suggestionView: "final" });
 
   interface Builder {
     readonly title: string;
@@ -52,7 +52,7 @@ export function buildPdfOutline(
   for (const entry of entries) {
     const node: Builder = {
       title: entry.text,
-      dest: resolveGotoDestination(state, entry.blockId, virtualTree, shaper, parentOf),
+      dest: resolveGotoDestination(document, entry.blockId, virtualTree, shaper, parentOf),
       level: entry.level,
       children: [],
     };

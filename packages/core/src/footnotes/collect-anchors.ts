@@ -21,7 +21,7 @@ import {
   nextBlockInDocOrder,
   FOOTNOTE_ANCHOR_EMBED_TYPE,
   type BlockId,
-  type State,
+  type Document,
 } from "../state";
 import type { FootnoteAnchorRef } from "./types";
 
@@ -56,17 +56,17 @@ export const EMPTY_FOOTNOTE_ANCHORS: readonly FootnoteAnchorRef[] = Object.freez
  * `null` only for a malformed tree with no `section` ancestor.
  */
 export function collectFootnoteAnchors(
-  state: State,
+  document: Document,
 ): readonly FootnoteAnchorRef[] {
   const refs: FootnoteAnchorRef[] = [];
 
-  let currentId: BlockId | null = state.rootId;
+  let currentId: BlockId | null = document.rootId;
   while (currentId !== null) {
-    const block = getBlock(state, currentId);
+    const block = getBlock(document, currentId);
     if (block === null) break;
 
     if (block.inlineContent !== null) {
-      const sectionId = nearestSectionId(state, currentId);
+      const sectionId = nearestSectionId(document, currentId);
       for (const item of block.inlineContent.items) {
         if (item.kind !== "embed") continue;
         if (item.embedType !== FOOTNOTE_ANCHOR_EMBED_TYPE) continue;
@@ -80,7 +80,7 @@ export function collectFootnoteAnchors(
       }
     }
 
-    currentId = nextBlockInDocOrder(state, currentId);
+    currentId = nextBlockInDocOrder(document, currentId);
   }
 
   return refs;
@@ -92,9 +92,9 @@ export function collectFootnoteAnchors(
  * meaning the block is in the implicit root section. Sections are flat children
  * of the document root, so the nearest section ancestor IS the section.
  */
-function nearestSectionId(state: State, blockId: BlockId): BlockId | null {
-  for (const ancestorId of ancestorChain(state, blockId)) {
-    if (getBlock(state, ancestorId)?.type === SECTION_BLOCK_TYPE) {
+function nearestSectionId(document: Document, blockId: BlockId): BlockId | null {
+  for (const ancestorId of ancestorChain(document, blockId)) {
+    if (getBlock(document, ancestorId)?.type === SECTION_BLOCK_TYPE) {
       return ancestorId;
     }
   }

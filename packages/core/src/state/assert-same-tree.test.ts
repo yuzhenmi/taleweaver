@@ -10,13 +10,13 @@
 
 import { describe, it, expect } from "vitest";
 import { assertSameTree } from "./assert-same-tree";
-import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent, text } from "../test-utils/document-builders";
 import type { BlockId } from "./block-id";
-import type { Document } from "./state";
+import type { Document } from "./document";
 
 // Two trees: a main doc (doc > p) and a header body (hdr-root > hdr-c1, hdr-c2).
 function buildMixed(): Document {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -55,11 +55,11 @@ function buildMixed(): Document {
 
 describe("assertSameTree (dev-only single-tree invariant)", () => {
   it("does not throw when every neighbor id resolves to the expected kind", () => {
-    const state = buildMixed();
+    const document = buildMixed();
     // All header ids are templateContent.
     expect(() =>
       assertSameTree(
-        state,
+        document,
         "templateContent",
         ["hdr-root" as BlockId, "hdr-c2" as BlockId],
         "splitBlockAtPosition",
@@ -68,18 +68,18 @@ describe("assertSameTree (dev-only single-tree invariant)", () => {
   });
 
   it("does not throw on a pure main-tree neighbor set", () => {
-    const state = buildMixed();
+    const document = buildMixed();
     expect(() =>
-      assertSameTree(state, "block", ["doc" as BlockId, "p" as BlockId], "mergeAdjacentBlocks"),
+      assertSameTree(document, "block", ["doc" as BlockId, "p" as BlockId], "mergeAdjacentBlocks"),
     ).not.toThrow();
   });
 
   it("throws when a neighbor id belongs to a DIFFERENT tree (cross-tree write)", () => {
-    const state = buildMixed();
+    const document = buildMixed();
     // Expect templateContent but include a main-tree id ("p").
     expect(() =>
       assertSameTree(
-        state,
+        document,
         "templateContent",
         ["hdr-c2" as BlockId, "p" as BlockId],
         "splitBlockAtPosition",
@@ -88,10 +88,10 @@ describe("assertSameTree (dev-only single-tree invariant)", () => {
   });
 
   it("throws when a neighbor id resolves to no tree at all", () => {
-    const state = buildMixed();
+    const document = buildMixed();
     expect(() =>
       assertSameTree(
-        state,
+        document,
         "templateContent",
         ["hdr-c1" as BlockId, "ghost" as BlockId],
         "mergeAdjacentBlocks",
@@ -100,10 +100,10 @@ describe("assertSameTree (dev-only single-tree invariant)", () => {
   });
 
   it("ignores null neighbor ids (no sibling / no parent is valid)", () => {
-    const state = buildMixed();
+    const document = buildMixed();
     expect(() =>
       assertSameTree(
-        state,
+        document,
         "templateContent",
         [null, "hdr-c2" as BlockId, null],
         "deleteRange",

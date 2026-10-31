@@ -26,7 +26,7 @@ export function handleInsertTableRow(
   const result = ctx.spanned
     ? insertTableRowSpanAware(editor.document, ctx, position, productionAllocator)
     : insertTableRow(editor.document, ctx, position, productionAllocator);
-  if (result.state === editor.document) return null; // defensive no-op short-circuit
+  if (result.document === editor.document) return null; // defensive no-op short-circuit
 
-  return { change: { state: result.state, dirtyIds: result.dirtyIds } };
+  return { change: { document: result.document, dirtyIds: result.dirtyIds } };
 }

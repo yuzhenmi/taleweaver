@@ -57,7 +57,7 @@ export function handleSetFootnotePolicy(editor: EditorState, action: ActionOf<"S
 
   // the identity-no-op contract: a no-op merge (policy already at the requested value)
   // returns the same state reference → return the input editor unchanged.
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
 
-  return { change: { state: result.state, dirtyIds: result.dirtyIds } };
+  return { change: { document: result.document, dirtyIds: result.dirtyIds } };
 }

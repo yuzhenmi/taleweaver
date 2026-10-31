@@ -37,7 +37,7 @@ export function handleDeleteForward(editor: EditorState): Edit | null {
     if (start === null) return null;
     const result = deleteRangeOrSuggest(editor, selection);
     // Suggesting mode over an already-struck selection: a caret-only outcome (span end).
-    if (result.state === editor.document) {
+    if (result.document === editor.document) {
       const end = clipSpanToText(editor.document, selection).focus;
       return { selection: createSpan(end, end) };
     }
@@ -77,7 +77,7 @@ export function handleDeleteForward(editor: EditorState): Edit | null {
     const result = deleteRangeOrSuggest(editor, span);
     // Suggesting mode over an already-struck character (any author): nothing is
     // written; the caret moves past it (no history entry).
-    if (result.state === editor.document) return { selection: createSpan(span.focus, span.focus) };
+    if (result.document === editor.document) return { selection: createSpan(span.focus, span.focus) };
     // Forward soft-delete strikes the char in place, so the caret must ADVANCE
     // past it (to `next`, the span end) — else the next Delete would re-target
     // the already-struck char (markDeletion coalesces → no-op). A direct delete
@@ -120,8 +120,8 @@ export function handleDeleteForward(editor: EditorState): Edit | null {
     const ownInput = suggestionInputForBlock(editor, currentBlock.id);
     if (ownInput !== null) return suggestMarkDeletion(editor, currentBlock, ownInput, pos);
     const result = removeBlock(editor.document, currentBlock.id);
-    if (result.state === editor.document || resolveBlock(result.state, currentBlock.id) !== null) return null;
-    const target = atomic ? nextBlock.id : firstLeafBlock(result.state, nextBlock.id);
+    if (result.document === editor.document || resolveBlock(result.document, currentBlock.id) !== null) return null;
+    const target = atomic ? nextBlock.id : firstLeafBlock(result.document, nextBlock.id);
     if (target === null) return null;
     return caretEdit(result, createPosition(target, 0));
   }
@@ -134,11 +134,11 @@ export function handleDeleteForward(editor: EditorState): Edit | null {
     const sectionInput = suggestionInputForBlock(editor, currentBlock.id);
     if (sectionInput !== null) return suggestMarkDeletion(editor, currentBlock, sectionInput, createPosition(nextBlock.id, 0));
     const result = deleteSectionBreak(editor.document, after.sectionBreak);
-    if (result.state === editor.document) return null;
+    if (result.document === editor.document) return null;
     // P merged into the next paragraph (survivor R): the caret sits at the seam there.
     // When ¶P stayed (invariant I) P keeps the caret.
     const caret =
-      getBlock(result.state, currentBlock.id) !== null
+      getBlock(result.document, currentBlock.id) !== null
         ? pos
         : nextBlock.inlineContent === null
           ? createPosition(nextBlock.id, 0)
@@ -155,6 +155,6 @@ export function handleDeleteForward(editor: EditorState): Edit | null {
   // Delete ¶P: the right paragraph survives holding [...P, ...next]; the
   // caret sits at the seam.
   const result = mergeAdjacentBlocks(editor.document, currentBlock.id, nextBlock.id);
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
   return caretEdit(result, createPosition(result.survivorId, currentLen));
 }

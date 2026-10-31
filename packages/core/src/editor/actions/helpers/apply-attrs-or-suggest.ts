@@ -29,9 +29,9 @@ export function applyAttrsOrSuggest(
   span: Span,
   incoming: ReadonlyAttrs,
 ): OperationResult {
-  const { document: state } = editor;
-  const input = suggestionInputForBlock(editor, spanStart(state, span).blockId);
+  const { document } = editor;
+  const input = suggestionInputForBlock(editor, spanStart(document, span).blockId);
   return input === null
-    ? applyAttrsToRange(state, span, incoming)
-    : markFormatting(state, span, incoming, input);
+    ? applyAttrsToRange(document, span, incoming)
+    : markFormatting(document, span, incoming, input);
 }

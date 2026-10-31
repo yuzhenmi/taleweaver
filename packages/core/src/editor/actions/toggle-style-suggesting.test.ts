@@ -11,7 +11,7 @@
  * `format-suggesting.test.ts` — they share the same helper, so this file proves
  * the cycle once on the canonical handler.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect, vi } from "vitest";
 import {
   config as directConfig,
@@ -132,7 +132,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
 
     const accepted = acceptSuggestion(suggested.document, id);
 
-    const runs = (getBlock(accepted.state, paraId)?.inlineContent?.items ?? []).filter(
+    const runs = (getBlock(accepted.document, paraId)?.inlineContent?.items ?? []).filter(
       (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",
     );
     expect(runs.length).toBeGreaterThan(0);
@@ -140,7 +140,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
       expect(run.attrs.bold).toBe(true);
       expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
     }
-    expect(getSuggestions(accepted.state)).toHaveLength(0);
+    expect(getSuggestions(accepted.document)).toHaveLength(0);
   });
 
   it("reject: the formattingSuggestionId is stripped, NO live bold lands; the record is gone", () => {
@@ -150,7 +150,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
 
     const rejected = rejectSuggestion(suggested.document, id);
 
-    const runs = (getBlock(rejected.state, paraId)?.inlineContent?.items ?? []).filter(
+    const runs = (getBlock(rejected.document, paraId)?.inlineContent?.items ?? []).filter(
       (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",
     );
     expect(runs.length).toBeGreaterThan(0);
@@ -158,7 +158,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
       expect(run.attrs.bold).toBeUndefined();
       expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
     }
-    expect(getSuggestions(rejected.state)).toHaveLength(0);
+    expect(getSuggestions(rejected.document)).toHaveLength(0);
   });
 
   it("toggle-OFF: an already-bold selection suggests REMOVING bold (proposedAttrs { bold: undefined }); live bold stays until accept", () => {
@@ -202,7 +202,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     // full removal round-trip: the undefined-valued `proposedAttrs` survives Yjs
     // AND `acceptSuggestion` applies it (strips the live attr), not just records it.
     const accepted = acceptSuggestion(next.document, nth(suggestions, 0, "suggestion").id);
-    const acceptedRuns = (getBlock(accepted.state, bolded.paraId)?.inlineContent?.items ?? []).filter(
+    const acceptedRuns = (getBlock(accepted.document, bolded.paraId)?.inlineContent?.items ?? []).filter(
       (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",
     );
     expect(acceptedRuns.length).toBeGreaterThan(0);
@@ -210,7 +210,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
       expect(run.attrs.bold).toBeUndefined();
       expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
     }
-    expect(getSuggestions(accepted.state)).toHaveLength(0);
+    expect(getSuggestions(accepted.document)).toHaveLength(0);
   });
 
   it("is undoable: UNDO reverts the mark + record (zero suggestions, no formattingSuggestionId)", () => {

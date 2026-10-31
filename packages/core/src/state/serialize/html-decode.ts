@@ -20,7 +20,7 @@ import type {
 } from "../build-document-from-tree";
 import { newListId } from "../block-id";
 import type { IdAllocator } from "../block-id";
-import type { Document } from "../state";
+import type { Document } from "../document";
 import { classifyListDef } from "../list-defs";
 import type { ListDef } from "../list-defs";
 import { HARD_BREAK_EMBED_TYPE } from "../hard-break";

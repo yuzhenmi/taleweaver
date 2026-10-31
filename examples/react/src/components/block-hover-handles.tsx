@@ -9,7 +9,7 @@ import {
   type BlockId,
   type EditorAction,
   type EditorState,
-  type State,
+  type Document,
 } from "@taleweaver/core";
 
 const HANDLE_GAP = 8; // gap between the handle cluster and the block's content edge
@@ -48,11 +48,11 @@ type Hovered = { id: BlockId; rect: DOMRect };
 
 /** A leaf text block (paragraph/heading/list-item) carries `inlineContent`; container
  *  blocks (a list/table wrapper) do not. Handles only target leaf text blocks. */
-function leafTextBlockRect(state: State, el: HTMLElement): Hovered | null {
+function leafTextBlockRect(document: Document, el: HTMLElement): Hovered | null {
   const raw = el.getAttribute("data-block-id");
   if (raw === null) return null;
   const id = asBlockId(raw);
-  const block = getBlock(state, id);
+  const block = getBlock(document, id);
   // A leaf text block carries `inlineContent` (an empty paragraph still has the
   // object, just `items: []`); container blocks (list/table wrappers) do not.
   if (!block || !block.inlineContent) return null;
@@ -60,8 +60,8 @@ function leafTextBlockRect(state: State, el: HTMLElement): Hovered | null {
 }
 
 /** End-of-block caret offset (one past the last inline unit). 0 for an empty block. */
-function blockEndOffset(state: State, id: BlockId): number {
-  const block = getBlock(state, id);
+function blockEndOffset(document: Document, id: BlockId): number {
+  const block = getBlock(document, id);
   return block && block.inlineContent ? inlineContentLength(block.inlineContent) : 0;
 }
 
@@ -72,12 +72,12 @@ function blockEndOffset(state: State, id: BlockId): number {
  * (`leafTextBlockRect`) skips a list/table CONTAINER whose box also spans `clientY`,
  * so the contained list-item/paragraph wins. Returns `null` between blocks.
  */
-function blockAtY(wrapper: HTMLElement, state: State, clientY: number): Hovered | null {
+function blockAtY(wrapper: HTMLElement, document: Document, clientY: number): Hovered | null {
   for (const el of wrapper.querySelectorAll("[data-block-id]")) {
     if (!(el instanceof HTMLElement)) continue;
     const rect = el.getBoundingClientRect();
     if (clientY < rect.top || clientY > rect.bottom) continue;
-    const h = leafTextBlockRect(state, el);
+    const h = leafTextBlockRect(document, el);
     if (h !== null) return h;
   }
   return null;
@@ -121,8 +121,8 @@ export function BlockHoverHandles({
   const clusterRef = useRef<HTMLDivElement>(null);
 
   // Live refs for the window/wrapper listeners (which close over a stale render).
-  const stateRef = useRef<State>(editorState.document);
-  stateRef.current = editorState.document;
+  const documentRef = useRef<Document>(editorState.document);
+  documentRef.current = editorState.document;
   const hoveredRef = useRef<Hovered | null>(hovered);
   hoveredRef.current = hovered;
   const menuOpenRef = useRef<boolean>(menu !== null);
@@ -149,7 +149,7 @@ export function BlockHoverHandles({
       // leave the hover sticky there rather than retargeting.
       const cRect = container.getBoundingClientRect();
       if (e.clientX > cRect.right) return;
-      const next = blockAtY(wrapper, stateRef.current, e.clientY);
+      const next = blockAtY(wrapper, documentRef.current, e.clientY);
       // A real block at this Y → reveal its handles; between blocks keep the current
       // target (sticky) so the handles don't flicker in inter-block gaps.
       if (next !== null) setHovered(next);
@@ -228,7 +228,7 @@ export function BlockHoverHandles({
     } else {
       // Insert a block below: caret to the block end, split (new empty sibling with
       // the caret in it), then apply the chosen type to that new focus block.
-      const end = createPosition(id, blockEndOffset(stateRef.current, id));
+      const end = createPosition(id, blockEndOffset(documentRef.current, id));
       dispatch({ type: "SET_SELECTION", selection: createSpan(end, end) });
       dispatch({ type: "SPLIT_NODE" });
       choice.apply(dispatch);

@@ -40,8 +40,8 @@ export function handleSetTabStops(
   const result = mergeBlockAttrs(editor.document, blockId, { tabStops });
   // No-op merge (identical stops already present): same state ref → return the
   // input editor unchanged so the "no change → same reference" contract holds.
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
 
   const dirtyIds = new Set<BlockId>(result.dirtyIds);
-  return { change: { state: result.state, dirtyIds } };
+  return { change: { document: result.document, dirtyIds } };
 }

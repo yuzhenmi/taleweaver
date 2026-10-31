@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { Document, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { Position } from "../block-position";
 import { createPosition } from "../block-position";
@@ -122,27 +122,27 @@ export function buildTableSubtreePlan(
  * `rows < 1` / `cols < 1`.
  */
 export function createTable(
-  state: Document,
+  document: Document,
   caretPosition: Position,
   rows: number,
   cols: number,
   allocator: IdAllocator,
 ): OperationResult & { readonly newTableId: BlockId; readonly caretInto: Position } {
-  const plan = planCreateTable(state, caretPosition, rows, cols, allocator);
-  const result = applyOperation(state, (doc) => {
+  const plan = planCreateTable(document, caretPosition, rows, cols, allocator);
+  const result = applyOperation(document, (doc) => {
     createTableInTx(doc, plan);
   });
   return { ...result, newTableId: plan.subtree.tableId, caretInto: plan.caretInto };
 }
 
 /**
- * Validate `caretPosition` against `state` and produce a `CreateTablePlan`.
+ * Validate `caretPosition` against `document` and produce a `CreateTablePlan`.
  * Throws on every condition `createTable`'s docstring lists. Allocates the
  * subtree (and, for a mid-block insert, the split's new block) once, outside
  * any transaction, so the allocator is bumped exactly once.
  */
 export function planCreateTable(
-  state: Document,
+  document: Document,
   caretPosition: Position,
   rows: number,
   cols: number,
@@ -152,7 +152,7 @@ export function planCreateTable(
   // clear "main-body only" error rather than a misleading "not found" (the
   // body-context refusal also lives in the editor handler, but the op states
   // its own MAIN-TREE precondition explicitly).
-  const resolved = resolveBlock(state, caretPosition.blockId);
+  const resolved = resolveBlock(document, caretPosition.blockId);
   if (resolved === null) {
     throw new Error(`createTable: block "${caretPosition.blockId}" not found`);
   }
@@ -187,7 +187,7 @@ export function planCreateTable(
   } else {
     // k > 0: a ¶ ends the head at the caret, then the table: head H,
     // table, tail = the caret's block (empty when k = len).
-    split = planSplitBlockAtPosition(state, caretPosition, allocator);
+    split = planSplitBlockAtPosition(document, caretPosition, allocator);
     afterId = split.newBlockId;
     beforeId = caretPosition.blockId;
   }

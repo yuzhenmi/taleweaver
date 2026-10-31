@@ -24,7 +24,7 @@ export function handleInsertTableColumn(
   const result = ctx.spanned
     ? insertTableColumnSpanAware(editor.document, ctx, position, productionAllocator)
     : insertTableColumn(editor.document, ctx, position, productionAllocator);
-  if (result.state === editor.document) return null; // defensive no-op short-circuit
+  if (result.document === editor.document) return null; // defensive no-op short-circuit
 
-  return { change: { state: result.state, dirtyIds: result.dirtyIds } };
+  return { change: { document: result.document, dirtyIds: result.dirtyIds } };
 }

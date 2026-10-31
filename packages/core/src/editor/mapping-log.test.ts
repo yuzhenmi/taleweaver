@@ -6,7 +6,7 @@ import { createMappingLog } from "./mapping-log";
 import { transitionMapping } from "../decorations/decoration-layers";
 
 describe("createMappingLog", () => {
-  it("composes every transition since an older State; unknown / restarted Documents map to null", () => {
+  it("composes every transition since an older Document; unknown / restarted Documents map to null", () => {
     let e = createInitialEditorState(config);
     e = reduceEditor(e, { type: "INSERT_TEXT", text: "Anna met Rosa" });
     const p = e.selection.focus.blockId;
@@ -24,7 +24,7 @@ describe("createMappingLog", () => {
     const m = log.mappingFrom(old);
     expect(m?.map(createPosition(p, 9)).position).toEqual(createPosition(p, 17)); // "Rosa"
     expect(log.mappingFrom(e.document)?.identity).toBe(true);
-    // Capacity 3: after two more edits the original State has aged out.
+    // Capacity 3: after two more edits the original Document has aged out.
     apply({ type: "INSERT_TEXT", text: "a" });
     apply({ type: "INSERT_TEXT", text: "b" });
     expect(log.mappingFrom(old)).toBeNull();

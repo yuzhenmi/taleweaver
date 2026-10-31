@@ -1,5 +1,5 @@
-import type { Document, ResolvedBlockKind } from "./state";
-import { resolveBlock } from "./state";
+import type { Document, ResolvedBlockKind } from "./document";
+import { resolveBlock } from "./document";
 import type { BlockId } from "./block-id";
 import { isDevMode } from "./dev-mode";
 
@@ -29,7 +29,7 @@ import { isDevMode } from "./dev-mode";
  * dev/test, O(neighbors) with an O(1) `resolveBlock` per neighbor.
  */
 export function assertSameTree(
-  state: Document,
+  document: Document,
   expectedKind: ResolvedBlockKind,
   neighborIds: ReadonlyArray<BlockId | null>,
   opName: string,
@@ -37,7 +37,7 @@ export function assertSameTree(
   if (!isDevMode()) return;
   for (const id of neighborIds) {
     if (id === null) continue;
-    const resolved = resolveBlock(state, id);
+    const resolved = resolveBlock(document, id);
     if (resolved === null) {
       throw new Error(
         `${opName}: neighbor block "${id}" resolves to no tree — expected it in the ` +

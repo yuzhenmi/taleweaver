@@ -5,7 +5,7 @@
 import { attrRegistry } from "../cascade/attr-registry";
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import { createState, getBlock, type Document } from "./state";
+import { createDocument, getBlock, type Document } from "./document";
 import { createYDoc, getMetaMap } from "./yjs-doc";
 import { upgradeDocument, inspectDocument, CURRENT_SCHEMA_VERSION, type IncompatibleDocumentReport } from "./upgrade";
 import { LegacyDocumentError } from "./y-inline";
@@ -17,10 +17,10 @@ import { decodeFragmentClip } from "./serialize/fragment-clip";
 import { bytesToBase64 } from "./serialize/base64";
 import { createBinaryDocumentSerializer } from "./serialize/binary-serializer";
 import { createPosition, createSpan } from "./block-position";
-import { STATE_INTERNAL } from "./state-internal";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import type { BlockId } from "./block-id";
 import { legacyDoc, legacyInline, LEGACY_ROOT } from "../test-utils/legacy-fixture";
-import { TEST_RESOLVER, embed, text, withTestAttrs } from "../test-utils/state-builders";
+import { TEST_RESOLVER, embed, text, withTestAttrs } from "../test-utils/document-builders";
 
 const P1 = "p1" as BlockId;
 const span = (id: BlockId, a: number, b: number) => createSpan(createPosition(id, a), createPosition(id, b));
@@ -38,9 +38,9 @@ describe("legacy detection + load refusal", () => {
     expect(inspectDocument(doc)).toEqual({ schemaVersion: CURRENT_SCHEMA_VERSION, legacyBlocks: [] });
   });
 
-  it("createState on a legacy doc throws LegacyDocumentError (and never writes the marker)", () => {
+  it("createDocument on a legacy doc throws LegacyDocumentError (and never writes the marker)", () => {
     const doc = legacyDoc([text("hi")]);
-    expect(() => createState({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc })).toThrow(LegacyDocumentError);
+    expect(() => createDocument({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc })).toThrow(LegacyDocumentError);
     expect(getMetaMap(doc).get("schemaVersion")).toBeUndefined();
   });
 
@@ -60,7 +60,7 @@ describe("upgradeDocument", () => {
     expect(report).toEqual({ fromVersion: 1, toVersion: CURRENT_SCHEMA_VERSION, upgradedBlocks: ["doc", "p1", "p2"], orphanedBreakSuggestions: [], unregisteredTypes: [], crossReferences: { rewritten: [], broken: [] } });
     expect(inspectDocument(doc)).toEqual({ schemaVersion: CURRENT_SCHEMA_VERSION, legacyBlocks: [] });
 
-    const s0 = createState({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc });
+    const s0 = createDocument({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc });
     expect(getBlock(s0, P1)?.inlineContent?.items).toEqual([
       text("ab", { bold: true }),
       embed("tab", {}, { "formattingSuggestionId:f1": true }),
@@ -72,15 +72,15 @@ describe("upgradeDocument", () => {
     history.beginEntry("insert", 0, span(P1, 5, 5));
     const typed = insertText(s0, createPosition(P1, 5), "!", {});
     history.commit(typed, { before: span(P1, 5, 5), after: span(P1, 6, 6) });
-    expect(extractText(typed.state, span(P1, 0, 6))).toContain("cd!");
+    expect(extractText(typed.document, span(P1, 0, 6))).toContain("cd!");
     const undone = history.undo();
-    expect(undone === null ? null : extractText(undone.state, span(P1, 0, 5))).not.toContain("!");
+    expect(undone === null ? null : extractText(undone.document, span(P1, 0, 5))).not.toContain("!");
   });
 
   it("is idempotent and is not an undoable change", () => {
     const doc = legacyDoc([text("x")]);
     upgradeDocument(withTestAttrs(doc), { resolver: TEST_RESOLVER });
-    const s = createState({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc });
+    const s = createDocument({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc });
     const history = createHistory(s);
     expect(upgradeDocument(withTestAttrs(doc), { resolver: TEST_RESOLVER }).upgradedBlocks).toEqual([]);
     expect(history.canUndo()).toBe(false);
@@ -97,7 +97,7 @@ describe("upgradeDocument", () => {
     rootAttrs.set("columnGap", 24);
     rootAttrs.set("lang", "fr");
     upgradeDocument(withTestAttrs(doc), { resolver: TEST_RESOLVER });
-    const s = createState({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc });
+    const s = createDocument({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc });
     const root = getBlock(s, LEGACY_ROOT);
     const fin = root?.lastChildId === undefined || root.lastChildId === null ? null : getBlock(s, root.lastChildId);
     expect(fin?.type).toBe("section");
@@ -140,7 +140,7 @@ describe("upgradeDocument", () => {
       rootAttrs.set("lang", "fr");
     });
     upgradeDocument(withTestAttrs(doc), { resolver: TEST_RESOLVER });
-    const s = createState({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc });
+    const s = createDocument({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc });
     expect(getBlock(s, "s1" as BlockId)?.attrs).toMatchObject({ headerBlockId: "hdr", footerBlockId: "ftr", columnCount: 2 });
     expect(getBlock(s, "s2" as BlockId)?.attrs).toMatchObject({ headerBlockId: "own", footerBlockId: "ftr", columnCount: 3 });
     expect(getBlock(s, LEGACY_ROOT)?.attrs).toEqual({ lang: "fr" });
@@ -154,7 +154,7 @@ describe("upgradeDocument", () => {
     );
     const report = upgradeDocument(withTestAttrs(doc), { resolver: TEST_RESOLVER });
     expect(report.crossReferences).toEqual({ rewritten: ["p2", "p2"], broken: ["p3"] });
-    const s = createState({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc });
+    const s = createDocument({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc });
     const fields = getBlock(s, "p2" as BlockId)?.inlineContent?.items ?? [];
     const ids = fields.map((f) => (f.kind === "embed" ? f.properties.bookmarkId : undefined));
     const bid = ids[0];
@@ -181,7 +181,7 @@ describe("a peer update carrying legacy storage", () => {
   function current(): Document {
     const doc = legacyDoc([text("hello")]);
     upgradeDocument(withTestAttrs(doc), { resolver: TEST_RESOLVER });
-    return createState({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc });
+    return createDocument({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc });
   }
 
   /** An old client rewrites p1 in its (now frozen) legacy `blocks` root. */
@@ -192,19 +192,19 @@ describe("a peer update carrying legacy storage", () => {
   it("is reported to onIncompatible (with the touched block's legacy text), never as a foreign change", () => {
     const s = current();
     const peer = new Y.Doc();
-    Y.applyUpdate(peer, Y.encodeStateAsUpdate(s[STATE_INTERNAL].doc));
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(s[DOCUMENT_INTERNAL].doc));
     const changes: BlockId[][] = [];
     const reports: IncompatibleDocumentReport[] = [];
     subscribeForeignChanges(s, "self", (ids) => changes.push([...ids]), (r) => reports.push(r));
     legacyWrite(peer);
-    Y.applyUpdate(s[STATE_INTERNAL].doc, Y.encodeStateAsUpdate(peer));
+    Y.applyUpdate(s[DOCUMENT_INTERNAL].doc, Y.encodeStateAsUpdate(peer));
     expect(reports).toEqual([{ reason: "legacy-write", legacyBlocks: ["p1"], legacyText: { p1: "old" } }]);
     expect(changes).toEqual([]);
   });
 
   it("a legacy-write halt is STICKY: not even a self transaction resumes the subscription", () => {
     const s = current();
-    const doc = s[STATE_INTERNAL].doc;
+    const doc = s[DOCUMENT_INTERNAL].doc;
     let compatible = 0;
     const changes: BlockId[][] = [];
     subscribeForeignChanges(s, "self", (ids) => changes.push([...ids]), () => {}, () => compatible++);
@@ -232,7 +232,7 @@ describe("a peer update carrying legacy storage", () => {
 
   it("startHalted on a not-yet-upgraded document reports nothing until upgradeDocument, then resumes", async () => {
     const doc = new Y.Doc();
-    const s = createState({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc });
+    const s = createDocument({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc });
     // A schema-1 document arrives (e.g. synced from storage after binding).
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(legacyDoc([text("hello")])));
     let compatible = 0;

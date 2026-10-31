@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EditorView, type EditorViewHandle } from "@taleweaver/react";
-import { setPerfTraceEnabled, report, resetPerfTrace, type Decoration, type Position, type State } from "@taleweaver/core";
+import { setPerfTraceEnabled, report, resetPerfTrace, type Decoration, type Position, type Document } from "@taleweaver/core";
 import { AsyncCheckBar, useAsyncCheck } from "./async-check";
 import { ASSISTANT_STYLE, SuggestEditBar, useSuggestEdit, type Propose } from "./suggest-edit";
 import { createDemoExtensions, createPickerBridge, ExtensionsHint, MentionPicker } from "./mention-picker";
@@ -15,7 +15,7 @@ const PAGE_GAP = 24;
 /**
  * The PRINT editing surface: the `@taleweaver/print` canvas backend (paginated
  * geometry computed in-engine). Owns its own chrome + find-bar (find/replace is
- * print-geometry-specific). Exposes its live `Document` via `registerGetState` so
+ * print-geometry-specific). Exposes its live `Document` via `registerGetDocument` so
  * the tab-bar can hand the document off on switch.
  */
 /** The caret rect of a position from the print view handle (viewport coords). */
@@ -25,10 +25,10 @@ function printCaretRect(handle: EditorViewHandle | null, position: Position) {
 
 export function PrintSurface({
   seed,
-  registerGetState,
+  registerGetDocument,
 }: {
-  seed: State | null;
-  registerGetState: (getState: () => State) => void;
+  seed: Document | null;
+  registerGetDocument: (getDocument: () => Document) => void;
 }) {
   // Host extensions demo (mention picker, keymap, input rule) — same as the digital tab.
   const [bridge] = useState(createPickerBridge);
@@ -38,12 +38,12 @@ export function PrintSurface({
   const [findMode, setFindMode] = useState<null | "find" | "replace">(null);
   // Same writing-aids decoration demo as the digital tab.
   const [aids, setAids] = useState(true);
-  const [aidResult, setAidResult] = useState<{ decorations: readonly Decoration[]; basedOn: State | undefined }>({
+  const [aidResult, setAidResult] = useState<{ decorations: readonly Decoration[]; basedOn: Document | undefined }>({
     decorations: [],
     basedOn: undefined,
   });
   const setDecorations = useCallback(
-    (decorations: readonly Decoration[], basedOn: State) => setAidResult({ decorations, basedOn }),
+    (decorations: readonly Decoration[], basedOn: Document) => setAidResult({ decorations, basedOn }),
     [],
   );
   const [pointer, setPointer] = useState<AidPointerEvent | null>(null);
@@ -65,8 +65,8 @@ export function PrintSurface({
 
   // Register the live-state getter for the tab-bar hand-off (stable across renders).
   useEffect(() => {
-    registerGetState(editor.getState);
-  }, [registerGetState, editor.getState]);
+    registerGetDocument(editor.getDocument);
+  }, [registerGetDocument, editor.getDocument]);
 
   // Perf-fixture dev hooks (print-only): when ?perfFixture=N seeded a synthetic
   // document, enable tracing and expose console report/reset helpers.

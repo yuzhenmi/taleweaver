@@ -22,7 +22,7 @@ export function handleSplitCell(editor: EditorState): Edit | null {
   if (ctx === null || ctx.ragged) return null;
 
   const result = splitCell(editor.document, ctx, productionAllocator);
-  if (result.state === editor.document) return null; // caret cell is not a real span
+  if (result.document === editor.document) return null; // caret cell is not a real span
 
-  return { change: { state: result.state, dirtyIds: result.dirtyIds } };
+  return { change: { document: result.document, dirtyIds: result.dirtyIds } };
 }

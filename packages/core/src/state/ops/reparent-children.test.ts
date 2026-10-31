@@ -4,10 +4,10 @@ import {
   reparentChildrenInTx,
   planReparentChildren,
 } from "./reparent-children";
-import { getBlock } from "../state";
+import { getBlock } from "../document";
 import { assertInvariantI } from "../../test-utils/invariant-i";
-import { STATE_INTERNAL } from "../state-internal";
-import { TEST_RESOLVER, testContainer, buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+import { DOCUMENT_INTERNAL } from "../document-internal";
+import { TEST_RESOLVER, testContainer, buildBlock, buildDocument, inlineContent } from "../../test-utils/document-builders";
 import type { BlockId } from "../block-id";
 
 // Host container types the default registry lacks (file-local registry instance).
@@ -17,8 +17,8 @@ TEST_RESOLVER.register(testContainer("blockquote"));
  * Helper: read every structural pointer of a block as a plain object so
  * assertions can compare the whole 5-pointer shape at once.
  */
-function pointers(state: ReturnType<typeof buildState>, id: string) {
-  const b = getBlock(state, id as BlockId);
+function pointers(document: ReturnType<typeof buildDocument>, id: string) {
+  const b = getBlock(document, id as BlockId);
   if (b === null) throw new Error(`block ${id} not found`);
   return {
     parentId: b.parentId,
@@ -32,7 +32,7 @@ function pointers(state: ReturnType<typeof buildState>, id: string) {
 describe("reparentChildren — move a single middle child P → Q (append)", () => {
   // doc > [P > [a, b, c], Q > [x]]   move [b] into Q (append)
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "Q" }),
@@ -46,11 +46,11 @@ describe("reparentChildren — move a single middle child P → Q (append)", () 
     });
 
   it("detaches b from P (relinks a↔c) and appends it into Q", () => {
-    const state = fixture();
-    const result = reparentChildren(state, ["b" as BlockId], "Q" as BlockId);
+    const document = fixture();
+    const result = reparentChildren(document, ["b" as BlockId], "Q" as BlockId);
 
     // P: now [a, c]
-    expect(pointers(result.state, "P")).toEqual({
+    expect(pointers(result.document, "P")).toEqual({
       parentId: "doc",
       prevSiblingId: null,
       nextSiblingId: "Q",
@@ -58,21 +58,21 @@ describe("reparentChildren — move a single middle child P → Q (append)", () 
       lastChildId: "c",
     });
     // a ↔ c become adjacent
-    expect(getBlock(result.state, "a" as BlockId)?.nextSiblingId).toBe("c");
-    expect(getBlock(result.state, "c" as BlockId)?.prevSiblingId).toBe("a");
+    expect(getBlock(result.document, "a" as BlockId)?.nextSiblingId).toBe("c");
+    expect(getBlock(result.document, "c" as BlockId)?.prevSiblingId).toBe("a");
 
     // Q: now [x, b]
-    expect(pointers(result.state, "Q")).toEqual({
+    expect(pointers(result.document, "Q")).toEqual({
       parentId: "doc",
       prevSiblingId: "P",
       nextSiblingId: null,
       firstChildId: "x",
       lastChildId: "b",
     });
-    expect(getBlock(result.state, "x" as BlockId)?.nextSiblingId).toBe("b");
+    expect(getBlock(result.document, "x" as BlockId)?.nextSiblingId).toBe("b");
 
     // b: re-parented under Q, appended after x
-    expect(pointers(result.state, "b")).toEqual({
+    expect(pointers(result.document, "b")).toEqual({
       parentId: "Q",
       prevSiblingId: "x",
       nextSiblingId: null,
@@ -82,8 +82,8 @@ describe("reparentChildren — move a single middle child P → Q (append)", () 
   });
 
   it("dirtyIds contains P, Q, the moved block, and re-linked siblings", () => {
-    const state = fixture();
-    const result = reparentChildren(state, ["b" as BlockId], "Q" as BlockId);
+    const document = fixture();
+    const result = reparentChildren(document, ["b" as BlockId], "Q" as BlockId);
     // P (lastChildId unchanged but firstChild/last unchanged? Actually P.firstChild=a,
     // last=c both unchanged — but a.next and c.prev change so P itself isn't dirty
     // unless boundary changed. Here b was a middle child so P's first/last are
@@ -101,7 +101,7 @@ describe("reparentChildren — move a single middle child P → Q (append)", () 
 describe("reparentChildren — move contiguous run [b2,b3] P → Q before existing child", () => {
   // doc > [P > [b1, b2, b3, b4], Q > [y1, y2]]   move [b2, b3] into Q before y2
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "Q" }),
@@ -117,20 +117,20 @@ describe("reparentChildren — move contiguous run [b2,b3] P → Q before existi
     });
 
   it("moves the run, preserving its internal order, before y2", () => {
-    const state = fixture();
-    const result = reparentChildren(state, ["b2" as BlockId, "b3" as BlockId], "Q" as BlockId, "y2" as BlockId);
+    const document = fixture();
+    const result = reparentChildren(document, ["b2" as BlockId, "b3" as BlockId], "Q" as BlockId, "y2" as BlockId);
 
     // P: now [b1, b4]
-    expect(getBlock(result.state, "P" as BlockId)?.firstChildId).toBe("b1");
-    expect(getBlock(result.state, "P" as BlockId)?.lastChildId).toBe("b4");
-    expect(getBlock(result.state, "b1" as BlockId)?.nextSiblingId).toBe("b4");
-    expect(getBlock(result.state, "b4" as BlockId)?.prevSiblingId).toBe("b1");
+    expect(getBlock(result.document, "P" as BlockId)?.firstChildId).toBe("b1");
+    expect(getBlock(result.document, "P" as BlockId)?.lastChildId).toBe("b4");
+    expect(getBlock(result.document, "b1" as BlockId)?.nextSiblingId).toBe("b4");
+    expect(getBlock(result.document, "b4" as BlockId)?.prevSiblingId).toBe("b1");
 
     // Q: now [y1, b2, b3, y2]
-    expect(getBlock(result.state, "Q" as BlockId)?.firstChildId).toBe("y1");
-    expect(getBlock(result.state, "Q" as BlockId)?.lastChildId).toBe("y2");
-    expect(getBlock(result.state, "y1" as BlockId)?.nextSiblingId).toBe("b2");
-    expect(pointers(result.state, "b2")).toEqual({
+    expect(getBlock(result.document, "Q" as BlockId)?.firstChildId).toBe("y1");
+    expect(getBlock(result.document, "Q" as BlockId)?.lastChildId).toBe("y2");
+    expect(getBlock(result.document, "y1" as BlockId)?.nextSiblingId).toBe("b2");
+    expect(pointers(result.document, "b2")).toEqual({
       parentId: "Q",
       prevSiblingId: "y1",
       nextSiblingId: "b3",
@@ -138,21 +138,21 @@ describe("reparentChildren — move contiguous run [b2,b3] P → Q before existi
       lastChildId: null,
     });
     // run-internal chain preserved
-    expect(pointers(result.state, "b3")).toEqual({
+    expect(pointers(result.document, "b3")).toEqual({
       parentId: "Q",
       prevSiblingId: "b2",
       nextSiblingId: "y2",
       firstChildId: null,
       lastChildId: null,
     });
-    expect(getBlock(result.state, "y2" as BlockId)?.prevSiblingId).toBe("b3");
+    expect(getBlock(result.document, "y2" as BlockId)?.prevSiblingId).toBe("b3");
   });
 });
 
 describe("reparentChildren — move the FIRST child of P (updates P.firstChildId)", () => {
   // doc > [P > [a, b], Q > [x]]   move [a] into Q (append)
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "Q" }),
@@ -166,12 +166,12 @@ describe("reparentChildren — move the FIRST child of P (updates P.firstChildId
     });
 
   it("updates P.firstChildId to b and clears b.prevSiblingId", () => {
-    const state = fixture();
-    const result = reparentChildren(state, ["a" as BlockId], "Q" as BlockId);
-    expect(getBlock(result.state, "P" as BlockId)?.firstChildId).toBe("b");
-    expect(getBlock(result.state, "P" as BlockId)?.lastChildId).toBe("b");
-    expect(getBlock(result.state, "b" as BlockId)?.prevSiblingId).toBeNull();
-    expect(pointers(result.state, "a")).toEqual({
+    const document = fixture();
+    const result = reparentChildren(document, ["a" as BlockId], "Q" as BlockId);
+    expect(getBlock(result.document, "P" as BlockId)?.firstChildId).toBe("b");
+    expect(getBlock(result.document, "P" as BlockId)?.lastChildId).toBe("b");
+    expect(getBlock(result.document, "b" as BlockId)?.prevSiblingId).toBeNull();
+    expect(pointers(result.document, "a")).toEqual({
       parentId: "Q",
       prevSiblingId: "x",
       nextSiblingId: null,
@@ -188,7 +188,7 @@ describe("reparentChildren — move the FIRST child of P (updates P.firstChildId
 describe("reparentChildren — move the LAST child of P (updates P.lastChildId)", () => {
   // doc > [P (blockquote) > [a, b], Q (blockquote) > [x]]   move [b] into Q (append)
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "Q" }),
@@ -201,13 +201,13 @@ describe("reparentChildren — move the LAST child of P (updates P.lastChildId)"
     });
 
   it("updates P.lastChildId to a and clears a.nextSiblingId", () => {
-    const state = fixture();
-    const result = reparentChildren(state, ["b" as BlockId], "Q" as BlockId);
-    expect(getBlock(result.state, "P" as BlockId)?.firstChildId).toBe("a");
-    expect(getBlock(result.state, "P" as BlockId)?.lastChildId).toBe("a");
-    expect(getBlock(result.state, "a" as BlockId)?.nextSiblingId).toBeNull();
-    expect(getBlock(result.state, "Q" as BlockId)?.firstChildId).toBe("x");
-    expect(getBlock(result.state, "Q" as BlockId)?.lastChildId).toBe("b");
+    const document = fixture();
+    const result = reparentChildren(document, ["b" as BlockId], "Q" as BlockId);
+    expect(getBlock(result.document, "P" as BlockId)?.firstChildId).toBe("a");
+    expect(getBlock(result.document, "P" as BlockId)?.lastChildId).toBe("a");
+    expect(getBlock(result.document, "a" as BlockId)?.nextSiblingId).toBeNull();
+    expect(getBlock(result.document, "Q" as BlockId)?.firstChildId).toBe("x");
+    expect(getBlock(result.document, "Q" as BlockId)?.lastChildId).toBe("b");
     expect(result.dirtyIds.has("P" as BlockId)).toBe(true);
     expect(result.dirtyIds.has("Q" as BlockId)).toBe(true);
     expect(result.dirtyIds.has("b" as BlockId)).toBe(true);
@@ -217,7 +217,7 @@ describe("reparentChildren — move the LAST child of P (updates P.lastChildId)"
 describe("reparentChildren — move into an EMPTY container Q", () => {
   it("an empty container holds its one paragraph (Word: every story ends with a ¶); the run follows it", () => {
     // doc > [P (blockquote) > [a, b, c], Q (blockquote) > []] → move [a, b] into Q.
-    const built = buildState({
+    const built = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "Q" }),
@@ -231,7 +231,7 @@ describe("reparentChildren — move into an EMPTY container Q", () => {
     const only = pointers(built, "Q").firstChildId;
     expect(only).not.toBeNull();
     expect(pointers(built, "Q").lastChildId).toBe(only);
-    const next = reparentChildren(built, ["a" as BlockId, "b" as BlockId], "Q" as BlockId).state;
+    const next = reparentChildren(built, ["a" as BlockId, "b" as BlockId], "Q" as BlockId).document;
     expect(pointers(next, "Q")).toMatchObject({ firstChildId: only, lastChildId: "b" });
     expect(pointers(next, "a")).toMatchObject({ parentId: "Q", prevSiblingId: only, nextSiblingId: "b" });
     expect(pointers(next, "P")).toMatchObject({ firstChildId: "c", lastChildId: "c" });
@@ -241,7 +241,7 @@ describe("reparentChildren — move into an EMPTY container Q", () => {
 
 describe("reparentChildren — validation", () => {
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "Q" }),
@@ -254,41 +254,41 @@ describe("reparentChildren — validation", () => {
     });
 
   it("throws when a moved block does not exist", () => {
-    const state = fixture();
+    const document = fixture();
     expect(() =>
-      reparentChildren(state, ["missing" as BlockId], "Q" as BlockId),
+      reparentChildren(document, ["missing" as BlockId], "Q" as BlockId),
     ).toThrow(/block "missing" not found/);
   });
 
   it("throws when newParent is a leaf (inlineContent !== null)", () => {
-    const state = fixture();
+    const document = fixture();
     // x is a paragraph (leaf) — cannot be a container.
     expect(() =>
-      reparentChildren(state, ["a" as BlockId], "x" as BlockId),
+      reparentChildren(document, ["a" as BlockId], "x" as BlockId),
     ).toThrow();
   });
 
   it("throws when newParent does not exist", () => {
-    const state = fixture();
+    const document = fixture();
     expect(() =>
-      reparentChildren(state, ["a" as BlockId], "missing" as BlockId),
+      reparentChildren(document, ["a" as BlockId], "missing" as BlockId),
     ).toThrow();
   });
 
   it("throws on a non-contiguous run", () => {
     // [a, x] are not contiguous siblings (a is under P, x under Q) — and even
     // within one parent, a non-adjacent pair must throw.
-    const state = fixture();
+    const document = fixture();
     expect(() =>
-      reparentChildren(state, ["a" as BlockId, "x" as BlockId], "doc" as BlockId),
+      reparentChildren(document, ["a" as BlockId, "x" as BlockId], "doc" as BlockId),
     ).toThrow(/contiguous/i);
   });
 
   it("throws when moved blocks span two parents", () => {
-    const state = fixture();
+    const document = fixture();
     // a (under P) and x (under Q): not a single-parent run.
     expect(() =>
-      reparentChildren(state, ["a" as BlockId, "x" as BlockId], "Q" as BlockId),
+      reparentChildren(document, ["a" as BlockId, "x" as BlockId], "Q" as BlockId),
     ).toThrow();
   });
 
@@ -296,7 +296,7 @@ describe("reparentChildren — validation", () => {
     // Move P under Q-descendant? Build a deeper tree so that newParent is a
     // descendant of the moved block.
     // doc > [P > [child > [grand > [g]]]]   move [P] under grand → cycle.
-    const cyclic = buildState({
+    const cyclic = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "P" }),
@@ -312,35 +312,35 @@ describe("reparentChildren — validation", () => {
   });
 
   it("throws when beforeSiblingId is not a child of newParent", () => {
-    const state = fixture();
+    const document = fixture();
     // Move [b] into Q before "a". "a" is a child of P (not Q) and is NOT in the
     // moved set — so this exercises the "not a child of newParent" rule (V5),
     // not the "beforeSiblingId ∈ moved" rule (V6).
     expect(() =>
-      reparentChildren(state, ["b" as BlockId], "Q" as BlockId, "a" as BlockId),
+      reparentChildren(document, ["b" as BlockId], "Q" as BlockId, "a" as BlockId),
     ).toThrow(/is not a child of newParent/);
   });
 
   it("throws when beforeSiblingId is one of the moved blocks", () => {
-    const state = fixture();
+    const document = fixture();
     // Move [a, b] under P (same parent) before a — a is in the moved set.
     expect(() =>
-      reparentChildren(state, ["a" as BlockId, "b" as BlockId], "P" as BlockId, "a" as BlockId),
+      reparentChildren(document, ["a" as BlockId, "b" as BlockId], "P" as BlockId, "a" as BlockId),
     ).toThrow(/beforeSiblingId cannot be one of the moved blocks/);
   });
 });
 
 describe("reparentChildren — no-op (empty blockIds)", () => {
   it("returns the same state reference and empty dirtyIds", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "P" }),
         buildBlock({ id: "P", type: "section", parentId: "doc" }),
       ],
     });
-    const result = reparentChildren(state, [], "P" as BlockId);
-    expect(result.state).toBe(state);
+    const result = reparentChildren(document, [], "P" as BlockId);
+    expect(result.document).toBe(document);
     expect(result.dirtyIds.size).toBe(0);
   });
 });
@@ -348,7 +348,7 @@ describe("reparentChildren — no-op (empty blockIds)", () => {
 describe("reparentChildren — self-move identity no-op", () => {
   // doc > [P > [a, b, c]]
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "P" }),
@@ -360,18 +360,18 @@ describe("reparentChildren — self-move identity no-op", () => {
     });
 
   it("appending the run to the parent it already ends in is a no-op (same state ref)", () => {
-    const state = fixture();
+    const document = fixture();
     // [c] is already the last child of P; appending it to P changes nothing.
-    const result = reparentChildren(state, ["c" as BlockId], "P" as BlockId);
-    expect(result.state).toBe(state);
+    const result = reparentChildren(document, ["c" as BlockId], "P" as BlockId);
+    expect(result.document).toBe(document);
     expect(result.dirtyIds.size).toBe(0);
   });
 
   it("inserting the run before its current next sibling is a no-op", () => {
-    const state = fixture();
+    const document = fixture();
     // [a] is already immediately before b; inserting it before b changes nothing.
-    const result = reparentChildren(state, ["a" as BlockId], "P" as BlockId, "b" as BlockId);
-    expect(result.state).toBe(state);
+    const result = reparentChildren(document, ["a" as BlockId], "P" as BlockId, "b" as BlockId);
+    expect(result.document).toBe(document);
     expect(result.dirtyIds.size).toBe(0);
   });
 });
@@ -379,7 +379,7 @@ describe("reparentChildren — self-move identity no-op", () => {
 describe("reparentChildrenInTx — transaction guard", () => {
   it("throws when called outside any Y.Doc transaction", () => {
     // doc > [P > [c1], Q]; move c1 from P to Q.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "Q" }),
@@ -408,9 +408,9 @@ describe("reparentChildrenInTx — transaction guard", () => {
         buildBlock({ id: "x", type: "paragraph", parentId: "Q", inlineContent: inlineContent([]) }),
       ],
     });
-    const plan = planReparentChildren(state, ["c1" as BlockId], "Q" as BlockId, null);
+    const plan = planReparentChildren(document, ["c1" as BlockId], "Q" as BlockId, null);
     expect(plan.blockIds.length).toBeGreaterThan(0);
-    expect(() => reparentChildrenInTx(state[STATE_INTERNAL].doc, plan)).toThrow(
+    expect(() => reparentChildrenInTx(document[DOCUMENT_INTERNAL].doc, plan)).toThrow(
       /reparentChildren: must be called inside Y\.Doc\.transact/,
     );
   });

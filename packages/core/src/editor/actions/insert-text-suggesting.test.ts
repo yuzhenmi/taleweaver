@@ -18,7 +18,7 @@
  * text.length`. Direct mode (suggestingAuthor unset) keeps the destructive
  * `replaceRange`.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,

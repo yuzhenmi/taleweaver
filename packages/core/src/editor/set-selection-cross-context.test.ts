@@ -11,7 +11,7 @@
  * engine backstop verified at the reducer level.
  */
 import { describe, it, expect } from "vitest";
-import { finalSectionOf } from "../test-utils/state-builders";
+import { finalSectionOf } from "../test-utils/document-builders";
 import { config, reduceEditor, createInitialEditorState } from "./actions/test-helpers";
 import type { EditorState } from "./editor-state";
 import { selectionContextOf, getActiveFormatting, inlineContentLength, resolveBlock } from "../state";

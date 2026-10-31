@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { compareBlocksInDocOrder, comparePositions, selectionContextOf, spanStart, spanEnd } from "./block-compare";
-import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent } from "../test-utils/document-builders";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";
 
 describe("compareBlocksInDocOrder", () => {
   // Common test fixture: doc > [section1 > [p1, p2], section2 > [p3, p4]]
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "s1", lastChildId: "s2" }),
@@ -59,64 +59,64 @@ describe("compareBlocksInDocOrder", () => {
     });
 
   it("returns 0 when comparing a block to itself", () => {
-    const state = fixture();
-    expect(compareBlocksInDocOrder(state, "p1" as BlockId, "p1" as BlockId)).toBe(0);
+    const document = fixture();
+    expect(compareBlocksInDocOrder(document, "p1" as BlockId, "p1" as BlockId)).toBe(0);
   });
 
   it("returns negative when a comes before b at the same level (siblings)", () => {
-    const state = fixture();
-    expect(compareBlocksInDocOrder(state, "p1" as BlockId, "p2" as BlockId)).toBeLessThan(0);
+    const document = fixture();
+    expect(compareBlocksInDocOrder(document, "p1" as BlockId, "p2" as BlockId)).toBeLessThan(0);
   });
 
   it("returns positive when a comes after b at the same level", () => {
-    const state = fixture();
-    expect(compareBlocksInDocOrder(state, "p2" as BlockId, "p1" as BlockId)).toBeGreaterThan(0);
+    const document = fixture();
+    expect(compareBlocksInDocOrder(document, "p2" as BlockId, "p1" as BlockId)).toBeGreaterThan(0);
   });
 
   it("returns negative when a is in an earlier subtree than b", () => {
-    const state = fixture();
-    expect(compareBlocksInDocOrder(state, "p1" as BlockId, "p3" as BlockId)).toBeLessThan(0);
-    expect(compareBlocksInDocOrder(state, "p2" as BlockId, "p3" as BlockId)).toBeLessThan(0);
+    const document = fixture();
+    expect(compareBlocksInDocOrder(document, "p1" as BlockId, "p3" as BlockId)).toBeLessThan(0);
+    expect(compareBlocksInDocOrder(document, "p2" as BlockId, "p3" as BlockId)).toBeLessThan(0);
   });
 
   it("returns positive when a is in a later subtree than b", () => {
-    const state = fixture();
-    expect(compareBlocksInDocOrder(state, "p4" as BlockId, "p1" as BlockId)).toBeGreaterThan(0);
+    const document = fixture();
+    expect(compareBlocksInDocOrder(document, "p4" as BlockId, "p1" as BlockId)).toBeGreaterThan(0);
   });
 
   it("returns negative when a is an ancestor of b (ancestor comes first)", () => {
-    const state = fixture();
-    expect(compareBlocksInDocOrder(state, "doc" as BlockId, "p1" as BlockId)).toBeLessThan(0);
-    expect(compareBlocksInDocOrder(state, "s1" as BlockId, "p1" as BlockId)).toBeLessThan(0);
+    const document = fixture();
+    expect(compareBlocksInDocOrder(document, "doc" as BlockId, "p1" as BlockId)).toBeLessThan(0);
+    expect(compareBlocksInDocOrder(document, "s1" as BlockId, "p1" as BlockId)).toBeLessThan(0);
   });
 
   it("returns positive when a is a descendant of b (descendant comes after)", () => {
-    const state = fixture();
-    expect(compareBlocksInDocOrder(state, "p1" as BlockId, "doc" as BlockId)).toBeGreaterThan(0);
-    expect(compareBlocksInDocOrder(state, "p1" as BlockId, "s1" as BlockId)).toBeGreaterThan(0);
+    const document = fixture();
+    expect(compareBlocksInDocOrder(document, "p1" as BlockId, "doc" as BlockId)).toBeGreaterThan(0);
+    expect(compareBlocksInDocOrder(document, "p1" as BlockId, "s1" as BlockId)).toBeGreaterThan(0);
   });
 
   it("throws when one of the ids does not exist", () => {
-    const state = fixture();
-    expect(() => compareBlocksInDocOrder(state, "missing" as BlockId, "p1" as BlockId)).toThrow();
-    expect(() => compareBlocksInDocOrder(state, "p1" as BlockId, "missing" as BlockId)).toThrow();
+    const document = fixture();
+    expect(() => compareBlocksInDocOrder(document, "missing" as BlockId, "p1" as BlockId)).toThrow();
+    expect(() => compareBlocksInDocOrder(document, "p1" as BlockId, "missing" as BlockId)).toThrow();
   });
 
   it("throws when blocks are in disjoint subtrees (no common ancestor)", () => {
     // Two separate roots — should not happen in practice (single rootId), but defensive.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "a",
       blocks: [
         buildBlock({ id: "a", type: "document", inlineContent: inlineContent([]) }),
         buildBlock({ id: "b", type: "document", inlineContent: inlineContent([]) }), // orphan, no parent
       ],
     });
-    expect(() => compareBlocksInDocOrder(state, "a" as BlockId, "b" as BlockId)).toThrow();
+    expect(() => compareBlocksInDocOrder(document, "a" as BlockId, "b" as BlockId)).toThrow();
   });
 
   it("compares correctly when one block is much deeper than the other (asymmetric chains)", () => {
     // doc > [shallow, outer > section > subsection > deep]
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "shallow", lastChildId: "outer" }),
@@ -158,14 +158,14 @@ describe("compareBlocksInDocOrder", () => {
       ],
     });
     // shallow chain depth = 2 (shallow, doc); deep chain depth = 5 (deep, subsection, section, outer, doc).
-    expect(compareBlocksInDocOrder(state, "shallow" as BlockId, "deep" as BlockId)).toBeLessThan(0);
-    expect(compareBlocksInDocOrder(state, "deep" as BlockId, "shallow" as BlockId)).toBeGreaterThan(0);
+    expect(compareBlocksInDocOrder(document, "shallow" as BlockId, "deep" as BlockId)).toBeLessThan(0);
+    expect(compareBlocksInDocOrder(document, "deep" as BlockId, "shallow" as BlockId)).toBeGreaterThan(0);
   });
 });
 
 describe("comparePositions", () => {
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -175,26 +175,26 @@ describe("comparePositions", () => {
     });
 
   it("compares offsets within the same block", () => {
-    const state = fixture();
+    const document = fixture();
     const a = createPosition("p1" as BlockId, 1);
     const b = createPosition("p1" as BlockId, 5);
-    expect(comparePositions(state, a, b)).toBeLessThan(0);
-    expect(comparePositions(state, b, a)).toBeGreaterThan(0);
-    expect(comparePositions(state, a, a)).toBe(0);
+    expect(comparePositions(document, a, b)).toBeLessThan(0);
+    expect(comparePositions(document, b, a)).toBeGreaterThan(0);
+    expect(comparePositions(document, a, a)).toBe(0);
   });
 
   it("delegates to compareBlocksInDocOrder when blocks differ", () => {
-    const state = fixture();
+    const document = fixture();
     const a = createPosition("p1" as BlockId, 5);
     const b = createPosition("p2" as BlockId, 0);
-    expect(comparePositions(state, a, b)).toBeLessThan(0);
-    expect(comparePositions(state, b, a)).toBeGreaterThan(0);
+    expect(comparePositions(document, a, b)).toBeLessThan(0);
+    expect(comparePositions(document, b, a)).toBeGreaterThan(0);
   });
 });
 
 describe("spanStart / spanEnd", () => {
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -204,35 +204,35 @@ describe("spanStart / spanEnd", () => {
     });
 
   it("returns anchor first / focus second when anchor precedes focus", () => {
-    const state = fixture();
+    const document = fixture();
     const anchor = createPosition("p1" as BlockId, 1);
     const focus = createPosition("p2" as BlockId, 4);
     const span = createSpan(anchor, focus);
-    expect(spanStart(state, span)).toBe(anchor);
-    expect(spanEnd(state, span)).toBe(focus);
+    expect(spanStart(document, span)).toBe(anchor);
+    expect(spanEnd(document, span)).toBe(focus);
   });
 
   it("returns focus first / anchor second when focus precedes anchor", () => {
-    const state = fixture();
+    const document = fixture();
     const anchor = createPosition("p2" as BlockId, 4);
     const focus = createPosition("p1" as BlockId, 1);
     const span = createSpan(anchor, focus);
-    expect(spanStart(state, span)).toBe(focus);
-    expect(spanEnd(state, span)).toBe(anchor);
+    expect(spanStart(document, span)).toBe(focus);
+    expect(spanEnd(document, span)).toBe(anchor);
   });
 });
 
 describe("selectionContextOf", () => {
   it("returns the root id when called on the root", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [buildBlock({ id: "doc", type: "document" })],
     });
-    expect(selectionContextOf(state, "doc" as BlockId)).toBe("doc");
+    expect(selectionContextOf(document, "doc" as BlockId)).toBe("doc");
   });
 
   it("walks parentId to find the context root", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
@@ -240,13 +240,13 @@ describe("selectionContextOf", () => {
         buildBlock({ id: "p", type: "paragraph", parentId: "s", inlineContent: inlineContent([]) }),
       ],
     });
-    expect(selectionContextOf(state, "p" as BlockId)).toBe("doc");
-    expect(selectionContextOf(state, "s" as BlockId)).toBe("doc");
+    expect(selectionContextOf(document, "p" as BlockId)).toBe("doc");
+    expect(selectionContextOf(document, "s" as BlockId)).toBe("doc");
   });
 
   it("returns null when called on a non-existent id", () => {
-    const state = buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
-    expect(selectionContextOf(state, "missing" as BlockId)).toBeNull();
+    const document = buildDocument({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
+    expect(selectionContextOf(document, "missing" as BlockId)).toBeNull();
   });
 
   it("returns the block's own root when it is an orphan (parentId === null)", () => {
@@ -255,11 +255,11 @@ describe("selectionContextOf", () => {
     // parentId === null; selectionContextOf should return them as their own
     // context root.
     // A parentless block lives in its own tree (here a footnote body).
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [buildBlock({ id: "doc", type: "document" })],
       embedContents: [buildBlock({ id: "orphan", type: "footnote-body", inlineContent: inlineContent([]) })],
     });
-    expect(selectionContextOf(state, "orphan" as BlockId)).toBe("orphan");
+    expect(selectionContextOf(document, "orphan" as BlockId)).toBe("orphan");
   });
 });

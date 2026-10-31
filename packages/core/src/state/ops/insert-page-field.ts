@@ -1,7 +1,7 @@
 import type * as Y from "yjs";
 import { requireBlockText } from "../block-text";
-import type { Document, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
 import type { BlockId } from "../block-id";
 import type { Position } from "../block-position";
 import {
@@ -45,13 +45,13 @@ interface PageFieldInsertPlan {
  * (no `inlineContent`), or `position.offset` is outside `[0, length]`.
  */
 export function insertPageField(
-  state: Document,
+  document: Document,
   position: Position,
   fieldKind: PageFieldKind,
   numberStyle: PageFieldNumberStyle = "decimal",
 ): OperationResult {
-  const plan = planPageFieldInsert(state, position, fieldKind, numberStyle);
-  return applyOperation(state, (doc) => {
+  const plan = planPageFieldInsert(document, position, fieldKind, numberStyle);
+  return applyOperation(document, (doc) => {
     insertPageFieldInTx(doc, plan);
   });
 }
@@ -63,12 +63,12 @@ export function insertPageField(
  * here, BEFORE the surrounding `applyOperation` opens.
  */
 function planPageFieldInsert(
-  state: Document,
+  document: Document,
   position: Position,
   fieldKind: PageFieldKind,
   numberStyle: PageFieldNumberStyle,
 ): PageFieldInsertPlan {
-  const resolved = resolveBlock(state, position.blockId);
+  const resolved = resolveBlock(document, position.blockId);
   if (resolved === null) {
     throw new Error(`insertPageField: block "${position.blockId}" not found`);
   }

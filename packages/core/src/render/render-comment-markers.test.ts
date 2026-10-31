@@ -4,12 +4,12 @@ import type { RenderNode, ElementBox, TextBox } from "./render-node";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
   embed,
-} from "../test-utils/state-builders";
+} from "../test-utils/document-builders";
 import { asBlockId } from "../state";
 import type { BlockId } from "../state";
 import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "../state";
@@ -56,7 +56,7 @@ function embedBoxesOf(root: RenderNode, embedType: string): ElementBox[] {
 
 describe("render — comment-range markers are zero-width inline-block atoms", () => {
   it("emits one zero-width inline-block atom per marker (no glyph, no U+FFFC)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -74,7 +74,7 @@ describe("render — comment-range markers are zero-width inline-block atoms", (
       ],
     });
 
-    const out = render(state, reg, attrReg);
+    const out = render(document, reg, attrReg);
 
     // Each marker emits EXACTLY ONE box, stamped with its embedType. Emitting
     // one atomic box (not zero) is load-bearing: the IFC drives its per-line
@@ -102,7 +102,7 @@ describe("render — comment-range markers are zero-width inline-block atoms", (
   });
 
   it("a block containing ONLY comment markers contributes no visible glyph", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -118,7 +118,7 @@ describe("render — comment-range markers are zero-width inline-block atoms", (
       ],
     });
 
-    const out = render(state, reg, attrReg);
+    const out = render(document, reg, attrReg);
     // Both markers still emit their atom boxes (offset-bearing), but render no
     // visible glyph — the empty-paragraph strut sentinel is NOT needed because
     // the markers themselves trigger IFC dispatch.
@@ -151,7 +151,7 @@ describe("render — comment markers preserve the offset↔box 1:1 IFC invariant
   };
 
   it("line.inlineOffsetEnd covers all text chars + markers ('hello ' + start + 'world' + end)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -169,7 +169,7 @@ describe("render — comment markers preserve the offset↔box 1:1 IFC invariant
       ],
     });
 
-    const root = render(state, reg2, attrReg2).root;
+    const root = render(document, reg2, attrReg2).root;
     const shaper = createMockShaper(CHAR_W, LINE_H);
     const layout = positionTreeForTest(
       layoutTree(root, widePage.pageInlineSize, shaper, widePage),
@@ -179,7 +179,7 @@ describe("render — comment markers preserve the offset↔box 1:1 IFC invariant
     expect(lines).toHaveLength(1);
     const line = nth(lines, 0, "line").line;
 
-    // State-model length: "hello " (6) + comment-start (1) + "world" (5) +
+    // Document-model length: "hello " (6) + comment-start (1) + "world" (5) +
     // comment-end (1) = 13. The line's offsets must span [0, 13] — the markers
     // each contribute exactly 1, exactly like every other embed. If a marker
     // skipped emission, this would be 11 (short by 2), corrupting cursor math

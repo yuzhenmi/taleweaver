@@ -1,5 +1,5 @@
 import { resolveBlock, createPosition, createSpan, positionsEqual } from "../state";
-import type { Position, State, BlockId } from "../state";
+import type { Position, Document, BlockId } from "../state";
 import { isCollapsed } from "../cursor/selection";
 import { transitionMapping } from "../decorations/decoration-layers";
 import type { EditorAction } from "./editor-action";
@@ -164,8 +164,8 @@ export function unionDirty(
 // ─── Text before the caret ────────────────────────────────────────────────
 
 /** The block's text in `[from, to)` (embeds as U+FFFC). */
-function blockText(state: State, blockId: BlockId, from: number, to: number): string {
-  const items = resolveBlock(state, blockId)?.block.inlineContent?.items ?? [];
+function blockText(document: Document, blockId: BlockId, from: number, to: number): string {
+  const items = resolveBlock(document, blockId)?.block.inlineContent?.items ?? [];
   let out = "";
   let pos = 0;
   for (const item of items) {
@@ -226,10 +226,10 @@ const WORD_START_BEFORE = /^[\s\p{Ps}\p{Pi}\p{Pf}"']$/u;
 
 /** The trigger at `from` in `editor`, if the text from it to the caret is still a valid one. */
 /** True when any run in `[from, to)` of the block carries an atomic mark (a picked mention). */
-function hasAtomicMark(state: State, blockId: BlockId, from: number, to: number, registry: AttrRegistry): boolean {
+function hasAtomicMark(document: Document, blockId: BlockId, from: number, to: number, registry: AttrRegistry): boolean {
   if (!registry.hasAtomicMarks()) return false;
   let pos = 0;
-  for (const item of resolveBlock(state, blockId)?.block.inlineContent?.items ?? []) {
+  for (const item of resolveBlock(document, blockId)?.block.inlineContent?.items ?? []) {
     const end = pos + (item.kind === "text" ? item.text.length : 1);
     if (end > from && pos < to && Object.keys(item.attrs).some((k) => registry.isAtomic(k))) return true;
     if (end >= to) break;
@@ -239,11 +239,11 @@ function hasAtomicMark(state: State, blockId: BlockId, from: number, to: number,
 }
 
 function validTrigger(spec: TriggerSpec, editor: EditorState, from: Position, registry: AttrRegistry): ActiveTrigger | undefined {
-  const { selection, document: state } = editor;
+  const { selection, document } = editor;
   if (!isCollapsed(selection)) return undefined;
   const caret = selection.focus;
   if (caret.blockId !== from.blockId || caret.offset < from.offset + spec.text.length) return undefined;
-  const text = blockText(state, caret.blockId, from.offset, caret.offset);
+  const text = blockText(document, caret.blockId, from.offset, caret.offset);
   if (!text.startsWith(spec.text)) return undefined;
   const query = text.slice(spec.text.length);
   if (query.includes("￼") || query.includes("\n")) return undefined;
@@ -251,7 +251,7 @@ function validTrigger(spec: TriggerSpec, editor: EditorState, from: Position, re
   if (query.length > (spec.maxQueryLength ?? 64)) return undefined;
   // Text already turned into an atomic mark (a picked mention "@Anna") is never a
   // trigger again, even though it still spells one.
-  if (hasAtomicMark(state, caret.blockId, from.offset, caret.offset, registry)) return undefined;
+  if (hasAtomicMark(document, caret.blockId, from.offset, caret.offset, registry)) return undefined;
   return { id: spec.id, from, to: caret, query };
 }
 
@@ -470,7 +470,7 @@ const parsedKeymaps = new WeakMap<Keymap, ReadonlyArray<{ name: string; parsed: 
 
 /**
  * Parse (and cache) every binding of `keymap`, throwing on a malformed name.
- * `createEditorStateFromState` calls this, so a bad binding fails at configuration time.
+ * `createEditorStateFromDocument` calls this, so a bad binding fails at configuration time.
  */
 export function compileKeymap(keymap: Keymap): ReadonlyArray<{ name: string; parsed: ParsedBinding }> {
   let compiled = parsedKeymaps.get(keymap);

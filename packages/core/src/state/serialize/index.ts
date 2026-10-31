@@ -1,8 +1,8 @@
 /**
  * The `serialize/` module barrel — the pluggable document (de)serialization
  * surface. Lives INSIDE `state/` because it consumes/produces `Document` and needs
- * the raw `Y.Doc` (reached via `STATE_INTERNAL` by sibling import, exactly like
- * `build-state-from-blocks` / `list-defs` / `initial-state`). `getMetaRootId`
+ * the raw `Y.Doc` (reached via `DOCUMENT_INTERNAL` by sibling import, exactly like
+ * `build-document-from-blocks` / `list-defs` / `create-empty-document`). `getMetaRootId`
  * (yjs-doc) stays state-private and is NOT re-exported here.
  */
 

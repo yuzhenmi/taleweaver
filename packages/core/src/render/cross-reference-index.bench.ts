@@ -6,12 +6,12 @@
  * paragraphs, with a bookmark (and a field referencing it) every 10 paragraphs.
  */
 import { bench, describe } from "vitest";
-import { buildState, buildBlock, inlineContent, text, embed } from "../test-utils/state-builders";
+import { buildDocument, buildBlock, inlineContent, text, embed } from "../test-utils/document-builders";
 import { insertText } from "../state/ops/insert-text";
 import { createPosition } from "../state/block-position";
 import { BOOKMARK_START_EMBED_TYPE, BOOKMARK_END_EMBED_TYPE } from "../state/bookmarks";
 import { CROSS_REFERENCE_EMBED_TYPE } from "../state/ops/insert-cross-reference";
-import type { Document } from "../state/state";
+import type { Document } from "../state/document";
 import type { BlockId } from "../state/block-id";
 import { buildCrossReferenceIndex, updateCrossReferenceIndex } from "./collect-cross-references";
 
@@ -21,7 +21,7 @@ if (proc?.env !== undefined) proc.env.NODE_ENV = "production";
 /** doc > [ p0 … p{n-1} ]: every 10th paragraph is a bookmarked heading, the next one references it. */
 function documentOf(n: number): Document {
   const ids = Array.from({ length: n }, (_, i) => `p${i}`);
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: ids[n - 1] ?? "p0" }),
@@ -47,17 +47,17 @@ function documentOf(n: number): Document {
 
 describe("keystroke inside a bookmark target vs document size", () => {
   for (const n of [100, 1000, 10000]) {
-    let state = documentOf(n);
-    let index = buildCrossReferenceIndex(state);
+    let document = documentOf(n);
+    let index = buildCrossReferenceIndex(document);
     const target = `p${Math.floor(n / 20) * 10}` as BlockId; // a bookmarked heading mid-document
     let offset = 3;
     const none = new Set<BlockId>();
     bench(
       `${n} paragraphs`,
       () => {
-        const r = insertText(state, createPosition(target, offset++), "x", {});
-        index = updateCrossReferenceIndex(index, state, r.state, r.dirtyIds, none).index;
-        state = r.state;
+        const r = insertText(document, createPosition(target, offset++), "x", {});
+        index = updateCrossReferenceIndex(index, document, r.document, r.dirtyIds, none).index;
+        document = r.document;
       },
       { iterations: 500 },
     );

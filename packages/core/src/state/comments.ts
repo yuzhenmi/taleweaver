@@ -1,7 +1,7 @@
 import * as Y from "yjs";
-import type { Document } from "./state";
-import { getBlock } from "./state";
-import { STATE_INTERNAL } from "./state-internal";
+import type { Document } from "./document";
+import { getBlock } from "./document";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import type { BlockId } from "./block-id";
 import type { Position } from "./block-position";
 import { createPosition } from "./block-position";
@@ -99,10 +99,10 @@ interface MarkerTally {
  *
  * Mirrors the cross-reference index pass: one O(N inline-items) walk, no layout.
  */
-export function buildCommentRangeIndex(state: Document): Map<CommentId, CommentRange> {
+export function buildCommentRangeIndex(document: Document): Map<CommentId, CommentRange> {
   const tallies = new Map<CommentId, MarkerTally>();
 
-  for (const block of iterateBlocksInDocumentOrder(state)) {
+  for (const block of iterateBlocksInDocumentOrder(document)) {
     const content = block.inlineContent;
     if (content === null) continue;
     let offset = 0;
@@ -136,7 +136,7 @@ export function buildCommentRangeIndex(state: Document): Map<CommentId, CommentR
 
   const index = new Map<CommentId, CommentRange>();
   for (const [commentId, tally] of tallies) {
-    index.set(commentId, deriveRange(state, tally));
+    index.set(commentId, deriveRange(document, tally));
   }
   return index;
 }
@@ -148,8 +148,8 @@ export function buildCommentRangeIndex(state: Document): Map<CommentId, CommentR
  * one-sided or inverted marker pair resolves to a `CommentRange` with
  * `orphaned: true` (a concrete position survives, just not a well-formed pair).
  */
-export function resolveCommentRange(state: Document, commentId: CommentId): CommentRange | null {
-  return buildCommentRangeIndex(state).get(commentId) ?? null;
+export function resolveCommentRange(document: Document, commentId: CommentId): CommentRange | null {
+  return buildCommentRangeIndex(document).get(commentId) ?? null;
 }
 
 function getOrCreateTally(
@@ -171,10 +171,10 @@ function getOrCreateTally(
  * side exists) so the read side always has concrete positions even for an
  * orphaned comment (it skips orphaned ranges anyway).
  */
-function deriveRange(state: Document, tally: MarkerTally): CommentRange {
+function deriveRange(document: Document, tally: MarkerTally): CommentRange {
   const wellFormedCount = tally.startCount === 1 && tally.endCount === 1;
   if (wellFormedCount && tally.start !== null && tally.end !== null) {
-    const orphaned = comparePositions(state, tally.start, tally.end) >= 0;
+    const orphaned = comparePositions(document, tally.start, tally.end) >= 0;
     return { start: tally.start, end: tally.end, orphaned };
   }
   // One-sided or duplicated: orphaned. Fill missing endpoints defensively so
@@ -184,16 +184,16 @@ function deriveRange(state: Document, tally: MarkerTally): CommentRange {
   if (start === null || end === null) {
     // Unreachable: a tally exists only when at least one marker was recorded.
     // Defensive fallback to the document root origin keeps the type total.
-    const origin = createPosition(rootLeafId(state), 0);
+    const origin = createPosition(rootLeafId(document), 0);
     return { start: origin, end: origin, orphaned: true };
   }
   return { start, end, orphaned: true };
 }
 
 /** Defensive origin block id — the document root (always present). */
-function rootLeafId(state: Document): BlockId {
-  const root = getBlock(state, state.rootId);
-  return root?.id ?? state.rootId;
+function rootLeafId(document: Document): BlockId {
+  const root = getBlock(document, document.rootId);
+  return root?.id ?? document.rootId;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -245,7 +245,7 @@ function replyFromY(m: Y.Map<unknown>, recordId: string): CommentReply {
  * {@link writeCommentRecordInTx} (whole-record write) and the
  * `addReply` op (which reuses {@link replyToY} for a single reply).
  *
- * State-internal: re-exported from `state/index.ts` for intra-state use (the
+ * Document-internal: re-exported from `state/index.ts` for intra-state use (the
  * `addReply` op in `ops/comment-ops.ts`), NOT from the public core barrel — it
  * lives here with the `CommentReply` type it converts.
  */
@@ -310,15 +310,15 @@ export function readCommentRecord(doc: Y.Doc, id: CommentId): CommentRecord | nu
  * One marker scan (`buildCommentRangeIndex`) feeds every record, so this is a
  * single O(N inline-items + N records) pass — no per-record re-scan.
  */
-export function getComments(state: Document): readonly ResolvedComment[] {
-  const doc = state[STATE_INTERNAL].doc;
-  const rangeIndex = buildCommentRangeIndex(state);
+export function getComments(document: Document): readonly ResolvedComment[] {
+  const doc = document[DOCUMENT_INTERNAL].doc;
+  const rangeIndex = buildCommentRangeIndex(document);
   const out: ResolvedComment[] = [];
   for (const key of getCommentsMap(doc).keys()) {
     const id = key as CommentId;
     const record = readCommentRecord(doc, id);
     if (record === null) continue;
-    const range = rangeIndex.get(id) ?? orphanOriginRange(state);
+    const range = rangeIndex.get(id) ?? orphanOriginRange(document);
     out.push(Object.freeze({ ...record, range: Object.freeze(range) }));
   }
   return Object.freeze(out);
@@ -330,7 +330,7 @@ export function getComments(state: Document): readonly ResolvedComment[] {
  * document origin with `orphaned: true`; the host skips it. Positions are
  * concrete so the type stays total.
  */
-function orphanOriginRange(state: Document): CommentRange {
-  const origin = createPosition(rootLeafId(state), 0);
+function orphanOriginRange(document: Document): CommentRange {
+  const origin = createPosition(rootLeafId(document), 0);
   return Object.freeze({ start: origin, end: origin, orphaned: true });
 }

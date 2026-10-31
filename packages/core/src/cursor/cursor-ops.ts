@@ -1,5 +1,5 @@
 import { resolveBlock, createPosition, createSpan, inlineContentLength, findItemAtOffset, nextBlockInDocOrder, prevBlockInDocOrder } from "../state";
-import type { State, BlockId, Position, Span, InlineContent, InlineItem } from "../state";
+import type { Document, BlockId, Position, Span, InlineContent, InlineItem } from "../state";
 import { isStructuralMarkerEmbedType } from "../state/embed-markers";
 import {
   nextGraphemeBoundary,
@@ -25,11 +25,11 @@ import {
  * gracefully).
  */
 export function moveByCharacter(
-  state: State,
+  document: Document,
   position: Position,
   direction: "forward" | "backward",
 ): Position {
-  const block = resolveBlock(state, position.blockId)?.block ?? null;
+  const block = resolveBlock(document, position.blockId)?.block ?? null;
   if (block === null) return position;
   const content: InlineContent = block.inlineContent ?? { items: [] };
   const total = inlineContentLength(content);
@@ -39,17 +39,17 @@ export function moveByCharacter(
   if (direction === "forward") {
     const from = offsetAfterMarkers(content, position.offset);
     if (from >= total) {
-      const next = findNextContentBlock(state, position.blockId);
-      return next === null ? position : caretAfterMarkers(state, createPosition(next, 0));
+      const next = findNextContentBlock(document, position.blockId);
+      return next === null ? position : caretAfterMarkers(document, createPosition(next, 0));
     }
     return createPosition(position.blockId, offsetAfterMarkers(content, advanceForward(content, from)));
   }
 
   const from = offsetBeforeMarkers(content, position.offset);
   if (from <= 0) {
-    const prev = findPrevContentBlock(state, position.blockId);
+    const prev = findPrevContentBlock(document, position.blockId);
     if (prev === null) return position;
-    const prevBlock = resolveBlock(state, prev)?.block ?? null;
+    const prevBlock = resolveBlock(document, prev)?.block ?? null;
     if (prevBlock === null) return position;
     const prevTotal = inlineContentLength(prevBlock.inlineContent ?? { items: [] });
     return createPosition(prev, prevTotal);
@@ -64,13 +64,13 @@ export function moveByCharacter(
  * aren't valid cursor destinations; only blocks with non-null
  * `inlineContent` are.
  */
-export function findNextContentBlock(state: State, blockId: BlockId): BlockId | null {
-  let cursor = nextBlockInDocOrder(state, blockId);
+export function findNextContentBlock(document: Document, blockId: BlockId): BlockId | null {
+  let cursor = nextBlockInDocOrder(document, blockId);
   while (cursor !== null) {
-    const block = resolveBlock(state, cursor)?.block ?? null;
+    const block = resolveBlock(document, cursor)?.block ?? null;
     if (block === null) return null;
     if (block.inlineContent !== null) return cursor;
-    cursor = nextBlockInDocOrder(state, cursor);
+    cursor = nextBlockInDocOrder(document, cursor);
   }
   return null;
 }
@@ -79,13 +79,13 @@ export function findNextContentBlock(state: State, blockId: BlockId): BlockId | 
  * Symmetric to `findNextContentBlock` — walks `prevBlockInDocOrder` past
  * container blocks.
  */
-export function findPrevContentBlock(state: State, blockId: BlockId): BlockId | null {
-  let cursor = prevBlockInDocOrder(state, blockId);
+export function findPrevContentBlock(document: Document, blockId: BlockId): BlockId | null {
+  let cursor = prevBlockInDocOrder(document, blockId);
   while (cursor !== null) {
-    const block = resolveBlock(state, cursor)?.block ?? null;
+    const block = resolveBlock(document, cursor)?.block ?? null;
     if (block === null) return null;
     if (block.inlineContent !== null) return cursor;
-    cursor = prevBlockInDocOrder(state, cursor);
+    cursor = prevBlockInDocOrder(document, cursor);
   }
   return null;
 }
@@ -144,18 +144,18 @@ function advanceBackward(content: InlineContent, offset: number): number {
  * valid in containers.
  */
 export function moveByWord(
-  state: State,
+  document: Document,
   position: Position,
   direction: "forward" | "backward",
 ): Position {
-  const block = resolveBlock(state, position.blockId)?.block ?? null;
+  const block = resolveBlock(document, position.blockId)?.block ?? null;
   if (block === null) return position;
   const content: InlineContent = block.inlineContent ?? { items: [] };
   const total = inlineContentLength(content);
 
   if (direction === "forward") {
     if (position.offset >= total) {
-      const next = findNextContentBlock(state, position.blockId);
+      const next = findNextContentBlock(document, position.blockId);
       return next === null ? position : createPosition(next, 0);
     }
     const advanced = advanceWordForward(content, position.offset);
@@ -163,9 +163,9 @@ export function moveByWord(
   }
 
   if (position.offset <= 0) {
-    const prev = findPrevContentBlock(state, position.blockId);
+    const prev = findPrevContentBlock(document, position.blockId);
     if (prev === null) return position;
-    const prevBlock = resolveBlock(state, prev)?.block ?? null;
+    const prevBlock = resolveBlock(document, prev)?.block ?? null;
     if (prevBlock === null) return position;
     const prevContent = prevBlock.inlineContent ?? { items: [] };
     const prevTotal = inlineContentLength(prevContent);
@@ -244,8 +244,8 @@ function advanceWordBackward(content: InlineContent, offset: number): number {
  * action that wants triple-click or similar may compose this with
  * cross-block logic.)
  */
-export function selectWord(state: State, position: Position): Span {
-  const block = resolveBlock(state, position.blockId)?.block ?? null;
+export function selectWord(document: Document, position: Position): Span {
+  const block = resolveBlock(document, position.blockId)?.block ?? null;
   if (block === null) return createSpan(position, position);
   const content = block.inlineContent ?? { items: [] };
   const { itemIndex, withinItem } = findItemAtOffset(content, position.offset);
@@ -290,11 +290,11 @@ export function selectWord(state: State, position: Position): Span {
  * rules as `moveByCharacter`.
  */
 export function expandSelection(
-  state: State,
+  document: Document,
   span: Span,
   direction: "forward" | "backward",
 ): Span {
-  const newFocus = moveByCharacter(state, span.focus, direction);
+  const newFocus = moveByCharacter(document, span.focus, direction);
   return createSpan(span.anchor, newFocus);
 }
 
@@ -333,16 +333,16 @@ function offsetBeforeMarkers(content: InlineContent, offset: number): number {
  * entry for every caret insertion (`INSERTS_AT_CARET`) and character moves; print's hit-test / arrow keys and digital's DOM bridge call it
  * too. Unknown or container blocks return `position` unchanged.
  */
-export function caretAfterMarkers(state: State, position: Position): Position {
-  const content = resolveBlock(state, position.blockId)?.block.inlineContent ?? null;
+export function caretAfterMarkers(document: Document, position: Position): Position {
+  const content = resolveBlock(document, position.blockId)?.block.inlineContent ?? null;
   if (content === null) return position;
   const at = offsetAfterMarkers(content, position.offset);
   return at === position.offset ? position : createPosition(position.blockId, at);
 }
 
 /** `position` moved back before every structural marker adjacent on its left (where a backward move starts). */
-export function caretBeforeMarkers(state: State, position: Position): Position {
-  const content = resolveBlock(state, position.blockId)?.block.inlineContent ?? null;
+export function caretBeforeMarkers(document: Document, position: Position): Position {
+  const content = resolveBlock(document, position.blockId)?.block.inlineContent ?? null;
   if (content === null) return position;
   const at = offsetBeforeMarkers(content, position.offset);
   return at === position.offset ? position : createPosition(position.blockId, at);

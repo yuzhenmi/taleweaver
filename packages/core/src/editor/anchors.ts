@@ -1,6 +1,6 @@
 import { extractText, createSpan, positionsEqual, comparePositions, resolveBlock, iterateSpan } from "../state";
 import { recordSample } from "../perf/perf-trace";
-import type { BlockId, Position, State } from "../state";
+import type { BlockId, Position, Document } from "../state";
 import type { Assoc, MappedPosition, PositionMapping } from "../state/position-mapping";
 import type { MappingLog } from "./mapping-log";
 
@@ -38,8 +38,8 @@ export interface Anchor {
 }
 
 export interface AnchorSet {
-  /** Track `[from, to]` (or the point `from`) in `state`, the controller's current document. */
-  create(state: State, from: Position, to?: Position, options?: AnchorOptions): Anchor;
+  /** Track `[from, to]` (or the point `from`) in `document`, the controller's current document. */
+  create(document: Document, from: Position, to?: Position, options?: AnchorOptions): Anchor;
   /**
    * Like `create`, but `from` / `to` are positions in an OLDER document `version`: they are
    * mapped to `current` through `log` first. Null when that version is no longer
@@ -48,14 +48,14 @@ export interface AnchorSet {
    */
   createAt(
     log: MappingLog,
-    current: State,
-    version: State,
+    current: Document,
+    version: Document,
     from: Position,
     to?: Position,
     options?: AnchorOptions,
   ): Anchor | null;
   /** Carry every live anchor through one document transition. */
-  advance(prev: State, next: State, mapping: PositionMapping): void;
+  advance(prev: Document, next: Document, mapping: PositionMapping): void;
   /** Live anchor count. */
   readonly size: number;
 }
@@ -90,10 +90,10 @@ class AnchorImpl implements Anchor {
 }
 
 /** The anchored text (empty for a point / an unreadable span). */
-function rangeText(state: State, from: Position, to: Position): string {
+function rangeText(document: Document, from: Position, to: Position): string {
   if (positionsEqual(from, to)) return "";
   try {
-    return extractText(state, createSpan(from, to));
+    return extractText(document, createSpan(from, to));
   } catch {
     return "";
   }
@@ -106,9 +106,9 @@ function rangeText(state: State, from: Position, to: Position): string {
  * "cold" and map as unknown. Keeping anchored blocks warm means even a foreign
  * change to an off-screen anchored paragraph maps exactly.
  */
-function warm(state: State, a: { from: Position; to: Position }): void {
-  resolveBlock(state, a.from.blockId);
-  if (a.to.blockId !== a.from.blockId) resolveBlock(state, a.to.blockId);
+function warm(document: Document, a: { from: Position; to: Position }): void {
+  resolveBlock(document, a.from.blockId);
+  if (a.to.blockId !== a.from.blockId) resolveBlock(document, a.to.blockId);
 }
 
 export function createAnchorSet(): AnchorSet {
@@ -119,11 +119,11 @@ export function createAnchorSet(): AnchorSet {
   const byBlock = new Map<BlockId, Set<AnchorImpl>>();
   let size = 0;
 
-  /** The leaf blocks `a`'s span covers in `state` (O(span); only on creation / structural change). */
-  const covered = (state: State, a: AnchorImpl): BlockId[] => {
+  /** The leaf blocks `a`'s span covers in `document` (O(span); only on creation / structural change). */
+  const covered = (document: Document, a: AnchorImpl): BlockId[] => {
     if (a.from.blockId === a.to.blockId) return [a.from.blockId];
     try {
-      return [...iterateSpan(state, createSpan(a.from, a.to))].map((seg) => seg.block.id);
+      return [...iterateSpan(document, createSpan(a.from, a.to))].map((seg) => seg.block.id);
     } catch {
       return [a.from.blockId, a.to.blockId];
     }
@@ -151,7 +151,7 @@ export function createAnchorSet(): AnchorSet {
     size--;
   };
 
-  function remap(a: AnchorImpl, next: State, mapping: PositionMapping): void {
+  function remap(a: AnchorImpl, next: Document, mapping: PositionMapping): void {
     const wasEmpty = positionsEqual(a.from, a.to);
     const f = mapping.map(a.from, a.fromAssoc);
     const t = a.point ? f : mapping.map(a.to, a.toAssoc);
@@ -175,10 +175,10 @@ export function createAnchorSet(): AnchorSet {
     if (touched && !a.changed) a.changed = rangeText(next, a.from, a.to) !== a.text;
   }
 
-  function make(state: State, from: Position, to?: Position, options: AnchorOptions = {}): AnchorImpl {
+  function make(document: Document, from: Position, to?: Position, options: AnchorOptions = {}): AnchorImpl {
     const point = to === undefined;
     const end = to ?? from;
-    const [start, stop] = !point && comparePositions(state, end, from) < 0 ? [end, from] : [from, end];
+    const [start, stop] = !point && comparePositions(document, end, from) < 0 ? [end, from] : [from, end];
     const inclusive = options.inclusive === true;
     const a = new AnchorImpl(
       point,
@@ -186,13 +186,13 @@ export function createAnchorSet(): AnchorSet {
       stop,
       point ? (options.assoc ?? 1) : inclusive ? -1 : 1,
       point ? (options.assoc ?? 1) : inclusive ? 1 : -1,
-      point ? "" : rangeText(state, start, stop),
+      point ? "" : rangeText(document, start, stop),
       (x) => {
         if (!x.deleted) drop(x);
       },
     );
-    index(a, covered(state, a));
-    warm(state, a);
+    index(a, covered(document, a));
+    warm(document, a);
     size++;
     return a;
   }
@@ -271,8 +271,8 @@ export function createAnchorSet(): AnchorSet {
  */
 export function mapPositionFrom(
   log: MappingLog,
-  current: State,
-  version: State,
+  current: Document,
+  version: Document,
   position: Position,
   assoc: Assoc = 1,
 ): MappedPosition | null {

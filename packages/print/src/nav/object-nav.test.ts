@@ -22,7 +22,7 @@ import {
   createSpan,
   isObjectSelection,
   type BlockId,
-  type State,
+  type Document,
 } from "@taleweaver/core";
 import {
   makeNavEditor,
@@ -67,15 +67,15 @@ function objectDoc(): ObjectDoc {
 
 /** Walk the document tree to find the image (after `paraId`) and the block after it. */
 function locateImageAndTrailing(
-  state: State,
+  document: Document,
   paraId: BlockId,
 ): { imageId: BlockId; trailingId: BlockId } {
-  const para = getBlock(state, paraId);
+  const para = getBlock(document, paraId);
   if (para === null || para.nextSiblingId === null) {
     throw new Error("object-nav fixture: image not inserted after the leading paragraph");
   }
   const imageId = para.nextSiblingId;
-  const image = getBlock(state, imageId);
+  const image = getBlock(document, imageId);
   if (image === null || image.type !== "image" || image.nextSiblingId === null) {
     throw new Error("object-nav fixture: expected an image block followed by a trailing paragraph");
   }

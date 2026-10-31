@@ -15,22 +15,22 @@ import {
   createPosition,
   createSpan,
 } from "./test-helpers";
-import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { createEditorStateFromDocument, type EditorState } from "../editor-state";
 import { getBlock } from "../../state";
-import type { BlockId, State } from "../../state";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import type { BlockId, Document } from "../../state";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 import { coalesceKeyOf } from "../reduce-editor";
 import type { EditorAction } from "../editor-action";
 
 // Phase 0b: core's `EditorState` is geometry-free — these state-level action
 // tests build only the geometry-free fields (the handlers read no layout).
-function makeEditor(state: State, selection: EditorState["selection"]): EditorState {
-  return createEditorStateFromState(state, selection, config);
+function makeEditor(document: Document, selection: EditorState["selection"]): EditorState {
+  return createEditorStateFromDocument(document, selection, config);
 }
 
 /** A doc with one paragraph "p" carrying inline content [text("ab")]. */
-function paragraphDoc(attrs: Record<string, unknown> = {}): State {
-  return buildState({
+function paragraphDoc(attrs: Record<string, unknown> = {}): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -47,9 +47,9 @@ function paragraphDoc(attrs: Record<string, unknown> = {}): State {
 
 describe("INSERT_TAB action", () => {
   it("INSERT_TAB inserts a 'tab' embed at the caret", () => {
-    const state = paragraphDoc();
+    const document = paragraphDoc();
     const at = createPosition("p" as BlockId, 1);
-    const ed = makeEditor(state, createSpan(at, at));
+    const ed = makeEditor(document, createSpan(at, at));
     const next = reduceEditor(ed, { type: "INSERT_TAB" });
 
     // "ab" + tab at offset 1 → [text "a", embed "tab", text "b"].
@@ -59,9 +59,9 @@ describe("INSERT_TAB action", () => {
   });
 
   it("places the caret just after the inserted tab", () => {
-    const state = paragraphDoc();
+    const document = paragraphDoc();
     const at = createPosition("p" as BlockId, 1);
-    const ed = makeEditor(state, createSpan(at, at));
+    const ed = makeEditor(document, createSpan(at, at));
     const next = reduceEditor(ed, { type: "INSERT_TAB" });
 
     // The tab occupies one position-offset unit; caret lands at offset 2.
@@ -76,9 +76,9 @@ describe("INSERT_TAB action", () => {
 
 describe("SET_TAB_STOPS action", () => {
   it("sets the block's tabStops attr (via mergeBlockAttrs, preserving other attrs)", () => {
-    const state = paragraphDoc({ textAlign: "center" });
+    const document = paragraphDoc({ textAlign: "center" });
     const at = createPosition("p" as BlockId, 0);
-    const ed = makeEditor(state, createSpan(at, at));
+    const ed = makeEditor(document, createSpan(at, at));
     const next = reduceEditor(
       ed,
       {

@@ -26,7 +26,7 @@ import type { TextShaper } from "@taleweaver/core";
 import type { PageConfig } from "../layout/page-config";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
@@ -35,7 +35,7 @@ import { createTable } from "@taleweaver/core";
 import { createTestAllocator } from "@taleweaver/core";
 import { createPosition } from "@taleweaver/core";
 import { collectFootnoteAnchors } from "@taleweaver/core";
-import type { State, BlockId, Position } from "@taleweaver/core";
+import type { Document, BlockId, Position } from "@taleweaver/core";
 import { resolvePixelPosition } from "./cursor-position";
 import { moveToLine, moveToLineBoundary } from "./line-navigation";
 
@@ -52,7 +52,7 @@ function pageConfig(): PageConfig {
 }
 
 interface Built {
-  state: State;
+  document: Document;
   tree: VirtualLayoutTree;
   shaper: TextShaper;
   caretInto: Position;
@@ -61,7 +61,7 @@ interface Built {
 
 /** doc > p("body"); then insert a `rows×cols` table at the start of `p`. */
 function buildDocWithTable(rows: number, cols: number, cfg: PageConfig = pageConfig()): Built {
-  const seed = buildState({
+  const seed = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -74,7 +74,7 @@ function buildDocWithTable(rows: number, cols: number, cfg: PageConfig = pageCon
     ],
   });
 
-  const { state, caretInto, newTableId } = createTable(
+  const { document, caretInto, newTableId } = createTable(
     seed,
     createPosition("p" as BlockId, 0),
     rows,
@@ -83,7 +83,7 @@ function buildDocWithTable(rows: number, cols: number, cfg: PageConfig = pageCon
   );
 
   const out = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   );
@@ -106,37 +106,37 @@ function buildDocWithTable(rows: number, cols: number, cfg: PageConfig = pageCon
     undefined,
     undefined,
     cascadedEmbedContents,
-    collectFootnoteAnchors(state),
+    collectFootnoteAnchors(document),
   );
 
-  return { state, tree, shaper, caretInto, tableId: newTableId };
+  return { document, tree, shaper, caretInto, tableId: newTableId };
 }
 
 describe("table-cell caret resolves per-page (#495)", () => {
   it("resolvePixelPosition resolves a freshly-inserted table cell caret without throwing", () => {
-    const { state, tree, shaper, caretInto } = buildDocWithTable(2, 2);
+    const { document, tree, shaper, caretInto } = buildDocWithTable(2, 2);
     // `caretInto` is cell (0,0)'s paragraph at offset 0 — a main-tree block
     // nested under the table, which `pageIndexOfBlock` cannot map directly.
-    const pixel = resolvePixelPosition(state, caretInto, tree, shaper);
+    const pixel = resolvePixelPosition(document, caretInto, tree, shaper);
     expect(pixel).not.toBeNull();
     // The table is on page 0 (the only page), so the cell caret resolves there.
     expect(pixel?.pageIndex).toBe(0);
   });
 
   it("moveToLine (Up/Down) resolves a table-cell caret without throwing", () => {
-    const { state, tree, shaper, caretInto } = buildDocWithTable(2, 2);
+    const { document, tree, shaper, caretInto } = buildDocWithTable(2, 2);
     // Up/Down from a cell caret must resolve the cell's page (the crash branch in
     // moveToLineVirtual) rather than dev-throwing. The result may be null (no line
     // in the goal direction within reach) or a moved position; the contract under
     // test is "does not throw".
-    expect(() => moveToLine(state, caretInto, tree, shaper, "up", null)).not.toThrow();
-    expect(() => moveToLine(state, caretInto, tree, shaper, "down", null)).not.toThrow();
+    expect(() => moveToLine(document, caretInto, tree, shaper, "up", null)).not.toThrow();
+    expect(() => moveToLine(document, caretInto, tree, shaper, "down", null)).not.toThrow();
   });
 
   it("moveToLineBoundary resolves a table-cell caret without throwing", () => {
-    const { state, tree, shaper, caretInto } = buildDocWithTable(2, 2);
-    const start = moveToLineBoundary(state, caretInto, tree, shaper, "start");
-    const end = moveToLineBoundary(state, caretInto, tree, shaper, "end");
+    const { document, tree, shaper, caretInto } = buildDocWithTable(2, 2);
+    const start = moveToLineBoundary(document, caretInto, tree, shaper, "start");
+    const end = moveToLineBoundary(document, caretInto, tree, shaper, "end");
     expect(start).not.toBeNull();
     expect(end).not.toBeNull();
     // An empty cell paragraph: Home/End both pin to offset 0 in the same block.
@@ -170,11 +170,11 @@ describe("table-cell caret on a SPANNING table resolves the carrying page (#496)
   });
 
   it("cell (0,0) on the FIRST page resolves to page 0, not the table's last page", () => {
-    const { state, tree, shaper, caretInto } = buildDocWithTable(12, 1, smallPageConfig());
+    const { document, tree, shaper, caretInto } = buildDocWithTable(12, 1, smallPageConfig());
     // caretInto is cell (0,0)'s paragraph — its lines are on page 0 (the top of
     // the table). The table's last page is > 0, so the pre-#496 resolver pointed
     // the caret at the wrong page and dev-threw.
-    const pixel = resolvePixelPosition(state, caretInto, tree, shaper);
+    const pixel = resolvePixelPosition(document, caretInto, tree, shaper);
     expect(pixel).not.toBeNull();
     expect(pixel?.pageIndex).toBe(0);
   });

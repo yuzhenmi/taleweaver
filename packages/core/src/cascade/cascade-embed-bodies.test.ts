@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import { cascadeEmbedContents } from "./cascade-embed-contents";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "./attr-registry";
-import type { State, BlockId } from "../state";
+import type { Document, BlockId } from "../state";
 import { render, type RenderOutput } from "../render/render";
 import type { ElementBox, RenderNode } from "../render/render-node";
-import { buildState, buildBlock, inlineContent, text, embed } from "../test-utils/state-builders";
+import { buildDocument, buildBlock, inlineContent, text, embed } from "../test-utils/document-builders";
 
 const componentRegistry = createDefaultComponentRegistry();
 const attrRegistry = createDefaultAttrRegistry();
@@ -53,12 +53,12 @@ function footnoteBody(rootId: string, leafId: string, leafText: string) {
   ];
 }
 
-/** Render `state` and cascade its footnote bodies (full path). */
-function cascadeFull(state: State): {
+/** Render `document` and cascade its footnote bodies (full path). */
+function cascadeFull(document: Document): {
   rendered: RenderOutput;
   cascaded: ReadonlyMap<BlockId, ElementBox>;
 } {
-  const rendered = render(state, componentRegistry, attrRegistry);
+  const rendered = render(document, componentRegistry, attrRegistry);
   const cascaded = cascadeEmbedContents(rendered, null, null);
   return { rendered, cascaded };
 }
@@ -77,13 +77,13 @@ function findByKey(node: RenderNode, key: string): RenderNode | undefined {
 
 describe("cascadeEmbedContents: cascade embedContents bodies (FN-1)", () => {
   it("full path: a footnote body is cascaded — body root has non-null computedStyle and cascaded children", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: mainDocWithAnchor("fn-root"),
       embedContents: footnoteBody("fn-root", "fn-p", "footnote text"),
     });
 
-    const { cascaded } = cascadeFull(state);
+    const { cascaded } = cascadeFull(document);
 
     const body = cascaded.get("fn-root" as BlockId);
     expect(body).toBeDefined();
@@ -95,7 +95,7 @@ describe("cascadeEmbedContents: cascade embedContents bodies (FN-1)", () => {
   });
 
   it("incremental: editing a block inside a footnote body re-cascades that body; an unchanged second body is reused by reference", () => {
-    const state1 = buildState({
+    const document1 = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -115,9 +115,9 @@ describe("cascadeEmbedContents: cascade embedContents bodies (FN-1)", () => {
         ...footnoteBody("fn-b-root", "fn-b-p", "B unchanged"),
       ],
     });
-    const { rendered: rendered1, cascaded: cascaded1 } = cascadeFull(state1);
+    const { rendered: rendered1, cascaded: cascaded1 } = cascadeFull(document1);
 
-    const state2 = buildState({
+    const document2 = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -138,9 +138,9 @@ describe("cascadeEmbedContents: cascade embedContents bodies (FN-1)", () => {
       ],
     });
     const dirty = new Set(["fn-a-p" as BlockId]);
-    const rendered2 = render(state2, componentRegistry, attrRegistry, {
+    const rendered2 = render(document2, componentRegistry, attrRegistry, {
       prev: rendered1,
-      prevState: state1,
+      prevDocument: document1,
       dirtyIds: dirty,
     });
     const cascaded2 = cascadeEmbedContents(rendered2, rendered1, cascaded1, dirty);
@@ -162,14 +162,14 @@ describe("cascadeEmbedContents: cascade embedContents bodies (FN-1)", () => {
   });
 
   it("incremental: a doc-body-only edit (no embed change) reuses ALL footnote bodies by reference", () => {
-    const state1 = buildState({
+    const document1 = buildDocument({
       rootId: "doc",
       blocks: mainDocWithAnchor("fn-root"),
       embedContents: footnoteBody("fn-root", "fn-p", "footnote"),
     });
-    const { rendered: rendered1, cascaded: cascaded1 } = cascadeFull(state1);
+    const { rendered: rendered1, cascaded: cascaded1 } = cascadeFull(document1);
 
-    const state2 = buildState({
+    const document2 = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -186,9 +186,9 @@ describe("cascadeEmbedContents: cascade embedContents bodies (FN-1)", () => {
       embedContents: footnoteBody("fn-root", "fn-p", "footnote"),
     });
     const dirty = new Set(["p" as BlockId]);
-    const rendered2 = render(state2, componentRegistry, attrRegistry, {
+    const rendered2 = render(document2, componentRegistry, attrRegistry, {
       prev: rendered1,
-      prevState: state1,
+      prevDocument: document1,
       dirtyIds: dirty,
     });
     const cascaded2 = cascadeEmbedContents(rendered2, rendered1, cascaded1, dirty);
@@ -197,7 +197,7 @@ describe("cascadeEmbedContents: cascade embedContents bodies (FN-1)", () => {
   });
 
   it("no-regression: a doc WITHOUT footnote bodies → cascaded embed map is empty", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -210,7 +210,7 @@ describe("cascadeEmbedContents: cascade embedContents bodies (FN-1)", () => {
       ],
     });
 
-    const { cascaded } = cascadeFull(state);
+    const { cascaded } = cascadeFull(document);
     expect(cascaded.size).toBe(0);
   });
 });

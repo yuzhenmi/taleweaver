@@ -41,7 +41,7 @@ export function handleReplaceMatch(
   const result = replaceRange(editor.document, span, replacement, attrs);
 
   // No-op identity contract: a no-op op returns the same state reference.
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
 
   // Cursor at the seam: start offset + replacement length (replaceRange's
   // post-op cursor).

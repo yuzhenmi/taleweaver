@@ -1,6 +1,6 @@
 import type { EditorState } from "../editor-state";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../state";
-import type { State, BlockId } from "../../state";
+import type { Document, BlockId } from "../../state";
 import type { Edit } from "../edit";
 import type { ActionOf } from "../editor-action";
 
@@ -33,20 +33,20 @@ import type { ActionOf } from "../editor-action";
 export function handleSetTextAlign(editor: EditorState, { align }: ActionOf<"SET_TEXT_ALIGN">): Edit | null {
   const targetIds = targetLeafBlockIds(editor);
 
-  let state: State = editor.document;
+  let document: Document = editor.document;
   const dirtyIds = new Set<BlockId>();
   for (const blockId of targetIds) {
     // Defensive: skip a block that resolved into the target list but is now
     // missing (never expected — the ids come from the live state).
-    if (getBlock(state, blockId) === null) continue;
-    const result = mergeBlockAttrs(state, blockId, { textAlign: align });
+    if (getBlock(document, blockId) === null) continue;
+    const result = mergeBlockAttrs(document, blockId, { textAlign: align });
     // No-op merge (block already has this alignment): same state ref → skip.
-    if (result.state === state) continue;
-    state = result.state;
+    if (result.document === document) continue;
+    document = result.document;
     for (const id of result.dirtyIds) dirtyIds.add(id);
   }
 
-  return state === editor.document ? null : { change: { state, dirtyIds } };
+  return document === editor.document ? null : { change: { document, dirtyIds } };
 }
 
 /**
@@ -59,16 +59,16 @@ export function handleSetTextAlign(editor: EditorState, { align }: ActionOf<"SET
  * through `firstChildId`). Aligning a container is nonsensical: it owns no text.
  */
 function targetLeafBlockIds(editor: EditorState): BlockId[] {
-  const { document: state, selection } = editor;
+  const { document, selection } = editor;
 
   if (positionsEqual(selection.anchor, selection.focus)) {
-    const focus = getBlock(state, selection.focus.blockId);
+    const focus = getBlock(document, selection.focus.blockId);
     if (focus === null || focus.inlineContent === null) return [];
     return [focus.id];
   }
 
   const ids: BlockId[] = [];
-  for (const block of iterateBlocksInSpan(state, selection)) {
+  for (const block of iterateBlocksInSpan(document, selection)) {
     if (block.inlineContent !== null) ids.push(block.id);
   }
   return ids;

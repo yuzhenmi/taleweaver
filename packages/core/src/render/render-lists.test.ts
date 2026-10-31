@@ -3,8 +3,8 @@ import { render } from "./render";
 import type { RenderNode, ElementBox } from "./render-node";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
-import { buildStateWithListDefs } from "../state/build-state-from-blocks";
-import { TEST_RESOLVER, buildBlock, inlineContent, text } from "../test-utils/state-builders";
+import { buildDocumentWithListDefs } from "../state/build-document-from-blocks";
+import { TEST_RESOLVER, buildBlock, inlineContent, text } from "../test-utils/document-builders";
 import { asBlockId, removeBlock, type ListDef } from "../state";
 
 const ORDERED_DEF: ListDef = {
@@ -39,7 +39,7 @@ function li(id: string, prevId: string | null, nextId: string | null): ReturnTyp
 
 describe("render — flat list numbering (service-wired)", () => {
   it("numbers a single ordered list 1..3 via the render-time service", () => {
-    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
+    const document = buildDocumentWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "i1", lastChildId: "i3" }),
@@ -49,12 +49,12 @@ describe("render — flat list numbering (service-wired)", () => {
       ],
       listDefs: { L1: ORDERED_DEF },
     });
-    const out = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry());
+    const out = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry());
     expect(listMarkers(out.root)).toEqual(["1.", "2.", "3."]);
   });
 
   it("restarts after an intervening paragraph (the #425 run rule)", () => {
-    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
+    const document = buildDocumentWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "i1", lastChildId: "i3" }),
@@ -64,7 +64,7 @@ describe("render — flat list numbering (service-wired)", () => {
       ],
       listDefs: { L1: ORDERED_DEF },
     });
-    const out = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry());
+    const out = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry());
     // i1 starts the run → "1."; the paragraph breaks it; i3 restarts → "1.".
     expect(listMarkers(out.root)).toEqual(["1.", "1."]);
   });
@@ -72,7 +72,7 @@ describe("render — flat list numbering (service-wired)", () => {
   it("renders no marker for a list-item whose listId has no def (graceful)", () => {
     // computeCounters falls back to decimal/start-1 when a scope has no def, so
     // even a def-less list still numbers — assert it does not crash + numbers.
-    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
+    const document = buildDocumentWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "i1", lastChildId: "i1" }),
@@ -80,7 +80,7 @@ describe("render — flat list numbering (service-wired)", () => {
       ],
       listDefs: {},
     });
-    const out = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry());
+    const out = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry());
     expect(listMarkers(out.root)).toEqual(["1."]);
   });
 
@@ -91,7 +91,7 @@ describe("render — flat list numbering (service-wired)", () => {
     // own marker.)
     const reg = createDefaultComponentRegistry();
     const attrReg = createDefaultAttrRegistry();
-    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
+    const document = buildDocumentWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "i1", lastChildId: "i3" }),
@@ -101,14 +101,14 @@ describe("render — flat list numbering (service-wired)", () => {
       ],
       listDefs: { L1: ORDERED_DEF },
     });
-    const prev = render(state, reg, attrReg);
+    const prev = render(document, reg, attrReg);
     expect(listMarkers(prev.root)).toEqual(["1.", "2.", "3."]);
 
     // Incremental re-render with i2 invalidated (as a text edit inside it would
     // produce). The reused i1/i3 keep their markers; the re-rendered i2 must too.
-    const out = render(state, reg, attrReg, {
+    const out = render(document, reg, attrReg, {
       prev,
-      prevState: state,
+      prevDocument: document,
       dirtyIds: new Set([asBlockId("i2")]),
     });
     expect(listMarkers(out.root)).toEqual(["1.", "2.", "3."]);
@@ -117,7 +117,7 @@ describe("render — flat list numbering (service-wired)", () => {
   it("renumbers FOLLOWING items incrementally when an earlier item is deleted (Task 11 diff)", () => {
     const reg = createDefaultComponentRegistry();
     const attrReg = createDefaultAttrRegistry();
-    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
+    const document = buildDocumentWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "i1", lastChildId: "i3" }),
@@ -127,14 +127,14 @@ describe("render — flat list numbering (service-wired)", () => {
       ],
       listDefs: { L1: ORDERED_DEF },
     });
-    const prev = render(state, reg, attrReg);
+    const prev = render(document, reg, attrReg);
     expect(listMarkers(prev.root)).toEqual(["1.", "2.", "3."]);
 
     // Delete the FIRST item. i2/i3 are NOT in dirtyIds (only i1 + doc are), so
     // without the renumber diff they'd be reused with stale "2."/"3.". The diff
     // must catch their number change (2→1, 3→2) and re-render them.
-    const { state: next, dirtyIds } = removeBlock(state, asBlockId("i1"));
-    const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
+    const { document: next, dirtyIds } = removeBlock(document, asBlockId("i1"));
+    const out = render(next, reg, attrReg, { prev, prevDocument: document, dirtyIds });
     expect(listMarkers(out.root)).toEqual(["1.", "2."]);
   });
 });
@@ -154,13 +154,13 @@ describe("render — the list marker's character style comes from the ¶'s markA
 
   it("Word formats the number with the paragraph mark's rPr: a bold ¶ → a bold marker; none → no marker style", () => {
     const bold = { ...li("i1", null, "i2"), markAttrs: { bold: true } };
-    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
+    const document = buildDocumentWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [buildBlock({ id: "doc", type: "document", firstChildId: "i1", lastChildId: "i2" }), bold, li("i2", "i1", null)],
       listDefs: { L1: ORDERED_DEF },
     });
     const attrs = createDefaultAttrRegistry();
-    const out = render(state, createDefaultComponentRegistry(), attrs);
+    const out = render(document, createDefaultComponentRegistry(), attrs);
     expect(markerStyles(out.root)).toEqual([attrs.applyAll({ bold: true }, { parentStyle: {} }), undefined]);
   });
 });

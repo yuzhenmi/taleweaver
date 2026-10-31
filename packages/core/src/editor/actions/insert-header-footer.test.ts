@@ -12,7 +12,7 @@
  * via `getTemplateContent` / `getBlock` — the unit-level proxy for the smoke.
  */
 import { describe, it, expect } from "vitest";
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import {
   config,
   reduceEditor,

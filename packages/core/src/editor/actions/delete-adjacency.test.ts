@@ -11,14 +11,14 @@
  */
 import { describe, it, expect } from "vitest";
 import { config, reduceEditor, createPosition, createSpan } from "./test-helpers";
-import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { createEditorStateFromDocument, type EditorState } from "../editor-state";
 import { getBlock, topLevelBlockIds, extractText } from "../../state";
-import type { BlockId, State } from "../../state";
-import { buildFlowDoc } from "../../test-utils/state-builders";
+import type { BlockId, Document } from "../../state";
+import { buildFlowDoc } from "../../test-utils/document-builders";
 
-function at(state: State, blockId: string, offset: number): EditorState {
+function at(document: Document, blockId: string, offset: number): EditorState {
   const p = createPosition(blockId as BlockId, offset);
-  return createEditorStateFromState(state, createSpan(p, p), config);
+  return createEditorStateFromDocument(document, createSpan(p, p), config);
 }
 
 describe("Delete / Backspace next to a table", () => {
@@ -42,8 +42,8 @@ describe("Delete / Backspace next to a table", () => {
   });
 
   it("Backspace in an EMPTY paragraph below a table removes it; the caret goes to the end of the last cell", () => {
-    const state = buildFlowDoc([{ p: "a" }, { table: "T", cells: ["c1", "c2"] }, { p: "e" }, { p: "z", t: "zz" }]);
-    const editor = at(state, "e", 0);
+    const document = buildFlowDoc([{ p: "a" }, { table: "T", cells: ["c1", "c2"] }, { p: "e" }, { p: "z", t: "zz" }]);
+    const editor = at(document, "e", 0);
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
     expect(getBlock(next.document, "e" as BlockId)).toBeNull();
     expect(topLevelBlockIds(next.document)).toEqual(["a", "T", "z"]);
@@ -73,10 +73,10 @@ describe("Delete / Backspace at a flow's ends and between paragraphs", () => {
 
 describe("selecting exactly the ¶", () => {
   it("(P, len)–(N, 0) copies as \"\\n\" and Delete merges", () => {
-    const state = buildFlowDoc([{ p: "a", t: "xy" }, { p: "b", t: "q" }]);
+    const document = buildFlowDoc([{ p: "a", t: "xy" }, { p: "b", t: "q" }]);
     const span = createSpan(createPosition("a" as BlockId, 2), createPosition("b" as BlockId, 0));
-    expect(extractText(state, span)).toBe("\n");
-    const editor = createEditorStateFromState(state, span, config);
+    expect(extractText(document, span)).toBe("\n");
+    const editor = createEditorStateFromDocument(document, span, config);
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
     expect(topLevelBlockIds(next.document)).toEqual(["b"]);
     expect(getBlock(next.document, "b" as BlockId)?.inlineContent?.items).toEqual([{ kind: "text", text: "xyq", attrs: {} }]);

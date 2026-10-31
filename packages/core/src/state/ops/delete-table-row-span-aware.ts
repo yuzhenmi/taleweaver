@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { Document, OperationResult } from "../state";
-import { applyOperation, getBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, getBlock } from "../document";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { requireInTransaction } from "../yjs-doc";
@@ -50,21 +50,21 @@ export interface DeleteTableRowSpanAwarePlan {
  *
  * Caller routes here only for a SPANNED, non-ragged table with MORE THAN ONE grid
  * row (the last-row case collapses the whole table via `deleteTable`,
- * handled by the editor handler). NO-OP (same `state`) when the grid
+ * handled by the editor handler). NO-OP (same `document`) when the grid
  * can't be built or there is only one row. Caret-after is the handler's concern.
  * MAIN-TREE ONLY. Column count unchanged → `columnWidths` untouched.
  */
-export function deleteTableRowSpanAware(state: Document, ctx: TableContext): OperationResult {
-  const plan = planDeleteTableRowSpanAware(state, ctx);
-  if (plan === null) return { state, dirtyIds: new Set<BlockId>() };
-  return applyOperation(state, (doc) => {
+export function deleteTableRowSpanAware(document: Document, ctx: TableContext): OperationResult {
+  const plan = planDeleteTableRowSpanAware(document, ctx);
+  if (plan === null) return { document, dirtyIds: new Set<BlockId>() };
+  return applyOperation(document, (doc) => {
     deleteTableRowSpanAwareInTx(doc, plan);
   });
 }
 
 /** Build the plan, or null when the grid can't be built or the table has ≤1 grid row. */
-export function planDeleteTableRowSpanAware(state: Document, ctx: TableContext): DeleteTableRowSpanAwarePlan | null {
-  const grid = buildTableGrid(state, ctx.tableId);
+export function planDeleteTableRowSpanAware(document: Document, ctx: TableContext): DeleteTableRowSpanAwarePlan | null {
+  const grid = buildTableGrid(document, ctx.tableId);
   if (grid === null) return null;
   const caret = grid.cells.find((c) => c.cellId === ctx.cellId);
   if (caret === undefined) return null;
@@ -75,7 +75,7 @@ export function planDeleteTableRowSpanAware(state: Document, ctx: TableContext):
 
   const deletedRowId = ctx.rowIds[gr];
   if (deletedRowId === undefined) return null;
-  const deletedRow = getBlock(state, deletedRowId);
+  const deletedRow = getBlock(document, deletedRowId);
   if (deletedRow === null) return null;
 
   const coveringBumps: { cellId: BlockId; newAttrs: ReadonlyAttrs }[] = [];
@@ -83,9 +83,9 @@ export function planDeleteTableRowSpanAware(state: Document, ctx: TableContext):
   const removedCells: BlockId[] = []; // 1×1 cells originating in the deleted row
   for (const c of grid.cells) {
     if (c.gridRow < gr && c.gridRow + c.rowSpan - 1 >= gr) {
-      coveringBumps.push({ cellId: c.cellId, newAttrs: withRowSpan(state, c.cellId, c.rowSpan - 1) });
+      coveringBumps.push({ cellId: c.cellId, newAttrs: withRowSpan(document, c.cellId, c.rowSpan - 1) });
     } else if (c.gridRow === gr) {
-      if (c.rowSpan > 1) rehomed.push({ cellId: c.cellId, newAttrs: withRowSpan(state, c.cellId, c.rowSpan - 1) });
+      if (c.rowSpan > 1) rehomed.push({ cellId: c.cellId, newAttrs: withRowSpan(document, c.cellId, c.rowSpan - 1) });
       else removedCells.push(c.cellId);
     }
   }
@@ -94,7 +94,7 @@ export function planDeleteTableRowSpanAware(state: Document, ctx: TableContext):
   const blockIdsToDelete = new Set<BlockId>([deletedRowId]);
   const embedContentIdsToDelete = new Set<BlockId>();
   for (const cellId of removedCells) {
-    const p = planRemoveBlock(state, cellId);
+    const p = planRemoveBlock(document, cellId);
     for (const id of p.subtreeIds) blockIdsToDelete.add(id);
     for (const id of p.embedContentIds) embedContentIdsToDelete.add(id);
   }
@@ -114,10 +114,10 @@ export function planDeleteTableRowSpanAware(state: Document, ctx: TableContext):
     reHomeRow = { rowId: reHomeRowId, cellIds: merged };
   }
 
-  const table = getBlock(state, ctx.tableId);
+  const table = getBlock(document, ctx.tableId);
   // The deleted grid row is `gr`. Keep `headerRowCount` naming the leading
   // block (delete at r < count → count-1; deleting the last header row → 0).
-  const headerAttrs = headerRowAttrsAfterRowEdit(state, ctx.tableId, "delete", gr);
+  const headerAttrs = headerRowAttrsAfterRowEdit(document, ctx.tableId, "delete", gr);
   return {
     tableId: ctx.tableId,
     deletedRowId,
@@ -135,8 +135,8 @@ export function planDeleteTableRowSpanAware(state: Document, ctx: TableContext):
 }
 
 /** `attrs` of `cellId` with `rowSpan` set to `n` (key dropped when n ≤ 1). */
-function withRowSpan(state: Document, cellId: BlockId, n: number): ReadonlyAttrs {
-  const block = getBlock(state, cellId);
+function withRowSpan(document: Document, cellId: BlockId, n: number): ReadonlyAttrs {
+  const block = getBlock(document, cellId);
   const next: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(block?.attrs ?? {})) {
     if (k === "rowSpan") continue;

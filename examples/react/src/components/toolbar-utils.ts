@@ -206,10 +206,10 @@ function asStringOrNull(value: unknown): string | null {
 }
 
 export function getFormatState(editor: EditorState): FormatState {
-  const { document: state, selection, history } = editor;
+  const { document, selection, history } = editor;
 
   // Block type and heading level from the focus block.
-  const focusBlock = getBlock(state, selection.focus.blockId);
+  const focusBlock = getBlock(document, selection.focus.blockId);
   let blockType = "paragraph";
   let headingLevel: number | null = null;
   // Alignment defaults to "start" (the CSS initial textAlign) when the focus

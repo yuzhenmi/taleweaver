@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { imageComponent } from "./image";
 import type { LeafBlockView, RenderContext } from "../render/block-view";
 import type { ElementBox } from "../render/render-node";
-import type { BlockId, State, ReadonlyAttrs } from "../state";
+import type { BlockId, Document, ReadonlyAttrs } from "../state";
 import type { ComputedStyle } from "../styles";
 
 function leafView(attrs: ReadonlyAttrs = {}, direction?: "ltr" | "rtl"): LeafBlockView {
@@ -20,7 +20,7 @@ function leafView(attrs: ReadonlyAttrs = {}, direction?: "ltr" | "rtl"): LeafBlo
 }
 
 function stubCtx(): RenderContext {
-  return { state: {} as State, footnoteNumber: () => undefined };
+  return { document: {} as Document, footnoteNumber: () => undefined };
 }
 
 describe("imageComponent (new)", () => {

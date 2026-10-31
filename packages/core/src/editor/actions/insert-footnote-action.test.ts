@@ -10,7 +10,7 @@
  * These tests run at editor-behavior level through `reduceEditor` and assert
  * via `getEmbedContent` / `resolveBlock` / `collectFootnoteAnchors`.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
@@ -300,7 +300,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     // No-op: same STATE reference (the guard returns the editor with its state
     // unchanged). Phase 0b's reduceEditor entry-clear of `lastDirtyIds` rewraps
     // the editor object, so the no-op contract is state-identity, not editor-
-    // object identity (mirrors the #141 `result.state === editor.document` rule).
+    // object identity (mirrors the #141 `result.document === editor.document` rule).
     expect(after.document).toBe(before.document);
     // No second anchor on the main body leaf.
     const paraId = bodyParaId(typed);
@@ -313,7 +313,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     // The caret is now inside the header body (a templateContents non-main context).
     const after = reduceEditor(withHeader, { type: "INSERT_FOOTNOTE" });
 
-    // State-identity no-op (Phase 0b entry-clear rewraps the editor object —
+    // Document-identity no-op (Phase 0b entry-clear rewraps the editor object —
     // see the nested-footnote refuse test above).
     expect(after.document).toBe(withHeader.document);
     // No footnote anchors anywhere in the main document.

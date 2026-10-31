@@ -1,10 +1,10 @@
-import type { Document } from "./state";
-import { getBlock, getEmbedContent } from "./state";
+import type { Document } from "./document";
+import { getBlock, getEmbedContent } from "./document";
 import type { Block } from "./block";
 import type { BlockId, IdAllocator } from "./block-id";
 import type { InlineContent, InlineItem } from "./inline-content";
 import { assertNoIdCollision } from "./id-collision-check";
-import { STATE_INTERNAL } from "./state-internal";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "./comments";
 import { bookmarkIdOf, collectBookmarks } from "./bookmarks";
 
@@ -20,13 +20,13 @@ import { bookmarkIdOf, collectBookmarks } from "./bookmarks";
  *     and any further contentBlockId references it contains all land here
  *     as well.
  *
- * The split mirrors State.blocks vs State.embedContents segregation:
+ * The split mirrors Document.blocks vs Document.embedContents segregation:
  * the caller inserts each map into the destination's matching tree.
  *
  * `rootId` is the new BlockId of the cloned root (always in `blocks`).
  *
  * Both maps are plain JS Maps of immutable Block snapshots. This op does
- * NOT mutate the source State (the underlying Y.Doc is never touched).
+ * NOT mutate the source Document (the underlying Y.Doc is never touched).
  */
 export interface ClonedSubtree {
   readonly blocks: ReadonlyMap<BlockId, Block>;
@@ -58,14 +58,14 @@ export interface ClonedSubtree {
  * the appropriate source map (corrupted source state).
  */
 export function clonePastedSubtree(
-  sourceState: Document,
+  sourceDocument: Document,
   sourceRootId: BlockId,
   allocator: IdAllocator,
   // The doc the clone will be inserted INTO — the namespace newly-allocated
   // ids must not collide with. Defaults to `sourceState` for same-document
   // paste (source === destination). For cross-document paste, pass the
   // destination state so the dev collision check guards the right namespace.
-  destinationState: Document = sourceState,
+  destinationDocument: Document = sourceDocument,
   // false for extraction (a copy / cut, not a paste): every bookmark marker is kept —
   // `extractFragment` applies its own edge rule to the whole fragment.
   pasteRule = true,
@@ -77,10 +77,10 @@ export function clonePastedSubtree(
   let live: Map<string, unknown> | null = null;
   const liveInDestination = (bookmarkId: string): boolean => {
     if (!pasteRule) return false;
-    live ??= collectBookmarks(destinationState);
+    live ??= collectBookmarks(destinationDocument);
     return live.has(bookmarkId);
   };
-  if (getBlock(sourceState, sourceRootId) === null) {
+  if (getBlock(sourceDocument, sourceRootId) === null) {
     throw new Error(
       `clonePastedSubtree: source root "${sourceRootId}" not found in sourceState`,
     );
@@ -95,7 +95,7 @@ export function clonePastedSubtree(
   // walker uses `getEmbedContent` exclusively for further traversal from it.
   const treeIds = new Set<BlockId>();
   const embedContentIds = new Set<BlockId>();
-  collectTreeSubtreeIds(sourceState, sourceRootId, treeIds, embedContentIds);
+  collectTreeSubtreeIds(sourceDocument, sourceRootId, treeIds, embedContentIds);
 
   // Pass 2: allocate a new id for each visited id. Allocation order:
   // tree ids first (in walk order), then embed-content ids. Either order
@@ -109,7 +109,7 @@ export function clonePastedSubtree(
   // `destinationState === sourceState`.) This matters more here than for
   // single-block ops because clonePastedSubtree allocates many ids in a row,
   // multiplying collision risk under counter-based test allocators.
-  const destinationDoc = destinationState[STATE_INTERNAL].doc;
+  const destinationDoc = destinationDocument[DOCUMENT_INTERNAL].doc;
   const idMap = new Map<BlockId, BlockId>();
   for (const oldId of treeIds) {
     const newId = allocator.allocate();
@@ -128,7 +128,7 @@ export function clonePastedSubtree(
   const clonedEmbedContents = new Map<BlockId, Block>();
 
   for (const oldId of treeIds) {
-    const oldBlock = getBlock(sourceState, oldId);
+    const oldBlock = getBlock(sourceDocument, oldId);
     if (oldBlock === null) {
       // Defensive — treeIds only contains ids that resolved during phase 1.
       throw new Error(
@@ -156,7 +156,7 @@ export function clonePastedSubtree(
   }
 
   for (const oldId of embedContentIds) {
-    const oldBlock = getEmbedContent(sourceState, oldId);
+    const oldBlock = getEmbedContent(sourceDocument, oldId);
     if (oldBlock === null) {
       // Defensive — embedContentIds only contains ids that resolved during phase 1.
       throw new Error(
@@ -214,13 +214,13 @@ export function clonePastedSubtree(
  * are outside the subtree.
  */
 function collectTreeSubtreeIds(
-  state: Document,
+  document: Document,
   id: BlockId,
   treeIds: Set<BlockId>,
   embedContentIds: Set<BlockId>,
 ): void {
   if (treeIds.has(id) || embedContentIds.has(id)) return;
-  const block = getBlock(state, id);
+  const block = getBlock(document, id);
   if (block === null) {
     throw new Error(`clonePastedSubtree: referenced block "${id}" not found in sourceState`);
   }
@@ -231,8 +231,8 @@ function collectTreeSubtreeIds(
   let cur: BlockId | null = block.firstChildId;
   while (cur !== null) {
     if (treeIds.has(cur) || embedContentIds.has(cur)) break;
-    collectTreeSubtreeIds(state, cur, treeIds, embedContentIds);
-    const child = getBlock(state, cur);
+    collectTreeSubtreeIds(document, cur, treeIds, embedContentIds);
+    const child = getBlock(document, cur);
     cur = child ? child.nextSiblingId : null;
   }
 
@@ -242,7 +242,7 @@ function collectTreeSubtreeIds(
       if (item.kind !== "embed") continue;
       const cbId = item.properties.contentBlockId;
       if (typeof cbId !== "string") continue;
-      collectEmbedContentSubtreeIds(state, cbId as BlockId, treeIds, embedContentIds);
+      collectEmbedContentSubtreeIds(document, cbId as BlockId, treeIds, embedContentIds);
     }
   }
 }
@@ -259,13 +259,13 @@ function collectTreeSubtreeIds(
  * matching `resolveBlock`'s main → embedContents precedence.
  */
 function collectEmbedContentSubtreeIds(
-  state: Document,
+  document: Document,
   id: BlockId,
   treeIds: Set<BlockId>,
   embedContentIds: Set<BlockId>,
 ): void {
   if (treeIds.has(id) || embedContentIds.has(id)) return;
-  const block = getEmbedContent(state, id);
+  const block = getEmbedContent(document, id);
   if (block === null) {
     throw new Error(
       `clonePastedSubtree: referenced embed-content block "${id}" not found in sourceState`,
@@ -278,8 +278,8 @@ function collectEmbedContentSubtreeIds(
   let cur: BlockId | null = block.firstChildId;
   while (cur !== null) {
     if (treeIds.has(cur) || embedContentIds.has(cur)) break;
-    collectEmbedContentSubtreeIds(state, cur, treeIds, embedContentIds);
-    const child = getEmbedContent(state, cur);
+    collectEmbedContentSubtreeIds(document, cur, treeIds, embedContentIds);
+    const child = getEmbedContent(document, cur);
     cur = child ? child.nextSiblingId : null;
   }
 
@@ -289,7 +289,7 @@ function collectEmbedContentSubtreeIds(
       if (item.kind !== "embed") continue;
       const cbId = item.properties.contentBlockId;
       if (typeof cbId !== "string") continue;
-      collectEmbedContentSubtreeIds(state, cbId as BlockId, treeIds, embedContentIds);
+      collectEmbedContentSubtreeIds(document, cbId as BlockId, treeIds, embedContentIds);
     }
   }
 }

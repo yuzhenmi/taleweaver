@@ -4,8 +4,8 @@ import {
   getBlock,
   getTemplateContent,
   getTemplateContentIds,
-} from "../state";
-import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+} from "../document";
+import { buildBlock, buildDocument, inlineContent } from "../../test-utils/document-builders";
 import { createTestAllocator } from "../block-id";
 import type { BlockId } from "../block-id";
 
@@ -20,7 +20,7 @@ import type { BlockId } from "../block-id";
  */
 describe("insertTemplateBody", () => {
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -34,17 +34,17 @@ describe("insertTemplateBody", () => {
     });
 
   it("creates a CONTAINER body root + one empty paragraph child and links the container on the doc root", () => {
-    const state = fixture();
+    const document = fixture();
     const alloc = createTestAllocator("tpl");
     const result = insertTemplateBody(
-      state,
+      document,
       { region: "header", sectionBlockId: "doc" as BlockId },
       alloc,
     );
 
     // The body ROOT is a `template-body` CONTAINER (parentId null, no inline,
     // its only child is the paragraph below).
-    const body = getTemplateContent(result.state, result.bodyRootId);
+    const body = getTemplateContent(result.document, result.bodyRootId);
     expect(body).not.toBeNull();
     expect(body?.type).toBe("template-body");
     expect(body?.parentId).toBeNull();
@@ -53,7 +53,7 @@ describe("insertTemplateBody", () => {
     expect(body?.lastChildId).toBe(result.firstParagraphId);
 
     // The paragraph CHILD is an empty inline-bearing leaf under the container.
-    const para = getTemplateContent(result.state, result.firstParagraphId);
+    const para = getTemplateContent(result.document, result.firstParagraphId);
     expect(para).not.toBeNull();
     expect(para?.type).toBe("paragraph");
     expect(para?.parentId).toBe(result.bodyRootId);
@@ -65,39 +65,39 @@ describe("insertTemplateBody", () => {
 
     // ONLY the container root is enumerated as a template-content ROOT — the
     // paragraph child (parentId = root) is NOT (the #313 root-only contract).
-    const rootIds = [...getTemplateContentIds(result.state)];
+    const rootIds = [...getTemplateContentIds(result.document)];
     expect(rootIds).toContain(result.bodyRootId);
     expect(rootIds).not.toContain(result.firstParagraphId);
     expect(rootIds.length).toBe(1);
 
     // The doc root carries the link attr → the CONTAINER root id.
-    const docRoot = getBlock(result.state, "doc" as BlockId);
+    const docRoot = getBlock(result.document, "doc" as BlockId);
     expect(docRoot?.attrs.headerBlockId).toBe(result.bodyRootId);
     expect(docRoot?.attrs.footerBlockId).toBeUndefined();
   });
 
   it("creates + links a footer body (container) on footerBlockId", () => {
-    const state = fixture();
+    const document = fixture();
     const alloc = createTestAllocator("tpl");
     const result = insertTemplateBody(
-      state,
+      document,
       { region: "footer", sectionBlockId: "doc" as BlockId },
       alloc,
     );
 
-    const body = getTemplateContent(result.state, result.bodyRootId);
+    const body = getTemplateContent(result.document, result.bodyRootId);
     expect(body?.type).toBe("template-body");
     expect(body?.parentId).toBeNull();
     expect(body?.firstChildId).toBe(result.firstParagraphId);
-    expect(getTemplateContent(result.state, result.firstParagraphId)?.type).toBe("paragraph");
+    expect(getTemplateContent(result.document, result.firstParagraphId)?.type).toBe("paragraph");
 
-    const docRoot = getBlock(result.state, "doc" as BlockId);
+    const docRoot = getBlock(result.document, "doc" as BlockId);
     expect(docRoot?.attrs.footerBlockId).toBe(result.bodyRootId);
     expect(docRoot?.attrs.headerBlockId).toBeUndefined();
   });
 
   it("merges the link attr only (preserves other section attrs)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -112,21 +112,21 @@ describe("insertTemplateBody", () => {
     });
     const alloc = createTestAllocator("tpl");
     const result = insertTemplateBody(
-      state,
+      document,
       { region: "header", sectionBlockId: "doc" as BlockId },
       alloc,
     );
 
-    const docRoot = getBlock(result.state, "doc" as BlockId);
+    const docRoot = getBlock(result.document, "doc" as BlockId);
     expect(docRoot?.attrs.pageInlineSize).toBe(480);
     expect(docRoot?.attrs.headerBlockId).toBe(result.bodyRootId);
   });
 
   it("dirtyIds covers the container root, the paragraph child, AND the doc root (the attr change)", () => {
-    const state = fixture();
+    const document = fixture();
     const alloc = createTestAllocator("tpl");
     const result = insertTemplateBody(
-      state,
+      document,
       { region: "header", sectionBlockId: "doc" as BlockId },
       alloc,
     );
@@ -136,11 +136,11 @@ describe("insertTemplateBody", () => {
   });
 
   it("throws when the section block does not exist", () => {
-    const state = fixture();
+    const document = fixture();
     const alloc = createTestAllocator("tpl");
     expect(() =>
       insertTemplateBody(
-        state,
+        document,
         { region: "header", sectionBlockId: "missing" as BlockId },
         alloc,
       ),

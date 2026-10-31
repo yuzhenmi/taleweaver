@@ -6,7 +6,7 @@ import {
   selectionContextOf,
   type BlockId,
   type EditorState,
-  type State,
+  type Document,
 } from "@taleweaver/core";
 import { endAnchor } from "../dom-view/render-to-dom";
 import type { BlockElementLookup } from "./digital-selection-bridge";
@@ -22,7 +22,7 @@ import type { BlockElementLookup } from "./digital-selection-bridge";
  * on". So a selection change toggles exactly the blocks between the old and new anchor and
  * between the old and new focus (each walked once; a block in both toggles twice = stays):
  * O(changed blocks) per selection change, never a document walk. A document change of
- * known extent (`EditorState.lastChange` made from the last synced State: a local edit or
+ * known extent (`EditorState.lastChange` made from the last synced Document: a local edit or
  * a peer's) does the same endpoint walks and re-judges only its changed blocks against
  * the nearest unchanged one: O(changed blocks), never the selection. An old endpoint
  * whose block the change removed is not walked from; the new endpoint's block is
@@ -44,7 +44,7 @@ export function createSelectedParagraphs(
   onDrawn: (el: HTMLElement) => void,
 ): SelectedParagraphs {
   const marked = new Set<BlockId>();
-  let last: { readonly state: State; readonly anchor: BlockId; readonly focus: BlockId } | null = null;
+  let last: { readonly document: Document; readonly anchor: BlockId; readonly focus: BlockId } | null = null;
 
   function paint(el: HTMLElement, on: boolean): void {
     recordSample("digital.selectedParagraph", 0); // deterministic perf counter (no-op unless tracing)
@@ -77,15 +77,15 @@ export function createSelectedParagraphs(
   }
 
   function sync(editor: EditorState): void {
-    const { document: state, selection } = editor;
+    const { document, selection } = editor;
     const anchor = selection.anchor.blockId;
     const focus = selection.focus.blockId;
     const prev = last;
-    last = { state, anchor, focus };
-    if (prev !== null && prev.state === state && prev.anchor === anchor && prev.focus === focus) return;
+    last = { document, anchor, focus };
+    if (prev !== null && prev.document === document && prev.anchor === anchor && prev.focus === focus) return;
     // A document change with a known extent (the last sync saw the Document it was made from).
-    const dirty = prev !== null && prev.state !== state && editor.lastChange?.from === prev.state ? editor.lastChange.dirtyIds : null;
-    if (prev !== null && (prev.state === state || dirty !== null)) {
+    const dirty = prev !== null && prev.document !== document && editor.lastChange?.from === prev.document ? editor.lastChange.dirtyIds : null;
+    if (prev !== null && (prev.document === document || dirty !== null)) {
       // Toggle between(old, new) endpoint on each side. A long walk that cancels out (a far
       // click) is cut off at the cost of a reset.
       const budget = { steps: 2 * marked.size + 2 * (dirty?.size ?? 0) + 64 };
@@ -95,7 +95,7 @@ export function createSelectedParagraphs(
       // re-judged with them.
       const rejudge = dirty === null ? null : new Set(dirty);
       const side = (from: BlockId, to: BlockId): BlockId[] | null => {
-        if (rejudge === null || !rejudge.has(from) || getBlock(state, from) !== null) return between(state, from, to, budget);
+        if (rejudge === null || !rejudge.has(from) || getBlock(document, from) !== null) return between(document, from, to, budget);
         rejudge.add(to);
         return [];
       };
@@ -109,11 +109,11 @@ export function createSelectedParagraphs(
           else toggles.add(id);
         }
         for (const id of toggles) set(id, !marked.has(id));
-        if (rejudge === null || judgeDirty(state, rejudge, anchor, focus, budget)) return;
+        if (rejudge === null || judgeDirty(document, rejudge, anchor, focus, budget)) return;
       }
     }
     // Reset: the covered set from scratch, touching only blocks whose state differs.
-    const covered = new Set(between(state, anchor, focus, { steps: Infinity }) ?? []);
+    const covered = new Set(between(document, anchor, focus, { steps: Infinity }) ?? []);
     for (const id of [...marked]) if (!covered.has(id)) set(id, false);
     for (const id of covered) if (!marked.has(id)) set(id, true);
   }
@@ -125,18 +125,18 @@ export function createSelectedParagraphs(
    * (covered = H(anchor) XOR H(focus)). Each block is walked once: O(changed blocks).
    * False when the walk runs out of budget (the caller resets).
    */
-  function judgeDirty(state: State, dirty: ReadonlySet<BlockId>, anchor: BlockId, focus: BlockId, budget: { steps: number }): boolean {
-    if (selectionContextOf(state, anchor) !== selectionContextOf(state, focus)) return false;
+  function judgeDirty(document: Document, dirty: ReadonlySet<BlockId>, anchor: BlockId, focus: BlockId, budget: { steps: number }): boolean {
+    if (selectionContextOf(document, anchor) !== selectionContextOf(document, focus)) return false;
     const verdict = new Map<BlockId, boolean>();
     for (const id of dirty) {
-      if (!isText(state, id)) {
+      if (!isText(document, id)) {
         marked.delete(id); // removed (its element went with it), or not a ¶
         continue;
       }
       if (verdict.has(id)) continue;
       const path: BlockId[] = [];
       let on = false;
-      for (let q: BlockId | null = id; q !== null; q = prevBlockInDocOrder(state, q)) {
+      for (let q: BlockId | null = id; q !== null; q = prevBlockInDocOrder(document, q)) {
         recordSample("digital.selectedParagraphWalk", 0); // deterministic perf counter (no-op unless tracing)
         if (--budget.steps < 0) return false;
         const known = verdict.get(q);
@@ -144,7 +144,7 @@ export function createSelectedParagraphs(
           on = known;
           break;
         }
-        if (!dirty.has(q) && isText(state, q)) {
+        if (!dirty.has(q) && isText(document, q)) {
           on = marked.has(q);
           break;
         }
@@ -153,7 +153,7 @@ export function createSelectedParagraphs(
       for (const q of path.reverse()) {
         if (q === anchor) on = !on;
         if (q === focus) on = !on;
-        if (isText(state, q)) verdict.set(q, on);
+        if (isText(document, q)) verdict.set(q, on);
       }
     }
     for (const [id, on] of verdict) if (marked.has(id) !== on) set(id, on);
@@ -172,10 +172,10 @@ export function createSelectedParagraphs(
  * both directions until y: O(distance). Null when y is not reached within `budget` steps
  * (shared across calls), or x / y are unknown or in different selection contexts.
  */
-export function between(state: State, x: BlockId, y: BlockId, budget: { steps: number }): BlockId[] | null {
+export function between(document: Document, x: BlockId, y: BlockId, budget: { steps: number }): BlockId[] | null {
   if (x === y) return [];
-  if (getBlock(state, x) === null || getBlock(state, y) === null) return null;
-  if (selectionContextOf(state, x) !== selectionContextOf(state, y)) return null;
+  if (getBlock(document, x) === null || getBlock(document, y) === null) return null;
+  if (selectionContextOf(document, x) !== selectionContextOf(document, y)) return null;
   const forward: BlockId[] = [];
   const backward: BlockId[] = [];
   let f: BlockId | null = x;
@@ -184,18 +184,18 @@ export function between(state: State, x: BlockId, y: BlockId, budget: { steps: n
     recordSample("digital.selectedParagraphWalk", 0); // deterministic perf counter (no-op unless tracing)
     if (f !== null) {
       budget.steps--;
-      if (isText(state, f)) forward.push(f);
-      f = nextBlockInDocOrder(state, f);
+      if (isText(document, f)) forward.push(f);
+      f = nextBlockInDocOrder(document, f);
       if (f === y) return forward;
     }
     if (b !== null) {
       budget.steps--;
-      b = prevBlockInDocOrder(state, b);
-      if (b !== null && isText(state, b)) backward.push(b);
+      b = prevBlockInDocOrder(document, b);
+      if (b !== null && isText(document, b)) backward.push(b);
       if (b === y) return backward;
     }
   }
   return null;
 }
 
-const isText = (state: State, id: BlockId): boolean => (getBlock(state, id)?.inlineContent ?? null) !== null;
+const isText = (document: Document, id: BlockId): boolean => (getBlock(document, id)?.inlineContent ?? null) !== null;

@@ -56,15 +56,15 @@ export function handleInsertFootnote(editor: EditorState): Edit | null {
   const prep = prepareEmbedInsertPoint(editor.document, editor.selection);
   if (!prep.ok) return null;
 
-  const result = insertFootnote(prep.state, prep.position, productionAllocator);
+  const result = insertFootnote(prep.document, prep.position, productionAllocator);
   // Identity invariant: nothing changed (no delete AND a no-op insert) → return
   // the editor unchanged so the "no change → same reference" contract holds.
-  if (result.state === prep.state && prep.dirtyIds.size === 0) return null;
+  if (result.document === prep.document && prep.dirtyIds.size === 0) return null;
   const dirtyIds = new Set<BlockId>(prep.dirtyIds);
   for (const id of result.dirtyIds) dirtyIds.add(id);
 
   const cursor = createPosition(result.firstParagraphId, 0);
   const selectionAfter = createSpan(cursor, cursor);
 
-  return { change: { state: result.state, dirtyIds }, selection: selectionAfter };
+  return { change: { document: result.document, dirtyIds }, selection: selectionAfter };
 }

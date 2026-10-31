@@ -8,8 +8,8 @@ import {
   prevBlockInDocOrder,
   iterateBlocksInDocumentOrder,
 } from "../state";
-import { createWalkGuard } from "../state/state";
-import type { Block, BlockId, BookmarkMarker, BookmarkRange, State } from "../state";
+import { createWalkGuard } from "../state/document";
+import type { Block, BlockId, BookmarkMarker, BookmarkRange, Document } from "../state";
 import { createPosition } from "../state";
 import { recordSample } from "../perf/perf-trace";
 
@@ -109,7 +109,7 @@ function publish(t: Tables): CrossReferenceIndex {
  * Set bookmark `id`'s pairing to `range` (undefined = broken) and its coverage: every
  * block from the start block to the end block in document order. O(span).
  */
-function setPair(t: Tables, state: State, id: string, range: BookmarkRange | undefined): void {
+function setPair(t: Tables, document: Document, id: string, range: BookmarkRange | undefined): void {
   for (const b of t.spans.get(id) ?? []) removeFrom(t.covered, b, id);
   t.spans.delete(id);
   if (range === undefined) {
@@ -117,8 +117,8 @@ function setPair(t: Tables, state: State, id: string, range: BookmarkRange | und
     return;
   }
   t.bookmarks.set(id, range);
-  const guard = createWalkGuard(state);
-  for (let b: BlockId | null = range.start.blockId; b !== null; b = nextBlockInDocOrder(state, b)) {
+  const guard = createWalkGuard(document);
+  for (let b: BlockId | null = range.start.blockId; b !== null; b = nextBlockInDocOrder(document, b)) {
     if (guard.step()) throw new Error(`cross-reference index: cycle in the block tree after "${b}"`);
     countBlockRead();
     addTo(t.covered, b, id);
@@ -131,18 +131,18 @@ function setPair(t: Tables, state: State, id: string, range: BookmarkRange | und
  * Document order of two main-tree blocks by walking forward from both in lockstep:
  * O(the distance between them), not O(document).
  */
-function compareInDocumentOrder(state: State, a: BlockId, b: BlockId): number {
+function compareInDocumentOrder(document: Document, a: BlockId, b: BlockId): number {
   if (a === b) return 0;
   let x: BlockId | null = a;
   let y: BlockId | null = b;
-  const guard = createWalkGuard(state);
+  const guard = createWalkGuard(document);
   for (;;) {
     if (guard.step()) throw new Error(`cross-reference index: cycle in the block tree after "${a}"`);
     countBlockRead();
     countBlockRead();
-    x = x === null ? null : nextBlockInDocOrder(state, x);
+    x = x === null ? null : nextBlockInDocOrder(document, x);
     if (x === b) return -1;
-    y = y === null ? null : nextBlockInDocOrder(state, y);
+    y = y === null ? null : nextBlockInDocOrder(document, y);
     if (y === a) return 1;
     if (x === null) return 1;
     if (y === null) return -1;
@@ -150,12 +150,12 @@ function compareInDocumentOrder(state: State, a: BlockId, b: BlockId): number {
 }
 
 /** Re-derive bookmark `id`'s pairing from its markers. O(its marker blocks + span). */
-function repair(t: Tables, state: State, id: string): void {
+function repair(t: Tables, document: Document, id: string): void {
   const blocks = [...(t.occurrences.get(id) ?? [])];
-  if (blocks.length > 1) blocks.sort((a, b) => compareInDocumentOrder(state, a, b));
+  if (blocks.length > 1) blocks.sort((a, b) => compareInDocumentOrder(document, a, b));
   const markers: Marker[] = [];
   for (const b of blocks) for (const m of t.blocks.get(b)?.markers ?? []) if (m.id === id) markers.push(m);
-  setPair(t, state, id, pairBookmarkMarkers(markers));
+  setPair(t, document, id, pairBookmarkMarkers(markers));
 }
 
 function addEntry(t: Tables, blockId: BlockId, e: BlockEntry): void {
@@ -164,8 +164,8 @@ function addEntry(t: Tables, blockId: BlockId, e: BlockEntry): void {
   for (const f of e.fields) addTo(t.hosts, f, blockId);
 }
 
-/** The full index of `state`'s main tree. O(document). */
-export function buildCrossReferenceIndex(state: State): CrossReferenceIndex {
+/** The full index of `document`'s main tree. O(document). */
+export function buildCrossReferenceIndex(document: Document): CrossReferenceIndex {
   const t: Tables = {
     blocks: new Map(),
     occurrences: new Map(),
@@ -175,7 +175,7 @@ export function buildCrossReferenceIndex(state: State): CrossReferenceIndex {
     spans: new Map(),
   };
   const byId = new Map<string, Marker[]>();
-  for (const block of iterateBlocksInDocumentOrder(state)) {
+  for (const block of iterateBlocksInDocumentOrder(document)) {
     const e = entryOf(block);
     if (e === null) continue;
     addEntry(t, block.id, e);
@@ -185,7 +185,7 @@ export function buildCrossReferenceIndex(state: State): CrossReferenceIndex {
       else list.push(m);
     }
   }
-  for (const [id, markers] of byId) setPair(t, state, id, pairBookmarkMarkers(markers));
+  for (const [id, markers] of byId) setPair(t, document, id, pairBookmarkMarkers(markers));
   return publish(t);
 }
 
@@ -199,26 +199,26 @@ function sameShape(a: readonly Marker[], b: readonly Marker[]): boolean {
  * Whether block `id`'s place changed between the versions (a different parent or
  * neighbour): it may have MOVED (a move keeps block ids and marker sequences).
  */
-function linksChanged(prevState: State, state: State, id: BlockId): boolean {
-  const a = getBlock(prevState, id);
-  const b = getBlock(state, id);
+function linksChanged(prevDocument: Document, document: Document, id: BlockId): boolean {
+  const a = getBlock(prevDocument, id);
+  const b = getBlock(document, id);
   return a !== null && b !== null && (a.parentId !== b.parentId || a.prevSiblingId !== b.prevSiblingId || a.nextSiblingId !== b.nextSiblingId);
 }
 
 /** The descendants of `id` (excluding `id`), depth-first. */
-function* descendants(state: State, id: BlockId): Iterable<BlockId> {
-  const guard = createWalkGuard(state);
+function* descendants(document: Document, id: BlockId): Iterable<BlockId> {
+  const guard = createWalkGuard(document);
   const stack: BlockId[] = [];
-  for (let c = getBlock(state, id)?.firstChildId ?? null; c !== null; c = getBlock(state, c)?.nextSiblingId ?? null) stack.push(c);
+  for (let c = getBlock(document, id)?.firstChildId ?? null; c !== null; c = getBlock(document, c)?.nextSiblingId ?? null) stack.push(c);
   for (let c = stack.pop(); c !== undefined; c = stack.pop()) {
     if (guard.step()) throw new Error(`cross-reference index: cycle in the block tree under "${id}"`);
     yield c;
-    for (let k = getBlock(state, c)?.firstChildId ?? null; k !== null; k = getBlock(state, k)?.nextSiblingId ?? null) stack.push(k);
+    for (let k = getBlock(document, c)?.firstChildId ?? null; k !== null; k = getBlock(document, k)?.nextSiblingId ?? null) stack.push(k);
   }
 }
 
 /**
- * The index of `state` from `prev` (the index of `prevState`) and the blocks that
+ * The index of `document` from `prev` (the index of `prevDocument`) and the blocks that
  * changed between them, plus `staleHosts`: every field host whose resolved value may
  * have changed (a block its bookmark covers is dirty, its pairing changed, or its
  * start block is in `renumbered`). O(dirty blocks); an edit that adds / removes /
@@ -232,15 +232,15 @@ function* descendants(state: State, id: BlockId): Iterable<BlockId> {
  */
 export function updateCrossReferenceIndex(
   prev: CrossReferenceIndex,
-  prevState: State,
-  state: State,
+  prevDocument: Document,
+  document: Document,
   dirtyIds: ReadonlySet<BlockId>,
   renumbered: ReadonlySet<BlockId>,
 ): { readonly index: CrossReferenceIndex; readonly staleHosts: ReadonlySet<BlockId> } {
   const t = tablesOf.get(prev);
   if (t === undefined) {
     // `prev` was already consumed: rebuild, and treat every host as stale.
-    const index = buildCrossReferenceIndex(state);
+    const index = buildCrossReferenceIndex(document);
     const staleHosts = new Set<BlockId>();
     for (const hosts of index.hosts.values()) for (const h of hosts) staleHosts.add(h);
     return { index, staleHosts };
@@ -255,17 +255,17 @@ export function updateCrossReferenceIndex(
   for (const id of dirtyIds) {
     for (const b of t.covered.get(id) ?? []) stale.add(b);
     const before = t.blocks.get(id) ?? null;
-    const after = entryOf(getBlock(state, id));
+    const after = entryOf(getBlock(document, id));
     for (const f of before?.fields ?? []) if (after?.fields.has(f) !== true) removeFrom(t.hosts, f, id);
     for (const f of after?.fields ?? []) addTo(t.hosts, f, id);
     const was = before?.markers ?? [];
     const now = after?.markers ?? [];
-    for (const d of descendants(state, id)) {
+    for (const d of descendants(document, id)) {
       countBlockRead();
       rederive.add(d);
       for (const m of t.blocks.get(d)?.markers ?? []) touched.add(m.id);
     }
-    if (sameShape(was, now) && (now.length === 0 || !linksChanged(prevState, state, id))) {
+    if (sameShape(was, now) && (now.length === 0 || !linksChanged(prevDocument, document, id))) {
       for (let i = 0; i < now.length; i++) {
         const w = was[i];
         const n = now[i];
@@ -293,7 +293,7 @@ export function updateCrossReferenceIndex(
   // 2. Re-pair every bookmark whose markers changed.
   for (const id of touched) {
     stale.add(id);
-    repair(t, state, id);
+    repair(t, document, id);
   }
 
   // 3. Coverage of each dirty / moved block: a block inside a range (inserted into it,
@@ -303,13 +303,13 @@ export function updateCrossReferenceIndex(
   const derive = (id: BlockId): void => {
     done.add(id);
     const have = t.covered.get(id);
-    if (getBlock(state, id) === null) {
+    if (getBlock(document, id) === null) {
       for (const b of have ?? []) removeFrom(t.spans, b, id);
       t.covered.delete(id);
       return;
     }
     const want = new Set<string>();
-    const p = prevBlockInDocOrder(state, id);
+    const p = prevBlockInDocOrder(document, id);
     if (p !== null) for (const b of t.covered.get(p) ?? []) if (t.bookmarks.get(b)?.end.blockId !== p) want.add(b);
     for (const m of t.blocks.get(id)?.markers ?? []) {
       const r = t.bookmarks.get(m.id);
@@ -333,7 +333,7 @@ export function updateCrossReferenceIndex(
     if (done.has(id)) continue;
     const chain = [id];
     const inChain = new Set<BlockId>(chain);
-    for (let p = prevBlockInDocOrder(state, id); p !== null && rederive.has(p) && !done.has(p) && !inChain.has(p); p = prevBlockInDocOrder(state, p)) {
+    for (let p = prevBlockInDocOrder(document, id); p !== null && rederive.has(p) && !done.has(p) && !inChain.has(p); p = prevBlockInDocOrder(document, p)) {
       chain.push(p);
       inChain.add(p);
     }

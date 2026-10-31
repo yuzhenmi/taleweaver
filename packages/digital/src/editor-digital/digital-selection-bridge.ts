@@ -12,7 +12,7 @@ import {
   type Span,
   type Selection,
   type BlockId,
-  type State,
+  type Document,
   asBlockId,
 } from "@taleweaver/core";
 
@@ -262,10 +262,10 @@ function locateOffset(block: HTMLElement, offset: number): DomPoint {
  * contents, table) whole as `(id, 0)`, or a container's first / last such stop.
  * Generated nodes and non-block text are skipped. O(subtree) worst case.
  */
-function stopIn(state: State, node: Node, edge: RangeEdge): Position | null {
+function stopIn(document: Document, node: Node, edge: RangeEdge): Position | null {
   if (!(node instanceof HTMLElement) || isGeneratedNode(node)) return null;
   const raw = node.getAttribute("data-block-id");
-  const block = raw === null ? null : resolveBlock(state, asBlockId(raw))?.block ?? null;
+  const block = raw === null ? null : resolveBlock(document, asBlockId(raw))?.block ?? null;
   if (block !== null && block.inlineContent !== null) {
     return createPosition(block.id, edge === "start" ? 0 : inlineContentLength(block.inlineContent));
   }
@@ -273,7 +273,7 @@ function stopIn(state: State, node: Node, edge: RangeEdge): Position | null {
   const kids = Array.from(node.childNodes);
   if (edge === "end") kids.reverse();
   for (const kid of kids) {
-    const p = stopIn(state, kid, edge);
+    const p = stopIn(document, kid, edge);
     if (p !== null) return p;
   }
   return null;
@@ -286,28 +286,28 @@ function stopIn(state: State, node: Node, edge: RangeEdge): Position | null {
  * the last stop before it as an `"end"` — climbing out of `el` (below `root`) when
  * that side of it has none. Null when the point has no block on that side.
  */
-function boundaryStop(state: State, root: HTMLElement, el: HTMLElement, index: number, edge: RangeEdge): Position | null {
+function boundaryStop(document: Document, root: HTMLElement, el: HTMLElement, index: number, edge: RangeEdge): Position | null {
   const raw = el.getAttribute("data-block-id");
-  const block = raw === null ? null : resolveBlock(state, asBlockId(raw))?.block ?? null;
+  const block = raw === null ? null : resolveBlock(document, asBlockId(raw))?.block ?? null;
   if (block !== null && isObjectBlock(block)) return createPosition(block.id, 0);
   const kids = el.childNodes;
   if (edge === "start") {
     for (let i = index; i < kids.length; i++) {
       const kid = kids.item(i);
-      const p = kid === null ? null : stopIn(state, kid, edge);
+      const p = kid === null ? null : stopIn(document, kid, edge);
       if (p !== null) return p;
     }
   } else {
     for (let i = Math.min(index, kids.length) - 1; i >= 0; i--) {
       const kid = kids.item(i);
-      const p = kid === null ? null : stopIn(state, kid, edge);
+      const p = kid === null ? null : stopIn(document, kid, edge);
       if (p !== null) return p;
     }
   }
   const parent = el.parentNode;
   if (el === root || !(parent instanceof HTMLElement) || !root.contains(parent)) return null;
   const at = Array.prototype.indexOf.call(parent.childNodes, el);
-  return boundaryStop(state, root, parent, edge === "start" ? at + 1 : at, edge);
+  return boundaryStop(document, root, parent, edge === "start" ? at + 1 : at, edge);
 }
 
 /** Resolve the block element for a `BlockId`, or null. Injected by the reconciler (its `blockElMap`). */
@@ -328,17 +328,17 @@ export function createDigitalSelectionBridge(
   win: Window,
   blockElementLookup?: BlockElementLookup,
   /** The rendered document: DOM points normalize through its markers (absent → raw offsets). */
-  stateOf?: () => State | null,
+  stateOf?: () => Document | null,
 ): DigitalSelectionBridge {
   function domToPosition(node: Node, nodeOffset: number, edge: RangeEdge = "start"): Position | null {
-    const state = stateOf?.() ?? null;
-    const raw = rawDomToPosition(node, nodeOffset, edge, state);
+    const document = stateOf?.() ?? null;
+    const raw = rawDomToPosition(node, nodeOffset, edge, document);
     // A structural marker (bookmark / comment) is never a caret stop: a point just
     // before markers stands after them, as in print's hit-test.
-    return raw === null || state === null ? raw : caretAfterMarkers(state, raw);
+    return raw === null || document === null ? raw : caretAfterMarkers(document, raw);
   }
 
-  function rawDomToPosition(node: Node, nodeOffset: number, edge: RangeEdge, state: State | null): Position | null {
+  function rawDomToPosition(node: Node, nodeOffset: number, edge: RangeEdge, document: Document | null): Position | null {
     const block = enclosingBlockElement(node);
     if (block === null) return null;
     const rawId = block.getAttribute("data-block-id");
@@ -347,12 +347,12 @@ export function createDigitalSelectionBridge(
     // A point in a block WITHOUT text (an object, a container): never an offset into it —
     // an object endpoint covers the object whole, a point between blocks is the block
     // at the range's `edge` (a container is never a range endpoint).
-    if (state !== null && resolveBlock(state, blockId)?.block.inlineContent === null) {
-      if (node === block) return boundaryStop(state, root, block, nodeOffset, edge);
+    if (document !== null && resolveBlock(document, blockId)?.block.inlineContent === null) {
+      if (node === block) return boundaryStop(document, root, block, nodeOffset, edge);
       let child: Node = node;
       while (child.parentNode !== null && child.parentNode !== block) child = child.parentNode;
       const index = Array.prototype.indexOf.call(block.childNodes, child);
-      return boundaryStop(state, root, block, edge === "start" ? index : index + 1, edge);
+      return boundaryStop(document, root, block, edge === "start" ? index : index + 1, edge);
     }
     // A click on the generated ¶ (change tracking): it is drawn at (block, len) and is
     // not a caret stop.
@@ -397,11 +397,11 @@ export function createDigitalSelectionBridge(
     if (anchorBlock === null || focusBlock === null) return; // transient during full rebuild
     // A RANGE endpoint on an object block covers it whole: the DOM range runs from before
     // the object's element (as the start) / to after it (as the end).
-    const state = stateOf?.() ?? null;
-    const anchorIsStart = state === null || positionsEqual(selection.anchor, selection.focus) ||
-      comparePositions(state, selection.anchor, selection.focus) <= 0;
+    const document = stateOf?.() ?? null;
+    const anchorIsStart = document === null || positionsEqual(selection.anchor, selection.focus) ||
+      comparePositions(document, selection.anchor, selection.focus) <= 0;
     const pointFor = (el: HTMLElement, pos: Position, isStart: boolean): DomPoint => {
-      const block = state === null || positionsEqual(selection.anchor, selection.focus) ? null : resolveBlock(state, pos.blockId)?.block ?? null;
+      const block = document === null || positionsEqual(selection.anchor, selection.focus) ? null : resolveBlock(document, pos.blockId)?.block ?? null;
       const parent = el.parentNode;
       if (block === null || !isObjectBlock(block) || parent === null) return locateOffset(el, pos.offset);
       const index = Array.prototype.indexOf.call(parent.childNodes, el);

@@ -12,7 +12,7 @@
  *   - container (document, list, table, table-row, table-cell, etc.)
  *     carries `children: BlockInit[]`; `inlineContent` is omitted.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
@@ -20,10 +20,10 @@ import {
   reduceEditor,
 } from "./test-helpers";
 import { getBlock } from "../../state";
-import type { BlockId, State, BlockInit } from "../../state";
+import type { BlockId, Document, BlockInit } from "../../state";
 
-function lastChildOf(state: State, parentId: BlockId): BlockId {
-  const parent = getBlock(state, parentId);
+function lastChildOf(document: Document, parentId: BlockId): BlockId {
+  const parent = getBlock(document, parentId);
   if (parent === null) throw new Error(`lastChildOf: parent "${parentId}" not found`);
   const id = parent.lastChildId;
   if (id === null) throw new Error(`lastChildOf: parent "${parentId}" has no lastChild`);

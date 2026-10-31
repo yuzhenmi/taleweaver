@@ -30,17 +30,17 @@ import {
   type SuggestionRecord,
 } from "../suggestions";
 import { createHistory } from "../history";
-import { applyOperation, getBlock } from "../state";
-import type { Document } from "../state";
+import { applyOperation, getBlock } from "../document";
+import type { Document } from "../document";
 import { createPosition, createSpan } from "../block-position";
 import type { Span } from "../block-position";
 import { createTestAllocator, type BlockId } from "../block-id";
 import {
   buildBlock,
-  buildState,
+  buildDocument,
   text,
   inlineContent,
-} from "../../test-utils/state-builders";
+} from "../../test-utils/document-builders";
 import type { InlineContent } from "../inline-content";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -61,7 +61,7 @@ const INPUT = {
 
 /** doc > [ p(items) ] — one leaf paragraph "p". */
 function oneBlock(items: InlineContent = inlineContent([text("abcdef")])): Document {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -111,24 +111,24 @@ function head(s: Document): BlockId {
 }
 
 /** Seed an insertion `SuggestionRecord` (id `insId`, by `author`). */
-function seedInsertionRecord(state: Document, insId: string, author: string): Document {
+function seedInsertionRecord(document: Document, insId: string, author: string): Document {
   const record: SuggestionRecord = {
     id: insId as SuggestionId,
     kind: "insertion",
     author,
     createdAt: 100,
   };
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     writeSuggestionRecordInTx(doc, record);
-    return new Set<BlockId>([state.rootId]);
-  }).state;
+    return new Set<BlockId>([document.rootId]);
+  }).document;
 }
 
 describe("splitWithSuggestionOverSelection — single-block soft-delete + suggested split", () => {
   it("strikes the selection (stays) and splits after it: N='abcd'(cd struck), N+1='ef' (¶N keyed); deletion+insertion share createdAt", () => {
     // "abcdef", select "cd" (offsets 2..4), Enter.
     const allocator = createTestAllocator("p2");
-    const s = splitWithSuggestionOverSelection(oneBlock(), span(2, 4), allocator, INPUT).state;
+    const s = splitWithSuggestionOverSelection(oneBlock(), span(2, 4), allocator, INPUT).document;
 
     // Block N: "ab" + struck "cd" (text stays); ¶N carries the split key.
     expect(textOf(s, head(s))).toBe("abcd");
@@ -162,7 +162,7 @@ describe("splitWithSuggestionOverSelection — single-block soft-delete + sugges
 
   it("select to END 'ab[cdef]': N keeps all text (cd..f struck), N+1 empty (¶N keyed)", () => {
     const allocator = createTestAllocator("p2");
-    const s = splitWithSuggestionOverSelection(oneBlock(), span(2, 6), allocator, INPUT).state;
+    const s = splitWithSuggestionOverSelection(oneBlock(), span(2, 6), allocator, INPUT).document;
 
     expect(textOf(s, head(s))).toBe("abcdef");
     expect(splitKeyedBefore(s, "p")).toBe(true);
@@ -178,7 +178,7 @@ describe("splitWithSuggestionOverSelection — single-block soft-delete + sugges
 
   it("select from START '[abcd]ef': N = 'abcd'(struck), N+1 = 'ef' (¶N keyed)", () => {
     const allocator = createTestAllocator("p2");
-    const s = splitWithSuggestionOverSelection(oneBlock(), span(0, 4), allocator, INPUT).state;
+    const s = splitWithSuggestionOverSelection(oneBlock(), span(0, 4), allocator, INPUT).document;
 
     expect(textOf(s, head(s))).toBe("abcd");
     expect(splitKeyedBefore(s, "p")).toBe(true);
@@ -201,7 +201,7 @@ describe("splitWithSuggestionOverSelection — atomicity (ONE undo unit)", () =>
     const allocator = createTestAllocator("p2");
     const result = splitWithSuggestionOverSelection(s0, span(2, 4), allocator, INPUT);
     history.commit(result, { before: null, after: null });
-    const s1 = result.state;
+    const s1 = result.document;
 
     // Post-op: two blocks, key on ¶N, struck "cd", two records.
     const newId = "p" as BlockId | null;
@@ -212,7 +212,7 @@ describe("splitWithSuggestionOverSelection — atomicity (ONE undo unit)", () =>
     // ONE undo reverts everything.
     const undone = history.undo();
     if (undone === null) throw new Error("expected undo to return a result");
-    const s2 = undone.state;
+    const s2 = undone.document;
     expect(textOf(s2, "p")).toBe("abcdef");
     expect(getBlock(s2, "p" as BlockId)?.prevSiblingId).toBeNull();
     expect(splitKeyedBefore(s2, "p")).toBe(false);
@@ -243,7 +243,7 @@ describe("splitWithSuggestionOverSelection — own-insertion-in-range (post-stri
     s = seedInsertionRecord(s, "preIns", "alice");
 
     const allocator = createTestAllocator("p2");
-    s = splitWithSuggestionOverSelection(s, span(2, 6), allocator, INPUT).state;
+    s = splitWithSuggestionOverSelection(s, span(2, 6), allocator, INPUT).document;
 
     // N: "ab" + struck "cd" — the own-insertion "XY" was REMOVED for real.
     expect(textOf(s, head(s))).toBe("abcd");
@@ -275,7 +275,7 @@ describe("splitWithSuggestionOverSelection — own-insertion-in-range (post-stri
     s = seedInsertionRecord(s, "preIns", "alice");
 
     const allocator = createTestAllocator("p2");
-    s = splitWithSuggestionOverSelection(s, span(2, 4), allocator, INPUT).state;
+    s = splitWithSuggestionOverSelection(s, span(2, 4), allocator, INPUT).document;
 
     // N: "ab" (own insertion removed for real, nothing struck remains).
     expect(textOf(s, head(s))).toBe("ab");
@@ -299,7 +299,7 @@ describe("splitWithSuggestionOverSelection — own-insertion-in-range (post-stri
 describe("splitWithSuggestionOverSelection — collapsed-after-normalization fallback", () => {
   it("a collapsed span behaves as a pure suggested split (insertion record only, no deletion)", () => {
     const allocator = createTestAllocator("p2");
-    const s = splitWithSuggestionOverSelection(oneBlock(), span(3, 3), allocator, INPUT).state;
+    const s = splitWithSuggestionOverSelection(oneBlock(), span(3, 3), allocator, INPUT).document;
 
     // Split at offset 3: N = "abc", N+1 = "def" (tagged). No strike.
     expect(textOf(s, head(s))).toBe("abc");
@@ -318,13 +318,13 @@ describe("splitWithSuggestionOverSelection — collapsed-after-normalization fal
 
 describe("splitWithSuggestionOverSelection — span endpoint inside a surrogate pair", () => {
   it('"ab😀cd" [1,3) is snapped ONCE to [1,4): the strike and the split share the cut', () => {
-    const state = oneBlock(inlineContent([text("ab😀cd")]));
+    const document = oneBlock(inlineContent([text("ab😀cd")]));
     const span = createSpan(createPosition("p" as BlockId, 1), createPosition("p" as BlockId, 3));
-    const r = splitWithSuggestionOverSelection(state, span, createTestAllocator(), INPUT);
-    const h = getBlock(r.state, head(r.state));
+    const r = splitWithSuggestionOverSelection(document, span, createTestAllocator(), INPUT);
+    const h = getBlock(r.document, head(r.document));
     const texts = (id: BlockId) =>
-      (getBlock(r.state, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "|"));
-    expect(texts(head(r.state))).toEqual(["a", "b😀"]);
+      (getBlock(r.document, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "|"));
+    expect(texts(head(r.document))).toEqual(["a", "b😀"]);
     expect(h?.breakSuggestion).toEqual({ insertionId: INS_ID });
     expect(h?.inlineContent?.items[1]?.attrs).toEqual({ [DELETION_SUGGESTION_ATTR]: DEL_ID });
     expect(texts("p" as BlockId)).toEqual(["cd"]);

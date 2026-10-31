@@ -15,7 +15,7 @@ import {
   type Hyphenator,
   type Position,
   type Decoration,
-  type State,
+  type Document,
   type Anchor,
   type AnchorOptions,
   type Assoc,
@@ -65,7 +65,7 @@ export interface EditorViewProps {
    * Pass it when decorations are computed asynchronously: the controller maps them through
    * the edits made since, or drops them when that Document is too old to map.
    */
-  decorationsBasedOn?: State;
+  decorationsBasedOn?: Document;
   /** Hover / click on decorated content (built-in highlights included). */
   onDecorationPointer?: (event: PrintDecorationPointerEvent) => void;
   /**
@@ -113,13 +113,13 @@ export interface EditorViewHandle {
    */
   getCaretRect(position: Position): CaretViewportRect | null;
   /** The controller's current document version (null before mount). */
-  version(): State | null;
+  version(): Document | null;
   /** Map a position from an older version (null when aged out / before mount). */
-  mapPosition(position: Position, version: State, assoc?: Assoc): MappedPosition | null;
+  mapPosition(position: Position, version: Document, assoc?: Assoc): MappedPosition | null;
   /** Anchor a point / range that follows every later edit (null before mount / unmappable). */
-  createAnchor(from: Position, to?: Position, options?: AnchorOptions & { readonly basedOn?: State }): Anchor | null;
+  createAnchor(from: Position, to?: Position, options?: AnchorOptions & { readonly basedOn?: Document }): Anchor | null;
   /** Offer a proposal as one suggestion group; resolves with the reducer's verdict (see the print controller's `propose`). */
-  propose(proposal: Proposal, options?: { readonly basedOn?: State }): Promise<ProposeResult>;
+  propose(proposal: Proposal, options?: { readonly basedOn?: Document }): Promise<ProposeResult>;
 }
 
 const EMPTY_FIND_STATUS: FindStatus = { total: 0, activeIndex: -1 };

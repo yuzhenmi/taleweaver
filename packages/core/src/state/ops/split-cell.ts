@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { Document, OperationResult } from "../state";
-import { applyOperation, getBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, getBlock } from "../document";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { requireInTransaction } from "../yjs-doc";
@@ -41,20 +41,20 @@ export interface SplitCellPlan {
  * filled with new empty 1×1 cells. Caret is unchanged (the handler's concern).
  *
  * Caller (the editor handler) must have resolved `ctx` via `resolveTableContext`
- * and guarded the ragged case. This op is a NO-OP (returns the same `state`) when
+ * and guarded the ragged case. This op is a NO-OP (returns the same `document`) when
  * the caret cell is not a real span — `planSplitCell` returns null.
  *
  * MAIN-TREE ONLY. The grid column count is unchanged (the rectangle's columns
  * already existed), so `columnWidths` is untouched.
  */
 export function splitCell(
-  state: Document,
+  document: Document,
   ctx: TableContext,
   allocator: IdAllocator,
 ): OperationResult {
-  const plan = planSplitCell(state, ctx, allocator);
-  if (plan === null) return { state, dirtyIds: new Set<BlockId>() };
-  return applyOperation(state, (doc) => {
+  const plan = planSplitCell(document, ctx, allocator);
+  if (plan === null) return { document, dirtyIds: new Set<BlockId>() };
+  return applyOperation(document, (doc) => {
     splitCellInTx(doc, plan);
   });
 }
@@ -70,11 +70,11 @@ export function splitCell(
  * is correctly excluded, and the new cells land relative to the row's own cells.
  */
 export function planSplitCell(
-  state: Document,
+  document: Document,
   ctx: TableContext,
   allocator: IdAllocator,
 ): SplitCellPlan | null {
-  const grid = buildTableGrid(state, ctx.tableId);
+  const grid = buildTableGrid(document, ctx.tableId);
   if (grid === null) return null;
   const target = grid.cells.find((c) => c.cellId === ctx.cellId);
   if (target === undefined) return null;
@@ -85,7 +85,7 @@ export function planSplitCell(
   const lastRow = r0 + target.rowSpan - 1;
   const lastCol = c0 + target.colSpan - 1;
 
-  const cell = getBlock(state, ctx.cellId);
+  const cell = getBlock(document, ctx.cellId);
   if (cell === null) return null;
   const survivorAttrs = dropSpanAttrs(cell.attrs);
 

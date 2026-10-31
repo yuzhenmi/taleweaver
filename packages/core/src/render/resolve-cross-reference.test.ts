@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { resolveCrossReference, BROKEN_CROSS_REFERENCE_TEXT } from "./resolve-cross-reference";
-import { buildBlock, buildState, inlineContent, text, embed } from "../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent, text, embed } from "../test-utils/document-builders";
 import {
   type BlockId,
-  type State,
+  type Document,
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
 } from "../state";
@@ -16,8 +16,8 @@ function over(id: string, len: number): BookmarkRange {
 }
 
 /** doc → [list-item "li" (a numbered item), heading "h" "Title", container "c" (no inlineContent)]. */
-function doc(): State {
-  return buildState({
+function doc(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "c" }),
@@ -55,21 +55,21 @@ describe("resolveCrossReference", () => {
   });
 
   it("text mode, an empty bookmark → empty string (it EXISTS — not broken)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
       ],
     });
-    expect(resolveCrossReference(state, numbering, { range: over("p", 0), refMode: "text" })).toBe("");
+    expect(resolveCrossReference(document, numbering, { range: over("p", 0), refMode: "text" })).toBe("");
   });
 
   it("text mode → embeds in the target contribute CLEAN caption text, not U+FFFC / \\t / \\n (XR-2)", () => {
     // A heading "Part" + hard-break + "One" + tab + "Two" + a footnote anchor.
     // The clipboard serializer would yield "Part\nOne\tTwo￼"; the cross-ref
     // display serializer collapses breaks/tabs to a space and drops embeds.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "h" }),
@@ -86,7 +86,7 @@ describe("resolveCrossReference", () => {
         }),
       ],
     });
-    expect(resolveCrossReference(state, numbering, { range: over("h", 14), refMode: "text" })).toBe(
+    expect(resolveCrossReference(document, numbering, { range: over("h", 14), refMode: "text" })).toBe(
       "Part One Two",
     );
   });
@@ -96,7 +96,7 @@ describe("resolveCrossReference", () => {
     // caption must match the previewed projection of the target:
     //   suggesting (literal) / final (accept all) → "Keep Added"
     //   original (reject all) → "Keep " (the insertion is removed)
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "h" }),
@@ -110,15 +110,15 @@ describe("resolveCrossReference", () => {
       ],
     });
     const target = { range: over("h", 10), refMode: "text" as const };
-    expect(resolveCrossReference(state, numbering, target)).toBe("Keep Added"); // default "suggesting"
-    expect(resolveCrossReference(state, numbering, target, "final")).toBe("Keep Added");
-    expect(resolveCrossReference(state, numbering, target, "original")).toBe("Keep ");
+    expect(resolveCrossReference(document, numbering, target)).toBe("Keep Added"); // default "suggesting"
+    expect(resolveCrossReference(document, numbering, target, "final")).toBe("Keep Added");
+    expect(resolveCrossReference(document, numbering, target, "original")).toBe("Keep ");
   });
 
   it("text mode under original view, a pending DELETION in the target is KEPT (XR-1 mirror)", () => {
     // Heading = "Stay" + "Cut" (pending DELETION). final (accept) drops "Cut";
     // original (reject) keeps it.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "h" }),
@@ -132,7 +132,7 @@ describe("resolveCrossReference", () => {
       ],
     });
     const target = { range: over("h", 7), refMode: "text" as const };
-    expect(resolveCrossReference(state, numbering, target, "final")).toBe("Stay");
-    expect(resolveCrossReference(state, numbering, target, "original")).toBe("StayCut");
+    expect(resolveCrossReference(document, numbering, target, "final")).toBe("Stay");
+    expect(resolveCrossReference(document, numbering, target, "original")).toBe("StayCut");
   });
 });

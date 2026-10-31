@@ -121,7 +121,7 @@ unit, with the boundary owned by `beginEntry` / `breakCoalescing` (the reducer
 classifies actions via `coalesceKeyOf`). Dirty tracking is write-time: `dirtyIds`
 captured from Yjs's `afterTransaction` change event (not tree diffing), consumed by
 the incremental render/cascade/layout passes. `applyOperation` returns the input
-`Document` reference unchanged on a no-op, so `result.state === state` is an O(1)
+`Document` reference unchanged on a no-op, so `result.document === document` is an O(1)
 "did anything change?" guard. The old path-based `StateNode` immutable tree is
 fully removed.
 
@@ -214,7 +214,7 @@ floats, so the cell is its whole engine-owned case; the read-only `renderDocumen
 view does not clip (static export, no live layout to observe) (3.1). Print decoration text widgets vs
 the ¶ at `(E, len)` `[missing]` (resolved by zero-offset inline widgets in
 print layout). Storage shape comes from the component registry (`getStorageShape`,
-resolver bound at `createState`; upgrade infers unregistered legacy types; `setBlockType`
+resolver bound at `createDocument`; upgrade infers unregistered legacy types; `setBlockType`
 refuses a storage-shape change) `[implemented]`.
 
 Open limitations (each carved out of the end-mark work or pre-existing; one line each):
@@ -275,12 +275,12 @@ reports the effective schema).
 The editor-level open/save surface is `exportDocument` / `loadDocument`
 (`editor/document-io.ts`, on the core barrel): `loadDocument` deserializes into a
 FRESH `EditorState` (fresh History + a valid initial caret via
-`initialSelectionForState` + full render/cascade/layout).
+`initialSelectionForDocument` + full render/cascade/layout).
 
 `buildDocumentFromTree` (`state/build-document-from-tree.ts`, on the state + core
 barrels) lowers a declarative nested `BlockNode` tree → `Document`, minting ids and
 deriving all structural links — the safe public counterpart to the internal
-`buildStateFromBlocks`, and the construction target a future HTML/JSON importer's
+`buildDocumentFromBlocks`, and the construction target a future HTML/JSON importer's
 `decode` builds.
 
 The HTML serializer ships in `core`'s `state/serialize/` — the `taleweaver-html`
@@ -819,7 +819,7 @@ is gone: the `list` component and `components/list.ts` were deleted, and a
 `migrate-list-structure` migration upgrades legacy documents.
 
 - **State** (`1.1-state.md`): `listDefs` map (`getListDef(s)` /
-  `getListDefsForState` / `writeListDefInTx` / `classifyListDef`), tracked as a 4th
+  `getListDefsForDocument` / `writeListDefInTx` / `classifyListDef`), tracked as a 4th
   UndoManager scope; flat list-item attrs (`listId`/`listLevel`/`listCounterOverride`);
   ops `setListType` and `setListRestart`; `newListId`.
 - **Numbering service** (`numbering/`, `1.2-render.md`): a general render-time
@@ -908,7 +908,7 @@ discriminated union (`PageFieldSpec | CrossRefPageSpec`, discriminant `fieldType
 `pageOfFieldTarget(plan, targetId, parentOf)`: a top-level target → its own first
 page (`pageSpanOfBlock(targetId).first`); a **nested** target → the page where its
 nearest top-level-indexed ancestor BEGINS, via the injected `parentOf` capability
-(`makeBlockParentLookup(state)`, built in the editor layer + threaded through
+(`makeBlockParentLookup(document)`, built in the editor layer + threaded through
 `layoutTree`/`layoutTreeIncremental`/`buildVirtualPaginatedTree` so layout stays
 State-decoupled). A deleted/orphan target → `-1` → the `""` broken-ref sentinel.
 `substituteLayoutFields` (renamed from `substitutePageFields`) stamps the resolved
@@ -998,10 +998,10 @@ paragraph / section-break KEYS on the ¶'s own entry (1.1 "Tracked paragraph mar
 binary serialize round-trip.
 
 Range index + read + Layer-1 hooks: `buildSuggestionRangeIndex` /
-`resolveSuggestionRange` / `getSuggestions(state) → ResolvedSuggestion[]`
+`resolveSuggestionRange` / `getSuggestions(document) → ResolvedSuggestion[]`
 (a record with no live carrier is never surfaced; write ops never delete records — the
 next resolve deletes a record with no carrier at all); the optional `origin` param on BOTH `applyOperation`
-and `runTransaction` (a generic untracked-change opt-out) + `History.advanceState(newState)`.
+and `runTransaction` (a generic untracked-change opt-out) + `History.advanceDocument(newState)`.
 
 Creation ops:
 - `markFormatting`: stamps its own `formattingSuggestionId:<id>` tag over a
@@ -1114,10 +1114,10 @@ Render:
 - Preview-view projection foundation: `SuggestionView = "suggesting" | "final" |
   "original"` type + pure `itemVisibleInView(item, view)` predicate in
   `suggestions.ts`, barrel-exported.
-- Text-surface projection: `extractText(state, span, embedSerializer?, view?)`
+- Text-surface projection: `extractText(document, span, embedSerializer?, view?)`
   filters each item by `itemVisibleInView`; `getWordCount({suggestionView})` +
-  `getSelectionWordCount(state, sel, view?)` thread it through.
-- Structural text-surface projection: `boundaryMergesInView(state, left, right, view)` predicate
+  `getSelectionWordCount(document, sel, view?)` thread it through.
+- Structural text-surface projection: `boundaryMergesInView(document, left, right, view)` predicate
   (barrel-exported) — across a boundary that MERGES in the view the inter-block `"\n"`
   is SUPPRESSED in `extractText`. The RENDER-surface structural merge is DEFERRED
   (latent until a host wires a preview toggle; a render-tree merge that diverges from
@@ -1167,7 +1167,7 @@ untracked and clear the moved blocks' break-suggestion keys. See [`1.5-editor.md
 ### `accessibility/` `[implemented]` (core projection + dom mirror builder) / `[partial]` (dom mirror materialization)
 
 The **core accessibility projection** is `[implemented]`:
-`buildAccessibilityTree(state, { suggestionView? })` (`packages/core/src/accessibility/`)
+`buildAccessibilityTree(document, { suggestionView? })` (`packages/core/src/accessibility/`)
 produces a pure, geometry-free `AccessibilityNode` tree. It maps each block type to
 an ARIA-aligned role (document / paragraph / heading+level / list+listitem [synthetic
 grouping by `listId`/`listLevel`] / table+row+cell+columnheader [first

@@ -5,7 +5,7 @@
  * selection is collapsed-on-atomic, so `computeSelectionRects` early-returns `[]`
  * for it; this function exists precisely to serve that case.
  *
- * Fixture mirrors `hit-test-object.test.ts` (buildState → render → layoutTree →
+ * Fixture mirrors `hit-test-object.test.ts` (buildDocument → render → layoutTree →
  * getPage(0)) with a FLOATED image and wrapped paragraph text beside it.
  */
 import { describe, it, expect } from "vitest";
@@ -15,13 +15,13 @@ import { createDefaultAttrRegistry } from "@taleweaver/core";
 import { layoutTree } from "../layout/dispatch";
 import { createMockShaper } from "@taleweaver/core";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
 import { asBlockId } from "@taleweaver/core";
-import type { State } from "@taleweaver/core";
+import type { Document } from "@taleweaver/core";
 import type { PageBox } from "../layout/page-box";
 import type { LayoutBox } from "../layout/layout-box";
 import { computeObjectSelectionRect } from "./selection-geometry";
@@ -49,8 +49,8 @@ function pageConfig() {
   };
 }
 
-function docWithFloatImage(): State {
-  return buildState({
+function docWithFloatImage(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -88,14 +88,14 @@ function docWithFloatImage(): State {
 }
 
 interface Built {
-  state: State;
+  document: Document;
   page0: PageBox;
 }
 
 function build(): Built {
-  const state = docWithFloatImage();
+  const document = docWithFloatImage();
   const root = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -105,7 +105,7 @@ function build(): Built {
   if (lt.type !== "virtual-root") {
     throw new Error("expected a VirtualLayoutTree (paginated supported doc)");
   }
-  return { state, page0: lt.getPage(0) };
+  return { document, page0: lt.getPage(0) };
 }
 
 /**
@@ -155,10 +155,10 @@ function absRectOf(
 
 describe("computeObjectSelectionRect (#525)", () => {
   it("returns the atomic image's absolute bbox as a SelectionRect", () => {
-    const { state, page0 } = build();
+    const { document, page0 } = build();
     const resolver = createDefaultComponentRegistry();
 
-    const rect = computeObjectSelectionRect(state, FLOAT_IMG_ID, page0, resolver);
+    const rect = computeObjectSelectionRect(document, FLOAT_IMG_ID, page0, resolver);
     expect(rect).not.toBeNull();
     if (rect === null) throw new Error("expected an object-selection rect");
 
@@ -180,25 +180,25 @@ describe("computeObjectSelectionRect (#525)", () => {
   });
 
   it("returns null for a non-atomic block (a paragraph)", () => {
-    const { state, page0 } = build();
+    const { document, page0 } = build();
     const resolver = createDefaultComponentRegistry();
-    expect(computeObjectSelectionRect(state, PARA_ID, page0, resolver)).toBeNull();
+    expect(computeObjectSelectionRect(document, PARA_ID, page0, resolver)).toBeNull();
   });
 
   it("returns null for a blockId absent from the layout", () => {
-    const { state, page0 } = build();
+    const { document, page0 } = build();
     const resolver = createDefaultComponentRegistry();
     expect(
-      computeObjectSelectionRect(state, asBlockId("gone"), page0, resolver),
+      computeObjectSelectionRect(document, asBlockId("gone"), page0, resolver),
     ).toBeNull();
   });
 
   it("computeSelectionRects on the same collapsed-on-atomic span returns [] (why a separate fn is needed)", () => {
-    const { state, page0 } = build();
+    const { document, page0 } = build();
     const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
     const pos = { blockId: FLOAT_IMG_ID, offset: 0 };
     const span = { anchor: pos, focus: pos };
-    expect(computeSelectionRects(state, span, page0, shaper)).toEqual([]);
+    expect(computeSelectionRects(document, span, page0, shaper)).toEqual([]);
   });
 });
 

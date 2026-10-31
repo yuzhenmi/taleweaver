@@ -13,7 +13,7 @@ import { render } from "./render";
 import type { RenderNode, ElementBox, TextBox } from "./render-node";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
-import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent, text } from "../test-utils/document-builders";
 import { asBlockId, CROSS_REFERENCE_EMBED_TYPE } from "../state";
 import { cascadePass } from "../cascade/cascade-pass";
 import { collectPageFields } from "@taleweaver/print";
@@ -89,7 +89,7 @@ const H2_ID = "h2";
  * validators' defaults or `{ levels: [1] }` for the level-filter case).
  */
 function docWithToc(tocAttrs: Readonly<Record<string, unknown>>) {
-  return buildState({
+  return buildDocument({
     rootId: asBlockId("doc"),
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: H1_ID, lastChildId: TOC_ID }),
@@ -202,7 +202,7 @@ describe("render — table-of-contents entry-subtree wiring", () => {
     // A doc with only the TOC block (no headings) → getOutline → [] → no entries.
     // The branch must still run buildTocEntrySubtree (returning the tagged TOC box
     // with no children), NOT fall through to the zero-height component stub.
-    const state = buildState({
+    const document = buildDocument({
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: TOC_ID, lastChildId: TOC_ID }),
@@ -215,7 +215,7 @@ describe("render — table-of-contents entry-subtree wiring", () => {
         }),
       ],
     });
-    const out = render(state, reg, attrReg);
+    const out = render(document, reg, attrReg);
     const toc = findToc(out.root);
     if (toc === null) throw new Error("no TOC box");
     expect(toc.children).toHaveLength(0);

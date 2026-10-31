@@ -29,14 +29,14 @@ import {
 } from "./suggestions";
 import { markParagraphMarkDeletion } from "./ops/merge-blocks";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
-} from "../test-utils/state-builders";
+} from "../test-utils/document-builders";
 import { asBlockId } from "./block-id";
-import { applyOperation, type Document } from "./state";
-import { STATE_INTERNAL } from "./state-internal";
+import { applyOperation, type Document } from "./document";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import { createHistory } from "./history";
 import { insertText } from "./ops/insert-text";
 import { createPosition } from "./block-position";
@@ -128,7 +128,7 @@ describe("suggestions — 6th Y.UndoManager tracked scope (slice 1.4)", () => {
   const PARA = asBlockId("p");
 
   function freshDoc(): Document {
-    return buildState({
+    return buildDocument({
       rootId: ROOT,
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -161,13 +161,13 @@ describe("suggestions — 6th Y.UndoManager tracked scope (slice 1.4)", () => {
     });
     history.commit(written, { before: null, after: null });
 
-    const docAfterWrite = written.state[STATE_INTERNAL].doc;
+    const docAfterWrite = written.document[DOCUMENT_INTERNAL].doc;
     expect(getSuggestionsMap(docAfterWrite).size).toBe(1);
     expect(readSuggestionRecord(docAfterWrite, record.id)).toEqual(record);
 
     const undone = history.undo();
     if (undone === null) throw new Error("expected undo to return a result");
-    const docAfterUndo = undone.state[STATE_INTERNAL].doc;
+    const docAfterUndo = undone.document[DOCUMENT_INTERNAL].doc;
     expect(getSuggestionsMap(docAfterUndo).size).toBe(0);
     expect(readSuggestionRecord(docAfterUndo, record.id)).toBeNull();
   });
@@ -193,13 +193,13 @@ describe("suggestions — 6th Y.UndoManager tracked scope (slice 1.4)", () => {
     // undo entry (beginEntry closes the prior group) whose transaction never
     // touches the suggestions map.
     history.beginEntry("insert", 10_000);
-    const typed = insertText(written.state, createPosition(PARA, 0), "X", {});
+    const typed = insertText(written.document, createPosition(PARA, 0), "X", {});
     history.commit(typed, { before: null, after: null });
 
     // Undo the text edit: the suggestion record must SURVIVE.
     const undone = history.undo();
     if (undone === null) throw new Error("expected undo to return a result");
-    const docAfterUndo = undone.state[STATE_INTERNAL].doc;
+    const docAfterUndo = undone.document[DOCUMENT_INTERNAL].doc;
     expect(getSuggestionsMap(docAfterUndo).size).toBe(1);
     expect(readSuggestionRecord(docAfterUndo, record.id)).toEqual(record);
   });
@@ -211,7 +211,7 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
    * insertion suggestion id `s1`, the second is untagged.
    */
   function oneTaggedRun(): Document {
-    return buildState({
+    return buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -229,8 +229,8 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
   }
 
   it("buildSuggestionRangeIndex resolves a tagged run's [start, end-after] span", () => {
-    const state = oneTaggedRun();
-    const index = buildSuggestionRangeIndex(state);
+    const document = oneTaggedRun();
+    const index = buildSuggestionRangeIndex(document);
     const range = index.get("s1" as SuggestionId);
     expect(range).toBeDefined();
     // "AB" occupies offsets [0,2); range start = offset 0, end = offset 2.
@@ -239,16 +239,16 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
   });
 
   it("resolveSuggestionRange returns the single id's range, null for an unknown id", () => {
-    const state = oneTaggedRun();
-    const range = resolveSuggestionRange(state, "s1" as SuggestionId);
+    const document = oneTaggedRun();
+    const range = resolveSuggestionRange(document, "s1" as SuggestionId);
     expect(range?.start).toEqual(createPosition(asBlockId("p"), 0));
     expect(range?.end).toEqual(createPosition(asBlockId("p"), 2));
-    expect(resolveSuggestionRange(state, "nope" as SuggestionId)).toBeNull();
+    expect(resolveSuggestionRange(document, "nope" as SuggestionId)).toBeNull();
   });
 
   it("indexes all three attr dimensions + a paragraph-join boundary tag", () => {
     // p1: "X"(del s-del) "Y"(fmt s-fmt) ; p2: "Z"(ins s-ins), tagged with join s-join
-    const base = buildState({
+    const base = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -278,12 +278,12 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
         }),
       ],
     });
-    const state = markParagraphMarkDeletion(base, asBlockId("p1"), {
+    const document = markParagraphMarkDeletion(base, asBlockId("p1"), {
       id: "s-join" as SuggestionId,
       author: "alice",
       createdAt: 1,
-    }).state;
-    const index = buildSuggestionRangeIndex(state);
+    }).document;
+    const index = buildSuggestionRangeIndex(document);
 
     expect(index.get("s-del" as SuggestionId)).toEqual({
       start: createPosition(asBlockId("p1"), 0),
@@ -307,7 +307,7 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
   it("a cross-block insertion (same id on text in two blocks) spans both blocks", () => {
     // Same id `s1` tags "AB" in p1 and "CD" in p2 — the range runs from p1:0
     // to p2:2 (after the last tagged item in document order).
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -336,7 +336,7 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
         }),
       ],
     });
-    const range = resolveSuggestionRange(state, "s1" as SuggestionId);
+    const range = resolveSuggestionRange(document, "s1" as SuggestionId);
     expect(range?.start).toEqual(createPosition(asBlockId("p1"), 0));
     expect(range?.end).toEqual(createPosition(asBlockId("p2"), 2));
   });
@@ -346,7 +346,7 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
     // footnote-body block (`embedContents`) must resolve to that body block's
     // span — pre-MT-2 the scan only visited the main tree and returned null.
     // A main-tree suggestion in the SAME doc still resolves unchanged.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -372,11 +372,11 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
       ],
     });
 
-    const bodyRange = resolveSuggestionRange(state, "s-body" as SuggestionId);
+    const bodyRange = resolveSuggestionRange(document, "s-body" as SuggestionId);
     expect(bodyRange?.start).toEqual(createPosition(asBlockId("fnp"), 0));
     expect(bodyRange?.end).toEqual(createPosition(asBlockId("fnp"), 4));
 
-    const mainRange = resolveSuggestionRange(state, "s-main" as SuggestionId);
+    const mainRange = resolveSuggestionRange(document, "s-main" as SuggestionId);
     expect(mainRange?.start).toEqual(createPosition(asBlockId("p"), 0));
     expect(mainRange?.end).toEqual(createPosition(asBlockId("p"), 1));
   });
@@ -395,7 +395,7 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
       createdAt: 2,
     };
     // Tag p with `s1` only; `s-orphan` tags nothing.
-    let state = buildState({
+    let document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -409,13 +409,13 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
         }),
       ],
     });
-    state = applyOperation(state, (doc) => {
+    document = applyOperation(document, (doc) => {
       writeSuggestionRecordInTx(doc, liveRecord);
       writeSuggestionRecordInTx(doc, orphanRecord);
-      return new Set<BlockId>([state.rootId]);
-    }).state;
+      return new Set<BlockId>([document.rootId]);
+    }).document;
 
-    const resolved = getSuggestions(state);
+    const resolved = getSuggestions(document);
     const byId = new Map(resolved.map((r) => [r.id, r]));
 
     const live = byId.get("s1" as SuggestionId);
@@ -437,7 +437,7 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
       createdAt: 9,
       proposedAttrs: { bold: true },
     };
-    let state = buildState({
+    let document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -449,13 +449,13 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
         }),
       ],
     });
-    state = applyOperation(state, (doc) => {
+    document = applyOperation(document, (doc) => {
       writeSuggestionRecordInTx(doc, record);
-      return new Set<BlockId>([state.rootId]);
-    }).state;
+      return new Set<BlockId>([document.rootId]);
+    }).document;
 
-    expect(resolveSuggestionRange(state, record.id)).toBeNull();
-    expect(getSuggestions(state)).toEqual([]);
+    expect(resolveSuggestionRange(document, record.id)).toBeNull();
+    expect(getSuggestions(document)).toEqual([]);
   });
 });
 
@@ -468,7 +468,7 @@ describe("suggestions — applyOperation origin opt-out (non-null origin is not 
   const PARA = asBlockId("p");
 
   function freshDoc(): Document {
-    return buildState({
+    return buildDocument({
       rootId: ROOT,
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -503,10 +503,10 @@ describe("suggestions — applyOperation origin opt-out (non-null origin is not 
     expect([...withOrigin.dirtyIds]).toEqual([...withoutOrigin.dirtyIds]);
     // Same record landed in each doc.
     expect(
-      readSuggestionRecord(withOrigin.state[STATE_INTERNAL].doc, record.id),
+      readSuggestionRecord(withOrigin.document[DOCUMENT_INTERNAL].doc, record.id),
     ).toEqual(record);
     expect(
-      readSuggestionRecord(withoutOrigin.state[STATE_INTERNAL].doc, record.id),
+      readSuggestionRecord(withoutOrigin.document[DOCUMENT_INTERNAL].doc, record.id),
     ).toEqual(record);
   });
 
@@ -520,7 +520,7 @@ describe("suggestions — applyOperation origin opt-out (non-null origin is not 
     history.commit(typed, { before: null, after: null });
 
     // A write under the resolve origin — must NOT be tracked. Advance the
-    // History's cached currentState (piece C) since this txn skips `commit`.
+    // History's cached currentDocument (piece C) since this txn skips `commit`.
     const record: SuggestionRecord = {
       id: "s-resolve" as SuggestionId,
       kind: "deletion",
@@ -528,22 +528,22 @@ describe("suggestions — applyOperation origin opt-out (non-null origin is not 
       createdAt: 5,
     };
     const resolved = applyOperation(
-      typed.state,
+      typed.document,
       (doc) => {
         writeSuggestionRecordInTx(doc, record);
         return new Set<BlockId>([ROOT]);
       },
       { origin: UNTRACKED_ORIGIN },
     );
-    history.advanceState(resolved.state);
+    history.advanceDocument(resolved.document);
 
-    const docAfterResolve = resolved.state[STATE_INTERNAL].doc;
+    const docAfterResolve = resolved.document[DOCUMENT_INTERNAL].doc;
     expect(getSuggestionsMap(docAfterResolve).size).toBe(1);
 
     // Undo: reverts ONLY the tracked "X" insert, NOT the resolve-origin write.
     const undone = history.undo();
     if (undone === null) throw new Error("expected undo to return a result");
-    const docAfterUndo = undone.state[STATE_INTERNAL].doc;
+    const docAfterUndo = undone.document[DOCUMENT_INTERNAL].doc;
     // The suggestion record survives the undo (the resolve was non-undoable).
     expect(getSuggestionsMap(docAfterUndo).size).toBe(1);
     expect(readSuggestionRecord(docAfterUndo, record.id)).toEqual(record);

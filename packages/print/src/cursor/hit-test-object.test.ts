@@ -10,7 +10,7 @@
  * point-in-rect over the `AtomicBoxIndex` wins; absent → behavior is UNCHANGED
  * (existing text logic), proving backward-compat for every existing caller.
  *
- * Fixture mirrors `atomic-box-index.test.ts` (buildState → render → layoutTree →
+ * Fixture mirrors `atomic-box-index.test.ts` (buildDocument → render → layoutTree →
  * getPage(0)) with a FLOATED image and wrapped paragraph text beside it.
  */
 import { describe, it, expect } from "vitest";
@@ -20,13 +20,13 @@ import { createDefaultAttrRegistry } from "@taleweaver/core";
 import { layoutTree } from "../layout/dispatch";
 import { createMockShaper } from "@taleweaver/core";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
 import { asBlockId } from "@taleweaver/core";
-import type { State } from "@taleweaver/core";
+import type { Document } from "@taleweaver/core";
 import type { PageBox } from "../layout/page-box";
 import type { LayoutBox, BlockBox } from "../layout/layout-box";
 import { resolvePositionFromPixel } from "./hit-test";
@@ -57,8 +57,8 @@ function pageConfig() {
  * paragraph holds enough text to wrap and flow beside the float, so a click in
  * its wrapped text (outside the image rect) must resolve to a TEXT position.
  */
-function docWithFloatImage(): State {
-  return buildState({
+function docWithFloatImage(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -96,14 +96,14 @@ function docWithFloatImage(): State {
 }
 
 interface Built {
-  state: State;
+  document: Document;
   page0: PageBox;
 }
 
 function build(): Built {
-  const state = docWithFloatImage();
+  const document = docWithFloatImage();
   const root = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -113,7 +113,7 @@ function build(): Built {
   if (lt.type !== "virtual-root") {
     throw new Error("expected a VirtualLayoutTree (paginated supported doc)");
   }
-  return { state, page0: lt.getPage(0) };
+  return { document, page0: lt.getPage(0) };
 }
 
 /** Find the first `BlockBox` with `key === key`, descending children/columns. */
@@ -142,10 +142,10 @@ function findBlockBoxByKey(box: LayoutBox, key: string): BlockBox | null {
 
 describe("resolvePositionFromPixel — object-selection (#525)", () => {
   it("a click INSIDE the floated image's rect selects the image as an object", () => {
-    const { state, page0 } = build();
+    const { document, page0 } = build();
     const resolver = createDefaultComponentRegistry();
 
-    const rect = getAtomicBoxIndex(page0, resolver, state).get(FLOAT_IMG_ID);
+    const rect = getAtomicBoxIndex(page0, resolver, document).get(FLOAT_IMG_ID);
     expect(rect).toBeDefined();
     if (rect === undefined) throw new Error("float-img not indexed");
 
@@ -153,7 +153,7 @@ describe("resolvePositionFromPixel — object-selection (#525)", () => {
     const cy = rect.y + rect.height / 2;
     const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
 
-    const hit = resolvePositionFromPixel(state, page0, shaper, cx, cy, 0, resolver);
+    const hit = resolvePositionFromPixel(document, page0, shaper, cx, cy, 0, resolver);
     expect(hit).not.toBeNull();
     if (hit === null) throw new Error("expected a hit inside the image rect");
     expect(hit.position.blockId).toBe(FLOAT_IMG_ID);
@@ -162,10 +162,10 @@ describe("resolvePositionFromPixel — object-selection (#525)", () => {
   });
 
   it("a click in the wrapped text BESIDE the floated image resolves to text", () => {
-    const { state, page0 } = build();
+    const { document, page0 } = build();
     const resolver = createDefaultComponentRegistry();
 
-    const rect = getAtomicBoxIndex(page0, resolver, state).get(FLOAT_IMG_ID);
+    const rect = getAtomicBoxIndex(page0, resolver, document).get(FLOAT_IMG_ID);
     expect(rect).toBeDefined();
     if (rect === undefined) throw new Error("float-img not indexed");
 
@@ -175,7 +175,7 @@ describe("resolvePositionFromPixel — object-selection (#525)", () => {
     const ty = rect.y + rect.height / 2;
     const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
 
-    const hit = resolvePositionFromPixel(state, page0, shaper, tx, ty, 0, resolver);
+    const hit = resolvePositionFromPixel(document, page0, shaper, tx, ty, 0, resolver);
     expect(hit).not.toBeNull();
     if (hit === null) throw new Error("expected a text hit beside the image");
     // Must be the wrapped paragraph, NOT the image.
@@ -183,7 +183,7 @@ describe("resolvePositionFromPixel — object-selection (#525)", () => {
   });
 
   it("a click on a plain paragraph (resolver passed) is an unchanged text hit", () => {
-    const { state, page0 } = build();
+    const { document, page0 } = build();
     const resolver = createDefaultComponentRegistry();
     const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
 
@@ -201,8 +201,8 @@ describe("resolvePositionFromPixel — object-selection (#525)", () => {
     const px = plainRect.x + IMG_W + 4;
     const py = plainRect.y + plainRect.height / 2;
 
-    const withResolver = resolvePositionFromPixel(state, page0, shaper, px, py, 0, resolver);
-    const withoutResolver = resolvePositionFromPixel(state, page0, shaper, px, py, 0);
+    const withResolver = resolvePositionFromPixel(document, page0, shaper, px, py, 0, resolver);
+    const withoutResolver = resolvePositionFromPixel(document, page0, shaper, px, py, 0);
     expect(withResolver).not.toBeNull();
     if (withResolver === null) throw new Error("expected a text hit on the plain para");
     expect(withResolver.position.blockId).toBe(PLAIN_ID);
@@ -211,10 +211,10 @@ describe("resolvePositionFromPixel — object-selection (#525)", () => {
   });
 
   it("WITHOUT a resolver, a click over the image falls through to text (no regression)", () => {
-    const { state, page0 } = build();
+    const { document, page0 } = build();
     const resolver = createDefaultComponentRegistry();
 
-    const rect = getAtomicBoxIndex(page0, resolver, state).get(FLOAT_IMG_ID);
+    const rect = getAtomicBoxIndex(page0, resolver, document).get(FLOAT_IMG_ID);
     expect(rect).toBeDefined();
     if (rect === undefined) throw new Error("float-img not indexed");
 
@@ -225,7 +225,7 @@ describe("resolvePositionFromPixel — object-selection (#525)", () => {
     // Omit the resolver → the old text-fall-through path. The click is over the
     // image (no LineBox there) so it resolves to the nearest text caret — NOT
     // the image block.
-    const hit = resolvePositionFromPixel(state, page0, shaper, cx, cy, 0);
+    const hit = resolvePositionFromPixel(document, page0, shaper, cx, cy, 0);
     expect(hit).not.toBeNull();
     if (hit === null) throw new Error("expected a text fall-through hit");
     expect(hit.position.blockId).not.toBe(FLOAT_IMG_ID);

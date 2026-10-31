@@ -1,5 +1,5 @@
 import { resolveBlock, createPosition, createSpan, inlineContentLength } from "../state";
-import type { Position, Span, State } from "../state";
+import type { Position, Span, Document } from "../state";
 
 export { blockBefore, blockAfter, type ParagraphNeighbour } from "../state/paragraph-neighbour";
 import { blockAfter } from "../state/paragraph-neighbour";
@@ -9,10 +9,10 @@ import { blockAfter } from "../state/paragraph-neighbour";
  * Position after its ¶, so the span is (P, 0)–(P, len). A collapsed span when `position`
  * is not in a text block.
  */
-export function selectParagraph(state: State, position: Position): Span {
-  const block = resolveBlock(state, position.blockId)?.block ?? null;
+export function selectParagraph(document: Document, position: Position): Span {
+  const block = resolveBlock(document, position.blockId)?.block ?? null;
   if (block === null || block.inlineContent === null) return createSpan(position, position);
   const start = createPosition(block.id, 0);
-  const after = blockAfter(state, block);
+  const after = blockAfter(document, block);
   return createSpan(start, after === null ? createPosition(block.id, inlineContentLength(block.inlineContent)) : createPosition(after.block.id, 0));
 }

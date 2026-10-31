@@ -43,7 +43,7 @@ function setup(text: string, extra: Partial<DigitalControllerOptions> = {}) {
     },
     () => undefined, // peer A is the old-client side in the HALTED test
   );
-  const stateB = core.createState({ resolver: TEST_RESOLVER, rootId: peerA.document.rootId, doc: docB });
+  const documentB = core.createDocument({ resolver: TEST_RESOLVER, rootId: peerA.document.rootId, doc: docB });
   const container = document.createElement("div");
   document.body.appendChild(container);
   const reports: core.IncompatibleDocumentReport[] = [];
@@ -54,7 +54,7 @@ function setup(text: string, extra: Partial<DigitalControllerOptions> = {}) {
     attrRegistry: cfg.attrRegistry,
     containerWidth: 800,
     doc: document,
-    initialState: stateB,
+    initialDocument: documentB,
     onIncompatibleDocument: (r) => reports.push(r),
     onDocumentCompatible: () => compatible++,
     ...extra,
@@ -141,15 +141,15 @@ function legacyBlock(type: string, parentId: string | null, inline: Y.Array<Y.Ma
  * A NOT-YET-UPGRADED document: the host bound a Document to an empty Y.Doc, then a
  * schema-1 document (`doc > p1("legacy")`) synced in.
  */
-function notYetUpgraded(): { doc: Y.Doc; state: core.State } {
+function notYetUpgraded(): { doc: Y.Doc; document: core.Document; } {
   const doc = new Y.Doc();
-  const state = core.createState({ resolver: TEST_RESOLVER, rootId: "doc" as core.BlockId, doc });
+  const document = core.createDocument({ resolver: TEST_RESOLVER, rootId: "doc" as core.BlockId, doc });
   doc.transact(() => {
     const blocks = doc.getMap<Y.Map<unknown>>("blocks");
     blocks.set("doc", legacyBlock("document", null, null, "p1"));
     blocks.set("p1", legacyBlock("paragraph", "doc", legacyRuns("legacy")));
   });
-  return { doc, state };
+  return { doc, document };
 }
 
 /** Count Y reads (map gets, text deltas, root-map lookups) on `doc` while `run` runs. */
@@ -266,7 +266,7 @@ describe("digital — HALTED on an incompatible document", () => {
     expect(m.container.textContent).toBe(shown);
 
     // Exit: the host REPLACES the document (here a fresh Document over the same Y.Doc).
-    c.replaceDocument(core.createState({ resolver: TEST_RESOLVER, rootId: before.document.rootId, doc: m.docB }));
+    c.replaceDocument(core.createDocument({ resolver: TEST_RESOLVER, rootId: before.document.rootId, doc: m.docB }));
     expect(c.halted).toBe(false);
     expect(m.container.contentEditable).toBe("true");
     expect(m.container.textContent).not.toContain("again"); // surfaced, not merged
@@ -288,7 +288,7 @@ describe("digital — HALTED on an incompatible document", () => {
     expect(m.compatible()).toBe(0);
     expect(c.halted).toBe(true);
     expect(c.editorState).toBe(before);
-    c.replaceDocument(core.createState({ resolver: TEST_RESOLVER, rootId: m.rootId, doc: m.docB }));
+    c.replaceDocument(core.createDocument({ resolver: TEST_RESOLVER, rootId: m.rootId, doc: m.docB }));
     expect(c.halted).toBe(false);
     expect(textOf(c, m.id)).toBe("hello?");
     // Peer changes are observed again after the resume (peer A edits first: its own
@@ -327,7 +327,7 @@ describe("digital — HALTED on an incompatible document", () => {
     const x = notYetUpgraded();
     const before = c.editorState;
     const destroy = vi.spyOn(before.history, "destroy");
-    c.replaceDocument(x.state);
+    c.replaceDocument(x.document);
     expect(c.halted).toBe(true);
     expect(m.reports).toEqual([{ reason: "legacy-schema", legacyBlocks: ["doc", "p1"], legacyText: {} }]);
     expect(c.editorState).toBe(before);
@@ -344,7 +344,7 @@ describe("digital — HALTED on an incompatible document", () => {
     x.doc.transact(() => x.doc.getMap<Y.Map<unknown>>("blocks").get("p1")?.set("inlineContent", legacyRuns("more")));
     expect(m.reports).toHaveLength(2);
     // Replacing with the upgraded document resumes; it shows the upgraded content.
-    c.replaceDocument(core.createState({ resolver: TEST_RESOLVER, rootId: "doc" as core.BlockId, doc: x.doc }));
+    c.replaceDocument(core.createDocument({ resolver: TEST_RESOLVER, rootId: "doc" as core.BlockId, doc: x.doc }));
     expect(c.halted).toBe(false);
     expect(textOf(c, "p1" as core.BlockId)).toBe("legacy");
     c.destroy();
@@ -355,7 +355,7 @@ describe("digital — HALTED on an incompatible document", () => {
     legacyWrite(m.docA, "old");
     const before = m.controller.editorState;
     const x = notYetUpgraded();
-    m.controller.replaceDocument(x.state);
+    m.controller.replaceDocument(x.document);
     expect(m.controller.halted).toBe(true);
     expect(m.controller.editorState).toBe(before);
     expect(m.reports).toHaveLength(1);
@@ -370,10 +370,10 @@ describe("digital — HALTED on an incompatible document", () => {
     const c = m.controller;
     c.dispatch({ type: "INSERT_TEXT", text: "!" });
     const destroy = vi.spyOn(c.editorState.history, "destroy");
-    const build = vi.spyOn(core, "createEditorStateFromState").mockImplementation(() => {
+    const build = vi.spyOn(core, "createEditorStateFromDocument").mockImplementation(() => {
       throw new Error("build failed");
     });
-    expect(() => c.replaceDocument(core.createState({ resolver: TEST_RESOLVER, rootId: m.rootId, doc: m.docB }))).toThrow("build failed");
+    expect(() => c.replaceDocument(core.createDocument({ resolver: TEST_RESOLVER, rootId: m.rootId, doc: m.docB }))).toThrow("build failed");
     build.mockRestore();
     expect(destroy).not.toHaveBeenCalled();
     c.destroy();

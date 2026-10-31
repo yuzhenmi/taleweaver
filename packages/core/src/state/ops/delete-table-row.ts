@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { Document, OperationResult } from "../state";
-import { applyOperation } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation } from "../document";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { requireInTransaction } from "../yjs-doc";
@@ -46,9 +46,9 @@ export interface DeleteTableRowPlan {
  * first/last-child or a sibling-row pointer change, and/or its `headerRowCount`
  * attr write).
  */
-export function deleteTableRow(state: Document, ctx: TableContext): OperationResult {
-  const plan = planDeleteTableRow(state, ctx);
-  return applyOperation(state, (doc) => {
+export function deleteTableRow(document: Document, ctx: TableContext): OperationResult {
+  const plan = planDeleteTableRow(document, ctx);
+  return applyOperation(document, (doc) => {
     deleteTableRowInTx(doc, plan);
   });
 }
@@ -56,9 +56,9 @@ export function deleteTableRow(state: Document, ctx: TableContext): OperationRes
 /** Build the plan: the caret row's `planRemoveBlock`, plus the re-derived
  *  `headerRowCount` attrs bag when the delete shifts the header boundary.
  *  On a no-span table `ctx.rowIndex` IS the deleted grid row. */
-export function planDeleteTableRow(state: Document, ctx: TableContext): DeleteTableRowPlan {
-  const rowPlan = planRemoveBlock(state, ctx.rowId);
-  const headerAttrs = headerRowAttrsAfterRowEdit(state, ctx.tableId, "delete", ctx.rowIndex);
+export function planDeleteTableRow(document: Document, ctx: TableContext): DeleteTableRowPlan {
+  const rowPlan = planRemoveBlock(document, ctx.rowId);
+  const headerAttrs = headerRowAttrsAfterRowEdit(document, ctx.tableId, "delete", ctx.rowIndex);
   return { tableId: ctx.tableId, rowPlan, headerAttrs };
 }
 

@@ -6,7 +6,7 @@
  * Behavior-level tests through `reduceEditor`: insertion semantics (empty doc /
  * mid-paragraph split), one-undo-step, body-context refusal, and range-replace.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,

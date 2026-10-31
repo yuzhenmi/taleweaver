@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { deleteTableRowSpanAware } from "./delete-table-row-span-aware";
-import { getBlock } from "../state";
+import { getBlock } from "../document";
 import { resolveTableContext, getChildIds, buildTableGrid } from "../table-context";
-import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent } from "../../test-utils/document-builders";
 import type { BlockId } from "../block-id";
-import type { Document } from "../state";
+import type { Document } from "../document";
 import type { Block } from "../block";
 
 function cell(id: string, rowId: string, attrs: Record<string, unknown> | undefined, prev: string | null, next: string | null): Block[] {
@@ -14,14 +14,14 @@ function cell(id: string, rowId: string, attrs: Record<string, unknown> | undefi
   ];
 }
 
-function ctxAt(state: Document, blockId: string) {
-  const ctx = resolveTableContext(state, blockId as BlockId);
+function ctxAt(document: Document, blockId: string) {
+  const ctx = resolveTableContext(document, blockId as BlockId);
   if (ctx === null) throw new Error("expected table context");
   return ctx;
 }
 
-const run = (state: Document, caretBlock: string) =>
-  deleteTableRowSpanAware(state, ctxAt(state, caretBlock));
+const run = (document: Document, caretBlock: string) =>
+  deleteTableRowSpanAware(document, ctxAt(document, caretBlock));
 
 /** row0=[A(rowSpan N), B], then single-cell rows r1..r{N-1}. occupancy: A carries down col0. */
 function buildVerticalSpan(n: number): Document {
@@ -40,64 +40,64 @@ function buildVerticalSpan(n: number): Document {
       ...cell(id, `r${r}`, undefined, null, null),
     );
   }
-  return buildState({ rootId: "doc", blocks });
+  return buildDocument({ rootId: "doc", blocks });
 }
 
 describe("deleteTableRowSpanAware", () => {
   it("delete a row a span COVERS from above: the covering cell shrinks its rowSpan", () => {
     // row0=[A(rowSpan 2), B], row1=[C]. occupancy [[A,B],[A,C]]. Delete row1 (caret C).
-    const state = buildVerticalSpan(2);
-    const result = run(state, "Cp");
-    expect(result.state).not.toBe(state);
+    const document = buildVerticalSpan(2);
+    const result = run(document, "Cp");
+    expect(result.document).not.toBe(document);
 
-    expect(getBlock(result.state, "A" as BlockId)?.attrs.rowSpan).toBeUndefined(); // 2→1, attr dropped
-    expect(getChildIds(result.state, "table" as BlockId)).toEqual(["r0"]); // row1 gone
-    expect(getBlock(result.state, "C" as BlockId)).toBeNull();
-    const grid = buildTableGrid(result.state, "table" as BlockId);
+    expect(getBlock(result.document, "A" as BlockId)?.attrs.rowSpan).toBeUndefined(); // 2→1, attr dropped
+    expect(getChildIds(result.document, "table" as BlockId)).toEqual(["r0"]); // row1 gone
+    expect(getBlock(result.document, "C" as BlockId)).toBeNull();
+    const grid = buildTableGrid(result.document, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
     expect(grid.occupancy).toEqual([["A", "B"]]);
   });
 
   it("delete a row a span ORIGINATES in: the cell re-homes one row down, keeping its content", () => {
     // row0=[A(rowSpan 2), B], row1=[C]. Delete row0 (caret B). A re-homes to row1 as 1×1.
-    const state = buildVerticalSpan(2);
-    const result = run(state, "Bp");
+    const document = buildVerticalSpan(2);
+    const result = run(document, "Bp");
 
-    expect(getBlock(result.state, "B" as BlockId)).toBeNull(); // 1×1 in the deleted row → removed
-    const a = getBlock(result.state, "A" as BlockId);
+    expect(getBlock(result.document, "B" as BlockId)).toBeNull(); // 1×1 in the deleted row → removed
+    const a = getBlock(result.document, "A" as BlockId);
     expect(a?.attrs.rowSpan).toBeUndefined(); // 2→1, attr dropped
     expect(a?.parentId).toBe("r1"); // re-homed onto the next row
-    expect(getChildIds(result.state, "table" as BlockId)).toEqual(["r1"]);
-    expect(getChildIds(result.state, "r1" as BlockId)).toEqual(["A", "C"]); // A spliced before C
-    const grid = buildTableGrid(result.state, "table" as BlockId);
+    expect(getChildIds(result.document, "table" as BlockId)).toEqual(["r1"]);
+    expect(getChildIds(result.document, "r1" as BlockId)).toEqual(["A", "C"]); // A spliced before C
+    const grid = buildTableGrid(result.document, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
     expect(grid.occupancy).toEqual([["A", "C"]]);
   });
 
   it("delete the origin row of a rowSpan-3 cell: it re-homes with remaining span 2", () => {
     // row0=[A(rowSpan 3), B], row1=[C], row2=[D]. Delete row0 (caret B).
-    const state = buildVerticalSpan(3);
-    const result = run(state, "Bp");
+    const document = buildVerticalSpan(3);
+    const result = run(document, "Bp");
 
-    const a = getBlock(result.state, "A" as BlockId);
+    const a = getBlock(result.document, "A" as BlockId);
     expect(a?.attrs.rowSpan).toBe(2); // 3→2, still a span
     expect(a?.parentId).toBe("r1");
-    expect(getChildIds(result.state, "table" as BlockId)).toEqual(["r1", "r2"]);
-    expect(getChildIds(result.state, "r1" as BlockId)).toEqual(["A", "C"]);
-    const grid = buildTableGrid(result.state, "table" as BlockId);
+    expect(getChildIds(result.document, "table" as BlockId)).toEqual(["r1", "r2"]);
+    expect(getChildIds(result.document, "r1" as BlockId)).toEqual(["A", "C"]);
+    const grid = buildTableGrid(result.document, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
     expect(grid.occupancy).toEqual([["A", "C"], ["A", "D"]]);
   });
 
   it("delete a MIDDLE row a rowSpan-3 cell covers: the covering cell shrinks to span 2", () => {
     // row0=[A(rowSpan 3), B], row1=[C], row2=[D]. Delete row1 (caret C).
-    const state = buildVerticalSpan(3);
-    const result = run(state, "Cp");
+    const document = buildVerticalSpan(3);
+    const result = run(document, "Cp");
 
-    expect(getBlock(result.state, "A" as BlockId)?.attrs.rowSpan).toBe(2); // 3→2
-    expect(getBlock(result.state, "C" as BlockId)).toBeNull();
-    expect(getChildIds(result.state, "table" as BlockId)).toEqual(["r0", "r2"]);
-    const grid = buildTableGrid(result.state, "table" as BlockId);
+    expect(getBlock(result.document, "A" as BlockId)?.attrs.rowSpan).toBe(2); // 3→2
+    expect(getBlock(result.document, "C" as BlockId)).toBeNull();
+    expect(getChildIds(result.document, "table" as BlockId)).toEqual(["r0", "r2"]);
+    const grid = buildTableGrid(result.document, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
     expect(grid.occupancy).toEqual([["A", "B"], ["A", "D"]]);
   });
@@ -119,16 +119,16 @@ describe("deleteTableRowSpanAware", () => {
       ...cell("C", "r1", undefined, "B", null),
       ...cell("R", "r2", undefined, null, null),
     ];
-    const state = buildState({ rootId: "doc", blocks });
-    const result = run(state, "Cp");
+    const document = buildDocument({ rootId: "doc", blocks });
+    const result = run(document, "Cp");
 
-    expect(getBlock(result.state, "A" as BlockId)?.attrs.rowSpan).toBe(2); // covering: 3→2
-    expect(getBlock(result.state, "B" as BlockId)?.attrs.rowSpan).toBeUndefined(); // re-home: 2→1
-    expect(getBlock(result.state, "B" as BlockId)?.parentId).toBe("r2");
-    expect(getBlock(result.state, "C" as BlockId)).toBeNull(); // 1×1 removed
-    expect(getChildIds(result.state, "table" as BlockId)).toEqual(["r0", "r2"]);
-    expect(getChildIds(result.state, "r2" as BlockId)).toEqual(["B", "R"]);
-    const grid = buildTableGrid(result.state, "table" as BlockId);
+    expect(getBlock(result.document, "A" as BlockId)?.attrs.rowSpan).toBe(2); // covering: 3→2
+    expect(getBlock(result.document, "B" as BlockId)?.attrs.rowSpan).toBeUndefined(); // re-home: 2→1
+    expect(getBlock(result.document, "B" as BlockId)?.parentId).toBe("r2");
+    expect(getBlock(result.document, "C" as BlockId)).toBeNull(); // 1×1 removed
+    expect(getChildIds(result.document, "table" as BlockId)).toEqual(["r0", "r2"]);
+    expect(getChildIds(result.document, "r2" as BlockId)).toEqual(["B", "R"]);
+    const grid = buildTableGrid(result.document, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
     expect(grid.occupancy).toEqual([["A", "P", "Q"], ["A", "B", "R"]]);
   });
@@ -147,17 +147,17 @@ describe("deleteTableRowSpanAware", () => {
       ...cell("X", "r1", undefined, null, "Y"),
       ...cell("Y", "r1", undefined, "X", null),
     ];
-    const state = buildState({ rootId: "doc", blocks });
-    const result = run(state, "Pp");
+    const document = buildDocument({ rootId: "doc", blocks });
+    const result = run(document, "Pp");
 
-    expect(getBlock(result.state, "P" as BlockId)).toBeNull();
-    expect(getBlock(result.state, "Q" as BlockId)).toBeNull();
-    const a = getBlock(result.state, "A" as BlockId);
+    expect(getBlock(result.document, "P" as BlockId)).toBeNull();
+    expect(getBlock(result.document, "Q" as BlockId)).toBeNull();
+    const a = getBlock(result.document, "A" as BlockId);
     expect(a?.parentId).toBe("r1");
     expect(a?.prevSiblingId).toBe("X"); // spliced between X and Y
     expect(a?.nextSiblingId).toBe("Y");
-    expect(getChildIds(result.state, "r1" as BlockId)).toEqual(["X", "A", "Y"]);
-    const grid = buildTableGrid(result.state, "table" as BlockId);
+    expect(getChildIds(result.document, "r1" as BlockId)).toEqual(["X", "A", "Y"]);
+    const grid = buildTableGrid(result.document, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
     expect(grid.occupancy).toEqual([["X", "A", "Y"]]);
   });
@@ -183,15 +183,15 @@ describe("deleteTableRowSpanAware", () => {
         ...cell("F", "r2", undefined, "E", null),
         ...cell("G", "r3", undefined, null, null),
       ];
-      return buildState({ rootId: "doc", blocks });
+      return buildDocument({ rootId: "doc", blocks });
     };
     const hrc = (s: Document) => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
     // Delete a header row (row 0, r < count=2) → 1.
-    expect(hrc(run(fourRowBodySpan(2), "Ap").state)).toBe(1);
+    expect(hrc(run(fourRowBodySpan(2), "Ap").document)).toBe(1);
     // Delete a BODY row (row 2, r ≥ count=2) → header unchanged (2).
-    expect(hrc(run(fourRowBodySpan(2), "Ep").state)).toBe(2);
+    expect(hrc(run(fourRowBodySpan(2), "Ep").document)).toBe(2);
     // Delete the LAST header row (row 0, count=1) → header turns OFF (attr dropped).
-    expect(hrc(run(fourRowBodySpan(1), "Ap").state)).toBeUndefined();
+    expect(hrc(run(fourRowBodySpan(1), "Ap").document)).toBeUndefined();
   });
 
   it("no-ops (same state ref) on a single-row table (the last-row collapse is the handler's job)", () => {
@@ -202,9 +202,9 @@ describe("deleteTableRowSpanAware", () => {
       ...cell("A", "r0", undefined, null, "B"),
       ...cell("B", "r0", undefined, "A", null),
     ];
-    const state = buildState({ rootId: "doc", blocks });
-    const result = run(state, "Ap");
-    expect(result.state).toBe(state);
+    const document = buildDocument({ rootId: "doc", blocks });
+    const result = run(document, "Ap");
+    expect(result.document).toBe(document);
     expect(result.dirtyIds.size).toBe(0);
   });
 });

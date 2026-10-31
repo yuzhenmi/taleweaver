@@ -5,9 +5,9 @@ import type { EditorState } from "../editor/editor-state";
 import { getBlock, iterateLeafBlocksInDocumentOrder, extractText } from "./index";
 import type { BlockId, Position } from "./index";
 import { createPositionMapping, diffRegions, IDENTITY_MAPPING } from "./position-mapping";
-import { TEST_RESOLVER, buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
-import { createState } from "./state";
-import { STATE_INTERNAL } from "./state-internal";
+import { TEST_RESOLVER, buildDocument, buildBlock, inlineContent, text } from "../test-utils/document-builders";
+import { createDocument } from "./document";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import { asBlockId } from "./block-id";
 import { removeBlock } from "./ops/remove-block";
 import { insertText } from "./ops/insert-text";
@@ -155,8 +155,8 @@ describe("diffRegions", () => {
 
 describe("createPositionMapping — cold blocks (foreign changes)", () => {
   it("a cold block that existed is never mistaken for new when a deleted block preceded it", () => {
-    // prev: K → Z → Y. A peer deletes Z and edits Y; our prev State never read Y.
-    const prev = buildState({
+    // prev: K → Z → Y. A peer deletes Z and edits Y; our prev Document never read Y.
+    const prev = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "K", lastChildId: "Y" }),
@@ -167,12 +167,12 @@ describe("createPositionMapping — cold blocks (foreign changes)", () => {
     });
     // Warm everything but Y (incl. the root's final section, the blocks' parent).
     for (const id of ["doc", getBlock(prev, asBlockId("doc"))?.firstChildId ?? "", "K", "Z"]) getBlock(prev, asBlockId(id));
-    // The peer's edits, applied through an unrelated State over the same Y.Doc.
-    const peer = createState({ resolver: TEST_RESOLVER, rootId: prev.rootId, doc: prev[STATE_INTERNAL].doc });
+    // The peer's edits, applied through an unrelated Document over the same Y.Doc.
+    const peer = createDocument({ resolver: TEST_RESOLVER, rootId: prev.rootId, doc: prev[DOCUMENT_INTERNAL].doc });
     const r1 = removeBlock(peer, asBlockId("Z"));
-    const r2 = insertText(r1.state, createPosition(asBlockId("Y"), 0), ">> ", {});
+    const r2 = insertText(r1.document, createPosition(asBlockId("Y"), 0), ">> ", {});
     const dirty = new Set([...r1.dirtyIds, ...r2.dirtyIds]);
-    const m = createPositionMapping(prev, r2.state, dirty);
+    const m = createPositionMapping(prev, r2.document, dirty);
     // Y's previous text is unknown → conservative, never the stale offset on new text.
     expect(m.map(createPosition(asBlockId("Y"), 5))).toEqual({ position: null, deleted: true });
     expect(m.map(createPosition(asBlockId("K"), 2)).position).toEqual(createPosition(asBlockId("K"), 2));

@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { Document, OperationResult } from "../state";
-import { applyOperation, getBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, getBlock } from "../document";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { requireInTransaction } from "../yjs-doc";
@@ -57,20 +57,20 @@ export interface DeleteTableColumnSpanAwarePlan {
  * Caller routes here only for a SPANNED, non-ragged table with MORE THAN ONE grid
  * column (the last-column case collapses the whole table via
  * `deleteTable`, handled by the editor handler). NO-OP
- * (same `state`) when the grid can't be built or there is only one column.
+ * (same `document`) when the grid can't be built or there is only one column.
  * Caret-after is the handler's concern. MAIN-TREE ONLY.
  */
-export function deleteTableColumnSpanAware(state: Document, ctx: TableContext): OperationResult {
-  const plan = planDeleteTableColumnSpanAware(state, ctx);
-  if (plan === null) return { state, dirtyIds: new Set<BlockId>() };
-  return applyOperation(state, (doc) => {
+export function deleteTableColumnSpanAware(document: Document, ctx: TableContext): OperationResult {
+  const plan = planDeleteTableColumnSpanAware(document, ctx);
+  if (plan === null) return { document, dirtyIds: new Set<BlockId>() };
+  return applyOperation(document, (doc) => {
     deleteTableColumnSpanAwareInTx(doc, plan);
   });
 }
 
 /** Build the plan, or null when the grid can't be built or the table has ≤1 grid column. */
-export function planDeleteTableColumnSpanAware(state: Document, ctx: TableContext): DeleteTableColumnSpanAwarePlan | null {
-  const grid = buildTableGrid(state, ctx.tableId);
+export function planDeleteTableColumnSpanAware(document: Document, ctx: TableContext): DeleteTableColumnSpanAwarePlan | null {
+  const grid = buildTableGrid(document, ctx.tableId);
   if (grid === null) return null;
   const caret = grid.cells.find((c) => c.cellId === ctx.cellId);
   if (caret === undefined) return null;
@@ -86,12 +86,12 @@ export function planDeleteTableColumnSpanAware(state: Document, ctx: TableContex
 
   for (const c of grid.cells) {
     if (c.gridCol < gc && c.gridCol + c.colSpan - 1 >= gc) {
-      spanBumps.push({ cellId: c.cellId, newAttrs: withColSpan(state, c.cellId, c.colSpan - 1) });
+      spanBumps.push({ cellId: c.cellId, newAttrs: withColSpan(document, c.cellId, c.colSpan - 1) });
     } else if (c.gridCol === gc) {
       if (c.colSpan > 1) {
-        spanBumps.push({ cellId: c.cellId, newAttrs: withColSpan(state, c.cellId, c.colSpan - 1) });
+        spanBumps.push({ cellId: c.cellId, newAttrs: withColSpan(document, c.cellId, c.colSpan - 1) });
       } else {
-        const p = planRemoveBlock(state, c.cellId); // throws on an orphan cell (no row parent)
+        const p = planRemoveBlock(document, c.cellId); // throws on an orphan cell (no row parent)
         removedCells.push({
           rowId: p.parentId,
           cellId: c.cellId,
@@ -107,7 +107,7 @@ export function planDeleteTableColumnSpanAware(state: Document, ctx: TableContex
   }
 
   // columnWidths lives on the table; a removed column lowers the count → drop index gc.
-  const table = getBlock(state, ctx.tableId);
+  const table = getBlock(document, ctx.tableId);
   const cw = table?.attrs.columnWidths;
   const newTableAttrs: ReadonlyAttrs | null =
     table !== null && isColumnWidths(cw)
@@ -126,8 +126,8 @@ export function planDeleteTableColumnSpanAware(state: Document, ctx: TableContex
 }
 
 /** `attrs` of `cellId` with `colSpan` set to `n` (key dropped when n ≤ 1). */
-function withColSpan(state: Document, cellId: BlockId, n: number): ReadonlyAttrs {
-  const block = getBlock(state, cellId);
+function withColSpan(document: Document, cellId: BlockId, n: number): ReadonlyAttrs {
+  const block = getBlock(document, cellId);
   const next: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(block?.attrs ?? {})) {
     if (k === "colSpan") continue;

@@ -39,12 +39,12 @@ import type { ColumnConfig } from "@taleweaver/core";
 import type { LayoutBox, MultiColumnBox, BlockBox } from "../layout/layout-box";
 import type { TextShaper } from "@taleweaver/core";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
-import type { State, BlockId } from "@taleweaver/core";
+import type { Document, BlockId } from "@taleweaver/core";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -73,7 +73,7 @@ function columnSectionPlan(columnConfig: ColumnConfig): SectionPlan {
 }
 
 interface Built {
-  state: State;
+  document: Document;
   layout: LayoutBox;
   shaper: TextShaper;
   page0: LayoutBox;
@@ -91,7 +91,7 @@ function buildMulticolumnDoc(
   columnConfig: ColumnConfig,
 ): Built {
   const blockIds = paragraphTexts.map((_, i) => `p${i}`);
-  const state = buildState({
+  const document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -113,7 +113,7 @@ function buildMulticolumnDoc(
     ],
   });
   const rendered = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -131,7 +131,7 @@ function buildMulticolumnDoc(
 
   const layout = positionTreeForTest(virtual);
   const page0 = virtual.getPage(0);
-  return { state, layout, shaper, page0 };
+  return { document, layout, shaper, page0 };
 }
 
 describe("hit-test — multi-column column-X filter (slice 3a)", () => {
@@ -163,7 +163,7 @@ describe("hit-test — multi-column column-X filter (slice 3a)", () => {
   });
 
   it("a click in column 1 (right) at a shared Y resolves to a column-1 block, not column 0", () => {
-    const { state, layout, shaper, mc, col0, col1 } = geometry();
+    const { document, layout, shaper, mc, col0, col1 } = geometry();
 
     // The set of blockIds laid out in each column, partitioned GEOMETRICALLY by
     // each line's absoluteX falling within the column box's inline range — exactly
@@ -187,7 +187,7 @@ describe("hit-test — multi-column column-X filter (slice 3a)", () => {
     const col1X = col1.x + col1.width / 2;
     const col0X = col0.x + col0.width / 2;
 
-    const hitCol1 = resolvePositionFromPixel(state, layout, shaper, col1X, sharedY, 0);
+    const hitCol1 = resolvePositionFromPixel(document, layout, shaper, col1X, sharedY, 0);
     expect(hitCol1).not.toBeNull();
     if (hitCol1 === null) return;
     // The resolved block must belong to column 1, NOT column 0.
@@ -195,7 +195,7 @@ describe("hit-test — multi-column column-X filter (slice 3a)", () => {
     expect(col0Blocks.has(hitCol1.blockId as BlockId)).toBe(false);
 
     // Symmetric: a click in column 0 resolves to a column-0 block.
-    const hitCol0 = resolvePositionFromPixel(state, layout, shaper, col0X, sharedY, 0);
+    const hitCol0 = resolvePositionFromPixel(document, layout, shaper, col0X, sharedY, 0);
     expect(hitCol0).not.toBeNull();
     if (hitCol0 === null) return;
     expect(col0Blocks.has(hitCol0.blockId as BlockId)).toBe(true);

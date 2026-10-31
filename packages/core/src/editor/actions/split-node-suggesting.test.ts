@@ -19,7 +19,7 @@
  * break via `replaceWithSuggestedFragment` (an empty two-line fragment). Accept
  * leaves ONE break; reject restores the original blocks. All in one undoable op.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,
@@ -38,9 +38,9 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
   return v;
 }
-import { createEditorStateFromState } from "../editor-state";
+import { createEditorStateFromDocument } from "../editor-state";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 import {
   getBlock,
   getSuggestions,
@@ -185,7 +185,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     attrRegistry.register({ attrKey: "hostOnce", toStyle: () => ({}), inheritOnSplit: false });
     const cfg: EditorConfig = { ...suggestingConfig, attrRegistry };
     const p = "p" as BlockId;
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: p, lastChildId: p }),
@@ -193,7 +193,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
       ],
     });
     for (const [from, to] of [[3, 3], [2, 3]] as const) {
-      const placed = createEditorStateFromState(state, createSpan(createPosition(p, from), createPosition(p, to)), cfg);
+      const placed = createEditorStateFromDocument(document, createSpan(createPosition(p, from), createPosition(p, to)), cfg);
       const next = reduceEditor(placed, { type: "SPLIT_NODE" });
       const head = headOf(next, p);
       expect(getBlock(next.document, head)?.markAttrs).toEqual({ bold: true });

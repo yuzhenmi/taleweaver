@@ -21,8 +21,8 @@ import { topLevelBlockIds } from "../state";
 import type { BlockId } from "../state";
 
 /** The first content block id of a fresh editor (the only paragraph). */
-function firstBlockId(state: ReturnType<typeof createInitialEditorState>["document"]): BlockId {
-  const first = topLevelBlockIds(state)[0]; // the root holds sections
+function firstBlockId(document: ReturnType<typeof createInitialEditorState>["document"]): BlockId {
+  const first = topLevelBlockIds(document)[0]; // the root holds sections
   if (first === undefined) {
     throw new Error("last-dirty-ids.test: editor seed has no content block");
   }

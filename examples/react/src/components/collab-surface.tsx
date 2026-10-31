@@ -3,15 +3,15 @@ import { EditorView, type EditorViewHandle } from "@taleweaver/react";
 import {
   createEmptyDocument,
   reduceEditor,
-  createEditorStateFromState,
-  initialSelectionForState,
+  createEditorStateFromDocument,
+  initialSelectionForDocument,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
-  createState,
+  createDocument,
   getYDoc,
   type EditorConfig,
   type BlockKindResolver,
-  type State,
+  type Document,
   type Position,
 } from "@taleweaver/core";
 import * as Y from "yjs";
@@ -41,16 +41,16 @@ function peerColor(index: number): string {
  */
 export function CollabSurface({
   seed,
-  registerGetState,
+  registerGetDocument,
 }: {
-  seed: State | null;
-  registerGetState: (getState: () => State) => void;
+  seed: Document | null;
+  registerGetDocument: (getDocument: () => Document) => void;
 }) {
   // Two PEERS, each with its own document over its own Y.Doc, synced by exchanging Yjs
   // updates in both directions — the in-process stand-in for a network provider.
   // Built once: peer A from the handed-off document (or a small starter doc), peer B
   // as a replica of it.
-  const peersRef = useRef<{ a: State; b: State } | null>(null);
+  const peersRef = useRef<{ a: Document; b: Document } | null>(null);
   if (peersRef.current === null) peersRef.current = connectPeers(seed ?? makeStarterDoc(), createDefaultComponentRegistry());
   const peers = peersRef.current;
 
@@ -59,11 +59,11 @@ export function CollabSurface({
 
   // Hand off pane A's live document on a tab switch (both peers hold the same synced
   // content, so A is an arbitrary-but-fine choice).
-  const latestStateA = useRef(paneA.editorState.document);
-  latestStateA.current = paneA.editorState.document;
+  const latestDocumentA = useRef(paneA.editorState.document);
+  latestDocumentA.current = paneA.editorState.document;
   useEffect(() => {
-    registerGetState(() => latestStateA.current);
-  }, [registerGetState]);
+    registerGetDocument(() => latestDocumentA.current);
+  }, [registerGetDocument]);
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden bg-[#f9fbfd]">
@@ -197,7 +197,7 @@ function RemoteCursor({
 }
 
 /** Peer B: a replica of `a` over its own Y.Doc, kept in sync with `a` in both directions. */
-function connectPeers(a: State, resolver: BlockKindResolver): { a: State; b: State } {
+function connectPeers(a: Document, resolver: BlockKindResolver): { a: Document; b: Document } {
   const docA = getYDoc(a);
   const docB = new Y.Doc();
   Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
@@ -208,18 +208,18 @@ function connectPeers(a: State, resolver: BlockKindResolver): { a: State; b: Sta
   docB.on("update", (u: Uint8Array, origin: unknown) => {
     if (origin !== SYNC) Y.applyUpdate(docA, u, SYNC);
   });
-  return { a, b: createState({ rootId: a.rootId, doc: docB, resolver }) };
+  return { a, b: createDocument({ rootId: a.rootId, doc: docB, resolver }) };
 }
 
 /** A small fresh document so the collab demo opens with editable content. */
-function makeStarterDoc(): State {
+function makeStarterDoc(): Document {
   const config: EditorConfig = {
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: 600,
   };
   const empty = createEmptyDocument({ resolver: config.componentRegistry });
-  let editor = createEditorStateFromState(empty, initialSelectionForState(empty), config);
+  let editor = createEditorStateFromDocument(empty, initialSelectionForDocument(empty), config);
   editor = reduceEditor(
     editor,
     { type: "INSERT_TEXT", text: "Type here — your edits sync to the other pane live." },

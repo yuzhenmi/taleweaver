@@ -24,7 +24,7 @@ import {
 } from "./suggestion-ops";
 import { splitInlineContentAtOffset, mergeAdjacentTextItems } from "../inline-content";
 import { blockText, relAt, survives } from "../../test-utils/relpos-survival";
-import { STATE_INTERNAL } from "../state-internal";
+import { DOCUMENT_INTERNAL } from "../document-internal";
 import {
   getSuggestions,
   writeSuggestionRecordInTx,
@@ -34,18 +34,18 @@ import {
   type SuggestionRecord,
 } from "../suggestions";
 import { createHistory } from "../history";
-import { applyOperation, createState, getBlock } from "../state";
+import { applyOperation, createDocument, getBlock } from "../document";
 import { createPosition, createSpan } from "../block-position";
 import type { Span } from "../block-position";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { TEST_RESOLVER,
   buildBlock,
-  buildState,
+  buildDocument,
   text,
   inlineContent,
-} from "../../test-utils/state-builders";
-import type { Document } from "../state";
+} from "../../test-utils/document-builders";
+import type { Document } from "../document";
 import type { InlineContent } from "../inline-content";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -66,7 +66,7 @@ const INPUT = {
 
 /** doc > [ p("abcdef") ] (one text run unless overridden). */
 function oneBlock(items = inlineContent([text("abcdef")])): Document {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -77,7 +77,7 @@ function oneBlock(items = inlineContent([text("abcdef")])): Document {
 
 /** doc > [ p1(items1), p2(items2) ] — a two-leaf fixture for cross-block spans. */
 function twoBlocks(items1: InlineContent, items2: InlineContent): Document {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -127,17 +127,17 @@ function findTagged(s: Document, id: string, attrKey: string) {
  * suggestions map. The run carrying the matching `insertionSuggestionId` attr is
  * built into the fixture separately.
  */
-function seedInsertionRecord(state: Document, insId: string, author: string): Document {
+function seedInsertionRecord(document: Document, insId: string, author: string): Document {
   const record: SuggestionRecord = {
     id: insId as SuggestionId,
     kind: "insertion",
     author,
     createdAt: 100,
   };
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     writeSuggestionRecordInTx(doc, record);
-    return new Set<BlockId>([state.rootId]);
-  }).state;
+    return new Set<BlockId>([document.rootId]);
+  }).document;
 }
 
 /**
@@ -145,23 +145,23 @@ function seedInsertionRecord(state: Document, insId: string, author: string): Do
  * suggestions map. The run carrying the matching `deletionSuggestionId` attr is
  * built into the fixture separately.
  */
-function seedDeletionRecord(state: Document, delId: string, author: string): Document {
+function seedDeletionRecord(document: Document, delId: string, author: string): Document {
   const record: SuggestionRecord = {
     id: delId as SuggestionId,
     kind: "deletion",
     author,
     createdAt: 100,
   };
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     writeSuggestionRecordInTx(doc, record);
-    return new Set<BlockId>([state.rootId]);
-  }).state;
+    return new Set<BlockId>([document.rootId]);
+  }).document;
 }
 
 describe("replaceWithSuggestion — single-block type-over (strike + insert in ONE op)", () => {
   it("inserts the new run (tagged insertion) BEFORE the struck selection (tagged deletion); both records, shared createdAt", () => {
     // p("abcdef"), select "bcd" (offsets 1..4), type "X".
-    const s = replaceWithSuggestion(oneBlock(), span(1, 4), "X", {}, INPUT).state;
+    const s = replaceWithSuggestion(oneBlock(), span(1, 4), "X", {}, INPUT).document;
 
     // The struck text STAYS (soft-delete); "X" lands at offset 1, before "bcd".
     expect(pText(s)).toBe("aXbcdef");
@@ -198,7 +198,7 @@ describe("replaceWithSuggestion — single-block type-over (strike + insert in O
       "X",
       { bold: true, [INSERTION_SUGGESTION_ATTR]: "stale" } as ReadonlyAttrs,
       INPUT,
-    ).state;
+    ).document;
     const xRun = pItems(s).find((it) => it.kind === "text" && it.text === "X");
     if (xRun?.kind !== "text") throw new Error("expected the inserted X run");
     expect(xRun.attrs.bold).toBe(true);
@@ -216,7 +216,7 @@ describe("replaceWithSuggestion — multi-block type-over", () => {
       "X",
       {},
       INPUT,
-    ).state;
+    ).document;
 
     // p1: unstruck prefix "hel" + "X"(insertion) + struck tail "lo".
     expect(textOf(s, "p1")).toBe("helXlo");
@@ -264,7 +264,7 @@ describe("replaceWithSuggestion — identity-preserving strike (#491)", () => {
       "X",
       {},
       INPUT,
-    ).state;
+    ).document;
 
     // Output unchanged: p2 = struck "wo" + untouched "rld".
     expect(textOf(s1, "p2")).toBe("world");
@@ -293,7 +293,7 @@ describe("replaceWithSuggestion — identity-preserving strike (#491)", () => {
       "X",
       {},
       INPUT,
-    ).state;
+    ).document;
 
     expect(textOf(s1, "p1")).toBe("helXlo");
     expect(survives(relH, s1, "h")).toBe(true);
@@ -306,7 +306,7 @@ describe("replaceWithSuggestion — identity-preserving strike (#491)", () => {
     const relW = relAt(s0, "p", 6);
 
     // Replace "world" (offsets 6..11) with "earth".
-    const s1 = replaceWithSuggestion(s0, span(6, 11), "earth", {}, INPUT).state;
+    const s1 = replaceWithSuggestion(s0, span(6, 11), "earth", {}, INPUT).document;
 
     // Output: untouched "hello " + "earth"(insertion) + struck "world"(deletion).
     expect(pText(s1)).toBe("hello earthworld");
@@ -334,26 +334,26 @@ describe("replaceWithSuggestion — collab identity", () => {
 
     // Peer B starts from a synced copy (clone via update bytes — the transport).
     const docB = new Y.Doc();
-    Y.applyUpdate(docB, Y.encodeStateAsUpdate(fixture[STATE_INTERNAL].doc));
-    const stateB = createState({ resolver: TEST_RESOLVER, rootId: fixture.rootId, doc: docB });
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(fixture[DOCUMENT_INTERNAL].doc));
+    const documentB = createDocument({ resolver: TEST_RESOLVER, rootId: fixture.rootId, doc: docB });
 
     // Peer A: replace "world" (offsets 6..11) with "earth".
-    const stateA = replaceWithSuggestion(fixture, span(6, 11), "earth", {}, INPUT).state;
+    const documentA = replaceWithSuggestion(fixture, span(6, 11), "earth", {}, INPUT).document;
 
     // Peer B (concurrently, on its own doc): insert "Z" before the UNTOUCHED "!"
     // (block offset 11) → "Z!". Direct Y.Text mutation models a peer typing there.
-    const yB = blockText(stateB, "p");
+    const yB = blockText(documentB, "p");
     docB.transact(() => {
       yB.insert(11, "Z", { italic: true });
     });
 
     // Sync the two peers (exchange update bytes, both directions).
-    Y.applyUpdate(docB, Y.encodeStateAsUpdate(stateA[STATE_INTERNAL].doc));
-    Y.applyUpdate(stateA[STATE_INTERNAL].doc, Y.encodeStateAsUpdate(docB));
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(documentA[DOCUMENT_INTERNAL].doc));
+    Y.applyUpdate(documentA[DOCUMENT_INTERNAL].doc, Y.encodeStateAsUpdate(docB));
 
     // After merge, A sees BOTH changes: "world" tagged-deleted + "earth" inserted
     // AND B's "Z" landed inside the untouched "!" run ("Z!").
-    const mergedA = createState({ resolver: TEST_RESOLVER, rootId: fixture.rootId, doc: stateA[STATE_INTERNAL].doc });
+    const mergedA = createDocument({ resolver: TEST_RESOLVER, rootId: fixture.rootId, doc: documentA[DOCUMENT_INTERNAL].doc });
     expect(pText(mergedA)).toBe("hello earthworldZ!");
     const struck = pItems(mergedA).find((it) => it.kind === "text" && it.text === "world");
     if (struck?.kind !== "text") throw new Error("expected the tagged world run");
@@ -386,7 +386,7 @@ describe("replaceWithSuggestion — offset-insert equivalence", () => {
     s = seedInsertionRecord(s, "preIns", "alice");
     const relA = relAt(s, "p", 0);
 
-    const s1 = replaceWithSuggestion(s, span(2, 6), "X", {}, INPUT).state;
+    const s1 = replaceWithSuggestion(s, span(2, 6), "X", {}, INPUT).document;
 
     // "YY" dropped, "X"(insertion, coalesced into preIns) between "ab" and "cd",
     // "cd"(deletion) struck, "ef" survives.
@@ -414,7 +414,7 @@ describe("replaceWithSuggestion — offset-insert equivalence", () => {
       "earth",
       {},
       INPUT,
-    ).state;
+    ).document;
     const actualItems = pItems(actual);
 
     // Oracle: the expected items, built by value against an independently-struck
@@ -424,7 +424,7 @@ describe("replaceWithSuggestion — offset-insert equivalence", () => {
       oneBlock(inlineContent([text("hello "), text("world")])),
       span(6, 11),
       { id: DEL_ID, author: "alice", createdAt: CREATED_AT },
-    ).state;
+    ).document;
     const postStrikeItems = pItems(struckOnly);
     const insertAttrs: ReadonlyAttrs = { [INSERTION_SUGGESTION_ATTR]: INS_ID };
     const [left, right] = splitInlineContentAtOffset({ items: postStrikeItems }, 6);
@@ -449,7 +449,7 @@ describe("replaceWithSuggestion — insertion coalescing", () => {
     );
     s = seedInsertionRecord(s, "preIns", "alice");
 
-    s = replaceWithSuggestion(s, span(4, 6), "X", {}, INPUT).state;
+    s = replaceWithSuggestion(s, span(4, 6), "X", {}, INPUT).document;
 
     // The inserted "X" reuses preIns (NOT INS_ID). Same id + same (empty) live
     // format as the adjacent "YY" run, so mergeAdjacentTextItems folds it into one
@@ -486,7 +486,7 @@ describe("replaceWithSuggestion — deletion coalescing", () => {
     );
     s = seedDeletionRecord(s, "preDel", "alice");
 
-    s = replaceWithSuggestion(s, span(2, 4), "X", {}, INPUT).state;
+    s = replaceWithSuggestion(s, span(2, 4), "X", {}, INPUT).document;
 
     // The struck "cd" reuses preDel (NOT DEL_ID).
     const cd = pItems(s).find((it) => it.kind === "text" && it.text === "cd");
@@ -505,21 +505,21 @@ describe("replaceWithSuggestion — deletion coalescing", () => {
 
 describe("replaceWithSuggestion — accept the pair end-to-end", () => {
   it("accept insertion → X becomes plain; accept deletion → bcd removed for real ⇒ aXef", () => {
-    const replaced = replaceWithSuggestion(oneBlock(), span(1, 4), "X", {}, INPUT).state;
+    const replaced = replaceWithSuggestion(oneBlock(), span(1, 4), "X", {}, INPUT).document;
     expect(pText(replaced)).toBe("aXbcdef");
 
     // Accept the insertion: "X" becomes plain text (no insertion id). Stripped of
     // its provenance id it re-merges with the plain "a" into "aX"; the deletion-
     // tagged "bcd" keeps it from merging further. Text is fully preserved, and NO
     // insertion id survives anywhere.
-    const afterIns = acceptSuggestion(replaced, INS_ID).state;
+    const afterIns = acceptSuggestion(replaced, INS_ID).document;
     expect(pText(afterIns)).toBe("aXbcdef");
     for (const it of pItems(afterIns)) {
       if (it.kind === "text") expect(INSERTION_SUGGESTION_ATTR in it.attrs).toBe(false);
     }
 
     // Accept the deletion: "bcd" is removed for real ⇒ "aXef".
-    const afterDel = acceptSuggestion(afterIns, DEL_ID).state;
+    const afterDel = acceptSuggestion(afterIns, DEL_ID).document;
     expect(pText(afterDel)).toBe("aXef");
     expect(getSuggestions(afterDel).length).toBe(0);
   });
@@ -527,15 +527,15 @@ describe("replaceWithSuggestion — accept the pair end-to-end", () => {
 
 describe("replaceWithSuggestion — reject the pair end-to-end", () => {
   it("reject insertion → X removed; reject deletion → bcd kept as plain text ⇒ original abcdef", () => {
-    const replaced = replaceWithSuggestion(oneBlock(), span(1, 4), "X", {}, INPUT).state;
+    const replaced = replaceWithSuggestion(oneBlock(), span(1, 4), "X", {}, INPUT).document;
 
     // Reject the insertion: "X" is removed (never landed).
-    const afterIns = rejectSuggestion(replaced, INS_ID).state;
+    const afterIns = rejectSuggestion(replaced, INS_ID).document;
     expect(pText(afterIns)).toBe("abcdef");
     expect(pItems(afterIns).some((it) => it.kind === "text" && it.text === "X")).toBe(false);
 
     // Reject the deletion: "bcd" stays as plain text (deletion id stripped).
-    const afterDel = rejectSuggestion(afterIns, DEL_ID).state;
+    const afterDel = rejectSuggestion(afterIns, DEL_ID).document;
     expect(pText(afterDel)).toBe("abcdef");
     for (const it of pItems(afterDel)) {
       if (it.kind === "text") expect(DELETION_SUGGESTION_ATTR in it.attrs).toBe(false);
@@ -552,14 +552,14 @@ describe("replaceWithSuggestion — atomicity (ONE undo unit)", () => {
     history.beginEntry("command", 0);
     const replaced = replaceWithSuggestion(s0, span(1, 4), "X", {}, INPUT);
     history.commit(replaced, { before: null, after: null });
-    const s1 = replaced.state;
+    const s1 = replaced.document;
     expect(pText(s1)).toBe("aXbcdef");
     expect(getSuggestions(s1).length).toBe(2);
 
     // ONE undo reverts the entire composite (strike + insert + both records).
     const undone = history.undo();
     if (undone === null) throw new Error("expected undo to return a result");
-    const s2 = undone.state;
+    const s2 = undone.document;
     expect(pText(s2)).toBe("abcdef");
     expect(getSuggestions(s2).length).toBe(0);
     // No second undo step exists (the composite was ONE entry).
@@ -568,7 +568,7 @@ describe("replaceWithSuggestion — atomicity (ONE undo unit)", () => {
     // Redo restores everything in one step.
     const redone = history.redo();
     if (redone === null) throw new Error("expected redo to return a result");
-    const s3 = redone.state;
+    const s3 = redone.document;
     expect(pText(s3)).toBe("aXbcdef");
     expect(getSuggestions(s3).length).toBe(2);
 
@@ -578,7 +578,7 @@ describe("replaceWithSuggestion — atomicity (ONE undo unit)", () => {
 
 describe("replaceWithSuggestion — degenerate delegation", () => {
   it("empty text behaves as a pure markDeletion (no insertion record)", () => {
-    const s = replaceWithSuggestion(oneBlock(), span(1, 4), "", {}, INPUT).state;
+    const s = replaceWithSuggestion(oneBlock(), span(1, 4), "", {}, INPUT).document;
     // Text preserved (soft-delete), "bcd" tagged with the deletion id.
     expect(pText(s)).toBe("abcdef");
     const bcd = findTagged(s, "p", DELETION_SUGGESTION_ATTR);
@@ -595,12 +595,12 @@ describe("replaceWithSuggestion — degenerate delegation", () => {
       id: DEL_ID,
       author: "alice",
       createdAt: CREATED_AT,
-    }).state;
+    }).document;
     expect(pText(direct)).toBe(pText(s));
   });
 
   it("a collapsed span behaves as a pure mintInsertion (no deletion record)", () => {
-    const s = replaceWithSuggestion(oneBlock(), span(3, 3), "XY", {}, INPUT).state;
+    const s = replaceWithSuggestion(oneBlock(), span(3, 3), "XY", {}, INPUT).document;
     // "XY" inserted at offset 3 → "abcXYdef", tagged with the insertion id.
     expect(pText(s)).toBe("abcXYdef");
     const xy = pItems(s).find((it) => it.kind === "text" && it.text === "XY");

@@ -1,6 +1,6 @@
 import type { EditorState } from "../../editor-state";
 import type { Edit } from "../../edit";
-import { readSuggestionRecordFromState, suggestionGroupOf, type SuggestionId } from "../../../state";
+import { readSuggestionRecordFromDocument, suggestionGroupOf, type SuggestionId } from "../../../state";
 import { resolveGroup } from "./resolve-group";
 
 /**
@@ -8,7 +8,7 @@ import { resolveGroup } from "./resolve-group";
  * host proposal), means its whole group: groups are reviewed as one unit.
  */
 export function resolveOne(editor: EditorState, id: SuggestionId, mode: "accept" | "reject"): Edit | null {
-  const record = readSuggestionRecordFromState(editor.document, id);
+  const record = readSuggestionRecordFromDocument(editor.document, id);
   if (record === null) return null;
   return resolveGroup(editor, suggestionGroupOf(record), mode);
 }

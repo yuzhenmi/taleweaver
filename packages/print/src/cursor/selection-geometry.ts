@@ -1,5 +1,5 @@
 import { positionsEqual, spanStart, spanEnd, selectionContextOf, comparePositions, createPosition, clipSpanToText, resolveBlock, ancestorChain } from "@taleweaver/core";
-import type { State, Span, Position, BlockId, BlockKindResolver } from "@taleweaver/core";
+import type { Document, Span, Position, BlockId, BlockKindResolver } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import { getAtomicBoxIndex, getObjectBoxes } from "./atomic-box-index";
@@ -111,7 +111,7 @@ function affinitiesDiffer(
  * A span inside one text block is unaffected.
  */
 export function computeSelectionRects(
-  state: State,
+  document: Document,
   span: Span,
   layoutTree: LayoutBox,
   shaperOrMeasurer: TextShaper | TextMeasurer,
@@ -121,10 +121,10 @@ export function computeSelectionRects(
   if (positionsEqual(span.anchor, span.focus) && !affinitiesDiffer(anchorAffinity, focusAffinity)) {
     return [];
   }
-  const part = textPartOf(state, span, anchorAffinity, focusAffinity);
-  const objects = coveredObjectRects(state, part.start, part.end, layoutTree);
+  const part = textPartOf(document, span, anchorAffinity, focusAffinity);
+  const objects = coveredObjectRects(document, part.start, part.end, layoutTree);
   const rects = textSelectionRects(
-    state, part.span, layoutTree, shaperOrMeasurer, part.anchorAffinity, part.focusAffinity, objects.skip,
+    document, part.span, layoutTree, shaperOrMeasurer, part.anchorAffinity, part.focusAffinity, objects.skip,
   );
   for (const r of objects.rects) rects.push(r);
   return rects;
@@ -132,7 +132,7 @@ export function computeSelectionRects(
 
 /** {@link computeSelectionRects}' text part: the lines of `span` (text endpoints), minus `skip`'s. */
 function textSelectionRects(
-  state: State,
+  document: Document,
   span: Span,
   layoutTree: LayoutBox,
   shaperOrMeasurer: TextShaper | TextMeasurer,
@@ -157,20 +157,20 @@ function textSelectionRects(
       ? adaptShaperToMeasurer(shaperOrMeasurer)
       : shaperOrMeasurer;
 
-    const start = spanStart(state, span);
-    const end = spanEnd(state, span);
+    const start = spanStart(document, span);
+    const end = spanEnd(document, span);
 
     // Visual-extent: map anchor/focus affinities to DOCUMENT order. The
     // start is the document-earlier endpoint; if the anchor is at-or-before the
     // focus it owns the start side (`<=0` → collapsed/same-offset returns 0 →
     // anchorIsStart = true). A `comparePositions` boolean (not `===` reference
     // identity) is robust against a caller passing a reconstructed Span.
-    const anchorIsStart = comparePositions(state, span.anchor, span.focus) <= 0;
+    const anchorIsStart = comparePositions(document, span.anchor, span.focus) <= 0;
     const startAffinity = anchorIsStart ? anchorAffinity : focusAffinity;
     const endAffinity = anchorIsStart ? focusAffinity : anchorAffinity;
 
-    const startPos = resolvePixelPosition(state, start, layoutTree, measurer);
-    const endPos = resolvePixelPosition(state, end, layoutTree, measurer);
+    const startPos = resolvePixelPosition(document, start, layoutTree, measurer);
+    const endPos = resolvePixelPosition(document, end, layoutTree, measurer);
     if (startPos === null || endPos === null) return [];
 
     // Shared with cursor-position + line-navigation via the
@@ -185,7 +185,7 @@ function textSelectionRects(
     // no header/footer rects and a header/footer span emits no body rects. A
     // main-only doc shares one context → the filter returns the array unchanged
     // (byte-identical, allocation-free).
-    const filter = makeContextFilter(state, selectionContextOf(state, start.blockId));
+    const filter = makeContextFilter(document, selectionContextOf(document, start.blockId));
     const allLines = filter(getLineIndex(layoutTree).all);
     if (allLines.length === 0) return [];
 
@@ -233,7 +233,7 @@ function textSelectionRects(
  * spanned page and concatenates the results (per-page, never the whole tree).
  */
 export function computeSelectionRectsForPage(
-  state: State,
+  document: Document,
   span: Span,
   pageBox: LayoutBox,
   pageIndex: number,
@@ -244,7 +244,7 @@ export function computeSelectionRectsForPage(
   focusAffinity?: CaretAffinity,
 ): SelectionRect[] {
   return computeSelectionRectsForPageRange(
-    state, span, pageBox, pageIndex, startPos.pageIndex, endPos.pageIndex,
+    document, span, pageBox, pageIndex, startPos.pageIndex, endPos.pageIndex,
     shaperOrMeasurer, anchorAffinity, focusAffinity,
   );
 }
@@ -260,28 +260,28 @@ export function computeSelectionRectsForPage(
  * fragments.
  */
 export function computeSelectionRectsAcrossPages(
-  state: State,
+  document: Document,
   span: Span,
   tree: VirtualLayoutTree,
   shaperOrMeasurer: TextShaper | TextMeasurer,
   anchorAffinity?: CaretAffinity,
   focusAffinity?: CaretAffinity,
 ): SelectionRect[] {
-  const start = spanStart(state, span);
-  const end = spanEnd(state, span);
-  const startPos = resolvePixelPosition(state, start, tree, shaperOrMeasurer);
-  const endPos = resolvePixelPosition(state, end, tree, shaperOrMeasurer);
+  const start = spanStart(document, span);
+  const end = spanEnd(document, span);
+  const startPos = resolvePixelPosition(document, start, tree, shaperOrMeasurer);
+  const endPos = resolvePixelPosition(document, end, tree, shaperOrMeasurer);
   if (startPos === null || endPos === null) return [];
   // `startPos`/`endPos` were resolved against `tree`, so every index in
   // [startPos.pageIndex, endPos.pageIndex] is a valid page (getPage throws only
   // on out-of-range); the object walks stay inside the page count.
-  const startPage = isTextPosition(state, start) ? startPos.pageIndex : objectPages(state, tree, start.blockId, startPos.pageIndex).first;
-  const endPage = isTextPosition(state, end) ? endPos.pageIndex : objectPages(state, tree, end.blockId, endPos.pageIndex).last;
+  const startPage = isTextPosition(document, start) ? startPos.pageIndex : objectPages(document, tree, start.blockId, startPos.pageIndex).first;
+  const endPage = isTextPosition(document, end) ? endPos.pageIndex : objectPages(document, tree, end.blockId, endPos.pageIndex).last;
   const rects: SelectionRect[] = [];
   for (let p = startPage; p <= endPage; p++) {
     rects.push(
       ...computeSelectionRectsForPageRange(
-        state, span, tree.getPage(p), p, startPage, endPage, shaperOrMeasurer,
+        document, span, tree.getPage(p), p, startPage, endPage, shaperOrMeasurer,
         anchorAffinity, focusAffinity,
       ),
     );
@@ -290,8 +290,8 @@ export function computeSelectionRectsAcrossPages(
 }
 
 /** The pages around `page` (one it is on) carrying a fragment of object `id`'s box. */
-function objectPages(state: State, tree: VirtualLayoutTree, id: BlockId, page: number): { first: number; last: number } {
-  const on = (p: number): boolean => getObjectBoxes(tree.getPage(p), state).some((b) => b.blockId === id);
+function objectPages(document: Document, tree: VirtualLayoutTree, id: BlockId, page: number): { first: number; last: number } {
+  const on = (p: number): boolean => getObjectBoxes(tree.getPage(p), document).some((b) => b.blockId === id);
   let first = page;
   let last = page;
   while (first > 0 && on(first - 1)) first--;
@@ -306,7 +306,7 @@ function objectPages(state: State, tree: VirtualLayoutTree, id: BlockId, page: n
  * pixel-position resolution.
  */
 export function computeSelectionRectsForPageRange(
-  state: State,
+  document: Document,
   span: Span,
   pageBox: LayoutBox,
   pageIndex: number,
@@ -324,10 +324,10 @@ export function computeSelectionRectsForPageRange(
     return [];
   }
   if (pageIndex < startPage || pageIndex > endPage) return [];
-  const part = textPartOf(state, span, anchorAffinity, focusAffinity);
-  const objects = coveredObjectRects(state, part.start, part.end, pageBox);
+  const part = textPartOf(document, span, anchorAffinity, focusAffinity);
+  const objects = coveredObjectRects(document, part.start, part.end, pageBox);
   const rects = textSelectionRectsForPage(
-    state, part.span, pageBox, pageIndex,
+    document, part.span, pageBox, pageIndex,
     part.startMoved ? null : startPage, part.endMoved ? null : endPage, shaperOrMeasurer,
     part.anchorAffinity, part.focusAffinity, objects.skip,
   );
@@ -344,7 +344,7 @@ export function computeSelectionRectsForPageRange(
  * after it gets no text there.
  */
 function textSelectionRectsForPage(
-  state: State,
+  document: Document,
   span: Span,
   pageBox: LayoutBox,
   pageIndex: number,
@@ -365,12 +365,12 @@ function textSelectionRectsForPage(
       ? adaptShaperToMeasurer(shaperOrMeasurer)
       : shaperOrMeasurer;
 
-    const start = spanStart(state, span);
-    const end = spanEnd(state, span);
+    const start = spanStart(document, span);
+    const end = spanEnd(document, span);
 
     // Visual-extent: map anchor/focus affinities to DOCUMENT order (see
     // `computeSelectionRects` for the rationale on the `comparePositions` boolean).
-    const anchorIsStart = comparePositions(state, span.anchor, span.focus) <= 0;
+    const anchorIsStart = comparePositions(document, span.anchor, span.focus) <= 0;
     const startAffinity = anchorIsStart ? anchorAffinity : focusAffinity;
     const endAffinity = anchorIsStart ? focusAffinity : anchorAffinity;
 
@@ -379,7 +379,7 @@ function textSelectionRectsForPage(
     // body, footer]). Filter to the SELECTION's context so a body span's lo..hi
     // range can't include this page's slot lines (and vice-versa). Single-context
     // page → array returned unchanged (byte-identical, allocation-free).
-    const filter = makeContextFilter(state, selectionContextOf(state, start.blockId));
+    const filter = makeContextFilter(document, selectionContextOf(document, start.blockId));
     const pageLines = filter(getLineIndex(pageBox).all);
     if (pageLines.length === 0) return [];
 
@@ -390,10 +390,10 @@ function textSelectionRectsForPage(
     const endHere = endPage === null ? lineHolding(pageLines, end) >= 0 : pageIndex === endPage;
     const lo = startHere
       ? findLineForPosition(pageLines, start)
-      : startPage === null && !linesFrom(state, pageLines, start) ? -1 : 0;
+      : startPage === null && !linesFrom(document, pageLines, start) ? -1 : 0;
     const hi = endHere
       ? findLineForPosition(pageLines, end)
-      : endPage === null && !linesUpTo(state, pageLines, end) ? -1 : pageLines.length - 1;
+      : endPage === null && !linesUpTo(document, pageLines, end) ? -1 : pageLines.length - 1;
     if (lo < 0 || hi < 0) return [];
 
     const rects: SelectionRect[] = [];
@@ -430,17 +430,17 @@ function lineHolding(lines: readonly AbsoluteLineBox[], pos: Position): number {
 }
 
 /** Do this page's `lines` (none holding `start`) come after `start` in document order? */
-function linesFrom(state: State, lines: readonly AbsoluteLineBox[], start: Position): boolean {
+function linesFrom(document: Document, lines: readonly AbsoluteLineBox[], start: Position): boolean {
   const first = lines[0];
   return first !== undefined &&
-    comparePositions(state, createPosition(first.line.ownerBlockId, first.line.inlineOffsetStart), start) >= 0;
+    comparePositions(document, createPosition(first.line.ownerBlockId, first.line.inlineOffsetStart), start) >= 0;
 }
 
 /** Do this page's `lines` (none holding `end`) come before `end` in document order? */
-function linesUpTo(state: State, lines: readonly AbsoluteLineBox[], end: Position): boolean {
+function linesUpTo(document: Document, lines: readonly AbsoluteLineBox[], end: Position): boolean {
   const last = lines[lines.length - 1];
   return last !== undefined &&
-    comparePositions(state, createPosition(last.line.ownerBlockId, last.line.inlineOffsetEnd), end) <= 0;
+    comparePositions(document, createPosition(last.line.ownerBlockId, last.line.inlineOffsetEnd), end) <= 0;
 }
 
 /**
@@ -452,7 +452,7 @@ function linesUpTo(state: State, lines: readonly AbsoluteLineBox[], end: Positio
  * A span with text endpoints is returned as is (no clip, affinities unchanged).
  */
 function textPartOf(
-  state: State,
+  document: Document,
   span: Span,
   anchorAffinity: CaretAffinity | undefined,
   focusAffinity: CaretAffinity | undefined,
@@ -466,13 +466,13 @@ function textPartOf(
   readonly startMoved: boolean;
   readonly endMoved: boolean;
 } {
-  const anchorIsStart = comparePositions(state, span.anchor, span.focus) <= 0;
+  const anchorIsStart = comparePositions(document, span.anchor, span.focus) <= 0;
   const start = anchorIsStart ? span.anchor : span.focus;
   const end = anchorIsStart ? span.focus : span.anchor;
-  if (isTextPosition(state, start) && isTextPosition(state, end)) {
+  if (isTextPosition(document, start) && isTextPosition(document, end)) {
     return { span, anchorAffinity, focusAffinity, start, end, startMoved: false, endMoved: false };
   }
-  const clipped = clipSpanToText(state, span);
+  const clipped = clipSpanToText(document, span);
   const startAffinity = anchorIsStart ? anchorAffinity : focusAffinity;
   const endAffinity = anchorIsStart ? focusAffinity : anchorAffinity;
   const startMoved = !positionsEqual(clipped.anchor, start);
@@ -488,8 +488,8 @@ function textPartOf(
   };
 }
 
-function isTextPosition(state: State, pos: Position): boolean {
-  return (resolveBlock(state, pos.blockId)?.block.inlineContent ?? null) !== null;
+function isTextPosition(document: Document, pos: Position): boolean {
+  return (resolveBlock(document, pos.blockId)?.block.inlineContent ?? null) !== null;
 }
 
 /**
@@ -507,7 +507,7 @@ function isTextPosition(state: State, pos: Position): boolean {
  * list is cached per tree, so a page without objects pays nothing.
  */
 function coveredObjectRects(
-  state: State,
+  document: Document,
   start: Position,
   end: Position,
   tree: LayoutBox,
@@ -515,19 +515,19 @@ function coveredObjectRects(
   const rects: SelectionRect[] = [];
   // A range inside one text block covers no block (decorations, most selections).
   if (start.blockId === end.blockId) return { rects, skip: null };
-  const boxes = getObjectBoxes(tree, state);
+  const boxes = getObjectBoxes(tree, document);
   if (boxes.length === 0) return { rects, skip: null };
-  const context = selectionContextOf(state, start.blockId);
-  const inStart = ancestorChain(state, start.blockId);
-  const inEnd = ancestorChain(state, end.blockId);
+  const context = selectionContextOf(document, start.blockId);
+  const inStart = ancestorChain(document, start.blockId);
+  const inEnd = ancestorChain(document, end.blockId);
   const covered = new Map<BlockId, boolean>();
   const isCovered = (id: BlockId): boolean => {
     let c = covered.get(id);
     if (c === undefined) {
       const pos = createPosition(id, 0);
-      c = selectionContextOf(state, id) === context &&
-        comparePositions(state, start, pos) <= 0 &&
-        comparePositions(state, pos, end) <= 0 &&
+      c = selectionContextOf(document, id) === context &&
+        comparePositions(document, start, pos) <= 0 &&
+        comparePositions(document, pos, end) <= 0 &&
         (id === start.blockId || !inStart.includes(id)) &&
         (id === end.blockId || !inEnd.includes(id));
       covered.set(id, c);
@@ -536,11 +536,11 @@ function coveredObjectRects(
   };
   const coveredTables = new Set<BlockId>();
   for (const b of boxes) {
-    if (isCovered(b.blockId) && resolveBlock(state, b.blockId)?.block.type === "table") coveredTables.add(b.blockId);
+    if (isCovered(b.blockId) && resolveBlock(document, b.blockId)?.block.type === "table") coveredTables.add(b.blockId);
   }
   // Strictly inside a covered table: its box is the highlight.
   const insideCoveredTable = (id: BlockId): boolean =>
-    coveredTables.size > 0 && ancestorChain(state, id).some((a, i) => i > 0 && coveredTables.has(a));
+    coveredTables.size > 0 && ancestorChain(document, id).some((a, i) => i > 0 && coveredTables.has(a));
   for (const b of boxes) {
     if (!isCovered(b.blockId) || insideCoveredTable(b.blockId)) continue;
     const { x, y, width, height, pageIndex } = b.rect;
@@ -827,12 +827,12 @@ function computeLineEdges(
  * per-page `getPage(i)` `PageBox`.
  */
 export function computeObjectSelectionRect(
-  state: State,
+  document: Document,
   blockId: BlockId,
   layoutTree: LayoutBox,
   resolver: BlockKindResolver,
 ): SelectionRect | null {
-  const rect = getAtomicBoxIndex(layoutTree, resolver, state).get(blockId);
+  const rect = getAtomicBoxIndex(layoutTree, resolver, document).get(blockId);
   if (rect === undefined) return null;
   // `AbsoluteRect` and `SelectionRect` are structurally identical, but the index
   // value is `readonly`; construct a fresh mutable `SelectionRect` (cast-free).

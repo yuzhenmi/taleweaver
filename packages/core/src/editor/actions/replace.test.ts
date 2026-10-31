@@ -1,11 +1,11 @@
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import { config } from "./test-helpers";
-import { createEditorStateFromState, createInitialEditorState, type EditorState } from "../editor-state";
+import { createEditorStateFromDocument, createInitialEditorState, type EditorState } from "../editor-state";
 import { reduceEditor } from "../reduce-editor";
 import { getBlock, findMatches, createPosition, createSpan, type BlockId } from "../../state";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
-import { buildBlock, buildState, inlineContent, text } from "../../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent, text } from "../../test-utils/document-builders";
 
 /** Build a single-paragraph editor with `text` typed in. */
 function withText(text: string): EditorState {
@@ -143,7 +143,7 @@ describe("REPLACE_ALL — canonical storage through the editor's attr registry",
     });
     const cfg = { ...config, attrRegistry };
     // Registry-equal but deep-unequal neighbours (e.g. left by concurrent peers).
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -156,7 +156,7 @@ describe("REPLACE_ALL — canonical storage through the editor's attr registry",
       ],
     });
     const p = "p" as BlockId;
-    let editor = createEditorStateFromState(state, createSpan(createPosition(p, 0), createPosition(p, 0)), cfg);
+    let editor = createEditorStateFromDocument(document, createSpan(createPosition(p, 0), createPosition(p, 0)), cfg);
     editor = reduceEditor(editor, { type: "REPLACE_ALL", matches: findMatches(editor.document, "X"), replacement: "Y" });
     expect(getBlock(editor.document, p)?.inlineContent?.items).toEqual([text("abY", { tag: { id: "t", v: 1 } })]);
   });

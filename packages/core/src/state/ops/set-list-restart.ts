@@ -1,4 +1,4 @@
-import type { BlockId, State, OperationResult } from "../index";
+import type { BlockId, Document, OperationResult } from "../index";
 import { mergeBlockAttrs } from "../index";
 
 /**
@@ -14,9 +14,9 @@ import { mergeBlockAttrs } from "../index";
  * literal `undefined`, so passing `value === undefined` makes the attr absent.
  */
 export function setListRestart(
-  state: State,
+  document: Document,
   blockId: BlockId,
   value: number | undefined,
 ): OperationResult {
-  return mergeBlockAttrs(state, blockId, { listCounterOverride: value });
+  return mergeBlockAttrs(document, blockId, { listCounterOverride: value });
 }

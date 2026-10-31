@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import type { State } from "@taleweaver/core";
+import type { Document } from "@taleweaver/core";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Header } from "@/components/header";
 import { ModeTabs, type EditorMode } from "@/components/mode-tabs";
@@ -16,19 +16,19 @@ export function App() {
   // Switching tabs swaps the backend and HANDS THE LIVE DOCUMENT OFF: the active
   // surface's current `Document` seeds the incoming one (keyed remount).
   const [mode, setMode] = useState<EditorMode>("print");
-  const [handoff, setHandoff] = useState<State | null>(null);
+  const [handoff, setHandoff] = useState<Document | null>(null);
 
   // The currently-mounted surface registers its live-state getter here on mount;
   // read it at switch time to capture the outgoing document.
-  const getStateRef = useRef<(() => State) | null>(null);
-  const registerGetState = useCallback((getState: () => State) => {
-    getStateRef.current = getState;
+  const getDocumentRef = useRef<(() => Document) | null>(null);
+  const registerGetDocument = useCallback((getDocument: () => Document) => {
+    getDocumentRef.current = getDocument;
   }, []);
 
   const switchMode = useCallback(
     (next: EditorMode) => {
       if (next === mode) return;
-      const live = getStateRef.current?.();
+      const live = getDocumentRef.current?.();
       if (live !== undefined) setHandoff(live);
       setMode(next);
     },
@@ -41,11 +41,11 @@ export function App() {
         <Header />
         <ModeTabs mode={mode} onChange={switchMode} />
         {mode === "print" ? (
-          <PrintSurface key="print" seed={handoff} registerGetState={registerGetState} />
+          <PrintSurface key="print" seed={handoff} registerGetDocument={registerGetDocument} />
         ) : mode === "digital" ? (
-          <DigitalSurface key="digital" seed={handoff} registerGetState={registerGetState} />
+          <DigitalSurface key="digital" seed={handoff} registerGetDocument={registerGetDocument} />
         ) : (
-          <CollabSurface key="collab" seed={handoff} registerGetState={registerGetState} />
+          <CollabSurface key="collab" seed={handoff} registerGetDocument={registerGetDocument} />
         )}
       </div>
     </TooltipProvider>

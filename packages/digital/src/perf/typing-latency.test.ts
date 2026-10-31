@@ -74,11 +74,11 @@ function chapter(paragraphs = 400): ContainerBlockNode {
 }
 
 function paragraphIds(controller: DigitalController): BlockId[] {
-  const state = controller.editorState.document;
+  const document = controller.editorState.document;
   const out: BlockId[] = [];
   // The root's children are sections: a break-less document's body is its final section.
-  const body = getBlock(state, getBlock(state, state.rootId)?.lastChildId ?? state.rootId);
-  for (let id = body?.firstChildId ?? null; id !== null; id = getBlock(state, id)?.nextSiblingId ?? null) out.push(id);
+  const body = getBlock(document, getBlock(document, document.rootId)?.lastChildId ?? document.rootId);
+  for (let id = body?.firstChildId ?? null; id !== null; id = getBlock(document, id)?.nextSiblingId ?? null) out.push(id);
   return out;
 }
 
@@ -95,7 +95,7 @@ describe("digital typing latency (20k words, 1,000 decorations)", () => {
       container,
       componentRegistry: createDefaultComponentRegistry(),
       attrRegistry: createDefaultAttrRegistry(),
-      initialState: buildDocumentFromTree(chapter(), {}, createTestAllocator(), TEST_RESOLVER),
+      initialDocument: buildDocumentFromTree(chapter(), {}, createTestAllocator(), TEST_RESOLVER),
       doc: document,
     });
     const ids = paragraphIds(controller);
@@ -143,7 +143,7 @@ describe("digital typing latency (20k words, 1,000 decorations)", () => {
       container,
       componentRegistry: createDefaultComponentRegistry(),
       attrRegistry: createDefaultAttrRegistry(),
-      initialState: buildDocumentFromTree(chapter(1000), {}, createTestAllocator(), TEST_RESOLVER),
+      initialDocument: buildDocumentFromTree(chapter(1000), {}, createTestAllocator(), TEST_RESOLVER),
       doc: document,
     });
     const ids = paragraphIds(controller);

@@ -13,17 +13,17 @@
  */
 import { describe, it, expect } from "vitest";
 import { reconcileForeignChange } from "./reconcile-foreign-change";
-import { createEditorStateFromState, clearTransientViewState, type EditorState } from "./editor-state";
+import { createEditorStateFromDocument, clearTransientViewState, type EditorState } from "./editor-state";
 import { config } from "./actions/test-helpers";
 import { applyOperation, getBlock, createPosition, createSpan } from "../state";
 import { subscribeForeignChanges } from "../state";
 import { getYBlock } from "../state/yjs-doc";
 import { asBlockId, type BlockId } from "../state/block-id";
-import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
+import { buildDocument, buildBlock, inlineContent, text } from "../test-utils/document-builders";
 
 /** A two-paragraph doc: "p1" (the peer mutates it) and "p2" (untouched sibling). */
-function makeState() {
-  return buildState({
+function makeDocument() {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -52,8 +52,8 @@ function collapsedAtP1Start() {
 
 describe("reconcileForeignChange (live-collab P1)", () => {
   it("applies a foreign block edit so the new state reads the live Y.Doc mutation", () => {
-    const state = makeState();
-    const editor = createEditorStateFromState(state, collapsedAtP1Start(), config);
+    const document = makeDocument();
+    const editor = createEditorStateFromDocument(document, collapsedAtP1Start(), config);
 
     // Warm the local cache: the stale snapshot of p1 is "paragraph".
     expect(getBlock(editor.document, asBlockId("p1"))?.type).toBe("paragraph");
@@ -87,8 +87,8 @@ describe("reconcileForeignChange (live-collab P1)", () => {
   });
 
   it("keeps an untouched sibling block reference-equal (structural sharing)", () => {
-    const state = makeState();
-    const editor = createEditorStateFromState(state, collapsedAtP1Start(), config);
+    const document = makeDocument();
+    const editor = createEditorStateFromDocument(document, collapsedAtP1Start(), config);
 
     // Warm p2's snapshot in the local cache.
     const p2Before = getBlock(editor.document, asBlockId("p2"));
@@ -109,8 +109,8 @@ describe("reconcileForeignChange (live-collab P1)", () => {
   });
 
   it("sets lastDirtyIds to the foreign set and passes selection + history through", () => {
-    const state = makeState();
-    const editor = createEditorStateFromState(state, collapsedAtP1Start(), config);
+    const document = makeDocument();
+    const editor = createEditorStateFromDocument(document, collapsedAtP1Start(), config);
     const dirtyIds = new Set([asBlockId("p1")]);
 
     const reconciled = reconcileForeignChange(editor, dirtyIds);
@@ -122,8 +122,8 @@ describe("reconcileForeignChange (live-collab P1)", () => {
   });
 
   it("clears the stale line-nav goal column + bidi affinities like any document mutation", () => {
-    const state = makeState();
-    const editor = createEditorStateFromState(state, collapsedAtP1Start(), config);
+    const document = makeDocument();
+    const editor = createEditorStateFromDocument(document, collapsedAtP1Start(), config);
     // Seed the view fields a prior vertical-nav / bidi-boundary caret would leave;
     // a foreign edit invalidates all three (resolved against the pre-edit structure).
     // Typed annotation narrows the affinity literals to CaretAffinity — no cast.
@@ -144,8 +144,8 @@ describe("reconcileForeignChange (live-collab P1)", () => {
 
 describe("clearTransientViewState (shared stale-on-mutation home)", () => {
   it("clears targetX + bidi affinities, leaving other fields intact", () => {
-    const state = makeState();
-    const base = createEditorStateFromState(state, collapsedAtP1Start(), config);
+    const document = makeDocument();
+    const base = createEditorStateFromDocument(document, collapsedAtP1Start(), config);
     const dirty: EditorState = {
       ...base,
       targetX: 42,
@@ -163,8 +163,8 @@ describe("clearTransientViewState (shared stale-on-mutation home)", () => {
   });
 
   it("returns the SAME reference when nothing is stale (allocation guard)", () => {
-    const state = makeState();
-    const base = createEditorStateFromState(state, collapsedAtP1Start(), config);
+    const document = makeDocument();
+    const base = createEditorStateFromDocument(document, collapsedAtP1Start(), config);
     // A fresh editor has targetX null + both affinities undefined already.
     expect(clearTransientViewState(base)).toBe(base);
   });

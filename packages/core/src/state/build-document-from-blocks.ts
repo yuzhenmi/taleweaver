@@ -2,8 +2,8 @@ import type { BlockKindResolver } from "./block-kinds";
 import type { Block } from "./block";
 import type { ReadonlyAttrs } from "./attrs";
 import type { BlockId } from "./block-id";
-import { createState, type Document } from "./state";
-import { STATE_INTERNAL } from "./state-internal";
+import { createDocument, type Document } from "./document";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import { writeRoot, type TreeNode } from "./flow-ops";
 import type { TreeKind } from "./registry";
 import { writeListDefInTx, type ListDef } from "./list-defs";
@@ -18,7 +18,7 @@ export interface BuildStateFromBlocksArgs {
   /**
    * Per-list numbering configuration, keyed by list id. Written into the
    * top-level `listDefs` Y.Map via `writeListDefInTx`. Same shape
-   * `buildStateWithListDefs` accepts (a plain `Record<listId, ListDef>`).
+   * `buildDocumentWithListDefs` accepts (a plain `Record<listId, ListDef>`).
    */
   readonly listDefs?: Record<string, ListDef>;
   /** Comment thread records, written into the top-level `comments` Y.Map. */
@@ -41,11 +41,11 @@ export interface BuildStateFromBlocksArgs {
  *
  * Lives inside `state/` so the Y.Doc-direct writes do not cross the
  * encapsulation boundary; external test fixtures call through
- * `test-utils/state-builders.buildState`, which delegates here.
+ * `test-utils/document-builders.buildDocument`, which delegates here.
  */
-export function buildStateFromBlocks(args: BuildStateFromBlocksArgs): Document {
-  const state = createState({ rootId: args.rootId, resolver: args.resolver });
-  const doc = state[STATE_INTERNAL].doc;
+export function buildDocumentFromBlocks(args: BuildStateFromBlocksArgs): Document {
+  const document = createDocument({ rootId: args.rootId, resolver: args.resolver });
+  const doc = document[DOCUMENT_INTERNAL].doc;
   doc.transact(() => {
     const main = treesOf(args.blocks, args.rootId);
     for (const root of main) writeRoot(doc, root, "block");
@@ -67,7 +67,7 @@ export function buildStateFromBlocks(args: BuildStateFromBlocksArgs): Document {
       }
     }
   });
-  return state;
+  return document;
 }
 
 function writeRoots(doc: Parameters<typeof writeRoot>[0], blocks: ReadonlyArray<Block> | undefined, tree: TreeKind): void {
@@ -135,18 +135,18 @@ export interface BuildStateWithListDefsArgs {
 }
 
 /**
- * Like `buildStateFromBlocks`, but additionally seeds the `listDefs` Y.Map with
+ * Like `buildDocumentFromBlocks`, but additionally seeds the `listDefs` Y.Map with
  * per-list numbering configuration. For test-fixture construction of numbered
  * lists where the render/numbering pass needs the list definitions to resolve a
- * marker. State-module-internal (writes the Y.Doc directly).
+ * marker. Document-module-internal (writes the Y.Doc directly).
  *
- * A thin wrapper over the unified `buildStateFromBlocks`, which now accepts
+ * A thin wrapper over the unified `buildDocumentFromBlocks`, which now accepts
  * `listDefs` directly and writes everything in one transaction.
  */
-export function buildStateWithListDefs(
+export function buildDocumentWithListDefs(
   args: BuildStateWithListDefsArgs,
 ): Document {
-  return buildStateFromBlocks({
+  return buildDocumentFromBlocks({
     rootId: args.rootId,
     blocks: args.blocks,
     listDefs: args.listDefs,

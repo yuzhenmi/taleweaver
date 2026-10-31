@@ -26,7 +26,7 @@ import {
   computeOutlineSignature,
   outlineSignaturesEqual,
 } from "../state";
-import type { Block, BlockId, State, SuggestionView } from "../state";
+import type { Block, BlockId, Document, SuggestionView } from "../state";
 import type { Style, ComputedStyle } from "../styles";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import type { ComponentRegistry } from "../components/component-registry";
@@ -48,7 +48,7 @@ import {
   listCounterRenumberedBlocks,
   type CounterValue,
 } from "../numbering";
-import { docHasLists, getListDefsForState } from "../state";
+import { docHasLists, getListDefsForDocument } from "../state";
 import {
   effectiveRenderPolicy,
   makeRenderContext,
@@ -67,11 +67,11 @@ import {
  * otherwise the prev RenderNode is reused.
  */
 export function renderIncremental(
-  state: State,
+  document: Document,
   componentRegistry: ComponentRegistry,
   attrRegistry: AttrRegistry,
   prev: RenderOutput,
-  prevState: State,
+  prevDocument: Document,
   dirtyIds: ReadonlySet<BlockId>,
   footnoteNumbersOverride?: ReadonlyMap<BlockId, FootnoteNumber>,
   // Change-tracking preview view. The incremental path assumes a
@@ -112,7 +112,7 @@ export function renderIncremental(
   // result is identical: a footnote-free doc has no anchors and an empty
   // numbering map, so the downstream `fnAnchors.length > 0` block naturally
   // skips too. This removes the last unguarded per-keystroke walk (the
-  // prevState diff further down was already guarded).
+  // prevDocument diff further down was already guarded).
   // Footnote-BEARING incremental: when the doc has footnotes but NO edit
   // this cycle could have changed the anchor list (added / removed / moved an
   // anchor-bearing block, or touched a section), REUSE the prior cycle's cached
@@ -133,11 +133,11 @@ export function renderIncremental(
   // falls back to continuous via `effectiveRenderPolicy`; when the layout-driver's two-pass
   // cycle supplies per-page numbers, layout-dependent numbers can shift WITHOUT
   // any anchor change, and that policy must NOT reuse numbers blindly.)
-  const reuseAnchors = footnoteAnchorsUnchanged(state, prevState, dirtyIds, prev);
+  const reuseAnchors = footnoteAnchorsUnchanged(document, prevDocument, dirtyIds, prev);
   const fnAnchors = reuseAnchors
     ? prev.footnoteAnchors
-    : docHasFootnotes(state)
-      ? collectFootnoteAnchors(state)
+    : docHasFootnotes(document)
+      ? collectFootnoteAnchors(document)
       : EMPTY_FOOTNOTE_ANCHORS;
   // When an override is supplied it is authoritative for the NUMBERS
   // this cycle — it replaces BOTH the policy-derived computation AND the
@@ -148,19 +148,19 @@ export function renderIncremental(
     : reuseAnchors
       ? prev.footnoteNumbers
       : fnAnchors.length > 0
-        ? footnoteNumbers(fnAnchors, effectiveRenderPolicy(state))
+        ? footnoteNumbers(fnAnchors, effectiveRenderPolicy(document))
         : EMPTY_FOOTNOTE_NUMBERS;
 
-  const invalidated = computeInvalidatedBlocks(state, prevState, dirtyIds);
+  const invalidated = computeInvalidatedBlocks(document, prevDocument, dirtyIds);
   // The renumber diff only matters when the NEW state has footnotes AND we did
   // NOT reuse the anchors: reused anchors ⇒ identical numbers ⇒ no marker can be
-  // stale, so the diff (and its prevState walk) is skipped. A footnote-free doc
+  // stale, so the diff (and its prevDocument walk) is skipped. A footnote-free doc
   // has an empty anchor list and skips here too — the common case pays nothing.
   if (!reuseAnchors && fnAnchors.length > 0) {
     // The prior cycle's numbering map is already cached on `prev` — it IS
-    // `footnoteNumbers(collectFootnoteAnchors(prevState), policy)`. Reuse it
-    // directly instead of re-walking prevState (the renumber diff only runs when
-    // an anchor changed, but even then the prevState walk is pure waste here).
+    // `footnoteNumbers(collectFootnoteAnchors(prevDocument), policy)`. Reuse it
+    // directly instead of re-walking prevDocument (the renumber diff only runs when
+    // an anchor changed, but even then the prevDocument walk is pure waste here).
     const prevFnNumbers = prev.footnoteNumbers;
     // Diff per-ANCHOR (by contentBlockId) so a host block carrying multiple
     // footnotes only re-renders the bodies that actually renumbered — a strict
@@ -175,7 +175,7 @@ export function renderIncremental(
         // rebuilt with the new marker node) mirrors `computeInvalidatedBlocks`'s
         // ancestor walk.
         invalidated.add(anchor.blockId);
-        addAncestorsToInvalidated(state, prevState, anchor.blockId, invalidated);
+        addAncestorsToInvalidated(document, prevDocument, anchor.blockId, invalidated);
       }
       // The footnote BODY root carries the same number as a leading marker
       // (`markerText`, baked from `ctx.footnoteNumber` at render time —
@@ -222,10 +222,10 @@ export function renderIncremental(
   // independent of the incremental diff. The renumber DIFF that expands
   // `invalidated` to the FOLLOWING items whose numbers changed is applied
   // immediately below (mirroring the footnote renumber pass above).
-  const listEvents = docHasLists(state) ? collectListEvents(state) : [];
+  const listEvents = docHasLists(document) ? collectListEvents(document) : [];
   const listCounters =
     listEvents.length > 0
-      ? computeCounters(listEvents, getListDefsForState(state))
+      ? computeCounters(listEvents, getListDefsForDocument(document))
       : EMPTY_LIST_COUNTERS;
 
   // List renumber diff (mirrors the footnote renumber pass above): an edit that
@@ -245,7 +245,7 @@ export function renderIncremental(
   for (const blockId of listRenumbered) {
     if (invalidated.has(blockId)) continue;
     invalidated.add(blockId);
-    addAncestorsToInvalidated(state, prevState, blockId, invalidated);
+    addAncestorsToInvalidated(document, prevDocument, blockId, invalidated);
   }
 
   // Cross-reference fields display a bookmark they do not own: when a block the
@@ -255,15 +255,15 @@ export function renderIncremental(
   // blocks only (O(dirty), not O(document)) and names those hosts.
   const { index: crossReferenceIndex, staleHosts } = updateCrossReferenceIndex(
     prev.crossReferenceIndex,
-    prevState,
-    state,
+    prevDocument,
+    document,
     dirtyIds,
     listRenumbered,
   );
   for (const host of staleHosts) {
     if (invalidated.has(host)) continue;
     invalidated.add(host);
-    addAncestorsToInvalidated(state, prevState, host, invalidated);
+    addAncestorsToInvalidated(document, prevDocument, host, invalidated);
   }
 
   // TOC outline invalidation (mirrors the cross-reference target→hosts
@@ -273,9 +273,9 @@ export function renderIncremental(
   // signature unless a dirty block is/was a heading; if it changed, force every
   // TOC anchor into `invalidated` so its render-core branch re-derives. Common
   // case (no heading edit) reuses the signature AND the TOC node by ref — O(1).
-  const outlineChanged = outlineMightHaveChanged(state, prevState, dirtyIds);
+  const outlineChanged = outlineMightHaveChanged(document, prevDocument, dirtyIds);
   const outlineSignature = outlineChanged
-    ? computeOutlineSignature(state, suggestionView)
+    ? computeOutlineSignature(document, suggestionView)
     : prev.outlineSignature;
   if (
     outlineChanged &&
@@ -285,22 +285,22 @@ export function renderIncremental(
     for (const tocId of outlineSignature.tocAnchorIds) {
       if (invalidated.has(tocId)) continue;
       invalidated.add(tocId);
-      addAncestorsToInvalidated(state, prevState, tocId, invalidated);
+      addAncestorsToInvalidated(document, prevDocument, tocId, invalidated);
     }
   }
 
-  const context: RenderContext = makeRenderContext(state, fnNumbers, listCounters, suggestionView, crossReferenceIndex.bookmarks);
+  const context: RenderContext = makeRenderContext(document, fnNumbers, listCounters, suggestionView, crossReferenceIndex.bookmarks);
 
-  const rootBlock = getBlock(state, state.rootId);
+  const rootBlock = getBlock(document, document.rootId);
   if (rootBlock === null) {
-    throw new Error(`render: root block "${state.rootId}" not found`);
+    throw new Error(`render: root block "${document.rootId}" not found`);
   }
   const visited = new Set<BlockId>();
   const root = renderBlockIncremental(
     rootBlock,
     null,
     undefined,
-    state,
+    document,
     componentRegistry,
     attrRegistry,
     context,
@@ -315,13 +315,13 @@ export function renderIncremental(
   // block is in the invalidation set, or it's a newly-added embed
   // (no prev entry).
   const embedContents = new Map<BlockId, RenderNode>();
-  for (const id of getEmbedContentIds(state)) {
+  for (const id of getEmbedContentIds(document)) {
     const cachedEmbed = prev.embedContents.get(id);
     if (cachedEmbed !== undefined && !invalidated.has(id)) {
       embedContents.set(id, cachedEmbed);
       continue;
     }
-    const block = getEmbedContent(state, id);
+    const block = getEmbedContent(document, id);
     if (block === null) continue;
     const embedVisited = new Set<BlockId>();
     embedContents.set(
@@ -330,7 +330,7 @@ export function renderIncremental(
         block,
         null,
         undefined,
-        state,
+        document,
         componentRegistry,
         attrRegistry,
         context,
@@ -347,13 +347,13 @@ export function renderIncremental(
   // Reuse prev's RenderNode unless the template body's source block is in
   // the invalidation set, or it's a newly-added body (no prev entry).
   const templateContents = new Map<BlockId, RenderNode>();
-  for (const id of getTemplateContentIds(state)) {
+  for (const id of getTemplateContentIds(document)) {
     const cachedTemplate = prev.templateContents.get(id);
     if (cachedTemplate !== undefined && !invalidated.has(id)) {
       templateContents.set(id, cachedTemplate);
       continue;
     }
-    const block = getTemplateContent(state, id);
+    const block = getTemplateContent(document, id);
     if (block === null) continue;
     const templateVisited = new Set<BlockId>();
     templateContents.set(
@@ -362,7 +362,7 @@ export function renderIncremental(
         block,
         null,
         undefined,
-        state,
+        document,
         componentRegistry,
         attrRegistry,
         context,
@@ -400,14 +400,14 @@ export function renderIncremental(
  * re-derivation.
  */
 function outlineMightHaveChanged(
-  state: State,
-  prevState: State,
+  document: Document,
+  prevDocument: Document,
   dirtyIds: ReadonlySet<BlockId>,
 ): boolean {
   for (const id of dirtyIds) {
     if (
-      getBlock(state, id)?.type === "heading" ||
-      getBlock(prevState, id)?.type === "heading"
+      getBlock(document, id)?.type === "heading" ||
+      getBlock(prevDocument, id)?.type === "heading"
     ) {
       return true;
     }
@@ -426,7 +426,7 @@ function renderBlockIncremental(
   block: Block,
   parentComputed: ComputedStyle | null,
   parentSpecified: Partial<Style> | undefined,
-  state: State,
+  document: Document,
   componentRegistry: ComponentRegistry,
   attrRegistry: AttrRegistry,
   context: RenderContext,
@@ -440,10 +440,10 @@ function renderBlockIncremental(
     const cached = prevByKey.get(block.id);
     if (cached !== undefined) return cached;
   }
-  // Note: one could also add a `getBlock(state, id) === getBlock(prevState, id)`
+  // Note: one could also add a `getBlock(state, id) === getBlock(prevDocument, id)`
   // belt-and-suspenders check. In practice that comparison is not
   // useful at runtime: `getBlock` returns a wrapper over the Y.Doc
-  // (per `state/state.ts`); fresh Document after an operation produces
+  // (per `state/document.ts`); fresh Document after an operation produces
   // different wrapper instances even for blocks whose underlying
   // content is unchanged. A meaningful "did this block change"
   // comparison would have to be structural (O(block-size)) and would
@@ -457,7 +457,7 @@ function renderBlockIncremental(
     block,
     parentComputed,
     parentSpecified,
-    state,
+    document,
     componentRegistry,
     attrRegistry,
     context,
@@ -469,7 +469,7 @@ function renderBlockIncremental(
         child,
         computed,
         specified,
-        state,
+        document,
         componentRegistry,
         attrRegistry,
         context,
@@ -498,17 +498,17 @@ function renderBlockIncremental(
  * uses NEW state (deleted blocks have no descendants).
  */
 function computeInvalidatedBlocks(
-  state: State,
-  prevState: State,
+  document: Document,
+  prevDocument: Document,
   dirtyIds: ReadonlySet<BlockId>,
 ): Set<BlockId> {
   const invalidated = new Set<BlockId>();
   for (const id of dirtyIds) {
     invalidated.add(id);
     // Ancestors via parentId chain.
-    addAncestorsToInvalidated(state, prevState, id, invalidated);
+    addAncestorsToInvalidated(document, prevDocument, id, invalidated);
     // Descendants in new state.
-    addDescendantsToInvalidated(state, id, invalidated);
+    addDescendantsToInvalidated(document, id, invalidated);
   }
   return invalidated;
 }
@@ -524,15 +524,15 @@ function computeInvalidatedBlocks(
  * parent is still invalidated.
  */
 function addAncestorsToInvalidated(
-  state: State,
-  prevState: State,
+  document: Document,
+  prevDocument: Document,
   id: BlockId,
   out: Set<BlockId>,
 ): void {
   let cursor: BlockId = id;
   while (true) {
     const block =
-      resolveBlock(state, cursor)?.block ?? resolveBlock(prevState, cursor)?.block ?? null;
+      resolveBlock(document, cursor)?.block ?? resolveBlock(prevDocument, cursor)?.block ?? null;
     if (block === null || block.parentId === null) break;
     const parentId = block.parentId;
     if (out.has(parentId)) break;
@@ -552,19 +552,19 @@ function addAncestorsToInvalidated(
  * removed block has no descendants to invalidate.
  */
 function addDescendantsToInvalidated(
-  state: State,
+  document: Document,
   id: BlockId,
   out: Set<BlockId>,
 ): void {
-  const block = resolveBlock(state, id)?.block ?? null;
+  const block = resolveBlock(document, id)?.block ?? null;
   if (block === null) return;
   let childId = block.firstChildId;
   while (childId !== null) {
     if (!out.has(childId)) {
       out.add(childId);
-      addDescendantsToInvalidated(state, childId, out);
+      addDescendantsToInvalidated(document, childId, out);
     }
-    const child = resolveBlock(state, childId)?.block ?? null;
+    const child = resolveBlock(document, childId)?.block ?? null;
     if (child === null) break;
     childId = child.nextSiblingId;
   }

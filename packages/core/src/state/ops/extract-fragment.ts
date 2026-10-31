@@ -1,5 +1,5 @@
-import type { Document } from "../state";
-import { getEmbedContent, resolveBlock, blockCount } from "../state";
+import type { Document } from "../document";
+import { getEmbedContent, resolveBlock, blockCount } from "../document";
 import type { BlockId, IdAllocator } from "../block-id";
 import { productionAllocator } from "../block-id";
 import type { Span } from "../block-position";
@@ -12,20 +12,20 @@ import { bookmarkDeletionSpan } from "./delete-range";
 import { selectionContextOf } from "../block-compare";
 import { ancestorChain } from "../block-traversal";
 import { clonePastedSubtree } from "../clone-pasted-subtree";
-import { buildStateFromBlocks } from "../build-state-from-blocks";
+import { buildDocumentFromBlocks } from "../build-document-from-blocks";
 import { storageResolverOf } from "../storage-shapes";
 import { attrRegistryOf } from "../mark-attrs";
-import { STATE_INTERNAL } from "../state-internal";
+import { DOCUMENT_INTERNAL } from "../document-internal";
 import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "../comments";
 import {
-  readSuggestionRecordFromState,
+  readSuggestionRecordFromDocument,
   type SuggestionRecord,
 } from "../suggestions";
 import { suggestionIdsOnItem } from "./suggestion-ops";
-import { getListDefsForState, type ListDef } from "../list-defs";
+import { getListDefsForDocument, type ListDef } from "../list-defs";
 
 /**
- * Extract the content covered by `span` from `state` into a self-contained
+ * Extract the content covered by `span` from `document` into a self-contained
  * fragment `Document`. The fragment's root is a fresh `document` block. The
  * fragment is the interchange currency for copy-paste: it feeds `encodeHtml`
  * (HTML flavor) and the lossless binary serializer.
@@ -61,8 +61,8 @@ import { getListDefsForState, type ListDef } from "../list-defs";
  *
  * @throws if the span crosses selection contexts (header→body etc.).
  */
-export function extractFragment(state: Document, span: Span): Document {
-  return extractFragmentWithAllocator(state, span, productionAllocator);
+export function extractFragment(document: Document, span: Span): Document {
+  return extractFragmentWithAllocator(document, span, productionAllocator);
 }
 
 /** `block` without its break-suggestion tags (never copied into a fragment). */
@@ -105,16 +105,16 @@ function stripInlineAttrs(block: Block, drop: (key: string) => boolean): Block {
  * `state/` barrel (the plan specifies only `extractFragment` on the surface).
  */
 function extractFragmentWithAllocator(
-  state: Document,
+  document: Document,
   span: Span,
   alloc: IdAllocator,
 ): Document {
   // 1. Normalize span to document order.
-  const normalized = normalizeSpan(state, span);
+  const normalized = normalizeSpan(document, span);
   // 2. Assert single selection context, and capture the context root — the
   //    block whose children we walk in document order.
-  const startCtx = selectionContextOf(state, normalized.anchor.blockId);
-  const endCtx = selectionContextOf(state, normalized.focus.blockId);
+  const startCtx = selectionContextOf(document, normalized.anchor.blockId);
+  const endCtx = selectionContextOf(document, normalized.focus.blockId);
   if (startCtx === null || endCtx === null || startCtx !== endCtx) {
     throw new Error(
       `extractFragment: cross-context span (start context "${startCtx}" vs end context "${endCtx}")`,
@@ -127,9 +127,9 @@ function extractFragmentWithAllocator(
   // bookmark marker is dropped (a copy of part of a bookmark has none). A container
   // endpoint (a whole-table copy) has no adjacent inline markers: the covered
   // bookmarks are then those with both markers in the fragment (step 6).
-  const isLeaf = (id: BlockId): boolean => (resolveBlock(state, id)?.block.inlineContent ?? null) !== null;
+  const isLeaf = (id: BlockId): boolean => (resolveBlock(document, id)?.block.inlineContent ?? null) !== null;
   const leafEnds = isLeaf(normalized.anchor.blockId) && isLeaf(normalized.focus.blockId);
-  const deletion = leafEnds ? bookmarkDeletionSpan(state, normalized) : null;
+  const deletion = leafEnds ? bookmarkDeletionSpan(document, normalized) : null;
   const startPos = deletion?.span.anchor ?? normalized.anchor;
   const endPos = deletion?.span.focus ?? normalized.focus;
 
@@ -143,7 +143,7 @@ function extractFragmentWithAllocator(
   const suggestionRecords: SuggestionRecord[] = [];
 
   collectFromAncestor(
-    state,
+    document,
     startCtx,
     startPos.blockId,
     startPos.offset,
@@ -206,8 +206,8 @@ function extractFragmentWithAllocator(
   }
 
   // 6. Strip copy:"drop" marks and every break-suggestion tag (a copied suggested
-  // boundary pastes as a real break), then build and return the fragment State.
-  const registry = attrRegistryOf(state[STATE_INTERNAL].doc);
+  // boundary pastes as a real break), then build and return the fragment Document.
+  const registry = attrRegistryOf(document[DOCUMENT_INTERNAL].doc);
   const drop = registry?.hasCopyDropMarks() === true ? (key: string) => registry.dropsOnCopy(key) : null;
   const covered =
     deletion?.removed ??
@@ -216,9 +216,9 @@ function extractFragmentWithAllocator(
       return { items, from: 0, to: inlineContentLength({ items }) };
     }));
   const clean = (b: Block): Block => withoutUncoveredBookmarks(withoutBreakTags(drop === null ? b : stripInlineAttrs(b, drop)), covered);
-  return buildStateFromBlocks({
+  return buildDocumentFromBlocks({
     // The fragment stores its blocks by the source document's taxonomy.
-    resolver: storageResolverOf(state[STATE_INTERNAL].doc),
+    resolver: storageResolverOf(document[DOCUMENT_INTERNAL].doc),
     rootId,
     blocks: allBlocks.map(clean),
     embedContents: allEmbedContents.map(clean),
@@ -254,7 +254,7 @@ type TopLevelEntry =
  * (endBlockId, endOffset). Results are appended to the collection arrays.
  */
 function collectFromAncestor(
-  state: Document,
+  document: Document,
   ancestorId: BlockId,
   startBlockId: BlockId,
   startOffset: number,
@@ -267,7 +267,7 @@ function collectFromAncestor(
   seenSuggestionIds: Set<string>,
   suggestionRecords: SuggestionRecord[],
 ): void {
-  const ancestor = requireBlock(state, ancestorId);
+  const ancestor = requireBlock(document, ancestorId);
 
   // Leaf ancestor: a partial-container recursion can resolve to a single leaf
   // (e.g. a cross-cell span whose innerLca on one side is the spanned cell's
@@ -282,9 +282,9 @@ function collectFromAncestor(
         ? endOffset
         : inlineContentLength(ancestor.inlineContent);
       const items = sliceInlineContent(ancestor.inlineContent, sliceStart, sliceEnd);
-      collectSuggestionsFromItems(items, state, seenSuggestionIds, suggestionRecords);
-      collectEmbedContentsFromItems(items, state, allEmbedContents);
-      collectListDefsFromBlock(ancestor, state, listDefs);
+      collectSuggestionsFromItems(items, document, seenSuggestionIds, suggestionRecords);
+      collectEmbedContentsFromItems(items, document, allEmbedContents);
+      collectListDefsFromBlock(ancestor, document, listDefs);
       const newId = alloc.allocate();
       topLevelEntries.push({ kind: "partial", rootId: newId, block: buildPartialLeaf(newId, ancestor, items) });
     }
@@ -293,10 +293,10 @@ function collectFromAncestor(
 
   let cur: BlockId | null = ancestor.firstChildId;
   while (cur !== null) {
-    const child = requireBlock(state, cur);
+    const child = requireBlock(document, cur);
 
-    const childContainsStart = subtreeContainsBlock(state, cur, startBlockId);
-    const childContainsEnd = subtreeContainsBlock(state, cur, endBlockId);
+    const childContainsStart = subtreeContainsBlock(document, cur, startBlockId);
+    const childContainsEnd = subtreeContainsBlock(document, cur, endBlockId);
 
     if (childContainsStart && childContainsEnd) {
       // Both endpoints inside this child's subtree.
@@ -306,9 +306,9 @@ function collectFromAncestor(
           // Check if the leaf is fully covered (no trimming needed) → could
           // still be a partial clone, but since it's a leaf, we always trim.
           const items = sliceInlineContent(child.inlineContent, startOffset, endOffset);
-          collectSuggestionsFromItems(items, state, seenSuggestionIds, suggestionRecords);
-          collectEmbedContentsFromItems(items, state, allEmbedContents);
-          collectListDefsFromBlock(child, state, listDefs);
+          collectSuggestionsFromItems(items, document, seenSuggestionIds, suggestionRecords);
+          collectEmbedContentsFromItems(items, document, allEmbedContents);
+          collectListDefsFromBlock(child, document, listDefs);
           const newId = alloc.allocate();
           topLevelEntries.push({ kind: "partial", rootId: newId, block: buildPartialLeaf(newId, child, items) });
         }
@@ -318,7 +318,7 @@ function collectFromAncestor(
         // the ¶" — Word: selecting a cell's text copies the text, not the table).
         // Recurse to extract the covered sub-range.
         collectFromAncestor(
-          state,
+          document,
           cur,
           startBlockId,
           startOffset,
@@ -339,7 +339,7 @@ function collectFromAncestor(
       // The span starts or ends AT an object, (obj, 0) — `isObjectBlock` — and runs
       // past it on the other side: it covers the whole unit (Word: the picture's
       // [i, i+1]). Clone it whole.
-      cloneSubtreeInto(state, cur, alloc, topLevelEntries, allEmbedContents, seenSuggestionIds, suggestionRecords, listDefs);
+      cloneSubtreeInto(document, cur, alloc, topLevelEntries, allEmbedContents, seenSuggestionIds, suggestionRecords, listDefs);
     } else if (childContainsStart) {
       // Span starts inside this child, exits through right side.
       if (child.firstChildId === null) {
@@ -347,25 +347,25 @@ function collectFromAncestor(
         if (child.inlineContent !== null) {
           const endOfBlock = inlineContentLength(child.inlineContent);
           const items = sliceInlineContent(child.inlineContent, startOffset, endOfBlock);
-          collectSuggestionsFromItems(items, state, seenSuggestionIds, suggestionRecords);
-          collectEmbedContentsFromItems(items, state, allEmbedContents);
-          collectListDefsFromBlock(child, state, listDefs);
+          collectSuggestionsFromItems(items, document, seenSuggestionIds, suggestionRecords);
+          collectEmbedContentsFromItems(items, document, allEmbedContents);
+          collectListDefsFromBlock(child, document, listDefs);
           const newId = alloc.allocate();
           topLevelEntries.push({ kind: "partial", rootId: newId, block: buildPartialLeaf(newId, child, items) });
         }
       } else {
         // Partially-overlapped container: span starts inside, exits right.
         // Recurse with (startBlockId, startOffset) to (last leaf, end-of-leaf).
-        const lastLeafId = findLastLeaf(state, cur);
+        const lastLeafId = findLastLeaf(document, cur);
         if (lastLeafId !== null) {
-          const lastLeaf = requireBlock(state, lastLeafId);
+          const lastLeaf = requireBlock(document, lastLeafId);
           const lastLeafLen = lastLeaf.inlineContent !== null
             ? inlineContentLength(lastLeaf.inlineContent)
             : 0;
-          const innerLca = findLca(state, startBlockId, lastLeafId);
+          const innerLca = findLca(document, startBlockId, lastLeafId);
           if (innerLca !== null) {
             collectFromAncestor(
-              state,
+              document,
               innerLca,
               startBlockId,
               startOffset,
@@ -387,20 +387,20 @@ function collectFromAncestor(
         // Leaf: trim end, take from start of block.
         if (child.inlineContent !== null) {
           const items = sliceInlineContent(child.inlineContent, 0, endOffset);
-          collectSuggestionsFromItems(items, state, seenSuggestionIds, suggestionRecords);
-          collectEmbedContentsFromItems(items, state, allEmbedContents);
-          collectListDefsFromBlock(child, state, listDefs);
+          collectSuggestionsFromItems(items, document, seenSuggestionIds, suggestionRecords);
+          collectEmbedContentsFromItems(items, document, allEmbedContents);
+          collectListDefsFromBlock(child, document, listDefs);
           const newId = alloc.allocate();
           topLevelEntries.push({ kind: "partial", rootId: newId, block: buildPartialLeaf(newId, child, items) });
         }
       } else {
         // Partially-overlapped container: span enters from left, ends inside.
-        const firstLeafId = findFirstLeaf(state, cur);
+        const firstLeafId = findFirstLeaf(document, cur);
         if (firstLeafId !== null) {
-          const innerLca = findLca(state, firstLeafId, endBlockId);
+          const innerLca = findLca(document, firstLeafId, endBlockId);
           if (innerLca !== null) {
             collectFromAncestor(
-              state,
+              document,
               innerLca,
               firstLeafId,
               0,
@@ -431,13 +431,13 @@ function collectFromAncestor(
       // If yes to both → cur is between start and end → fully inside → clone.
       // Otherwise → outside span → skip.
 
-      const startAncestors = new Set(ancestorChain(state, startBlockId));
-      const endAncestors = new Set(ancestorChain(state, endBlockId));
+      const startAncestors = new Set(ancestorChain(document, startBlockId));
+      const endAncestors = new Set(ancestorChain(document, endBlockId));
 
       // Find the LCA's child that contains startBlock.
-      const startSibling = findChildOfAncestor(state, ancestorId, startBlockId, startAncestors);
+      const startSibling = findChildOfAncestor(document, ancestorId, startBlockId, startAncestors);
       // Find the LCA's child that contains endBlock.
-      const endSibling = findChildOfAncestor(state, ancestorId, endBlockId, endAncestors);
+      const endSibling = findChildOfAncestor(document, ancestorId, endBlockId, endAncestors);
 
       // cur is between startSibling and endSibling if cur !== startSibling && cur !== endSibling
       // and cur comes after startSibling and before endSibling in document order.
@@ -445,19 +445,19 @@ function collectFromAncestor(
         // Verify that cur is actually between them (after start, before end).
         // We know startSibling < endSibling in doc order (span is normalized).
         // cur must be > startSibling and < endSibling.
-        const afterStart = isAfterInSiblingChain(state, cur, startSibling, ancestorId);
-        const beforeEnd = isBeforeInSiblingChain(state, cur, endSibling, ancestorId);
+        const afterStart = isAfterInSiblingChain(document, cur, startSibling, ancestorId);
+        const beforeEnd = isBeforeInSiblingChain(document, cur, endSibling, ancestorId);
         if (afterStart && beforeEnd) {
-          const first = child.type === "section" ? findFirstLeaf(state, cur) : null;
-          const last = child.type === "section" ? findLastLeaf(state, cur) : null;
+          const first = child.type === "section" ? findFirstLeaf(document, cur) : null;
+          const last = child.type === "section" ? findLastLeaf(document, cur) : null;
           if (first !== null && last !== null) {
             // A section is not copied (a fragment is section-free): its blocks are.
-            const lastBlock = requireBlock(state, last);
+            const lastBlock = requireBlock(document, last);
             const lastLen = lastBlock.inlineContent === null ? 0 : inlineContentLength(lastBlock.inlineContent);
-            collectFromAncestor(state, cur, first, 0, last, lastLen, alloc, topLevelEntries, allEmbedContents, listDefs, seenSuggestionIds, suggestionRecords);
+            collectFromAncestor(document, cur, first, 0, last, lastLen, alloc, topLevelEntries, allEmbedContents, listDefs, seenSuggestionIds, suggestionRecords);
           } else {
             // Fully inside the span: clone the whole subtree.
-            cloneSubtreeInto(state, cur, alloc, topLevelEntries, allEmbedContents, seenSuggestionIds, suggestionRecords, listDefs);
+            cloneSubtreeInto(document, cur, alloc, topLevelEntries, allEmbedContents, seenSuggestionIds, suggestionRecords, listDefs);
           }
         }
         // else: fully outside span (before start or after end) → skip.
@@ -473,7 +473,7 @@ function collectFromAncestor(
  * Used for fully-covered subtrees (containers or leaves).
  */
 function cloneSubtreeInto(
-  state: Document,
+  document: Document,
   subtreeId: BlockId,
   alloc: IdAllocator,
   topLevelEntries: TopLevelEntry[],
@@ -482,7 +482,7 @@ function cloneSubtreeInto(
   suggestionRecords: SuggestionRecord[],
   listDefs: Record<string, ListDef>,
 ): void {
-  const cloned = clonePastedSubtree(state, subtreeId, alloc, state, false);
+  const cloned = clonePastedSubtree(document, subtreeId, alloc, document, false);
   for (const block of cloned.embedContents.values()) {
     allEmbedContents.push(block);
   }
@@ -490,12 +490,12 @@ function cloneSubtreeInto(
     if (block.inlineContent) {
       collectSuggestionsFromItems(
         [...block.inlineContent.items],
-        state,
+        document,
         seenSuggestionIds,
         suggestionRecords,
       );
     }
-    collectListDefsFromBlockSnapshot(block, state, listDefs);
+    collectListDefsFromBlockSnapshot(block, document, listDefs);
   }
   topLevelEntries.push({
     kind: "clone",
@@ -506,8 +506,8 @@ function cloneSubtreeInto(
 
 // ─── Utility helpers ─────────────────────────────────────────────────────────
 
-function requireBlock(state: Document, id: BlockId): Block {
-  const block = resolveBlock(state, id)?.block ?? null;
+function requireBlock(document: Document, id: BlockId): Block {
+  const block = resolveBlock(document, id)?.block ?? null;
   if (block === null) {
     throw new Error(`extractFragment: block "${id}" not found`);
   }
@@ -518,10 +518,10 @@ function requireBlock(state: Document, id: BlockId): Block {
  * Find the LCA of two blocks in any tree (main, embed, template). Returns the
  * block's own id if they are the same block. Returns null if no common ancestor.
  */
-function findLca(state: Document, idA: BlockId, idB: BlockId): BlockId | null {
+function findLca(document: Document, idA: BlockId, idB: BlockId): BlockId | null {
   if (idA === idB) return idA;
-  const chainA = ancestorChain(state, idA); // [idA, parent, ..., root]
-  const chainB = ancestorChain(state, idB);
+  const chainA = ancestorChain(document, idA); // [idA, parent, ..., root]
+  const chainB = ancestorChain(document, idB);
   if (chainA.length === 0 || chainB.length === 0) return null;
   const setA = new Set(chainA);
   for (const id of chainB) {
@@ -534,9 +534,9 @@ function findLca(state: Document, idA: BlockId, idB: BlockId): BlockId | null {
  * True iff the subtree rooted at `subtreeId` contains `targetId` (i.e. `targetId`
  * is an ancestor-or-self of `subtreeId`'s subtree). Uses the ancestor chain.
  */
-function subtreeContainsBlock(state: Document, subtreeId: BlockId, targetId: BlockId): boolean {
+function subtreeContainsBlock(document: Document, subtreeId: BlockId, targetId: BlockId): boolean {
   if (subtreeId === targetId) return true;
-  const chain = ancestorChain(state, targetId);
+  const chain = ancestorChain(document, targetId);
   return chain.includes(subtreeId);
 }
 
@@ -545,17 +545,17 @@ function subtreeContainsBlock(state: Document, subtreeId: BlockId, targetId: Blo
  * Returns null if targetId is not in ancestorId's subtree.
  */
 function findChildOfAncestor(
-  state: Document,
+  document: Document,
   ancestorId: BlockId,
   targetId: BlockId,
   targetAncestors?: Set<BlockId>,
 ): BlockId | null {
-  const ancestors = targetAncestors ?? new Set(ancestorChain(state, targetId));
-  const ancestor = requireBlock(state, ancestorId);
+  const ancestors = targetAncestors ?? new Set(ancestorChain(document, targetId));
+  const ancestor = requireBlock(document, ancestorId);
   let cur: BlockId | null = ancestor.firstChildId;
   while (cur !== null) {
     if (cur === targetId || ancestors.has(cur)) return cur;
-    const child = resolveBlock(state, cur)?.block ?? null;
+    const child = resolveBlock(document, cur)?.block ?? null;
     cur = child?.nextSiblingId ?? null;
   }
   return null;
@@ -566,18 +566,18 @@ function findChildOfAncestor(
  * under `parentId`. Both must be direct children of `parentId`.
  */
 function isAfterInSiblingChain(
-  state: Document,
+  document: Document,
   curId: BlockId,
   referenceId: BlockId,
   parentId: BlockId,
 ): boolean {
-  const parent = requireBlock(state, parentId);
+  const parent = requireBlock(document, parentId);
   let found = false;
   let sib: BlockId | null = parent.firstChildId;
   while (sib !== null) {
     if (sib === referenceId) found = true;
     if (sib === curId) return found && sib !== referenceId;
-    const block = resolveBlock(state, sib)?.block ?? null;
+    const block = resolveBlock(document, sib)?.block ?? null;
     sib = block?.nextSiblingId ?? null;
   }
   return false;
@@ -588,17 +588,17 @@ function isAfterInSiblingChain(
  * under `parentId`.
  */
 function isBeforeInSiblingChain(
-  state: Document,
+  document: Document,
   curId: BlockId,
   referenceId: BlockId,
   parentId: BlockId,
 ): boolean {
-  const parent = requireBlock(state, parentId);
+  const parent = requireBlock(document, parentId);
   let sib: BlockId | null = parent.firstChildId;
   while (sib !== null) {
     if (sib === curId) return true;
     if (sib === referenceId) return false;
-    const block = resolveBlock(state, sib)?.block ?? null;
+    const block = resolveBlock(document, sib)?.block ?? null;
     sib = block?.nextSiblingId ?? null;
   }
   return false;
@@ -611,18 +611,18 @@ function isBeforeInSiblingChain(
  * overflow, matching `selectionContextOf` / `nextBlockInDocOrder`. A silent
  * wrong-leaf return would corrupt the extracted fragment's range.
  */
-function findFirstLeaf(state: Document, rootId: BlockId): BlockId | null {
-  const start = resolveBlock(state, rootId)?.block ?? null;
+function findFirstLeaf(document: Document, rootId: BlockId): BlockId | null {
+  const start = resolveBlock(document, rootId)?.block ?? null;
   if (start === null) return null;
   let cur: Block = start;
-  const maxSteps = blockCount(state) + 1;
+  const maxSteps = blockCount(document) + 1;
   let steps = 0;
   while (cur.firstChildId !== null) {
     if (++steps > maxSteps) {
       throw new Error(`extractFragment: cycle detected walking firstChild from "${rootId}" (visited >${maxSteps} blocks)`);
     }
     const firstChildId: BlockId = cur.firstChildId;
-    const next = resolveBlock(state, firstChildId)?.block ?? null;
+    const next = resolveBlock(document, firstChildId)?.block ?? null;
     if (next === null) return cur.id;
     cur = next;
   }
@@ -633,18 +633,18 @@ function findFirstLeaf(state: Document, rootId: BlockId): BlockId | null {
  * Walk via lastChildId until we reach a leaf (no lastChildId → no children).
  * Same `blockCount`-bounded, throw-on-overflow cycle guard as `findFirstLeaf`.
  */
-function findLastLeaf(state: Document, rootId: BlockId): BlockId | null {
-  const start = resolveBlock(state, rootId)?.block ?? null;
+function findLastLeaf(document: Document, rootId: BlockId): BlockId | null {
+  const start = resolveBlock(document, rootId)?.block ?? null;
   if (start === null) return null;
   let cur: Block = start;
-  const maxSteps = blockCount(state) + 1;
+  const maxSteps = blockCount(document) + 1;
   let steps = 0;
   while (cur.lastChildId !== null) {
     if (++steps > maxSteps) {
       throw new Error(`extractFragment: cycle detected walking lastChild from "${rootId}" (visited >${maxSteps} blocks)`);
     }
     const lastChildId: BlockId = cur.lastChildId;
-    const next = resolveBlock(state, lastChildId)?.block ?? null;
+    const next = resolveBlock(document, lastChildId)?.block ?? null;
     if (next === null) return cur.id;
     cur = next;
   }
@@ -717,21 +717,21 @@ function buildDocumentRoot(rootId: BlockId, entries: TopLevelEntry[]): Block {
  */
 function collectEmbedContentsFromItems(
   items: readonly InlineItem[],
-  state: Document,
+  document: Document,
   out: Block[],
 ): void {
   const visited = new Set<BlockId>();
   function visit(id: BlockId): void {
     if (visited.has(id)) return;
     visited.add(id);
-    const block = getEmbedContent(state, id);
+    const block = getEmbedContent(document, id);
     if (block === null) return;
     out.push(block);
     // Walk children.
     let cur: BlockId | null = block.firstChildId;
     while (cur !== null) {
       visit(cur);
-      const child = getEmbedContent(state, cur);
+      const child = getEmbedContent(document, cur);
       cur = child?.nextSiblingId ?? null;
     }
     // Walk nested embed-content references.
@@ -764,7 +764,7 @@ function collectEmbedContentsFromItems(
  */
 function collectSuggestionsFromItems(
   items: readonly InlineItem[],
-  state: Document,
+  document: Document,
   seen: Set<string>,
   out: SuggestionRecord[],
 ): void {
@@ -772,7 +772,7 @@ function collectSuggestionsFromItems(
     for (const id of suggestionIdsOnItem(item)) {
       if (seen.has(id)) continue;
       seen.add(id);
-      const record = readSuggestionRecordFromState(state, id);
+      const record = readSuggestionRecordFromDocument(document, id);
       if (record !== null) out.push(record);
     }
   }
@@ -781,12 +781,12 @@ function collectSuggestionsFromItems(
 /** Collect the listDef for a block if it has a `listId` attr. */
 function collectListDefsFromBlock(
   block: Block,
-  state: Document,
+  document: Document,
   out: Record<string, ListDef>,
 ): void {
   const listId = block.attrs["listId"];
   if (typeof listId !== "string" || listId in out) return;
-  const defs = getListDefsForState(state);
+  const defs = getListDefsForDocument(document);
   const def = defs.get(listId);
   if (def !== undefined) out[listId] = def;
 }
@@ -794,8 +794,8 @@ function collectListDefsFromBlock(
 /** Like collectListDefsFromBlock but takes a Block snapshot (already have it). */
 function collectListDefsFromBlockSnapshot(
   block: Block,
-  state: Document,
+  document: Document,
   out: Record<string, ListDef>,
 ): void {
-  collectListDefsFromBlock(block, state, out);
+  collectListDefsFromBlock(block, document, out);
 }

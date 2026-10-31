@@ -6,8 +6,8 @@
  *   - `replaceObjectWithText` — replace the image by typed text in ONE undo entry.
  *   - `moveOffObject` — a pure selection move off the object (no edit, no undo).
  *
- * Fixtures are built at the STATE layer (`buildState`) and wrapped into a real
- * Y.Doc-backed `EditorState` (`createEditorStateFromState`) so ops + History +
+ * Fixtures are built at the STATE layer (`buildDocument`) and wrapped into a real
+ * Y.Doc-backed `EditorState` (`createEditorStateFromDocument`) so ops + History +
  * undo run end-to-end. Three doc shapes:
  *   - standard:    [para "above"] [image] [trailing para]
  *   - image-last:  [para "above"] [image]
@@ -21,15 +21,15 @@ import {
   inlineContentLength,
   asBlockId,
 } from "../../state";
-import type { BlockId, Selection, State } from "../../state";
+import type { BlockId, Selection, Document } from "../../state";
 import { isObjectSelection } from "../../cursor/object-selection";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
-} from "../../test-utils/state-builders";
-import { createEditorStateFromState } from "../editor-state";
+} from "../../test-utils/document-builders";
+import { createEditorStateFromDocument } from "../editor-state";
 import type { EditorState } from "../editor-state";
 import { applyEdit } from "../edit";
 import { config, componentRegistry, reduceEditor } from "./test-helpers";
@@ -46,15 +46,15 @@ function objectSelection(): Selection {
   return createSpan(createPosition(IMAGE_ID, 0), createPosition(IMAGE_ID, 0));
 }
 
-function editorFrom(state: State): EditorState {
-  const editor = createEditorStateFromState(state, objectSelection(), config);
+function editorFrom(document: Document): EditorState {
+  const editor = createEditorStateFromDocument(document, objectSelection(), config);
   expect(isObjectSelection(editor.document, editor.selection, componentRegistry)).toBe(IMAGE_ID);
   return editor;
 }
 
 /** [para "above"] [image] [trailing para] */
-function standardDoc(): State {
-  return buildState({
+function standardDoc(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "para", lastChildId: "trailing" }),
@@ -85,8 +85,8 @@ function standardDoc(): State {
 }
 
 /** [para "above"] [image] — the image is the LAST block. */
-function imageLastDoc(): State {
-  return buildState({
+function imageLastDoc(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "para", lastChildId: "image" }),
@@ -109,8 +109,8 @@ function imageLastDoc(): State {
 }
 
 /** [image] — the image is the ONLY content block. */
-function imageOnlyDoc(): State {
-  return buildState({
+function imageOnlyDoc(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "image", lastChildId: "image" }),
@@ -119,14 +119,14 @@ function imageOnlyDoc(): State {
   });
 }
 
-function blockLength(state: State, id: BlockId): number {
-  const b = getBlock(state, id);
+function blockLength(document: Document, id: BlockId): number {
+  const b = getBlock(document, id);
   if (b === null || b.inlineContent === null) return 0;
   return inlineContentLength(b.inlineContent);
 }
 
-function textOf(state: State, id: BlockId): string {
-  const b = getBlock(state, id);
+function textOf(document: Document, id: BlockId): string {
+  const b = getBlock(document, id);
   return (b?.inlineContent?.items ?? [])
     .map((it) => (it.kind === "text" ? it.text : ""))
     .join("");

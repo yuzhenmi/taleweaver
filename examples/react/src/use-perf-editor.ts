@@ -20,7 +20,7 @@ import { useReducer, useRef, useEffect, useCallback } from "react";
 //   __twPerf.timeKeystrokes(N, "x")
 //     → dispatches N INSERT_TEXT actions, returns
 //       { totalMs, avgMs, medianMs, maxMs, samples }.
-//   __twPerf.state            → the current EditorState.
+//   __twPerf.document            → the current EditorState.
 //   __twPerf.dispatch(action) → fire any EditorAction.
 interface PerfHandle {
   state: EditorState;
@@ -53,8 +53,8 @@ declare global {
 import {
   createDefaultComponentRegistry,
   reduceEditor,
-  createEditorStateFromState,
-  initialSelectionForState,
+  createEditorStateFromDocument,
+  initialSelectionForDocument,
   setPerfTraceEnabled,
   resetPerfTrace,
   report as perfReport,
@@ -63,7 +63,7 @@ import {
   type EditorConfig,
   type EditorExtensions,
   type PageConfig,
-  type State,
+  type Document,
   type TextShaper,
   type Hyphenator,
 } from "@taleweaver/core";
@@ -126,7 +126,7 @@ export interface UsePerfEditorResult {
   focus: () => void;
   isPerfFixture: boolean;
   /** The live core `Document` — read at a tab-bar switch to hand off the document. */
-  getState: () => State;
+  getDocument: () => Document;
 }
 
 /**
@@ -134,7 +134,7 @@ export interface UsePerfEditorResult {
  * `?perfFixture=N` in the URL on mount and, if present, replaces the empty
  * initial state with the N-paragraph synthetic fixture.
  */
-export function usePerfEditor(initialState?: State, extensions?: EditorExtensions): UsePerfEditorResult {
+export function usePerfEditor(initialDocument?: Document, extensions?: EditorExtensions): UsePerfEditorResult {
   const configRef = useRef<EditorConfig | null>(null);
   if (configRef.current === null) {
     configRef.current = createConfig(extensions);
@@ -159,8 +159,8 @@ export function usePerfEditor(initialState?: State, extensions?: EditorExtension
   // Use the lazy-initializer form of useReducer so the initial state is only
   // computed once. Priority: an explicit hand-off `seed` (tab-bar switch carries
   // the live document over) → a perf fixture (`?perfFixture=N`) → the fairytale.
-  const initialArg: { config: EditorConfig; fixture: EditorState | null; seed: State | null } =
-    useRef({ config, fixture: fixtureState, seed: initialState ?? null }).current;
+  const initialArg: { config: EditorConfig; fixture: EditorState | null; seed: Document | null } =
+    useRef({ config, fixture: fixtureState, seed: initialDocument ?? null }).current;
 
   const [editorState, dispatch] = useReducer(
     (state: EditorState, action: EditorAction) =>
@@ -168,7 +168,7 @@ export function usePerfEditor(initialState?: State, extensions?: EditorExtension
     initialArg,
     ({ config: cfg, fixture, seed }) =>
       seed !== null
-        ? createEditorStateFromState(seed, initialSelectionForState(seed), cfg)
+        ? createEditorStateFromDocument(seed, initialSelectionForDocument(seed), cfg)
         : fixture !== null
           ? fixture
           : loadFairytale(cfg),
@@ -320,7 +320,7 @@ export function usePerfEditor(initialState?: State, extensions?: EditorExtension
 
   // Reads the live state via the always-current `latestState` ref so a tab-bar
   // switch hands off the latest document, not a render-time snapshot.
-  const getState = useCallback(() => latestState.current.document, []);
+  const getDocument = useCallback(() => latestState.current.document, []);
 
   return {
     editorState,
@@ -330,6 +330,6 @@ export function usePerfEditor(initialState?: State, extensions?: EditorExtension
     hyphenator: geometry.hyphenator,
     focus,
     isPerfFixture: fixtureState !== null,
-    getState,
+    getDocument,
   };
 }

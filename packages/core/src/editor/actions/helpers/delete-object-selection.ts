@@ -2,7 +2,7 @@ import type { EditorState } from "../../editor-state";
 import type { Edit } from "../../edit";
 import { getBlock, createPosition, createSpan, deleteTable } from "../../../state";
 import type { BlockId, Position } from "../../../state";
-import { contentLengthForState } from "./content-length-for-state";
+import { contentLengthForDocument } from "./content-length-for-document";
 
 /**
  * Delete the selected object as a unit (Google Docs: Backspace/Delete on a
@@ -28,7 +28,7 @@ export function deleteObjectSelection(
   const prevSiblingId = obj.prevSiblingId;
 
   const result = deleteTable(editor.document, objId);
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
 
   const caret = caretAfterObjectDelete(
     editor,
@@ -54,7 +54,7 @@ function caretAfterObjectDelete(
     return createPosition(nextSiblingId, 0);
   }
   if (prevSiblingId !== null) {
-    return createPosition(prevSiblingId, contentLengthForState(editor.document, prevSiblingId));
+    return createPosition(prevSiblingId, contentLengthForDocument(editor.document, prevSiblingId));
   }
   return null;
 }

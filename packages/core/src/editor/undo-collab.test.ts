@@ -7,23 +7,23 @@
  *     it to the block that now holds its character, and a stored selection whose
  *     block is gone falls back to the undo's own (rebased) caret.
  */
-import { TEST_RESOLVER } from "../test-utils/state-builders";
+import { TEST_RESOLVER } from "../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import {
   createInitialEditorState,
-  createEditorStateFromState,
+  createEditorStateFromDocument,
   reduceEditor,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   getYDoc,
   subscribeRemoteChanges,
-  createState,
+  createDocument,
   getBlock,
   createPosition,
   createSpan,
   extractText,
-  initialSelectionForState,
+  initialSelectionForDocument,
   type EditorAction,
   type EditorConfig,
   type EditorState,
@@ -57,8 +57,8 @@ function peers(text: string) {
   const docA = getYDoc(a.document);
   const docB = new Y.Doc();
   Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
-  const stateB = createState({ resolver: TEST_RESOLVER, rootId: a.document.rootId, doc: docB });
-  let b = createEditorStateFromState(stateB, initialSelectionForState(stateB), config);
+  const documentB = createDocument({ resolver: TEST_RESOLVER, rootId: a.document.rootId, doc: docB });
+  let b = createEditorStateFromDocument(documentB, initialSelectionForDocument(documentB), config);
   docA.on("update", (u: Uint8Array, origin: unknown) => {
     if (origin !== "sync") Y.applyUpdate(docB, u, "sync");
   });

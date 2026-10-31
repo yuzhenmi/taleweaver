@@ -39,7 +39,7 @@ export function handleSetImageAlt(
     blockId,
     incoming,
   );
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
 
   return { change: result };
 }

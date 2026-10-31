@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import { insertLineBreak, mintLineBreak, markDeletion, deleteRange, createPosition, createSpan, spanStart, spanEnd, clipSpanToText, resolveBlock } from "../../state";
-import type { BlockId, OperationResult, Position, State, ReplaceSuggestionInput } from "../../state";
+import type { BlockId, OperationResult, Position, Document, ReplaceSuggestionInput } from "../../state";
 import { blockAfter } from "../../cursor/paragraph-mark";
 import { isCollapsed } from "../../cursor/selection";
 import { isCrossContextSelection } from "./helpers/is-cross-context-selection";
@@ -23,21 +23,21 @@ export function handleInsertLineBreak(editor: EditorState): Edit | null {
   const { selection } = editor;
   const input = replaceSuggestionInputForBlock(editor, spanStart(editor.document, selection).blockId);
   if (input !== null) return suggestLineBreak(editor, input);
-  let state: State = editor.document;
+  let document: Document = editor.document;
   let at = selection.focus;
   const dirtyIds = new Set<BlockId>();
   if (!isCollapsed(selection)) {
-    if (isCrossContextSelection(state, selection)) return null;
-    const start = expandedSpanCollapsePoint(state, selection);
+    if (isCrossContextSelection(document, selection)) return null;
+    const start = expandedSpanCollapsePoint(document, selection);
     if (start === null) return null;
-    const r = deleteRange(state, selection);
-    state = r.state;
+    const r = deleteRange(document, selection);
+    document = r.document;
     for (const id of r.dirtyIds) dirtyIds.add(id);
     at = start;
   }
-  const r = insertLineBreak(state, at);
+  const r = insertLineBreak(document, at);
   for (const id of r.dirtyIds) dirtyIds.add(id);
-  const result: OperationResult = { state: r.state, dirtyIds };
+  const result: OperationResult = { document: r.document, dirtyIds };
   return caretEdit(result, createPosition(at.blockId, at.offset + 1));
 }
 
@@ -59,15 +59,15 @@ function suggestLineBreak(editor: EditorState, input: ReplaceSuggestionInput): E
   const meta = { author: input.author, createdAt: input.createdAt, order: input.order };
   const ins = mintLineBreak(editor.document, start, { ...meta, id: input.insertionId });
   const dirtyIds = new Set<BlockId>(ins.dirtyIds);
-  let state = ins.state;
-  const startBlock = resolveBlock(state, start.blockId)?.block ?? null;
-  const survivor = startBlock === null ? null : (blockAfter(state, startBlock)?.block.id ?? null);
+  let document = ins.document;
+  const startBlock = resolveBlock(document, start.blockId)?.block ?? null;
+  const survivor = startBlock === null ? null : (blockAfter(document, startBlock)?.block.id ?? null);
   if (!isCollapsed(selection)) {
     const shift = (p: Position): Position => (p.blockId === start.blockId ? createPosition(p.blockId, p.offset + 1) : p);
-    const struck = markDeletion(state, createSpan(shift(spanFrom), shift(spanTo)), { ...meta, id: input.deletionId });
-    state = struck.state;
+    const struck = markDeletion(document, createSpan(shift(spanFrom), shift(spanTo)), { ...meta, id: input.deletionId });
+    document = struck.document;
     for (const id of struck.dirtyIds) dirtyIds.add(id);
   }
-  const caretBlock = resolveBlock(state, start.blockId) !== null || survivor === null ? start.blockId : survivor;
-  return caretEdit({ state, dirtyIds }, createPosition(caretBlock, start.offset + 1));
+  const caretBlock = resolveBlock(document, start.blockId) !== null || survivor === null ? start.blockId : survivor;
+  return caretEdit({ document, dirtyIds }, createPosition(caretBlock, start.offset + 1));
 }

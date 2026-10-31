@@ -43,7 +43,7 @@ export function handleSetImageSize(
     blockId,
     { width, height },
   );
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
 
   return { change: result };
 }

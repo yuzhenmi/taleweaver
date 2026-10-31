@@ -21,10 +21,10 @@ import {
   firstChildId,
   createPosition,
 } from "./test-helpers";
-import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { createEditorStateFromDocument, type EditorState } from "../editor-state";
 import { getBlock } from "../../state";
-import type { State, BlockId } from "../../state";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import type { Document, BlockId } from "../../state";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 import { render } from "../../render/render";
 import { cascadePass } from "../../cascade";
 import { layoutTree } from "@taleweaver/print";
@@ -38,8 +38,8 @@ import { getLineIndex } from "@taleweaver/print";
  * pipeline directly over `editor.document` (all barrel-exported from core), exactly
  * what the backend driver does. The state/selection assertions stay on `editor`.
  */
-function layoutOf(state: State): LayoutBox {
-  const rendered = render(state, config.componentRegistry, config.attrRegistry);
+function layoutOf(document: Document): LayoutBox {
+  const rendered = render(document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   const tree = layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
   if (tree.type === "virtual-root") {
@@ -108,7 +108,7 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
     // (container) whose list-item is a leaf, then a trailing paragraph. A span
     // from p0 → p2 covers p0 (leaf), the section (container), the list
     // (container), the list-item (leaf), and p2 (leaf).
-    const initialState = buildState({
+    const initialDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: "p2" }),
@@ -144,7 +144,7 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
         }),
       ],
     });
-    const editor: EditorState = createEditorStateFromState(initialState, {
+    const editor: EditorState = createEditorStateFromDocument(initialDocument, {
         anchor: createPosition("p0" as BlockId, 0),
         focus: createPosition("p2" as BlockId, 2),
       }, config);
@@ -190,10 +190,10 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
 
     const again = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
 
-    // No commit, no state change (the identity-no-op contract): the `state` is the SAME
+    // No commit, no state change (the identity-no-op contract): the `document` is the SAME
     // reference. Phase 0b: the reducer entry-clears `lastDirtyIds` to null at the
     // start of every dispatch, so a no-op AFTER a mutating action returns a new
-    // top-level object (lastDirtyIds null) — but the underlying `state` is
+    // top-level object (lastDirtyIds null) — but the underlying `document` is
     // untouched, which is the actual no-op contract the driver keys off.
     expect(again.document).toBe(editor.document);
     expect(again.lastDirtyIds).toBeNull();

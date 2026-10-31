@@ -21,12 +21,12 @@ import type { RenderNode, ElementBox, TextBox } from "./render-node";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
   embed,
-} from "../test-utils/state-builders";
+} from "../test-utils/document-builders";
 import {
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
@@ -36,7 +36,7 @@ import {
   createTestAllocator,
   createPosition,
 } from "../state";
-import type { BlockId, SuggestionId, SuggestionRecord, State } from "../state";
+import type { BlockId, SuggestionId, SuggestionRecord, Document } from "../state";
 import { applyOperation, acceptSuggestion } from "../state";
 // `writeSuggestionRecordInTx` is intra-state (not re-exported from the barrel),
 // imported directly to seed records — mirrors suggestion-ops.test.ts.
@@ -72,8 +72,8 @@ function textBoxWith(root: RenderNode, t: string): TextBox {
 function buildDoc(
   items: ReturnType<typeof inlineContent>,
   records: readonly SuggestionRecord[],
-): State {
-  let state = buildState({
+): Document {
+  let document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -81,19 +81,19 @@ function buildDoc(
     ],
   });
   for (const record of records) {
-    state = applyOperation(state, (doc) => writeSuggestionRecordInTx(doc, record)).state;
+    document = applyOperation(document, (doc) => writeSuggestionRecordInTx(doc, record)).document;
   }
-  return state;
+  return document;
 }
 
 describe("expandInlineItems — suggestion visuals (slice 5a)", () => {
   it("insertion run gets author color + underline", () => {
     const id = "ins" as SuggestionId;
-    const state = buildDoc(
+    const document = buildDoc(
       inlineContent([text("inserted", { [INSERTION_SUGGESTION_ATTR]: id })]),
       [{ id, kind: "insertion", author: AUTHOR, createdAt: 0 }],
     );
-    const box = textBoxWith(render(state, reg, attrReg).root, "inserted");
+    const box = textBoxWith(render(document, reg, attrReg).root, "inserted");
     expect(box.style.underline).toBe(true);
     expect(box.style.color).toBe(authorColorOf(AUTHOR));
     expect(box.style.lineThrough).toBeUndefined();
@@ -101,11 +101,11 @@ describe("expandInlineItems — suggestion visuals (slice 5a)", () => {
 
   it("deletion run gets author color + lineThrough (still laid out)", () => {
     const id = "del" as SuggestionId;
-    const state = buildDoc(
+    const document = buildDoc(
       inlineContent([text("deleted", { [DELETION_SUGGESTION_ATTR]: id })]),
       [{ id, kind: "deletion", author: AUTHOR, createdAt: 0 }],
     );
-    const box = textBoxWith(render(state, reg, attrReg).root, "deleted");
+    const box = textBoxWith(render(document, reg, attrReg).root, "deleted");
     expect(box.style.lineThrough).toBe(true);
     expect(box.style.color).toBe(authorColorOf(AUTHOR));
     expect(box.style.underline).toBeUndefined();
@@ -114,14 +114,14 @@ describe("expandInlineItems — suggestion visuals (slice 5a)", () => {
   it("formatting run composites proposedAttrs + author-color underline indicator, live attrs unchanged", () => {
     const id = "fmt" as SuggestionId;
     const proposedAttrs: ReadonlyAttrs = { bold: true };
-    const state = buildDoc(
+    const document = buildDoc(
       // The LIVE run carries italic; the proposal is to ALSO make it bold.
       inlineContent([
         text("formatted", { italic: true, [formattingSuggestionKey(id)]: true }),
       ]),
       [{ id, kind: "formatting", author: AUTHOR, createdAt: 0, proposedAttrs }],
     );
-    const box = textBoxWith(render(state, reg, attrReg).root, "formatted");
+    const box = textBoxWith(render(document, reg, attrReg).root, "formatted");
     // Proposed bold is SHOWN (composited as the preview).
     expect(box.style.fontWeight).toBe("bold");
     // Live italic is unchanged.
@@ -135,7 +135,7 @@ describe("expandInlineItems — suggestion visuals (slice 5a)", () => {
     const older = "fA" as SuggestionId;
     const newer = "fB" as SuggestionId;
     const gone = "fGone" as SuggestionId;
-    const state = buildDoc(
+    const document = buildDoc(
       inlineContent([
         text("stacked", {
           italic: true,
@@ -149,22 +149,22 @@ describe("expandInlineItems — suggestion visuals (slice 5a)", () => {
         { id: newer, kind: "formatting", author: "bob", createdAt: 2, proposedAttrs: { fontSize: 30, italic: undefined } },
       ],
     );
-    const box = textBoxWith(render(state, reg, attrReg).root, "stacked");
+    const box = textBoxWith(render(document, reg, attrReg).root, "stacked");
     expect(box.style.fontWeight).toBe("bold"); // older's bold
     expect(box.style.fontSize).toBe(30); // newer wins the conflicting key
     expect(box.style.fontStyle).toBeUndefined(); // newer proposes removing italic
     expect(box.style.color).toBe(authorColorOf("bob"));
     expect(box.style.underline).toBe(true);
     // "final" view = the same composite, without the indicator; "original" = live.
-    const final = textBoxWith(render(state, reg, attrReg, { suggestionView: "final" }).root, "stacked");
+    const final = textBoxWith(render(document, reg, attrReg, { suggestionView: "final" }).root, "stacked");
     expect([final.style.fontWeight, final.style.fontSize, final.style.underline]).toEqual(["bold", 30, undefined]);
-    const original = textBoxWith(render(state, reg, attrReg, { suggestionView: "original" }).root, "stacked");
+    const original = textBoxWith(render(document, reg, attrReg, { suggestionView: "original" }).root, "stacked");
     expect([original.style.fontWeight, original.style.fontStyle]).toEqual([undefined, "italic"]);
   });
 
   it("a visible embed tagged by a formatting suggestion gets the same composite + indicator; its final view equals accepting it", () => {
     const id = "fEmb" as SuggestionId;
-    const build = (): State =>
+    const build = (): Document =>
       buildDoc(
         inlineContent([text("x"), embed("tab", {}, { [formattingSuggestionKey(id)]: true }), text("y")]),
         [{ id, kind: "formatting", author: "bob", createdAt: 1, proposedAttrs: { bold: true } }],
@@ -184,7 +184,7 @@ describe("expandInlineItems — suggestion visuals (slice 5a)", () => {
     const suggesting = tabBox(render(build(), reg, attrReg).root).style;
     expect([suggesting.fontWeight, suggesting.underline, suggesting.color]).toEqual(["bold", true, authorColorOf("bob")]);
     const final = tabBox(render(build(), reg, attrReg, { suggestionView: "final" }).root).style;
-    const accepted = tabBox(render(acceptSuggestion(build(), id).state, reg, attrReg).root).style;
+    const accepted = tabBox(render(acceptSuggestion(build(), id).document, reg, attrReg).root).style;
     expect(final).toEqual(accepted);
     expect(final.fontWeight).toBe("bold");
   });
@@ -192,7 +192,7 @@ describe("expandInlineItems — suggestion visuals (slice 5a)", () => {
   it("nested insertion+deletion run gets author color + underline + lineThrough", () => {
     const insId = "ins" as SuggestionId;
     const delId = "del" as SuggestionId;
-    const state = buildDoc(
+    const document = buildDoc(
       inlineContent([
         text("nested", {
           [INSERTION_SUGGESTION_ATTR]: insId,
@@ -204,7 +204,7 @@ describe("expandInlineItems — suggestion visuals (slice 5a)", () => {
         { id: delId, kind: "deletion", author: AUTHOR, createdAt: 0 },
       ],
     );
-    const box = textBoxWith(render(state, reg, attrReg).root, "nested");
+    const box = textBoxWith(render(document, reg, attrReg).root, "nested");
     expect(box.style.underline).toBe(true);
     expect(box.style.lineThrough).toBe(true);
     expect(box.style.color).toBe(authorColorOf(AUTHOR));
@@ -226,18 +226,18 @@ describe("expandInlineItems — suggestion visuals (slice 5a)", () => {
 
 describe("expandInlineItems — link passthrough (#521)", () => {
   it("carries item.attrs.link onto the render TextBox", () => {
-    const state = buildDoc(
+    const document = buildDoc(
       inlineContent([text("click", { link: "https://x.com" })]),
       [],
     );
-    const box = textBoxWith(render(state, reg, attrReg).root, "click");
+    const box = textBoxWith(render(document, reg, attrReg).root, "click");
     expect(box.type).toBe("text");
     expect(box.link).toBe("https://x.com");
   });
 
   it("leaves link undefined on a TextBox built from an unlinked item", () => {
-    const state = buildDoc(inlineContent([text("plain")]), []);
-    const box = textBoxWith(render(state, reg, attrReg).root, "plain");
+    const document = buildDoc(inlineContent([text("plain")]), []);
+    const box = textBoxWith(render(document, reg, attrReg).root, "plain");
     expect(box.link).toBeUndefined();
   });
 });
@@ -281,18 +281,18 @@ function blockBox(root: RenderNode, id: string): ElementBox | null {
 
 
 /** doc > p("abc"), split (suggested, by AUTHOR) at offset 2 → head("ab", keyed ¶) | p("c"). */
-function buildSplitDoc(id: SuggestionId): { state: State; head: BlockId } {
+function buildSplitDoc(id: SuggestionId): { document: Document; head: BlockId } {
   const r = splitWithSuggestion(buildDoc(inlineContent([text("abc")]), []), createPosition("p" as BlockId, 2), createTestAllocator("n"), {
     id,
     author: AUTHOR,
     createdAt: 0,
   });
-  return { state: r.state, head: r.newBlockId };
+  return { document: r.document, head: r.newBlockId };
 }
 
 /** doc > p1("ab") | p2("c"), with ¶p1 suggested for deletion (by AUTHOR). */
-function buildJoinDoc(id: SuggestionId): State {
-  const base = buildState({
+function buildJoinDoc(id: SuggestionId): Document {
+  const base = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -300,12 +300,12 @@ function buildJoinDoc(id: SuggestionId): State {
       buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("c")]) }),
     ],
   });
-  return markParagraphMarkDeletion(base, "p1" as BlockId, { id, author: AUTHOR, createdAt: 0 }).state;
+  return markParagraphMarkDeletion(base, "p1" as BlockId, { id, author: AUTHOR, createdAt: 0 }).document;
 }
 
 /** doc > s1[a("A")] | s2[b("B")]: ¶a is the section-end item of s1. */
-function twoSections(): State {
-  return buildState({
+function twoSections(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "s1", lastChildId: "s2" }),
@@ -320,8 +320,8 @@ function twoSections(): State {
 describe("render — tracked ¶ metadata (endMark self-derived)", () => {
   it("a split draws an author-colored `split` endMark on the block whose OWN ¶ is inserted (the new head); no inline child, no ¶ text", () => {
     const id = "split" as SuggestionId;
-    const { state, head } = buildSplitDoc(id);
-    const root = render(state, reg, attrReg).root;
+    const { document, head } = buildSplitDoc(id);
+    const root = render(document, reg, attrReg).root;
     expect(blockBox(root, head)?.metadata?.endMark).toEqual({ kind: "split", color: authorColorOf(AUTHOR), suggestionIds: [id] });
     expect(blockBox(root, "p")?.metadata?.endMark).toBeUndefined();
     expect(allTexts(root).join("")).toBe("abc");
@@ -340,23 +340,23 @@ describe("render — tracked ¶ metadata (endMark self-derived)", () => {
     const base = buildDoc(inlineContent([text("abc")]), [{ id, kind: "insertion", author: AUTHOR, createdAt: 0 }]);
     const tagged = applyOperation(base, (doc) => {
       getRegistry(doc).get("p")?.set(INSERTION_TAG_KEY, id);
-    }).state;
+    }).document;
     expect(blockBox(render(tagged, reg, attrReg).root, "p")?.metadata?.endMark).toEqual({ kind: "split", color: authorColorOf(AUTHOR), suggestionIds: [id] });
   });
 
   it("a tag whose record is gone draws no mark", () => {
     const id = "orphan" as SuggestionId;
-    const { state, head } = buildSplitDoc(id);
-    const orphaned = applyOperation(state, (doc) => {
+    const { document, head } = buildSplitDoc(id);
+    const orphaned = applyOperation(document, (doc) => {
       getSuggestionsMap(doc).delete(id);
-      return new Set([state.rootId]);
-    }).state;
+      return new Set([document.rootId]);
+    }).document;
     expect(blockBox(render(orphaned, reg, attrReg).root, head)?.metadata?.endMark).toBeUndefined();
   });
 
   it("a section-end ¶ draws a `section-*` endMark on its own paragraph, only in the suggesting view", () => {
     const id = "sb" as SuggestionId;
-    const keyed = markParagraphMarkDeletion(twoSections(), "a" as BlockId, { id, author: AUTHOR, createdAt: 0 }).state;
+    const keyed = markParagraphMarkDeletion(twoSections(), "a" as BlockId, { id, author: AUTHOR, createdAt: 0 }).document;
     const root = render(keyed, reg, attrReg).root;
     expect(blockBox(root, "a")?.metadata?.endMark).toEqual({ kind: "section-join", color: authorColorOf(AUTHOR), suggestionIds: [id] });
     expect(blockBox(root, "b")?.metadata?.endMark).toBeUndefined();
@@ -366,7 +366,7 @@ describe("render — tracked ¶ metadata (endMark self-derived)", () => {
     const inserted = applyOperation(twoSections(), (doc) => {
       getRegistry(doc).get("a")?.set(INSERTION_TAG_KEY, ins);
       writeSuggestionRecordInTx(doc, { id: ins, kind: "insertion", author: AUTHOR, createdAt: 0 });
-    }).state;
+    }).document;
     expect(blockBox(render(inserted, reg, attrReg).root, "a")?.metadata?.endMark).toEqual({ kind: "section-insert", color: authorColorOf(AUTHOR), suggestionIds: [ins] });
   });
 });
@@ -414,7 +414,7 @@ describe("render — SuggestionView preview projection (slice 5c-iii)", () => {
   it('"final" drops deletion text, renders insertion as plain (no decoration)', () => {
     const insId = "ins" as SuggestionId;
     const delId = "del" as SuggestionId;
-    const state = buildDoc(
+    const document = buildDoc(
       inlineContent([
         text("keep"),
         text("INS", { [INSERTION_SUGGESTION_ATTR]: insId }),
@@ -425,7 +425,7 @@ describe("render — SuggestionView preview projection (slice 5c-iii)", () => {
         { id: delId, kind: "deletion", author: AUTHOR, createdAt: 0 },
       ],
     );
-    const root = render(state, reg, attrReg, { suggestionView: "final" }).root;
+    const root = render(document, reg, attrReg, { suggestionView: "final" }).root;
     // Deletion text is gone; insertion + plain survive.
     expect(maybeTextBox(root, "DEL")).toBeNull();
     const ins = maybeTextBox(root, "INS");
@@ -438,7 +438,7 @@ describe("render — SuggestionView preview projection (slice 5c-iii)", () => {
   it('"original" drops insertion text, renders deletion as plain (no strikethrough)', () => {
     const insId = "ins" as SuggestionId;
     const delId = "del" as SuggestionId;
-    const state = buildDoc(
+    const document = buildDoc(
       inlineContent([
         text("keep"),
         text("INS", { [INSERTION_SUGGESTION_ATTR]: insId }),
@@ -449,7 +449,7 @@ describe("render — SuggestionView preview projection (slice 5c-iii)", () => {
         { id: delId, kind: "deletion", author: AUTHOR, createdAt: 0 },
       ],
     );
-    const root = render(state, reg, attrReg, { suggestionView: "original" }).root;
+    const root = render(document, reg, attrReg, { suggestionView: "original" }).root;
     expect(maybeTextBox(root, "INS")).toBeNull();
     const del = maybeTextBox(root, "DEL");
     expect(del).not.toBeNull();
@@ -459,11 +459,11 @@ describe("render — SuggestionView preview projection (slice 5c-iii)", () => {
 
   it('"final" applies a formatting proposal FOR REAL (bold), no underline indicator', () => {
     const id = "fmt" as SuggestionId;
-    const state = buildDoc(
+    const document = buildDoc(
       inlineContent([text("formatted", { italic: true, [formattingSuggestionKey(id)]: true })]),
       [{ id, kind: "formatting", author: AUTHOR, createdAt: 0, proposedAttrs: { bold: true } }],
     );
-    const box = textBoxWith(render(state, reg, attrReg, { suggestionView: "final" }).root, "formatted");
+    const box = textBoxWith(render(document, reg, attrReg, { suggestionView: "final" }).root, "formatted");
     expect(box.style.fontWeight).toBe("bold"); // proposal applied for real
     expect(box.style.fontStyle).toBe("italic"); // live attr kept
     expect(box.style.underline).toBeUndefined(); // NO suggestion indicator
@@ -472,11 +472,11 @@ describe("render — SuggestionView preview projection (slice 5c-iii)", () => {
 
   it('"original" drops a formatting proposal (live attrs only, no preview)', () => {
     const id = "fmt" as SuggestionId;
-    const state = buildDoc(
+    const document = buildDoc(
       inlineContent([text("formatted", { italic: true, [formattingSuggestionKey(id)]: true })]),
       [{ id, kind: "formatting", author: AUTHOR, createdAt: 0, proposedAttrs: { bold: true } }],
     );
-    const box = textBoxWith(render(state, reg, attrReg, { suggestionView: "original" }).root, "formatted");
+    const box = textBoxWith(render(document, reg, attrReg, { suggestionView: "original" }).root, "formatted");
     expect(box.style.fontWeight).toBeUndefined(); // proposal NOT applied
     expect(box.style.fontStyle).toBe("italic");
     expect(box.style.underline).toBeUndefined();
@@ -485,8 +485,8 @@ describe("render — SuggestionView preview projection (slice 5c-iii)", () => {
   it("break tags: a SURVIVING break draws no ¶ mark in preview views", () => {
     // "final": a split SURVIVES (accepted) but shows no mark — its break is the
     // block boundary itself.
-    const { state: splitState, head } = buildSplitDoc("split" as SuggestionId);
-    const splitRoot = render(splitState, reg, attrReg, { suggestionView: "final" }).root;
+    const { document: splitDocument, head } = buildSplitDoc("split" as SuggestionId);
+    const splitRoot = render(splitDocument, reg, attrReg, { suggestionView: "final" }).root;
     expect(allTexts(splitRoot).join("")).toBe("abc");
     expect(blockBox(splitRoot, head)?.metadata?.endMark).toBeUndefined();
 
@@ -498,11 +498,11 @@ describe("render — SuggestionView preview projection (slice 5c-iii)", () => {
 
   it("default (no option) renders the literal suggesting view with 5a visuals intact", () => {
     const id = "ins" as SuggestionId;
-    const state = buildDoc(
+    const document = buildDoc(
       inlineContent([text("inserted", { [INSERTION_SUGGESTION_ATTR]: id })]),
       [{ id, kind: "insertion", author: AUTHOR, createdAt: 0 }],
     );
-    const box = textBoxWith(render(state, reg, attrReg).root, "inserted");
+    const box = textBoxWith(render(document, reg, attrReg).root, "inserted");
     expect(box.style.underline).toBe(true);
     expect(box.style.color).toBe(authorColorOf(AUTHOR));
   });

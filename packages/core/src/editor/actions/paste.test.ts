@@ -13,8 +13,8 @@
  *
  * T10 additions: rich routing tests (clip→html→text priority, suggesting mode).
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
-import { TEST_RESOLVER } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
+import { TEST_RESOLVER } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
@@ -36,7 +36,7 @@ import {
   resolveBlock,
   topLevelBlockIds,
 } from "../../state";
-import type { BlockId, HtmlParser, HtmlNode, State } from "../../state";
+import type { BlockId, HtmlParser, HtmlNode, Document } from "../../state";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -417,10 +417,10 @@ const richSuggestingConfig: EditorConfig = {
 };
 
 /**
- * Build a minimal fragment State with one paragraph containing `text`.
+ * Build a minimal fragment Document with one paragraph containing `text`.
  * Used to encode as clip and verify priority routing.
  */
-function makeClipFragment(text: string): State {
+function makeClipFragment(text: string): Document {
   return buildDocumentFromTree(
     {
       type: "document",
@@ -444,7 +444,7 @@ function makeClipFragmentWithAttrs(
   text: string,
   attrs: Record<string, unknown>,
   seed = "clipattr",
-): State {
+): Document {
   return buildDocumentFromTree(
     {
       type: "document",
@@ -461,8 +461,8 @@ function makeClipFragmentWithAttrs(
 }
 
 /** Walk a Document document root's top-level children and collect their block ids. */
-function fragTopLevelBlocks(state: State): BlockId[] {
-  return topLevelBlockIds(state); // the root holds sections
+function fragTopLevelBlocks(document: Document): BlockId[] {
+  return topLevelBlockIds(document); // the root holds sections
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -558,8 +558,8 @@ describe("handlePaste — T10 suggesting mode with rich routing", () => {
    * Walk all inline items of a block and return the set of unique
    * INSERTION_SUGGESTION_ATTR values present.
    */
-  function insertionIds(state: State, blockId: BlockId): Set<string> {
-    const block = resolveBlock(state, blockId)?.block;
+  function insertionIds(document: Document, blockId: BlockId): Set<string> {
+    const block = resolveBlock(document, blockId)?.block;
     const ids = new Set<string>();
     for (const item of block?.inlineContent?.items ?? []) {
       if (item.kind === "text") {
@@ -571,8 +571,8 @@ describe("handlePaste — T10 suggesting mode with rich routing", () => {
   }
 
   /** Collect the unique DELETION_SUGGESTION_ATTR values on a block's text runs. */
-  function deletionIds(state: State, blockId: BlockId): Set<string> {
-    const block = resolveBlock(state, blockId)?.block;
+  function deletionIds(document: Document, blockId: BlockId): Set<string> {
+    const block = resolveBlock(document, blockId)?.block;
     const ids = new Set<string>();
     for (const item of block?.inlineContent?.items ?? []) {
       if (item.kind === "text") {

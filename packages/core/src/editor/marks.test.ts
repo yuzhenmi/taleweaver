@@ -1,9 +1,9 @@
-import { finalSectionOf } from "../test-utils/state-builders";
-import { TEST_RESOLVER } from "../test-utils/state-builders";
+import { finalSectionOf } from "../test-utils/document-builders";
+import { TEST_RESOLVER } from "../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   createInitialEditorState,
-  createEditorStateFromState,
+  createEditorStateFromDocument,
   reduceEditor,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
@@ -24,7 +24,7 @@ import {
   productionAllocator,
   BINARY_FORMAT,
   JSON_FORMAT,
-  initialSelectionForState,
+  initialSelectionForDocument,
   render,
   INSERTION_SUGGESTION_ATTR,
   type EditorAction,
@@ -32,7 +32,7 @@ import {
   type EditorState,
   type BlockId,
   type InlineItem,
-  type State,
+  type Document,
   type RenderNode,
 } from "../index";
 
@@ -477,7 +477,7 @@ describe("mark semantics", () => {
     const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
     reg.register(createJsonDocumentSerializer({ allocator: productionAllocator, blockKindResolver: config.componentRegistry }));
     for (const format of [JSON_FORMAT, BINARY_FORMAT]) {
-      const back: State = deserializeDocument(serializeDocument(s.document, format, reg), format, reg);
+      const back: Document = deserializeDocument(serializeDocument(s.document, format, reg), format, reg);
       expect(getMarkRanges(back, "mention").map((r) => [r.from.offset, r.to.offset, r.value])).toEqual([[3, 7, { ref: "a" }]]);
       expect(getMarkRanges(back, "note").map((r) => [r.from.offset, r.to.offset, r.value])).toEqual([[0, 5, { id: 7 }]]);
     }
@@ -533,10 +533,10 @@ describe("mark semantics", () => {
     expect(hi?.type === "text" ? hi.marks : "x").toBeUndefined();
   });
 
-  it("a state built from a document keeps marks editable (createEditorStateFromState)", () => {
+  it("a state built from a document keeps marks editable (createEditorStateFromDocument)", () => {
     const config = makeConfig();
     const s = withMention(config);
-    const fresh = createEditorStateFromState(s.document, initialSelectionForState(s.document), config);
+    const fresh = createEditorStateFromDocument(s.document, initialSelectionForDocument(s.document), config);
     expect(run(fresh, config, caret(blockId(s), 4)).selection.focus.offset).toBe(3);
   });
 });

@@ -58,7 +58,7 @@ export function handleSetSectionColumns(editor: EditorState, action: ActionOf<"S
   const result = mergeBlockAttrs(editor.document, targetId, incoming);
 
   // the identity-no-op contract: a no-op merge returns the same state reference.
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
 
-  return { change: { state: result.state, dirtyIds: result.dirtyIds } };
+  return { change: { document: result.document, dirtyIds: result.dirtyIds } };
 }

@@ -7,7 +7,7 @@ import {
   getBlock,
   getEmbedContent,
   getEmbedContentIds,
-} from "../state";
+} from "../document";
 import { inlineContentLength } from "../inline-content";
 import {
   assertNoOrphanedEmbedContent,
@@ -16,7 +16,7 @@ import {
 import { createHistory } from "../history";
 import { createPosition, createSpan } from "../block-position";
 import { createTestAllocator, type BlockId } from "../block-id";
-import { buildBlock, buildState, inlineContent, text } from "../../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent, text } from "../../test-utils/document-builders";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -34,7 +34,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
  */
 describe("insertFootnote", () => {
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -48,11 +48,11 @@ describe("insertFootnote", () => {
     });
 
   it("creates a CONTAINER body root + one empty paragraph child in embedContents", () => {
-    const state = fixture();
+    const document = fixture();
     const alloc = createTestAllocator("fn");
-    const result = insertFootnote(state, createPosition("p" as BlockId, 5), alloc);
+    const result = insertFootnote(document, createPosition("p" as BlockId, 5), alloc);
 
-    const body = getEmbedContent(result.state, result.bodyRootId);
+    const body = getEmbedContent(result.document, result.bodyRootId);
     expect(body).not.toBeNull();
     expect(body?.type).toBe("footnote-body");
     expect(body?.parentId).toBeNull();
@@ -60,7 +60,7 @@ describe("insertFootnote", () => {
     expect(body?.firstChildId).toBe(result.firstParagraphId);
     expect(body?.lastChildId).toBe(result.firstParagraphId);
 
-    const para = getEmbedContent(result.state, result.firstParagraphId);
+    const para = getEmbedContent(result.document, result.firstParagraphId);
     expect(para).not.toBeNull();
     expect(para?.type).toBe("paragraph");
     expect(para?.parentId).toBe(result.bodyRootId);
@@ -72,11 +72,11 @@ describe("insertFootnote", () => {
   });
 
   it("inserts a footnote-anchor EmbedItem at the position referencing the body root", () => {
-    const state = fixture();
+    const document = fixture();
     const alloc = createTestAllocator("fn");
-    const result = insertFootnote(state, createPosition("p" as BlockId, 5), alloc);
+    const result = insertFootnote(document, createPosition("p" as BlockId, 5), alloc);
 
-    const p = getBlock(result.state, "p" as BlockId);
+    const p = getBlock(result.document, "p" as BlockId);
     expect(p).not.toBeNull();
     const items = p?.inlineContent?.items ?? [];
     // The anchor sits at offset 5: "hello" | anchor | " world".
@@ -96,7 +96,7 @@ describe("insertFootnote", () => {
   it("inserts an anchor at offset 0 and at end-of-content", () => {
     const alloc = createTestAllocator("fn");
     const atStart = insertFootnote(fixture(), createPosition("p" as BlockId, 0), alloc);
-    const startItems = getBlock(atStart.state, "p" as BlockId)?.inlineContent?.items ?? [];
+    const startItems = getBlock(atStart.document, "p" as BlockId)?.inlineContent?.items ?? [];
     expect(nth(startItems, 0, "item").kind).toBe("embed");
     expect(startItems[1]).toMatchObject({ kind: "text", text: "hello world" });
 
@@ -105,53 +105,53 @@ describe("insertFootnote", () => {
       createPosition("p" as BlockId, "hello world".length),
       createTestAllocator("fn2"),
     );
-    const endItems = getBlock(atEnd.state, "p" as BlockId)?.inlineContent?.items ?? [];
+    const endItems = getBlock(atEnd.document, "p" as BlockId)?.inlineContent?.items ?? [];
     expect(nth(endItems, endItems.length - 1, "item").kind).toBe("embed");
     expect(endItems[0]).toMatchObject({ kind: "text", text: "hello world" });
   });
 
   it("dirtyIds covers the body root, the paragraph child, and the anchor's leaf", () => {
-    const state = fixture();
+    const document = fixture();
     const alloc = createTestAllocator("fn");
-    const result = insertFootnote(state, createPosition("p" as BlockId, 5), alloc);
+    const result = insertFootnote(document, createPosition("p" as BlockId, 5), alloc);
     expect(result.dirtyIds.has(result.bodyRootId)).toBe(true);
     expect(result.dirtyIds.has(result.firstParagraphId)).toBe(true);
     expect(result.dirtyIds.has("p" as BlockId)).toBe(true);
   });
 
   it("enumerates exactly the body root (not its child) as an embedContent ROOT", () => {
-    const state = fixture();
+    const document = fixture();
     const alloc = createTestAllocator("fn");
-    const result = insertFootnote(state, createPosition("p" as BlockId, 5), alloc);
-    const rootIds = [...getEmbedContentIds(result.state)];
+    const result = insertFootnote(document, createPosition("p" as BlockId, 5), alloc);
+    const rootIds = [...getEmbedContentIds(result.document)];
     expect(rootIds).toContain(result.bodyRootId);
     expect(rootIds).not.toContain(result.firstParagraphId);
     expect(rootIds.length).toBe(1);
   });
 
   it("upholds the orphan + shared invariants after insert (1:1 anchor↔body)", () => {
-    const state = fixture();
+    const document = fixture();
     const alloc = createTestAllocator("fn");
-    const result = insertFootnote(state, createPosition("p" as BlockId, 5), alloc);
+    const result = insertFootnote(document, createPosition("p" as BlockId, 5), alloc);
     expect(() =>
-      assertNoOrphanedEmbedContent(result.state, "insertFootnote.test"),
+      assertNoOrphanedEmbedContent(result.document, "insertFootnote.test"),
     ).not.toThrow();
     expect(() =>
-      assertNoSharedEmbedContent(result.state, "insertFootnote.test"),
+      assertNoSharedEmbedContent(result.document, "insertFootnote.test"),
     ).not.toThrow();
   });
 
   it("is atomic: ONE undo restores to before — both anchor AND body gone", () => {
-    const state = fixture();
-    const history = createHistory(state);
+    const document = fixture();
+    const history = createHistory(document);
     const alloc = createTestAllocator("fn");
     const sel = createSpan(
       createPosition("p" as BlockId, 5),
       createPosition("p" as BlockId, 5),
     );
 
-    const result = insertFootnote(state, createPosition("p" as BlockId, 5), alloc);
-    expect(getEmbedContent(result.state, result.bodyRootId)).not.toBeNull();
+    const result = insertFootnote(document, createPosition("p" as BlockId, 5), alloc);
+    expect(getEmbedContent(result.document, result.bodyRootId)).not.toBeNull();
     history.commit(result, { before: sel, after: sel });
 
     const undone = history.undo();
@@ -159,44 +159,44 @@ describe("insertFootnote", () => {
     if (undone === null) throw new Error("expected undo to succeed");
 
     // Anchor gone from the leaf.
-    const p = getBlock(undone.state, "p" as BlockId);
+    const p = getBlock(undone.document, "p" as BlockId);
     expect(p?.inlineContent?.items).toEqual([{ kind: "text", text: "hello world", attrs: {} }]);
     // Body + its child gone from embedContents.
-    expect(getEmbedContent(undone.state, result.bodyRootId)).toBeNull();
-    expect(getEmbedContent(undone.state, result.firstParagraphId)).toBeNull();
+    expect(getEmbedContent(undone.document, result.bodyRootId)).toBeNull();
+    expect(getEmbedContent(undone.document, result.firstParagraphId)).toBeNull();
 
     // No further undo step: anchor + body collapsed into one entry.
     expect(history.canUndo()).toBe(false);
   });
 
   it("throws when the position's block does not exist", () => {
-    const state = fixture();
+    const document = fixture();
     const alloc = createTestAllocator("fn");
     expect(() =>
-      insertFootnote(state, createPosition("missing" as BlockId, 0), alloc),
+      insertFootnote(document, createPosition("missing" as BlockId, 0), alloc),
     ).toThrow();
   });
 
   it("throws when the position's block is not a leaf (no inlineContent)", () => {
-    const state = fixture();
+    const document = fixture();
     const alloc = createTestAllocator("fn");
     expect(() =>
-      insertFootnote(state, createPosition("doc" as BlockId, 0), alloc),
+      insertFootnote(document, createPosition("doc" as BlockId, 0), alloc),
     ).toThrow(/leaf|inlineContent/);
   });
 
   it("throws when the offset is out of range", () => {
-    const state = fixture();
+    const document = fixture();
     const alloc = createTestAllocator("fn");
     expect(() =>
-      insertFootnote(state, createPosition("p" as BlockId, 999), alloc),
+      insertFootnote(document, createPosition("p" as BlockId, 999), alloc),
     ).toThrow(/range|offset/);
   });
 });
 
 describe("insertFootnote — cascade-delete (regression: existing machinery)", () => {
   it("removing the anchor's containing block cascade-deletes the footnote body", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -217,15 +217,15 @@ describe("insertFootnote — cascade-delete (regression: existing machinery)", (
       ],
     });
     const alloc = createTestAllocator("fn");
-    const inserted = insertFootnote(state, createPosition("p1" as BlockId, 6), alloc);
-    expect(getEmbedContent(inserted.state, inserted.bodyRootId)).not.toBeNull();
+    const inserted = insertFootnote(document, createPosition("p1" as BlockId, 6), alloc);
+    expect(getEmbedContent(inserted.document, inserted.bodyRootId)).not.toBeNull();
 
     // Remove the block that holds the anchor → body cascade-deletes.
-    const removed = removeBlock(inserted.state, "p1" as BlockId);
-    expect(getEmbedContent(removed.state, inserted.bodyRootId)).toBeNull();
-    expect(getEmbedContent(removed.state, inserted.firstParagraphId)).toBeNull();
+    const removed = removeBlock(inserted.document, "p1" as BlockId);
+    expect(getEmbedContent(removed.document, inserted.bodyRootId)).toBeNull();
+    expect(getEmbedContent(removed.document, inserted.firstParagraphId)).toBeNull();
     expect(() =>
-      assertNoOrphanedEmbedContent(removed.state, "insertFootnote.test"),
+      assertNoOrphanedEmbedContent(removed.document, "insertFootnote.test"),
     ).not.toThrow();
   });
 
@@ -235,7 +235,7 @@ describe("insertFootnote — cascade-delete (regression: existing machinery)", (
     // inlineContent walk — this is the path a user hits backspacing over a
     // footnote anchor. Insert the anchor at offset 6 of "anchor here"; the
     // embed occupies exactly 1 offset unit, so [6,7) covers only the anchor.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
@@ -248,31 +248,31 @@ describe("insertFootnote — cascade-delete (regression: existing machinery)", (
       ],
     });
     const alloc = createTestAllocator("fn");
-    const inserted = insertFootnote(state, createPosition("p1" as BlockId, 6), alloc);
-    expect(getEmbedContent(inserted.state, inserted.bodyRootId)).not.toBeNull();
+    const inserted = insertFootnote(document, createPosition("p1" as BlockId, 6), alloc);
+    expect(getEmbedContent(inserted.document, inserted.bodyRootId)).not.toBeNull();
 
     const deleted = deleteRange(
-      inserted.state,
+      inserted.document,
       createSpan(createPosition("p1" as BlockId, 6), createPosition("p1" as BlockId, 7)),
     );
     // The anchor is gone from the leaf, and its body cascade-deleted.
-    const leaf = getBlock(deleted.state, "p1" as BlockId);
+    const leaf = getBlock(deleted.document, "p1" as BlockId);
     expect(
       leaf?.inlineContent?.items.some(
         (i) => i.kind === "embed" && i.properties.contentBlockId === inserted.bodyRootId,
       ),
     ).toBe(false);
-    expect(getEmbedContent(deleted.state, inserted.bodyRootId)).toBeNull();
-    expect(getEmbedContent(deleted.state, inserted.firstParagraphId)).toBeNull();
+    expect(getEmbedContent(deleted.document, inserted.bodyRootId)).toBeNull();
+    expect(getEmbedContent(deleted.document, inserted.firstParagraphId)).toBeNull();
     expect(() =>
-      assertNoOrphanedEmbedContent(deleted.state, "insertFootnote.test"),
+      assertNoOrphanedEmbedContent(deleted.document, "insertFootnote.test"),
     ).not.toThrow();
   });
 });
 
 describe("insertFootnote — paste duplicates the body (regression: clonePastedSubtree)", () => {
   it("cloning a subtree containing a footnote anchor duplicates the body with a fresh id", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -285,12 +285,12 @@ describe("insertFootnote — paste duplicates the body (regression: clonePastedS
       ],
     });
     const alloc = createTestAllocator("fn");
-    const inserted = insertFootnote(state, createPosition("p" as BlockId, 4), alloc);
+    const inserted = insertFootnote(document, createPosition("p" as BlockId, 4), alloc);
     const originalBodyId = inserted.bodyRootId;
 
     // Clone the anchor-bearing paragraph subtree (the paste source machinery).
     const cloneAlloc = createTestAllocator("clone");
-    const cloned = clonePastedSubtree(inserted.state, "p" as BlockId, cloneAlloc);
+    const cloned = clonePastedSubtree(inserted.document, "p" as BlockId, cloneAlloc);
 
     // The clone's anchor points at a FRESH body, not the original.
     const clonedAnchor = [...cloned.blocks.values()]

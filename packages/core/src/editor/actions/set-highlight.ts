@@ -39,7 +39,7 @@ export function handleSetHighlight(editor: EditorState, { color }: ActionOf<"SET
   // Collapsed caret: the highlight applies to the next typed text (typing attrs).
   if (isCollapsed(selection)) return storeTypingAttrs(editor, incoming);
   const result = applyAttrsOrSuggest(editor, selection, incoming);
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
 
   // An attr-only edit shifts no offsets, so the selection is unchanged — it is
   // committed and rebuilt AS-IS, preserving both endpoints and the anchor/focus

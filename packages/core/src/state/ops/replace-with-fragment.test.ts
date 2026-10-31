@@ -19,8 +19,8 @@ import {
   INSERTION_SUGGESTION_ATTR,
   type SuggestionId,
 } from "../suggestions";
-import { buildState, buildBlock, inlineContent, text, finalSectionOf } from "../../test-utils/state-builders";
-import { resolveBlock, type Document } from "../state";
+import { buildDocument, buildBlock, inlineContent, text, finalSectionOf } from "../../test-utils/document-builders";
+import { resolveBlock, type Document } from "../document";
 import { createPosition, createSpan } from "../block-position";
 import { asBlockId, createTestAllocator } from "../block-id";
 
@@ -32,7 +32,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 
 const INPUT = (id: string) => ({ id: id as SuggestionId, author: "alice", createdAt: 1 });
 function oneBlock(s = "abcdef"): Document {
-  return buildState({ rootId: "doc", blocks: [
+  return buildDocument({ rootId: "doc", blocks: [
     buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
     buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text(s)]) }) ] });
 }
@@ -50,9 +50,9 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
   it("single-line fragment ≡ mintInsertion (no split, tagged run, suffix preserved)", () => {
     const r = insertFragmentAsSuggestion(oneBlock("abcdef"), createPosition(asBlockId("p"), 3),
       [{ type: "paragraph", inlineContent: inlineContent([text("Z")]) }], INPUT("s1"), createTestAllocator());
-    expect(blockText(r.state, "p")).toBe("abcZdef");
-    expect(getSuggestions(r.state).map((x) => x.kind)).toEqual(["insertion"]);
-    const items = resolveBlock(r.state, asBlockId("p"))?.block.inlineContent?.items ?? [];
+    expect(blockText(r.document, "p")).toBe("abcZdef");
+    expect(getSuggestions(r.document).map((x) => x.kind)).toEqual(["insertion"]);
+    const items = resolveBlock(r.document, asBlockId("p"))?.block.inlineContent?.items ?? [];
     const z = items.find((i) => i.kind === "text" && i.text === "Z");
     expect(z?.kind === "text" && z.attrs[INSERTION_SUGGESTION_ATTR]).toBe("s1");
     expect(r.endPosition).toEqual(createPosition(asBlockId("p"), 4));
@@ -62,21 +62,21 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
     const r = insertFragmentAsSuggestion(oneBlock("abcdef"), createPosition(asBlockId("p"), 3),
       [{ type: "paragraph", inlineContent: inlineContent([text("X")]) },
        { type: "paragraph", inlineContent: inlineContent([text("Y")]) }], INPUT("s1"), createTestAllocator());
-    const seq = blockSeq(r.state);
+    const seq = blockSeq(r.document);
     expect(seq.length).toBe(2);
-    expect(blockText(r.state, nth(seq, 0, "block"))).toBe("abcX");
-    expect(blockText(r.state, nth(seq, 1, "block"))).toBe("Ydef");
-    expect(breakOf(r.state, nth(seq, 0, "block"))).toEqual({ insertionId: "s1" });
+    expect(blockText(r.document, nth(seq, 0, "block"))).toBe("abcX");
+    expect(blockText(r.document, nth(seq, 1, "block"))).toBe("Ydef");
+    expect(breakOf(r.document, nth(seq, 0, "block"))).toEqual({ insertionId: "s1" });
     expect(nth(seq, 1, "block")).toBe("p");
-    expect(breakOf(r.state, "p")).toBeUndefined();
-    expect(getSuggestions(r.state).map((x) => x.kind)).toEqual(["insertion"]);
+    expect(breakOf(r.document, "p")).toBeUndefined();
+    expect(getSuggestions(r.document).map((x) => x.kind)).toEqual(["insertion"]);
   });
 
   it("ACCEPT-all keeps the two-line split for real (2 blocks, no tag, no suggestions)", () => {
     const r = insertFragmentAsSuggestion(oneBlock("abcdef"), createPosition(asBlockId("p"), 3),
       [{ type: "paragraph", inlineContent: inlineContent([text("X")]) },
        { type: "paragraph", inlineContent: inlineContent([text("Y")]) }], INPUT("s1"), createTestAllocator());
-    const accepted = acceptAll(r.state).state;
+    const accepted = acceptAll(r.document).document;
     const seq = blockSeq(accepted);
     expect(seq.map((id) => blockText(accepted, id))).toEqual(["abcX", "Ydef"]);
     expect(seq.map((id) => breakOf(accepted, id))).toEqual([undefined, undefined]);
@@ -87,7 +87,7 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
     const r = insertFragmentAsSuggestion(oneBlock("abcdef"), createPosition(asBlockId("p"), 3),
       [{ type: "paragraph", inlineContent: inlineContent([text("X")]) },
        { type: "paragraph", inlineContent: inlineContent([text("Y")]) }], INPUT("s1"), createTestAllocator());
-    const rejected = rejectAll(r.state).state;
+    const rejected = rejectAll(r.document).document;
     const seq = blockSeq(rejected);
     expect(seq.length).toBe(1);
     expect(blockText(rejected, nth(seq, 0, "block"))).toBe("abcdef");
@@ -100,17 +100,17 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
        { type: "paragraph", inlineContent: inlineContent([text("Y")]) },
        { type: "paragraph", inlineContent: inlineContent([text("Z")]) }], INPUT("s1"), createTestAllocator());
     const r = mk();
-    const seq = blockSeq(r.state);
+    const seq = blockSeq(r.document);
     expect(seq.length).toBe(3);
-    expect(seq.map((id) => blockText(r.state, id))).toEqual(["abcX", "Y", "Zdef"]);
+    expect(seq.map((id) => blockText(r.document, id))).toEqual(["abcX", "Y", "Zdef"]);
     // Both inserted ¶s (after X, after Y) are keyed on their OWN (new head) entry, sharing s1; B is not.
-    expect(seq.map((id) => breakOf(r.state, id))).toEqual([{ insertionId: "s1" }, { insertionId: "s1" }, undefined]);
-    expect(getSuggestions(r.state).map((x) => x.kind)).toEqual(["insertion"]);
+    expect(seq.map((id) => breakOf(r.document, id))).toEqual([{ insertionId: "s1" }, { insertionId: "s1" }, undefined]);
+    expect(getSuggestions(r.document).map((x) => x.kind)).toEqual(["insertion"]);
     // accept keeps all three splits for real; reject (fresh state) re-merges to one.
-    const accepted = acceptAll(mk().state).state;
+    const accepted = acceptAll(mk().document).document;
     expect(blockSeq(accepted).map((id) => blockText(accepted, id))).toEqual(["abcX", "Y", "Zdef"]);
     expect(getSuggestions(accepted).length).toBe(0);
-    const rejected = rejectAll(mk().state).state;
+    const rejected = rejectAll(mk().document).document;
     const rseq = blockSeq(rejected);
     expect(rseq.length).toBe(1);
     expect(blockText(rejected, nth(rseq, 0, "block"))).toBe("abcdef");
@@ -118,7 +118,7 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
   });
 
   it("body-context (footnote) collapsed fragment resolves tree-correctly (MT round-trip)", () => {
-    const st = buildState({ rootId: "doc",
+    const st = buildDocument({ rootId: "doc",
       blocks: [buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
                buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("m")]) })],
       embedContents: [buildBlock({ id: "fn", type: "body-container", firstChildId: "fnp", lastChildId: "fnp" }),
@@ -126,8 +126,8 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
     const r = insertFragmentAsSuggestion(st, createPosition(asBlockId("fnp"), 4),
       [{ type: "paragraph", inlineContent: inlineContent([text("P")]) },
        { type: "paragraph", inlineContent: inlineContent([text("Q")]) }], INPUT("s1"), createTestAllocator());
-    expect(getSuggestions(r.state).map((x) => x.kind)).toEqual(["insertion"]);
-    const accepted = acceptAll(r.state).state;
+    expect(getSuggestions(r.document).map((x) => x.kind)).toEqual(["insertion"]);
+    const accepted = acceptAll(r.document).document;
     const fnSeqA: string[] = [];
     let fnidA = resolveBlock(accepted, asBlockId("fn"))?.block.firstChildId ?? null;
     while (fnidA) { fnSeqA.push(fnidA); fnidA = resolveBlock(accepted, fnidA)?.block.nextSiblingId ?? null; }
@@ -140,7 +140,7 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
   it("body-context reject restores the footnote body to ONE block (MT round-trip, reject side)", () => {
     // A FRESH insert — acceptAll/rejectAll mutate the shared Y.Doc in place, so the
     // reject side needs its own state (it cannot reuse one already accepted above).
-    const st = buildState({ rootId: "doc",
+    const st = buildDocument({ rootId: "doc",
       blocks: [buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
                buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("m")]) })],
       embedContents: [buildBlock({ id: "fn", type: "body-container", firstChildId: "fnp", lastChildId: "fnp" }),
@@ -148,7 +148,7 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
     const r = insertFragmentAsSuggestion(st, createPosition(asBlockId("fnp"), 4),
       [{ type: "paragraph", inlineContent: inlineContent([text("P")]) },
        { type: "paragraph", inlineContent: inlineContent([text("Q")]) }], INPUT("s1"), createTestAllocator());
-    const rejected = rejectAll(r.state).state;
+    const rejected = rejectAll(r.document).document;
     const fnSeq: string[] = [];
     let fnid = resolveBlock(rejected, asBlockId("fn"))?.block.firstChildId ?? null;
     while (fnid) { fnSeq.push(fnid); fnid = resolveBlock(rejected, fnid)?.block.nextSiblingId ?? null; }
@@ -162,7 +162,7 @@ const REPL = (d: string, i: string) => ({
   deletionId: d as SuggestionId, insertionId: i as SuggestionId, author: "alice", createdAt: 1,
 });
 function twoBlocks(a: string, b: string): Document {
-  return buildState({ rootId: "doc", blocks: [
+  return buildDocument({ rootId: "doc", blocks: [
     buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
     buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text(a)]) }),
     buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text(b)]) }) ] });
@@ -174,10 +174,10 @@ describe("replaceWithSuggestedFragment — strike + fragment (PF-2)", () => {
   it("empty fragment over a single-block selection ≡ markDeletion (no new blocks)", () => {
     const r = replaceWithSuggestedFragment(oneBlock("abcdef"),
       createSpan(createPosition(asBlockId("p"), 1), createPosition(asBlockId("p"), 4)), [], REPL("d", "i"), createTestAllocator());
-    expect(blockText(r.state, "p")).toBe("abcdef"); // soft delete: text kept, tagged
-    expect(getSuggestions(r.state).map((x) => x.kind)).toEqual(["deletion"]);
-    expect(blockSeq(r.state).length).toBe(1); // no new blocks
-    expect(blockText(acceptAll(r.state).state, "p")).toBe("aef"); // bcd dropped on accept
+    expect(blockText(r.document, "p")).toBe("abcdef"); // soft delete: text kept, tagged
+    expect(getSuggestions(r.document).map((x) => x.kind)).toEqual(["deletion"]);
+    expect(blockSeq(r.document).length).toBe(1); // no new blocks
+    expect(blockText(acceptAll(r.document).document, "p")).toBe("aef"); // bcd dropped on accept
   });
 
   it("single-block text fragment is byte-identical to replaceWithSuggestion", () => {
@@ -187,8 +187,8 @@ describe("replaceWithSuggestedFragment — strike + fragment (PF-2)", () => {
     const viaFragment = replaceWithSuggestedFragment(oneBlock("abcdef"), span,
       [{ type: "paragraph", inlineContent: inlineContent([text("XY")]) }], REPL("d", "i"), createTestAllocator());
     const viaShipped = replaceWithSuggestion(oneBlock("abcdef"), span, "XY", {}, REPL("d", "i"));
-    expect(resolveBlock(viaFragment.state, asBlockId("p"))?.block.inlineContent?.items)
-      .toEqual(resolveBlock(viaShipped.state, asBlockId("p"))?.block.inlineContent?.items);
+    expect(resolveBlock(viaFragment.document, asBlockId("p"))?.block.inlineContent?.items)
+      .toEqual(resolveBlock(viaShipped.document, asBlockId("p"))?.block.inlineContent?.items);
   });
 
   it("CROSS-block selection + 1-line fragment: strikes both blocks + a join tag; accept merges to one flow; reject restores", () => {
@@ -198,16 +198,16 @@ describe("replaceWithSuggestedFragment — strike + fragment (PF-2)", () => {
       [{ type: "paragraph", inlineContent: inlineContent([text("XYZ")]) }], REPL("d", "i"), createTestAllocator());
     const r = mk();
     // ¶p1 (the crossed ¶) holds the deletion key. No new blocks (1-line).
-    expect(hasJoinTag(r.state, "p1", "d")).toBe(true);
-    expect(breakOf(r.state, "p2")).toBeUndefined();
-    expect(blockSeq(r.state).length).toBe(2);
-    expect(getSuggestions(r.state).map((x) => x.kind).sort()).toEqual(["deletion", "insertion"]);
+    expect(hasJoinTag(r.document, "p1", "d")).toBe(true);
+    expect(breakOf(r.document, "p2")).toBeUndefined();
+    expect(blockSeq(r.document).length).toBe(2);
+    expect(getSuggestions(r.document).map((x) => x.kind).sort()).toEqual(["deletion", "insertion"]);
     // accept: "ab" + "XYZ" + "kl" merged into ONE block (struck cdef/ghij removed, break joined).
-    const accepted = acceptAll(mk().state).state;
+    const accepted = acceptAll(mk().document).document;
     expect(blockSeq(accepted).map((id) => blockText(accepted, id))).toEqual(["abXYZkl"]);
     expect(getSuggestions(accepted).length).toBe(0);
     // reject: original two blocks restored verbatim.
-    const rejected = rejectAll(mk().state).state;
+    const rejected = rejectAll(mk().document).document;
     expect(blockSeq(rejected).map((id) => blockText(rejected, id))).toEqual(["abcdef", "ghijkl"]);
     expect(getSuggestions(rejected).length).toBe(0);
   });
@@ -217,10 +217,10 @@ describe("replaceWithSuggestedFragment — strike + fragment (PF-2)", () => {
       createSpan(createPosition(asBlockId("p1"), 2), createPosition(asBlockId("p2"), 4)),
       [{ type: "paragraph", inlineContent: inlineContent([text("X")]) },
        { type: "paragraph", inlineContent: inlineContent([text("Y")]) }], REPL("d", "i"), createTestAllocator());
-    const accepted = acceptAll(mk().state).state;
+    const accepted = acceptAll(mk().document).document;
     expect(blockSeq(accepted).map((id) => blockText(accepted, id))).toEqual(["abX", "Ykl"]);
     expect(getSuggestions(accepted).length).toBe(0);
-    const rejected = rejectAll(mk().state).state;
+    const rejected = rejectAll(mk().document).document;
     expect(blockSeq(rejected).map((id) => blockText(rejected, id))).toEqual(["abcdef", "ghijkl"]);
     expect(getSuggestions(rejected).length).toBe(0);
   });

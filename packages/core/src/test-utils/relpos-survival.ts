@@ -10,9 +10,9 @@
  * one moved between blocks) is a different item → reported as orphaned.
  */
 import * as Y from "yjs";
-import type { Document } from "../state/state";
-import { getBlock, resolveBlock } from "../state/state";
-import { STATE_INTERNAL } from "../state/state-internal";
+import type { Document } from "../state/document";
+import { getBlock, resolveBlock } from "../state/document";
+import { DOCUMENT_INTERNAL } from "../state/document-internal";
 import type { BlockId } from "../state/block-id";
 import { followRedoneItem } from "../state/y-inline";
 import { requireBlockText, pointInRegion, type BlockText } from "../state/block-text";
@@ -20,18 +20,18 @@ import { readCtx, regionOf, positionAtPieceIndex } from "../state/flow-read";
 import { isPiece } from "../state/y-flow";
 
 /** The underlying Y.Doc of a Document (test-only encapsulation pierce). */
-export function docOf(state: Document): Y.Doc {
-  return state[STATE_INTERNAL].doc;
+export function docOf(document: Document): Y.Doc {
+  return document[DOCUMENT_INTERNAL].doc;
 }
 
 /** Block `id`'s inline text surface. */
-export function blockText(state: Document, id: string): BlockText {
-  return requireBlockText(docOf(state), id as BlockId, "blockText");
+export function blockText(document: Document, id: string): BlockText {
+  return requireBlockText(docOf(document), id as BlockId, "blockText");
 }
 
 /** Mint a `RelativePosition` anchored to the character at block offset `offset` of block `id`. */
-export function relAt(state: Document, id: string, offset: number): Y.RelativePosition {
-  const doc = docOf(state);
+export function relAt(document: Document, id: string, offset: number): Y.RelativePosition {
+  const doc = docOf(document);
   const ctx = readCtx(doc);
   const region = regionOf(ctx, id);
   if (region === null) throw new Error(`relAt: block "${id}" has no inline content`);
@@ -44,15 +44,15 @@ export function relAt(state: Document, id: string, offset: number): Y.RelativePo
  * True iff `rel`'s anchor character is still live, in a live block, and is
  * `expectChar`. See module docstring.
  */
-export function survives(rel: Y.RelativePosition, state: Document, expectChar: string): boolean {
-  const doc = docOf(state);
+export function survives(rel: Y.RelativePosition, document: Document, expectChar: string): boolean {
+  const doc = docOf(document);
   const item = rel.item === null ? null : followRedoneItem(doc, rel.item);
   if (item === null || item.deleted) return false;
   const abs = Y.createAbsolutePositionFromRelativePosition(rel, doc);
   if (abs === null || !isPiece(abs.type)) return false;
   const at = positionAtPieceIndex(readCtx(doc), abs.type, abs.index + 1);
   if (at === null) return false;
-  const block = getBlock(state, at.id as BlockId) ?? resolveBlock(state, at.id as BlockId)?.block ?? null;
+  const block = getBlock(document, at.id as BlockId) ?? resolveBlock(document, at.id as BlockId)?.block ?? null;
   const items = block?.inlineContent?.items ?? null;
   if (items === null) return false;
   const text = items.map((it) => (it.kind === "text" ? it.text : "￼")).join("");

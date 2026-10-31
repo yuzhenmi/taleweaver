@@ -24,7 +24,7 @@
 
 import { describe, it, expect } from "vitest";
 import { reduceEditor } from "../reduce-editor";
-import { type EditorState, createEditorStateFromState } from "../editor-state";
+import { type EditorState, createEditorStateFromDocument } from "../editor-state";
 import { type EditorConfig } from "../editor-config";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
@@ -34,8 +34,8 @@ import {
   getBlock,
   getTemplateContent,
 } from "../../state";
-import type { State, BlockId, Position } from "../../state";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import type { Document, BlockId, Position } from "../../state";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 
 const componentRegistry = createDefaultComponentRegistry();
 const attrRegistry = createDefaultAttrRegistry();
@@ -57,8 +57,8 @@ const BODY_P2 = "p2" as BlockId;
  * same-context cross-block selection to exercise in the main tree; two header
  * children give a same-context cross-block selection inside the header body.
  */
-function buildStateWithHeaderBody(): State {
-  return buildState({
+function buildDocumentWithHeaderBody(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p2" }),
@@ -107,12 +107,12 @@ function buildStateWithHeaderBody(): State {
  * Build a geometry-free EditorState (Phase 0b) with an arbitrary SELECTION. The
  * cross-context guards these tests exercise read no layout.
  */
-function buildEditorWithSelection(state: State, anchor: Position, focus: Position): EditorState {
-  return createEditorStateFromState(state, createSpan(anchor, focus), config);
+function buildEditorWithSelection(document: Document, anchor: Position, focus: Position): EditorState {
+  return createEditorStateFromDocument(document, createSpan(anchor, focus), config);
 }
 
-function buildEditor(state: State, caret: Position): EditorState {
-  return buildEditorWithSelection(state, caret, caret);
+function buildEditor(document: Document, caret: Position): EditorState {
+  return buildEditorWithSelection(document, caret, caret);
 }
 
 function joinText(
@@ -123,21 +123,21 @@ function joinText(
     .join("");
 }
 
-function headerText(state: State, id: BlockId): string {
-  return joinText(getTemplateContent(state, id)?.inlineContent?.items);
+function headerText(document: Document, id: BlockId): string {
+  return joinText(getTemplateContent(document, id)?.inlineContent?.items);
 }
 
-function bodyText(state: State, id: BlockId): string {
-  return joinText(getBlock(state, id)?.inlineContent?.items);
+function bodyText(document: Document, id: BlockId): string {
+  return joinText(getBlock(document, id)?.inlineContent?.items);
 }
 
 /** A whole-document text snapshot for byte-identity assertions. */
-function docSnapshot(state: State): string {
+function docSnapshot(document: Document): string {
   return [
-    `body[p]=${bodyText(state, BODY_P1)}`,
-    `body[p2]=${bodyText(state, BODY_P2)}`,
-    `hdr[c1]=${headerText(state, HDR_P1)}`,
-    `hdr[c2]=${headerText(state, HDR_P2)}`,
+    `body[p]=${bodyText(document, BODY_P1)}`,
+    `body[p2]=${bodyText(document, BODY_P2)}`,
+    `hdr[c1]=${headerText(document, HDR_P1)}`,
+    `hdr[c2]=${headerText(document, HDR_P2)}`,
   ].join("|");
 }
 
@@ -150,7 +150,7 @@ describe("C.2c T7e — cross-context selection is REFUSED (no-op)", () => {
   const crossFocus = (): Position => createPosition(BODY_P1, 3); // inside "body text"
 
   it("DELETE_BACKWARD over a cross-context selection no-ops (document byte-identical)", () => {
-    const editor = buildEditorWithSelection(buildStateWithHeaderBody(), crossAnchor(), crossFocus());
+    const editor = buildEditorWithSelection(buildDocumentWithHeaderBody(), crossAnchor(), crossFocus());
     const before = docSnapshot(editor.document);
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
@@ -160,7 +160,7 @@ describe("C.2c T7e — cross-context selection is REFUSED (no-op)", () => {
   });
 
   it("DELETE_FORWARD over a cross-context selection no-ops (document byte-identical)", () => {
-    const editor = buildEditorWithSelection(buildStateWithHeaderBody(), crossAnchor(), crossFocus());
+    const editor = buildEditorWithSelection(buildDocumentWithHeaderBody(), crossAnchor(), crossFocus());
     const before = docSnapshot(editor.document);
     const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
 
@@ -169,7 +169,7 @@ describe("C.2c T7e — cross-context selection is REFUSED (no-op)", () => {
   });
 
   it("SPLIT_NODE (Enter) over a cross-context selection no-ops (document byte-identical)", () => {
-    const editor = buildEditorWithSelection(buildStateWithHeaderBody(), crossAnchor(), crossFocus());
+    const editor = buildEditorWithSelection(buildDocumentWithHeaderBody(), crossAnchor(), crossFocus());
     const before = docSnapshot(editor.document);
     const next = reduceEditor(editor, { type: "SPLIT_NODE" });
 
@@ -178,7 +178,7 @@ describe("C.2c T7e — cross-context selection is REFUSED (no-op)", () => {
   });
 
   it("INSERT_TEXT (typing over a cross-context selection) no-ops (document byte-identical)", () => {
-    const editor = buildEditorWithSelection(buildStateWithHeaderBody(), crossAnchor(), crossFocus());
+    const editor = buildEditorWithSelection(buildDocumentWithHeaderBody(), crossAnchor(), crossFocus());
     const before = docSnapshot(editor.document);
     const next = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" });
 
@@ -189,7 +189,7 @@ describe("C.2c T7e — cross-context selection is REFUSED (no-op)", () => {
   it("is refused regardless of anchor/focus order (focus in header, anchor in body)", () => {
     // Reverse: anchor in main body, focus in header — still cross-context.
     const editor = buildEditorWithSelection(
-      buildStateWithHeaderBody(),
+      buildDocumentWithHeaderBody(),
       createPosition(BODY_P1, 3),
       createPosition(HDR_P1, 2),
     );
@@ -208,7 +208,7 @@ describe("C.2c T7e — same-context expanded selections are NOT refused", () => 
   it("expanded selection WHOLLY within the header body deletes (cross-block, T7c path)", () => {
     // anchor at "al|pha" (offset 2 of c1) → focus at "be|ta" (offset 2 of c2).
     const editor = buildEditorWithSelection(
-      buildStateWithHeaderBody(),
+      buildDocumentWithHeaderBody(),
       createPosition(HDR_P1, 2),
       createPosition(HDR_P2, 2),
     );
@@ -227,7 +227,7 @@ describe("C.2c T7e — same-context expanded selections are NOT refused", () => 
 
   it("expanded selection WHOLLY within the header body accepts typing (replaceRange)", () => {
     const editor = buildEditorWithSelection(
-      buildStateWithHeaderBody(),
+      buildDocumentWithHeaderBody(),
       createPosition(HDR_P1, 1),
       createPosition(HDR_P1, 4),
     );
@@ -240,7 +240,7 @@ describe("C.2c T7e — same-context expanded selections are NOT refused", () => 
   it("expanded selection WHOLLY within the main body deletes (no-regression)", () => {
     // anchor at "body |text" (offset 5 of p) → focus at "more| body" (offset 4 of p2).
     const editor = buildEditorWithSelection(
-      buildStateWithHeaderBody(),
+      buildDocumentWithHeaderBody(),
       createPosition(BODY_P1, 5),
       createPosition(BODY_P2, 4),
     );
@@ -262,7 +262,7 @@ describe("C.2c T7e — same-context expanded selections are NOT refused", () => 
 // ════════════════════════════════════════════════════════════════════
 describe("C.2c T7e — header-body boundary collapses are no-ops", () => {
   it("Backspace at offset 0 of the header body's FIRST block is a no-op (no merge into main)", () => {
-    const editor = buildEditor(buildStateWithHeaderBody(), createPosition(HDR_P1, 0));
+    const editor = buildEditor(buildDocumentWithHeaderBody(), createPosition(HDR_P1, 0));
     const before = docSnapshot(editor.document);
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
@@ -276,7 +276,7 @@ describe("C.2c T7e — header-body boundary collapses are no-ops", () => {
 
   it("Forward-delete at END of the header body's LAST block is a no-op (does not pull main content in)", () => {
     // caret at end of "beta" (offset 4 of c2).
-    const editor = buildEditor(buildStateWithHeaderBody(), createPosition(HDR_P2, 4));
+    const editor = buildEditor(buildDocumentWithHeaderBody(), createPosition(HDR_P2, 4));
     const before = docSnapshot(editor.document);
     const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
 
@@ -293,7 +293,7 @@ describe("C.2c T7e — header-body boundary collapses are no-ops", () => {
 // ════════════════════════════════════════════════════════════════════
 describe("C.2c T7e — main-tree boundary no-regression", () => {
   it("Backspace at offset 0 of the main doc's FIRST block is a no-op", () => {
-    const editor = buildEditor(buildStateWithHeaderBody(), createPosition(BODY_P1, 0));
+    const editor = buildEditor(buildDocumentWithHeaderBody(), createPosition(BODY_P1, 0));
     const before = docSnapshot(editor.document);
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 

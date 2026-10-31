@@ -20,7 +20,7 @@ describe("applyEdit", () => {
     const after = createSpan(createPosition(id, 1), createPosition(id, 1));
 
     const next = applyEdit(editor, { change, selection: after });
-    expect(next.document).toBe(change.state);
+    expect(next.document).toBe(change.document);
     expect(next.selection).toBe(after);
     expect(next.lastDirtyIds).toBe(change.dirtyIds);
     expect(next.lastChange?.from).toBe(editor.document);
@@ -35,7 +35,7 @@ describe("applyEdit", () => {
     expect(applyEdit(editor, null)).toBe(editor);
 
     const after = createSpan(createPosition(id, 0), createPosition(id, 0));
-    const moved = applyEdit(editor, { change: { state: editor.document, dirtyIds: new Set() }, selection: after });
+    const moved = applyEdit(editor, { change: { document: editor.document, dirtyIds: new Set() }, selection: after });
     expect(moved.document).toBe(editor.document);
     expect(moved.lastChange).toBe(editor.lastChange);
     expect(moved.selection).toBe(after);

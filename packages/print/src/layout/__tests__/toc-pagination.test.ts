@@ -9,9 +9,9 @@
 // Each TOC entry's page-number atom is a `"page"`-mode cross-reference keyed
 // `${tocId}/toc/${i}` (host = the plan-indexed TOC block), so this is the TOC
 // analogue of `cross-ref-page-field.test.ts` (a body cross-ref resolving to a
-// target's page) — but driven through a REAL rendered State, not hand-built atoms.
+// target's page) — but driven through a REAL rendered Document, not hand-built atoms.
 //
-// The doc is built the real way: a `buildState` main tree (TOC + headings +
+// The doc is built the real way: a `buildDocument` main tree (TOC + headings +
 // image fillers), run through `render` (the TOC branch synthesizes the entries),
 // then `cascadePass(rendered.root)` and `layoutTree(..., pageConfig)`. Image blocks
 // with a fixed `height` attr are the deterministic page-spanning fillers (mirroring
@@ -24,9 +24,9 @@ import { layoutTree } from "../dispatch";
 import { createMockShaper } from "@taleweaver/core";
 import { createDefaultComponentRegistry } from "@taleweaver/core";
 import { createDefaultAttrRegistry } from "@taleweaver/core";
-import { buildBlock, buildState, inlineContent, text } from "@taleweaver/core";
+import { buildBlock, buildDocument, inlineContent, text } from "@taleweaver/core";
 import type { Block } from "@taleweaver/core";
-import type { State } from "@taleweaver/core";
+import type { Document } from "@taleweaver/core";
 import type { PageConfig } from "../page-config";
 import type { LayoutBox } from "../layout-box";
 import type { PageBox } from "../page-box";
@@ -47,9 +47,9 @@ function pageConfig(pageBlockSize: number): PageConfig {
   };
 }
 
-/** Render a real State (TOC entries synthesized) → cascade root → paginate. */
-function paginate(state: State, cfg: PageConfig): VirtualLayoutTree {
-  const rendered = render(state, reg, attrReg);
+/** Render a real Document (TOC entries synthesized) → cascade root → paginate. */
+function paginate(document: Document, cfg: PageConfig): VirtualLayoutTree {
+  const rendered = render(document, reg, attrReg);
   const cascaded = cascadePass(rendered.root);
   if (cascaded.type !== "element") throw new Error("cascadePass returned non-element root");
   const tree = layoutTree(cascaded, cfg.pageInlineSize, shaper(), cfg);
@@ -160,7 +160,7 @@ describe("TOC end-to-end through paginated layout + fields", () => {
         inlineContent: inlineContent([text("Appendix")]),
       }),
     ];
-    const tree = paginate(buildState({ rootId: "doc", blocks }), pageConfig(100));
+    const tree = paginate(buildDocument({ rootId: "doc", blocks }), pageConfig(100));
 
     // The fillers force the three headings onto THREE DISTINCT, increasing pages —
     // so the three entries must resolve to three different page numbers (the binding
@@ -211,7 +211,7 @@ describe("TOC end-to-end through paginated layout + fields", () => {
         }),
       );
     }
-    const tree = paginate(buildState({ rootId: "doc", blocks }), pageConfig(70));
+    const tree = paginate(buildDocument({ rootId: "doc", blocks }), pageConfig(70));
 
     // The TOC's entry lines must split: some entries on page 0, the rest on a later
     // page — the synthesized multi-child TOC block FRAGMENTS through the BFC.
@@ -265,7 +265,7 @@ describe("TOC end-to-end through paginated layout + fields", () => {
         inlineContent: inlineContent([text("Beta")]),
       }),
     ];
-    const tree = paginate(buildState({ rootId: "doc", blocks }), pageConfig(100));
+    const tree = paginate(buildDocument({ rootId: "doc", blocks }), pageConfig(100));
 
     const h1Page = (tree.plan.pageSpanOfBlock("h1")?.first ?? -1) + 1;
     const h2Page = (tree.plan.pageSpanOfBlock("h2")?.first ?? -1) + 1;
@@ -319,7 +319,7 @@ describe("TOC end-to-end through paginated layout + fields", () => {
         inlineContent: inlineContent([text("Last")]),
       }),
     );
-    const tree = paginate(buildState({ rootId: "doc", blocks }), pageConfig(100));
+    const tree = paginate(buildDocument({ rootId: "doc", blocks }), pageConfig(100));
 
     const lastPage = (tree.plan.pageSpanOfBlock("hLast")?.first ?? -1) + 1;
     expect(lastPage).toBeGreaterThanOrEqual(10); // a 2-digit page number

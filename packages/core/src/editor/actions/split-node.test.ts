@@ -7,7 +7,7 @@
  * Normal. The follow-on applies ONLY to the new (empty) block created by Enter
  * at the END; a mid-text split keeps both halves as the heading.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   createInitialEditorState,

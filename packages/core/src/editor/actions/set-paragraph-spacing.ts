@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../state";
-import type { State, BlockId } from "../../state";
+import type { Document, BlockId } from "../../state";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -57,28 +57,28 @@ export function handleSetParagraphSpacing(
 
   const targetIds = targetLeafBlockIds(editor);
 
-  let state: State = editor.document;
+  let document: Document = editor.document;
   const dirtyIds = new Set<BlockId>();
   for (const blockId of targetIds) {
     // Defensive: skip a block that resolved into the target list but is now
     // missing (never expected — the ids come from the live state).
-    if (getBlock(state, blockId) === null) continue;
+    if (getBlock(document, blockId) === null) continue;
     const result = mergeBlockAttrs(
-      state,
+      document,
       blockId,
       { [attrKey]: nextValue },
     );
     // No-op merge (value unchanged): same state ref → skip.
-    if (result.state === state) continue;
-    state = result.state;
+    if (result.document === document) continue;
+    document = result.document;
     for (const id of result.dirtyIds) dirtyIds.add(id);
   }
 
   // the identity-no-op contract: nothing changed → return the input editor unchanged.
   // (`history.commit` is itself no-op-safe.)
-  if (state === editor.document) return null;
+  if (document === editor.document) return null;
 
-  return { change: { state, dirtyIds } };
+  return { change: { document, dirtyIds } };
 }
 
 /**
@@ -91,16 +91,16 @@ export function handleSetParagraphSpacing(
  * container is nonsensical: it owns no text. Mirrors `handleSetLineSpacing`.
  */
 function targetLeafBlockIds(editor: EditorState): BlockId[] {
-  const { document: state, selection } = editor;
+  const { document, selection } = editor;
 
   if (positionsEqual(selection.anchor, selection.focus)) {
-    const focus = getBlock(state, selection.focus.blockId);
+    const focus = getBlock(document, selection.focus.blockId);
     if (focus === null || focus.inlineContent === null) return [];
     return [focus.id];
   }
 
   const ids: BlockId[] = [];
-  for (const block of iterateBlocksInSpan(state, selection)) {
+  for (const block of iterateBlocksInSpan(document, selection)) {
     if (block.inlineContent !== null) ids.push(block.id);
   }
   return ids;

@@ -11,10 +11,10 @@
  */
 import { describe, it, expect } from "vitest";
 import { getBlock, getChildIds, createPosition, createSpan, asBlockId, encodeFragmentClip, extractFragment, isFormattingSuggestionKey, INSERTION_SUGGESTION_ATTR, DELETION_SUGGESTION_ATTR } from "../../state";
-import type { BlockId, Selection, State } from "../../state";
+import type { BlockId, Selection, Document } from "../../state";
 import type { EditorAction } from "../editor-action";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
-import { createEditorStateFromState } from "../editor-state";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
+import { createEditorStateFromDocument } from "../editor-state";
 import type { EditorState } from "../editor-state";
 import { config, reduceEditor, bodyBlockIds } from "./test-helpers";
 
@@ -26,7 +26,7 @@ const at = (b: string, o: number) => createPosition(id(b), o);
  * "abcd" | <objects> | "efgh". The first object is `obj`, a later one `obj2`, …; a
  * table's cell paragraph is `cp` (`cp2`, …).
  */
-function doc(...kinds: Kind[]): State {
+function doc(...kinds: Kind[]): Document {
   const ids = ["p0", ...kinds.map((_, i) => (i === 0 ? "obj" : `obj${i + 1}`)), "p1"];
   const sib = (i: number) => ({ prevSiblingId: ids[i - 1] ?? null, nextSiblingId: ids[i + 1] ?? null });
   const objects = kinds.flatMap((kind, k) => {
@@ -40,7 +40,7 @@ function doc(...kinds: Kind[]): State {
       buildBlock({ id: `cp${suffix}`, type: "paragraph", parentId: `c${suffix}`, inlineContent: inlineContent([text("xy")]) }),
     ];
   });
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: "p1" }),
@@ -52,8 +52,8 @@ function doc(...kinds: Kind[]): State {
 }
 
 /** A text block's runs: ~struck~, +inserted+, *bold* (^ = a formatting suggestion). */
-function runs(state: State, blockId: BlockId): string {
-  const items = getBlock(state, blockId)?.inlineContent?.items ?? [];
+function runs(document: Document, blockId: BlockId): string {
+  const items = getBlock(document, blockId)?.inlineContent?.items ?? [];
   return items
     .map((it) => {
       if (it.kind !== "text") return "□";
@@ -68,14 +68,14 @@ function runs(state: State, blockId: BlockId): string {
 }
 
 /** The body: `"text"` per paragraph, `[hr]` / `[table "cell"]` per object. */
-function show(state: State): string {
-  return bodyBlockIds(state)
+function show(document: Document): string {
+  return bodyBlockIds(document)
     .map((b) => {
-      const block = getBlock(state, b);
-      if (block?.inlineContent) return `"${runs(state, b)}"`;
+      const block = getBlock(document, b);
+      if (block?.inlineContent) return `"${runs(document, b)}"`;
       if (block?.type !== "table") return "[hr]";
-      const cells = getChildIds(state, b).flatMap((r) => getChildIds(state, r)).flatMap((c) => getChildIds(state, c));
-      return `[table ${cells.map((p) => `"${runs(state, p)}"`).join(" ")}]`;
+      const cells = getChildIds(document, b).flatMap((r) => getChildIds(document, r)).flatMap((c) => getChildIds(document, c));
+      return `[table ${cells.map((p) => `"${runs(document, p)}"`).join(" ")}]`;
     })
     .join(" | ");
 }
@@ -98,7 +98,7 @@ function range(kind: Kind, where: "across" | "from" | "to"): Selection {
 
 /** A rich-paste clip holding one paragraph `t`. */
 function clipOf(t: string): string {
-  const src = buildState({
+  const src = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -117,10 +117,10 @@ const ACTIONS: Record<string, EditorAction> = {
   RICH: { type: "PASTE", clip: clipOf("X") },
 };
 
-/** `action` over `selection` (set through SET_SELECTION) in `state`: the resulting body + caret. */
-function run(state: State, selection: Selection, mode: "direct" | "suggest", action: string): string {
+/** `action` over `selection` (set through SET_SELECTION) in `document`: the resulting body + caret. */
+function run(document: Document, selection: Selection, mode: "direct" | "suggest", action: string): string {
   const cfg = mode === "direct" ? config : { ...config, suggestingAuthor: "alice" };
-  const start = createEditorStateFromState(state, createSpan(at("p0", 0), at("p0", 0)), cfg);
+  const start = createEditorStateFromDocument(document, createSpan(at("p0", 0), at("p0", 0)), cfg);
   const selected = reduceEditor(start, { type: "SET_SELECTION", selection });
   const act = ACTIONS[action];
   if (act === undefined) throw new Error(action);
@@ -230,7 +230,7 @@ describe("range edits touching an object (horizontal line / table)", () => {
 
   it("extending from a lifted anchor restarts from the user's own: back in the table selects from the original caret", () => {
     const set = (e: EditorState, sel: Selection) => reduceEditor(e, { type: "SET_SELECTION", selection: sel });
-    let e = createEditorStateFromState(doc("table"), createSpan(at("cp", 1), at("cp", 1)), config);
+    let e = createEditorStateFromDocument(doc("table"), createSpan(at("cp", 1), at("cp", 1)), config);
     e = set(e, createSpan(e.selection.anchor, at("p1", 2)));
     expect(e.selection).toEqual(createSpan(at("obj", 0), at("p1", 2)));
     e = set(e, createSpan(e.selection.anchor, at("cp", 2)));

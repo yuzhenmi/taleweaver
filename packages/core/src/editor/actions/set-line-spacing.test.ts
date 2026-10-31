@@ -21,10 +21,10 @@ import {
   firstChildId,
   createPosition,
 } from "./test-helpers";
-import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { createEditorStateFromDocument, type EditorState } from "../editor-state";
 import { getBlock } from "../../state";
 import type { BlockId } from "../../state";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 
 describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
   it("collapsed selection: sets lineHeight on the focus block", () => {
@@ -56,7 +56,7 @@ describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
     // (container) whose list-item is a leaf, then a trailing paragraph. A span
     // from p0 → p2 covers p0 (leaf), the section (container), the list
     // (container), the list-item (leaf), and p2 (leaf).
-    const initialState = buildState({
+    const initialDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: "p2" }),
@@ -92,7 +92,7 @@ describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
         }),
       ],
     });
-    const editor: EditorState = createEditorStateFromState(initialState, {
+    const editor: EditorState = createEditorStateFromDocument(initialDocument, {
         anchor: createPosition("p0" as BlockId, 0),
         focus: createPosition("p2" as BlockId, 2),
       }, config);
@@ -138,7 +138,7 @@ describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
     const again = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 });
 
     // No commit, no state change (the identity-no-op contract). Phase 0b: the no-op
-    // identity is `state` reference equality — the editor OBJECT differs because
+    // identity is `document` reference equality — the editor OBJECT differs because
     // the dispatch entry-clear strips the prior mutating action's stale
     // `lastDirtyIds` hint (the SET_LINE_SPACING above set a non-null set).
     expect(again.document).toBe(editor.document);

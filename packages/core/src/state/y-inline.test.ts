@@ -11,9 +11,9 @@ import {
 } from "./y-inline";
 import { mergeAdjacentTextItems, type InlineItem } from "./inline-content";
 import { AttrRegistry } from "../cascade/attr-registry";
-import { buildState, buildBlock, inlineContent } from "../test-utils/state-builders";
-import { STATE_INTERNAL } from "./state-internal";
-import { applyOperation } from "./state";
+import { buildDocument, buildBlock, inlineContent } from "../test-utils/document-builders";
+import { DOCUMENT_INTERNAL } from "./document-internal";
+import { applyOperation } from "./document";
 import { blockText, assertInlineStorageInvariants, type BlockText } from "./block-text";
 import { insertPieceAfter } from "./y-flow";
 import type { BlockId } from "./block-id";
@@ -203,14 +203,14 @@ describe("y-inline — read model equals the JS normalizer (randomized)", () => 
 describe("assertInlineStorageInvariants (pieces)", () => {
   /** A one-paragraph doc whose block "p" is written by `write` through its piece storage. */
   function blockWith(write: (t: BlockText) => void): Y.Doc {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
       ],
     });
-    const doc = state[STATE_INTERNAL].doc;
+    const doc = document[DOCUMENT_INTERNAL].doc;
     const t = blockText(doc, "p");
     if (t === null) throw new Error("setup");
     doc.transact(() => write(t));
@@ -250,7 +250,7 @@ describe("assertInlineStorageInvariants (pieces)", () => {
   });
 
   it("applyOperation runs it in dev mode", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -258,7 +258,7 @@ describe("assertInlineStorageInvariants (pieces)", () => {
       ],
     });
     expect(() =>
-      applyOperation(state, (doc) => {
+      applyOperation(document, (doc) => {
         blockText(doc, "p")?.insert(0, "\uD83D");
       }),
     ).toThrow(/lone surrogate/);

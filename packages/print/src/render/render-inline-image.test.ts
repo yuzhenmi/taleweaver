@@ -3,7 +3,7 @@ import { render } from "@taleweaver/core";
 import type { RenderNode, ElementBox } from "@taleweaver/core";
 import { createDefaultComponentRegistry } from "@taleweaver/core";
 import { createDefaultAttrRegistry } from "@taleweaver/core";
-import { buildState } from "@taleweaver/core";
+import { buildDocument } from "@taleweaver/core";
 import { buildBlock, inlineContent, text, embed } from "@taleweaver/core";
 import { asBlockId, INLINE_IMAGE_EMBED_TYPE } from "@taleweaver/core";
 import { cascadePass } from "@taleweaver/core";
@@ -36,8 +36,8 @@ function findInlineImage(root: RenderNode): ElementBox | null {
   return found;
 }
 
-function buildInlineImageState() {
-  return buildState({
+function buildInlineImageDocument() {
+  return buildDocument({
     rootId: asBlockId("doc"),
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -61,8 +61,8 @@ function buildInlineImageState() {
 
 describe("render — inline-image embed (Option B inline-block atom)", () => {
   it("renders the inline image as an OUTER inline-block (replacedInline) wrapping an INNER block carrying metadata.image", () => {
-    const state = buildInlineImageState();
-    const out = render(state, reg, attrReg);
+    const document = buildInlineImageDocument();
+    const out = render(document, reg, attrReg);
     const outer = findInlineImage(out.root);
     expect(outer).not.toBeNull();
     if (outer === null) throw new Error("expected inline-image element box");
@@ -90,7 +90,7 @@ describe("render — inline-image embed (Option B inline-block atom)", () => {
   });
 
   it("threads alt from the inline-image embed properties onto the inner block (P-3)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -110,7 +110,7 @@ describe("render — inline-image embed (Option B inline-block atom)", () => {
         }),
       ],
     });
-    const out = render(state, reg, attrReg);
+    const out = render(document, reg, attrReg);
     const outer = findInlineImage(out.root);
     if (outer === null) throw new Error("expected inline-image element box");
     const inner = outer.children[0];
@@ -121,8 +121,8 @@ describe("render — inline-image embed (Option B inline-block atom)", () => {
   });
 
   it("lays out the inline image so its bottom edge sits on the text baseline (T2 replaced rule)", () => {
-    const state = buildInlineImageState();
-    const out = render(state, reg, attrReg);
+    const document = buildInlineImageDocument();
+    const out = render(document, reg, attrReg);
     const cascaded = cascadePass(out.root);
     if (cascaded.type !== "element") throw new Error("cascaded root is not an element");
     // The render root is the document; descend to the paragraph block, which is

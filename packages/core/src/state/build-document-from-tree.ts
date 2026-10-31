@@ -4,8 +4,8 @@ import type { BlockId, IdAllocator } from "./block-id";
 import type { InlineContent } from "./inline-content";
 import type { ReadonlyAttrs } from "./attrs";
 import type { ListDef } from "./list-defs";
-import { buildStateWithListDefs } from "./build-state-from-blocks";
-import type { Document } from "./state";
+import { buildDocumentWithListDefs } from "./build-document-from-blocks";
+import type { Document } from "./document";
 
 /** A declarative container node: children, NO inlineContent. */
 export interface ContainerBlockNode {
@@ -45,7 +45,7 @@ function isLeaf(node: BlockNode): node is LeafBlockNode {
  * Lower a declarative `BlockNode` tree to a `Document`: a depth-first walk minting a
  * fresh `BlockId` per node (via `allocator`), deriving
  * parentId / prevSiblingId / nextSiblingId / firstChildId / lastChildId from
- * tree position, then `buildStateWithListDefs`. The root node's minted id
+ * tree position, then `buildDocumentWithListDefs`. The root node's minted id
  * becomes the Document's rootId.
  *
  * `listDefs` keys are listIds referenced by `list-item` leaf nodes'
@@ -59,7 +59,7 @@ function isLeaf(node: BlockNode): node is LeafBlockNode {
  * responsibility).
  *
  * This is the SAFE public counterpart to the state-module-internal
- * `buildStateFromBlocks`, whose manual sibling/parent pointers are a footgun;
+ * `buildDocumentFromBlocks`, whose manual sibling/parent pointers are a footgun;
  * `BlockNode` is the safe declarative shape that owns the error-prone link
  * derivation in ONE tested place. It is the format-agnostic construction
  * primitive that importers (e.g. the HTML serializer) target.
@@ -125,5 +125,5 @@ export function buildDocumentFromTree(
 
   const rootId = allocator.allocate();
   build(root, rootId, null, null, null);
-  return buildStateWithListDefs({ rootId, blocks, listDefs, resolver });
+  return buildDocumentWithListDefs({ rootId, blocks, listDefs, resolver });
 }

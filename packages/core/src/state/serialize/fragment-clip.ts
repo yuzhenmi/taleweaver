@@ -15,13 +15,13 @@
 
 import type { BlockKindResolver } from "../block-kinds";
 import * as Y from "yjs";
-import { createState, type Document } from "../state";
+import { createDocument, type Document } from "../document";
 import { getMetaRootId } from "../yjs-doc";
 import { upgradeDocument } from "../upgrade";
 import { bindAttrRegistry } from "../mark-attrs";
 import type { AttrRegistry } from "../../cascade/attr-registry";
 import { bytesToBase64, base64ToBytes } from "./base64";
-import { STATE_INTERNAL } from "../state-internal";
+import { DOCUMENT_INTERNAL } from "../document-internal";
 
 /**
  * Private MIME type for the Taleweaver lossless clipboard flavor.
@@ -39,7 +39,7 @@ export const TALEWEAVER_CLIP_MIME = "application/x-taleweaver-clip";
  * snapshot — the round-trip is lossless.
  */
 export function encodeFragmentClip(fragment: Document): string {
-  const bytes = Y.encodeStateAsUpdate(fragment[STATE_INTERNAL].doc);
+  const bytes = Y.encodeStateAsUpdate(fragment[DOCUMENT_INTERNAL].doc);
   return bytesToBase64(bytes);
 }
 
@@ -66,7 +66,7 @@ export function decodeFragmentClip(clip: string, resolver: BlockKindResolver, at
     // storage (a clip copied from an older engine) before loading it.
     bindAttrRegistry(doc, attrRegistry);
     upgradeDocument(doc, { resolver });
-    return createState({ rootId, doc, resolver });
+    return createDocument({ rootId, doc, resolver });
   } catch {
     // Any decode failure — a thrown MalformedDocumentError on a non-document
     // payload, or a Yjs-internal parse error on structurally invalid bytes —

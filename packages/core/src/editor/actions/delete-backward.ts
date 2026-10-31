@@ -48,7 +48,7 @@ export function handleDeleteBackward(editor: EditorState): Edit | null {
     const newCursor = createPosition(at.blockId, at.offset);
     const newSelection = createSpan(newCursor, newCursor);
     // Suggesting mode over an already-struck selection: a caret-only outcome.
-    if (result.state === editor.document) return { selection: newSelection };
+    if (result.document === editor.document) return { selection: newSelection };
     return { change: result, selection: newSelection };
   }
 
@@ -66,7 +66,7 @@ export function handleDeleteBackward(editor: EditorState): Edit | null {
     const newSelection = createSpan(newCursor, newCursor);
     // Suggesting mode over an already-struck character (any author): nothing is
     // written; the caret moves across it (no history entry).
-    if (result.state === editor.document) return { selection: newSelection };
+    if (result.document === editor.document) return { selection: newSelection };
     return { change: result, selection: newSelection };
   }
 
@@ -100,7 +100,7 @@ export function handleDeleteBackward(editor: EditorState): Edit | null {
     const sectionInput = suggestionInputForBlock(editor, currentBlock.id);
     if (sectionInput !== null) return suggestMarkDeletion(editor, prevBlock, sectionInput, createPosition(prevBlock.id, prevLen));
     const result = deleteSectionBreak(editor.document, before.sectionBreak);
-    if (result.state === editor.document) return null;
+    if (result.document === editor.document) return null;
     return caretEdit(result, createPosition(currentBlock.id, prevLen));
   }
 
@@ -119,9 +119,9 @@ export function handleDeleteBackward(editor: EditorState): Edit | null {
     const ownInput = suggestionInputForBlock(editor, currentBlock.id);
     if (ownInput !== null) return suggestMarkDeletion(editor, currentBlock, ownInput, pos);
     const result = removeBlock(editor.document, currentBlock.id);
-    if (result.state === editor.document || resolveBlock(result.state, currentBlock.id) !== null) return null;
-    const lastId = lastLeafBlock(result.state, prevBlock.id);
-    const last = lastId === null ? null : getBlock(result.state, lastId);
+    if (result.document === editor.document || resolveBlock(result.document, currentBlock.id) !== null) return null;
+    const lastId = lastLeafBlock(result.document, prevBlock.id);
+    const last = lastId === null ? null : getBlock(result.document, lastId);
     if (last === null || last.inlineContent === null) return null;
     return caretEdit(result, createPosition(last.id, inlineContentLength(last.inlineContent)));
   }
@@ -135,7 +135,7 @@ export function handleDeleteBackward(editor: EditorState): Edit | null {
   // Delete ¶prev: the right paragraph N survives holding [...prev, ...N];
   // the caret sits at the seam.
   const result = mergeAdjacentBlocks(editor.document, prevBlock.id, currentBlock.id);
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
   return caretEdit(result, createPosition(result.survivorId, prevLen));
 }
 

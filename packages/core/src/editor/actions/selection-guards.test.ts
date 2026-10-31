@@ -16,16 +16,16 @@
 
 import { describe, it, expect } from "vitest";
 import { createPosition, createSpan, spanStart } from "../../state";
-import type { State, BlockId } from "../../state";
+import type { Document, BlockId } from "../../state";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
-} from "../../test-utils/state-builders";
+} from "../../test-utils/document-builders";
 import { isCrossContextSelection } from "./helpers/is-cross-context-selection";
 import { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
-import { createEditorStateFromState } from "../editor-state";
+import { createEditorStateFromDocument } from "../editor-state";
 import { config, reduceEditor } from "./test-helpers";
 
 const BODY_P1 = "p" as BlockId;
@@ -38,8 +38,8 @@ const HDR_P1 = "hdr-c1" as BlockId;
  * header-boundary-guards.test.ts's fixture so the contexts are exercised the
  * same way.
  */
-function buildStateWithHeaderBody(): State {
-  return buildState({
+function buildDocumentWithHeaderBody(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p2" }),
@@ -89,8 +89,8 @@ function buildStateWithHeaderBody(): State {
  * whose endpoints resolve to DIFFERENT parents while staying in the SAME
  * (main) context — the cross-parent (not cross-context) refusal case.
  */
-function buildStateWithTwoSections(): State {
-  return buildState({
+function buildDocumentWithTwoSections(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "s1", lastChildId: "s2" }),
@@ -128,89 +128,89 @@ function buildStateWithTwoSections(): State {
 
 describe("isCrossContextSelection", () => {
   it("returns true for a main-body ↔ header-body span", () => {
-    const state = buildStateWithHeaderBody();
+    const document = buildDocumentWithHeaderBody();
     const span = createSpan(createPosition(HDR_P1, 2), createPosition(BODY_P1, 3));
-    expect(isCrossContextSelection(state, span)).toBe(true);
+    expect(isCrossContextSelection(document, span)).toBe(true);
   });
 
   it("is order-independent (header focus, body anchor)", () => {
-    const state = buildStateWithHeaderBody();
+    const document = buildDocumentWithHeaderBody();
     const span = createSpan(createPosition(BODY_P1, 3), createPosition(HDR_P1, 2));
-    expect(isCrossContextSelection(state, span)).toBe(true);
+    expect(isCrossContextSelection(document, span)).toBe(true);
   });
 
   it("returns false for a same-context cross-block main-body span", () => {
-    const state = buildStateWithHeaderBody();
+    const document = buildDocumentWithHeaderBody();
     const span = createSpan(createPosition(BODY_P1, 5), createPosition(BODY_P2, 4));
-    expect(isCrossContextSelection(state, span)).toBe(false);
+    expect(isCrossContextSelection(document, span)).toBe(false);
   });
 
   it("returns false for a same-context span wholly within one block", () => {
-    const state = buildStateWithHeaderBody();
+    const document = buildDocumentWithHeaderBody();
     const span = createSpan(createPosition(BODY_P1, 1), createPosition(BODY_P1, 4));
-    expect(isCrossContextSelection(state, span)).toBe(false);
+    expect(isCrossContextSelection(document, span)).toBe(false);
   });
 
   it("returns false for a same-context cross-parent span (both in main context)", () => {
     // s1/a and s2/b have different parents but the SAME context root (doc).
-    const state = buildStateWithTwoSections();
+    const document = buildDocumentWithTwoSections();
     const span = createSpan(createPosition("a" as BlockId, 1), createPosition("b" as BlockId, 1));
-    expect(isCrossContextSelection(state, span)).toBe(false);
+    expect(isCrossContextSelection(document, span)).toBe(false);
   });
 });
 
 describe("expandedSpanCollapsePoint", () => {
   it("returns spanStart for a same-block span", () => {
-    const state = buildStateWithHeaderBody();
+    const document = buildDocumentWithHeaderBody();
     const start = createPosition(BODY_P1, 2);
     const span = createSpan(start, createPosition(BODY_P1, 5));
-    const result = expandedSpanCollapsePoint(state, span);
+    const result = expandedSpanCollapsePoint(document, span);
     expect(result).not.toBeNull();
-    expect(result).toEqual(spanStart(state, span));
+    expect(result).toEqual(spanStart(document, span));
   });
 
   it("returns the delete seam for a same-parent cross-block span: (end block, start offset) — the end block survives", () => {
-    const state = buildStateWithHeaderBody();
+    const document = buildDocumentWithHeaderBody();
     const span = createSpan(createPosition(BODY_P1, 5), createPosition(BODY_P2, 4));
-    expect(expandedSpanCollapsePoint(state, span)).toEqual(createPosition(BODY_P2, 5));
+    expect(expandedSpanCollapsePoint(document, span)).toEqual(createPosition(BODY_P2, 5));
   });
 
   it("is independent of anchor/focus order (document order decides start / end)", () => {
-    const state = buildStateWithHeaderBody();
+    const document = buildDocumentWithHeaderBody();
     const span = createSpan(createPosition(BODY_P2, 4), createPosition(BODY_P1, 5));
-    expect(expandedSpanCollapsePoint(state, span)).toEqual(createPosition(BODY_P2, 5));
+    expect(expandedSpanCollapsePoint(document, span)).toEqual(createPosition(BODY_P2, 5));
   });
 
   it("returns null for a cross-parent span (different parents → deleteRange would throw)", () => {
-    const state = buildStateWithTwoSections();
+    const document = buildDocumentWithTwoSections();
     const span = createSpan(createPosition("a" as BlockId, 1), createPosition("b" as BlockId, 1));
-    expect(expandedSpanCollapsePoint(state, span)).toBeNull();
+    expect(expandedSpanCollapsePoint(document, span)).toBeNull();
   });
 
   it("returns null when a block does not resolve (anchor endpoint missing)", () => {
-    const state = buildStateWithHeaderBody();
+    const document = buildDocumentWithHeaderBody();
     const span = createSpan(
       createPosition("nonexistent" as BlockId, 0),
       createPosition(BODY_P1, 3),
     );
-    expect(expandedSpanCollapsePoint(state, span)).toBeNull();
+    expect(expandedSpanCollapsePoint(document, span)).toBeNull();
   });
 
   it("returns null when a block does not resolve (focus endpoint missing)", () => {
-    const state = buildStateWithHeaderBody();
+    const document = buildDocumentWithHeaderBody();
     const span = createSpan(
       createPosition(BODY_P1, 3),
       createPosition("nonexistent" as BlockId, 0),
     );
-    expect(expandedSpanCollapsePoint(state, span)).toBeNull();
+    expect(expandedSpanCollapsePoint(document, span)).toBeNull();
   });
 });
 
 describe("INSERT_TEXT over a cross-parent span (across a section break)", () => {
   it("is refused: a no-op, not a throw", () => {
-    const state = buildStateWithTwoSections();
+    const document = buildDocumentWithTwoSections();
     const span = createSpan(createPosition("a" as BlockId, 1), createPosition("b" as BlockId, 1));
-    const editor = createEditorStateFromState(state, span, config);
+    const editor = createEditorStateFromDocument(document, span, config);
     const next = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" });
     expect(next.document).toBe(editor.document);
     expect(next.selection).toEqual(span);

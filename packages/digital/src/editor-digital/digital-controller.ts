@@ -1,6 +1,6 @@
 import {
   createInitialEditorState,
-  createEditorStateFromState,
+  createEditorStateFromDocument,
   reduceEditor,
   extractText,
   builtinEmbedSerializer,
@@ -9,7 +9,7 @@ import {
   encodeFragmentClip,
   TALEWEAVER_CLIP_MIME,
   selectionsEqual,
-  initialSelectionForState,
+  initialSelectionForDocument,
   getBlock,
   createDecorationLayers,
   createFindSession,
@@ -57,7 +57,7 @@ import {
   type ComponentRegistry,
   type AttrRegistry,
   type PageConfig,
-  type State,
+  type Document,
   type IncompatibleDocumentReport,
   UNKNOWN_MAPPING,
 } from "@taleweaver/core";
@@ -80,8 +80,8 @@ export interface DigitalControllerOptions {
   readonly attrRegistry: AttrRegistry;
   readonly containerWidth?: number;
   readonly pageConfig?: PageConfig;
-  readonly doc?: Document;
-  readonly initialState?: State;
+  readonly doc?: globalThis.Document;
+  readonly initialDocument?: Document;
   /**
    * Invoked after every `editorState` transition (programmatic `dispatch`, input,
    * selection, clipboard — all funnel through the one internal `dispatch`). Lets a
@@ -125,14 +125,14 @@ export interface DigitalControllerOptions {
    * Do not keep reading the halted Document with core read functions. While halted, setters
    * and clears of decorations / highlights / styles are no-ops (`decorations` keeps the
    * last good set). Exit: the host calls {@link DigitalController.replaceDocument} with a
-   * State holding no legacy storage (same Y.Doc or another).
+   * Document holding no legacy storage (same Y.Doc or another).
    */
   readonly onIncompatibleDocument?: (report: IncompatibleDocumentReport) => void;
   /**
    * While HALTED on a NOT-YET-UPGRADED document ("legacy-schema"), it was upgraded (by
    * this host or an upgraded peer — any transaction is re-checked): the host can now
    * resume with {@link DigitalController.replaceDocument} and a fresh Document over the same
-   * Y.Doc (`createState({ rootId, doc })`). Called once per halt; never for a sticky halt.
+   * Y.Doc (`createDocument({ rootId, doc })`). Called once per halt; never for a sticky halt.
    */
   readonly onDocumentCompatible?: () => void;
 }
@@ -145,13 +145,13 @@ export interface DigitalController {
   readonly halted: boolean;
   dispatch(action: EditorAction): void;
   /**
-   * Replace the document: the editor shows `state` (a fresh history, the caret at its
+   * Replace the document: the editor shows `document` (a fresh history, the caret at its
    * start, the mapping log restarted — older versions no longer map, anchors die). Every
    * decoration layer and the find session are dropped (the host sets them again). This
    * is also how a halted controller resumes (after `upgradeDocument`), on the same
    * Y.Doc or another.
    */
-  replaceDocument(state: State): void;
+  replaceDocument(document: Document): void;
   /**
    * Replace the host decorations. They stay attached through later edits (position-mapped)
    * until replaced; a decoration whose range is deleted disappears. Only blocks whose drawn
@@ -162,7 +162,7 @@ export interface DigitalController {
    * through the edits made meanwhile; if that Document is too old to map (outside the
    * controller's mapping log) the decorations are dropped rather than drawn on the wrong text.
    */
-  setDecorations(decorations: readonly Decoration[], basedOn?: State): void;
+  setDecorations(decorations: readonly Decoration[], basedOn?: Document): void;
   /**
    * Highlight find matches (`activeIndex` emphasized); mapped through edits until cleared.
    * Find highlights are ONE layer: this writes it directly, `findStart` takes it over and the
@@ -198,18 +198,18 @@ export interface DigitalController {
   /** Replace every match (one undo step). */
   replaceAll(replacement: string): FindStatus;
   /** The current document version (an opaque token for `mapPosition` / `createAnchor`). */
-  readonly version: State;
+  readonly version: Document;
   /**
    * Map `position` from an earlier `version` to the current document: `{ position, deleted }`,
    * or null once that version has aged out of the controller's mapping log.
    */
-  mapPosition(position: Position, version: State, assoc?: Assoc): MappedPosition | null;
+  mapPosition(position: Position, version: Document, assoc?: Assoc): MappedPosition | null;
   /**
    * Anchor a point (`to` omitted) or range that follows every later edit (local, undo /
    * redo, collaborative). `basedOn`: the version the positions refer to (default: the
    * current one); null when that version can no longer be mapped or the content is gone.
    */
-  createAnchor(from: Position, to?: Position, options?: AnchorOptions & { readonly basedOn?: State }): Anchor | null;
+  createAnchor(from: Position, to?: Position, options?: AnchorOptions & { readonly basedOn?: Document }): Anchor | null;
   /**
    * Offer `proposal` as ONE suggestion group (works in any editing mode; the caret is
    * only rebased). `basedOn`: the version its positions refer to — mapped through the
@@ -218,7 +218,7 @@ export interface DigitalController {
    * destroyed" after `destroy`). Resolves at once with the reducer's verdict (same
    * promise shape as the print controller, whose host owns the state).
    */
-  propose(proposal: Proposal, options?: { readonly basedOn?: State }): Promise<ProposeResult>;
+  propose(proposal: Proposal, options?: { readonly basedOn?: Document }): Promise<ProposeResult>;
   /**
    * Host per-group styling of suggestions (e.g. per `metadata.source`), kept live through
    * proposals, accept / reject and undo. `null` clears it.
@@ -247,8 +247,8 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   };
 
   let editorState: EditorState =
-    options.initialState !== undefined
-      ? createEditorStateFromState(options.initialState, initialSelectionForState(options.initialState), config)
+    options.initialDocument !== undefined
+      ? createEditorStateFromDocument(options.initialDocument, initialSelectionForDocument(options.initialDocument), config)
       : createInitialEditorState(config);
 
   let isComposing = false;
@@ -312,7 +312,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   }
 
   /** Run a decoration-layer setter now (and redraw); a no-op while halted. */
-  function layerOp(op: (s: State) => void): void {
+  function layerOp(op: (s: Document) => void): void {
     if (halted) return;
     op(editorState.document);
     redraw();
@@ -521,7 +521,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   let unsubscribeRemote: (() => void) | null = null;
   // Every controller shape-checks peer updates (legacy storage halts it), whether or
   // not it applies them (`remoteChanges: "ignore"`).
-  function followRemoteDoc(force = false, watched: State = editorState.document, startHalted = false): void {
+  function followRemoteDoc(force = false, watched: Document = editorState.document, startHalted = false): void {
     const doc = getYDoc(watched);
     if (doc === remoteDoc && !force) return;
     unsubscribeRemote?.();
@@ -578,25 +578,25 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     container.focus();
   }
 
-  function replaceDocument(state: State): void {
+  function replaceDocument(document: Document): void {
     if (destroyed) return;
     // The replacement must hold no legacy storage (the load assertion; O(blocks), only
-    // here) — checked even when not halted (legacy may land between `createState` and
+    // here) — checked even when not halted (legacy may land between `createDocument` and
     // here). Refused, its legacy storage went unseen (not halted yet, another document,
     // or a local write after "compatible"): halt (or report again if the host was told
     // "compatible") and watch this document halted — so its upgrade is reported. The
     // current editor stays as it is.
-    const legacy = inspectDocument(getYDoc(state)).legacyBlocks;
+    const legacy = inspectDocument(getYDoc(document)).legacyBlocks;
     if (legacy.length > 0) {
-      if (!halted || getYDoc(state) !== remoteDoc || toldCompatible) {
+      if (!halted || getYDoc(document) !== remoteDoc || toldCompatible) {
         halt({ reason: "legacy-schema", legacyBlocks: legacy, legacyText: {} });
-        followRemoteDoc(true, state, true);
+        followRemoteDoc(true, document, true);
       }
       return;
     }
     const prev = editorState;
     // Built before the old History is destroyed: a throwing build leaves the editor intact.
-    const next = createEditorStateFromState(state, initialSelectionForState(state), config);
+    const next = createEditorStateFromDocument(document, initialSelectionForDocument(document), config);
     prev.history.destroy(); // the old document's undo manager detaches from its Y.Doc
     editorState = next;
     halted = false;

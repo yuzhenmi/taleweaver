@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { Document, OperationResult } from "../state";
-import { applyOperation, getBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, getBlock } from "../document";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { requireInTransaction } from "../yjs-doc";
@@ -43,16 +43,16 @@ export interface DeleteTableColumnPlan {
  * MAIN-TREE ONLY. dirtyIds covers the table (its `columnWidths` attr write and/or
  * a row's child-list change) plus every touched row + removed cell subtree.
  */
-export function deleteTableColumn(state: Document, ctx: TableContext): OperationResult {
-  const plan = planDeleteTableColumn(state, ctx);
-  return applyOperation(state, (doc) => {
+export function deleteTableColumn(document: Document, ctx: TableContext): OperationResult {
+  const plan = planDeleteTableColumn(document, ctx);
+  return applyOperation(document, (doc) => {
     deleteTableColumnInTx(doc, plan);
   });
 }
 
 /** Build the plan: one `planRemoveBlock` per row for the caret-column cell, plus
  *  the re-removed `columnWidths` attrs bag when present. */
-export function planDeleteTableColumn(state: Document, ctx: TableContext): DeleteTableColumnPlan {
+export function planDeleteTableColumn(document: Document, ctx: TableContext): DeleteTableColumnPlan {
   const colIndex = ctx.colIndex;
   const caretRowCells = ctx.cellIdsByRow[ctx.rowIndex];
   if (caretRowCells === undefined) {
@@ -73,10 +73,10 @@ export function planDeleteTableColumn(state: Document, ctx: TableContext): Delet
     if (cellId === undefined) {
       throw new Error(`deleteTableColumn: cell at row ${r}, col ${colIndex} missing (unreachable)`);
     }
-    return planRemoveBlock(state, cellId);
+    return planRemoveBlock(document, cellId);
   });
 
-  const table = getBlock(state, ctx.tableId);
+  const table = getBlock(document, ctx.tableId);
   const cw = table?.attrs.columnWidths;
   const newTableAttrs: ReadonlyAttrs | null =
     table !== null && isColumnWidths(cw)

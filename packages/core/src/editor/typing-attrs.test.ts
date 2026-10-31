@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { inheritedAttrsAt } from "./typing-attrs";
-import { buildFlowDoc, text, buildBlock, buildState, inlineContent, withTestAttrs } from "../test-utils/state-builders";
+import { buildFlowDoc, text, buildBlock, buildDocument, inlineContent, withTestAttrs } from "../test-utils/document-builders";
 import { createPosition, type BlockId } from "../state";
 
 describe("inheritedAttrsAt — an EMPTY paragraph types with its ¶'s character props (Word / GDocs)", () => {
@@ -10,7 +10,7 @@ describe("inheritedAttrsAt — an EMPTY paragraph types with its ¶'s character 
   });
 
   it("a non-empty paragraph still inherits from its text (the ¶ is not consulted)", () => {
-    const s = withTestAttrs(buildState({
+    const s = withTestAttrs(buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "P" }),

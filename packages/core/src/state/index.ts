@@ -13,7 +13,7 @@
  *
  * Excluded by design (state-module-private infrastructure — NOT re-exported
  * here, so consumers outside `state/` cannot reach them through the barrel):
- *   - `state-internal`        — the `STATE_INTERNAL` symbol gating State's
+ *   - `document-internal`        — the `DOCUMENT_INTERNAL` symbol gating Document's
  *                               underlying Y.Doc + snapshot cache. Its
  *                               containment is the whole Yjs encapsulation;
  *                               re-exporting it would open the breach.
@@ -22,11 +22,11 @@
  *                               construction, the registry + flows storage,
  *                               the derived read model and the structural
  *                               write primitives.
- *   - `snapshot`              — per-State snapshot cache.
+ *   - `snapshot`              — per-Document snapshot cache.
  *   - `dev-mode`              — `isDevMode()` gate for invariant assertions.
  *   - `id-collision-check`    — UUID-collision defense.
- *   - `build-state-from-blocks` — internal fixture builder (the public
- *                               `buildState` test-util delegates here).
+ *   - `build-document-from-blocks` — internal fixture builder (the public
+ *                               `buildDocument` test-util delegates here).
  *   - `root-id-cache`         — `getEmbedContentRootIds` / `getTemplateContentRootIds`
  *                               take a raw `Y.Doc`, so they're infra; the
  *                               consumer-facing accessors are
@@ -39,21 +39,21 @@
 //
 // Yjs-free value types plus the narrow O(1) snapshot accessors. `Document`'s
 // only public field is `rootId`; the underlying Y.Doc + snapshot cache live
-// behind the non-exported STATE_INTERNAL symbol (deliberately absent above).
+// behind the non-exported DOCUMENT_INTERNAL symbol (deliberately absent above).
 // ─────────────────────────────────────────────────────────────────────────
 
-// State container, transaction runner, snapshot accessors.
+// Document container, transaction runner, snapshot accessors.
 export type {
-  Document as State,
+  Document,
   OperationResult,
   ResolvedBlock,
   ResolvedBlockKind,
-} from "./state";
+} from "./document";
 export {
-  createState,
+  createDocument,
   applyOperation,
-  freshState,
-  freshStateFromDoc,
+  freshDocument,
+  freshDocumentFromDoc,
   getBlock,
   getEmbedContent,
   getTemplateContent,
@@ -61,7 +61,7 @@ export {
   getEmbedContentIds,
   getTemplateContentIds,
   docHasFootnotes,
-} from "./state";
+} from "./document";
 
 export { subscribeForeignChanges, type CompatibilityGateOptions } from "./collab";
 export {
@@ -184,11 +184,11 @@ export { normalizeSpan, iterateSpan, iterateBlocksInSpan, isObjectBlock, clipSpa
 // render pass uses to short-circuit list-event collection on list-free docs.
 export { iterateBlocksInDocumentOrder, iterateLeafBlocksInDocumentOrder, docHasLists } from "./document-order";
 
-// List numbering definitions (per-list level configuration). `getListDefsForState`
+// List numbering definitions (per-list level configuration). `getListDefsForDocument`
 // is the render-pass entry point — it resolves all defs as a plain Map for the
 // numbering engine (`computeCounters`).
 export type { ListDef, ListLevelConfig } from "./list-defs";
-export { getListDefsForState, classifyListDef } from "./list-defs";
+export { getListDefsForDocument, classifyListDef } from "./list-defs";
 
 // Flatten a span to plain text (clipboard, find/replace, a11y).
 export type { EmbedSerializer } from "./extract-text";
@@ -459,8 +459,8 @@ export {
   getSuggestions,
   // `Document`-level record read used by the render pass (expandInlineItems) to
   // resolve suggestion visuals (author color + underline/lineThrough) without
-  // piercing STATE_INTERNAL.
-  readSuggestionRecordFromState,
+  // piercing DOCUMENT_INTERNAL.
+  readSuggestionRecordFromDocument,
   // Groups (host proposals): a suggestion's group, and the open groups.
   suggestionGroupOf,
   getSuggestionGroups,
@@ -518,7 +518,7 @@ export { extractFragment } from "./ops/extract-fragment";
 // ─────────────────────────────────────────────────────────────────────────
 
 // `insertFragment(state, selection, fragment, allocator)` inserts a fragment
-// `Document` into `state` at `selection` in DIRECT (non-suggesting) mode.
+// `Document` into `document` at `selection` in DIRECT (non-suggesting) mode.
 // Supports both leaf-only and container top-level blocks; container subtrees
 // are materialized as siblings (the split-merge algorithm handles all cases).
 export type { InsertFragmentResult } from "./ops/insert-fragment";
@@ -530,7 +530,7 @@ export { insertFragment } from "./ops/insert-fragment";
 
 // `TALEWEAVER_CLIP_MIME` — the private clipboard MIME type.
 // `encodeFragmentClip(fragment)` → base64 string.
-// `decodeFragmentClip(clip)` → State | null (never throws).
+// `decodeFragmentClip(clip)` → Document | null (never throws).
 export {
   TALEWEAVER_CLIP_MIME,
   encodeFragmentClip,
@@ -541,15 +541,15 @@ export {
 // Boot
 // ─────────────────────────────────────────────────────────────────────────
 
-export type { CreateEmptyDocumentArgs } from "./initial-state";
-export { createEmptyDocument } from "./initial-state";
+export type { CreateEmptyDocumentArgs } from "./create-empty-document";
+export { createEmptyDocument } from "./create-empty-document";
 
 // Declarative construction — the SAFE public counterpart to the internal
-// `buildStateFromBlocks`. `buildDocumentFromTree` lowers a nested `BlockNode`
+// `buildDocumentFromBlocks`. `buildDocumentFromTree` lowers a nested `BlockNode`
 // tree (no ids, no manual sibling/parent pointers) to a `Document`, minting ids
 // and DERIVING all structural links. It is the format-agnostic foundation any
-// importer (e.g. the HTML serializer) targets. (`buildStateFromBlocks` /
-// `buildStateWithListDefs` stay state-module-internal — barrel-excluded — since
+// importer (e.g. the HTML serializer) targets. (`buildDocumentFromBlocks` /
+// `buildDocumentWithListDefs` stay state-module-internal — barrel-excluded — since
 // their manual link fields are a footgun.)
 export type { BlockNode, ContainerBlockNode, LeafBlockNode } from "./build-document-from-tree";
 export { buildDocumentFromTree } from "./build-document-from-tree";
@@ -557,8 +557,8 @@ export { buildDocumentFromTree } from "./build-document-from-tree";
 // ───────────────────────────────────────────────────────────────────────────
 // Document serialization — pluggable DocumentSerializer + registry + engine
 // dispatch + the lossless Yjs-binary serializer. The serialize module lives
-// INSIDE state/ because it consumes/produces State and needs the raw Y.Doc
-// (read via STATE_INTERNAL by sibling import); its barrel surface is re-exported
+// INSIDE state/ because it consumes/produces Document and needs the raw Y.Doc
+// (read via DOCUMENT_INTERNAL by sibling import); its barrel surface is re-exported
 // here. `getMetaRootId` (yjs-doc) stays state-private and is NOT re-exported.
 // ───────────────────────────────────────────────────────────────────────────
 export type { SerializedDocument, DocumentSerializer, SerializerRegistry } from "./serialize";

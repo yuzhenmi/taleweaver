@@ -1,6 +1,6 @@
 import type { BlockId } from "./block-id";
 import type { Block } from "./block";
-import { resolveBlock, blockCount, createWalkGuard, type Document } from "./state";
+import { resolveBlock, blockCount, createWalkGuard, type Document } from "./document";
 import type { Position, Span } from "./block-position";
 import { ancestorChain } from "./block-traversal";
 
@@ -24,11 +24,11 @@ import { ancestorChain } from "./block-traversal";
  *
  * Throws if either id does not exist, or if blocks have no common ancestor.
  */
-export function compareBlocksInDocOrder(state: Document, idA: BlockId, idB: BlockId): number {
+export function compareBlocksInDocOrder(document: Document, idA: BlockId, idB: BlockId): number {
   if (idA === idB) return 0;
 
-  const chainA = ancestorChain(state, idA);
-  const chainB = ancestorChain(state, idB);
+  const chainA = ancestorChain(document, idA);
+  const chainB = ancestorChain(document, idB);
   if (chainA.length === 0) throw new Error(`compareBlocksInDocOrder: block "${idA}" not found`);
   if (chainB.length === 0) throw new Error(`compareBlocksInDocOrder: block "${idB}" not found`);
 
@@ -62,14 +62,14 @@ export function compareBlocksInDocOrder(state: Document, idA: BlockId, idB: Bloc
     // once, leaving i <= chainA.length - 2 and i+1 a valid in-bounds index.
     throw new Error(`compareBlocksInDocOrder: LCA index ${i + 1} out of range in chainA`);
   }
-  const lca = resolveBlock(state, lcaId)?.block ?? null;
+  const lca = resolveBlock(document, lcaId)?.block ?? null;
   if (lca === null) throw new Error(`compareBlocksInDocOrder: LCA "${lcaId}" not found`);
 
   let cursor: BlockId | null = lca.firstChildId;
   while (cursor) {
     if (cursor === chainA[i]) return -1;
     if (cursor === chainB[j]) return 1;
-    const block = resolveBlock(state, cursor)?.block ?? null;
+    const block = resolveBlock(document, cursor)?.block ?? null;
     cursor = block !== null ? block.nextSiblingId : null;
   }
 
@@ -83,9 +83,9 @@ export function compareBlocksInDocOrder(state: Document, idA: BlockId, idB: Bloc
  * Same block: compare offsets.
  * Different blocks: delegate to compareBlocksInDocOrder.
  */
-export function comparePositions(state: Document, a: Position, b: Position): number {
+export function comparePositions(document: Document, a: Position, b: Position): number {
   if (a.blockId === b.blockId) return a.offset - b.offset;
-  return compareBlocksInDocOrder(state, a.blockId, b.blockId);
+  return compareBlocksInDocOrder(document, a.blockId, b.blockId);
 }
 
 /**
@@ -97,8 +97,8 @@ export function comparePositions(state: Document, a: Position, b: Position): num
  * compare). Constant-time when anchor and focus share a blockId;
  * O(depth + LCA-fanout) when they don't.
  */
-export function spanStart(state: Document, span: Span): Position {
-  return comparePositions(state, span.anchor, span.focus) <= 0
+export function spanStart(document: Document, span: Span): Position {
+  return comparePositions(document, span.anchor, span.focus) <= 0
     ? span.anchor
     : span.focus;
 }
@@ -107,8 +107,8 @@ export function spanStart(state: Document, span: Span): Position {
  * Return the later position of a Span in document order. Mirror of
  * `spanStart`. Collapsed spans return focus.
  */
-export function spanEnd(state: Document, span: Span): Position {
-  return comparePositions(state, span.anchor, span.focus) <= 0
+export function spanEnd(document: Document, span: Span): Position {
+  return comparePositions(document, span.anchor, span.focus) <= 0
     ? span.focus
     : span.anchor;
 }
@@ -136,17 +136,17 @@ export function spanEnd(state: Document, span: Span): Position {
  *
  * Returns null if blockId does not exist in any tree.
  */
-export function selectionContextOf(state: Document, blockId: BlockId): BlockId | null {
-  let cursor: Block | null = resolveBlock(state, blockId)?.block ?? null;
+export function selectionContextOf(document: Document, blockId: BlockId): BlockId | null {
+  let cursor: Block | null = resolveBlock(document, blockId)?.block ?? null;
   if (cursor === null) return null;
   // Cycle-detection bound: see nextBlockInDocOrder in block-traversal.ts
   // for the rationale on why this uses the all-tree block count.
-  const guard = createWalkGuard(state);
+  const guard = createWalkGuard(document);
   while (cursor.parentId) {
     if (guard.step()) {
-      throw new Error(`selectionContextOf: cycle detected in block tree (visited >${blockCount(state) + 1} blocks)`);
+      throw new Error(`selectionContextOf: cycle detected in block tree (visited >${blockCount(document) + 1} blocks)`);
     }
-    const parent: Block | null = resolveBlock(state, cursor.parentId)?.block ?? null;
+    const parent: Block | null = resolveBlock(document, cursor.parentId)?.block ?? null;
     if (parent === null) break;
     cursor = parent;
   }

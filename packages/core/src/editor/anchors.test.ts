@@ -1,10 +1,10 @@
-import { finalSectionOf } from "../test-utils/state-builders";
-import { TEST_RESOLVER } from "../test-utils/state-builders";
+import { finalSectionOf } from "../test-utils/document-builders";
+import { TEST_RESOLVER } from "../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import {
   createInitialEditorState,
-  createEditorStateFromState,
+  createEditorStateFromDocument,
   reduceEditor,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
@@ -14,7 +14,7 @@ import {
   transitionMapping,
   getYDoc,
   subscribeRemoteChanges,
-  createState,
+  createDocument,
   getBlock,
   createPosition,
   createSpan,
@@ -22,7 +22,7 @@ import {
   report,
   resetPerfTrace,
   setPerfTraceEnabled,
-  initialSelectionForState,
+  initialSelectionForDocument,
   type EditorAction,
   type EditorConfig,
   type EditorState,
@@ -175,8 +175,8 @@ describe("collaboration: APPLY_FOREIGN_CHANGE over two synced Y.Docs", () => {
     const docA = getYDoc(a.document);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
-    const stateB = createState({ resolver: TEST_RESOLVER, rootId: a.document.rootId, doc: docB });
-    const b = harness(createEditorStateFromState(stateB, initialSelectionForState(stateB), config));
+    const documentB = createDocument({ resolver: TEST_RESOLVER, rootId: a.document.rootId, doc: docB });
+    const b = harness(createEditorStateFromDocument(documentB, initialSelectionForDocument(documentB), config));
     docA.on("update", (u: Uint8Array, origin: unknown) => {
       if (origin !== "sync") Y.applyUpdate(docB, u, "sync");
     });

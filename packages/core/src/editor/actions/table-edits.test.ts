@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { config, createInitialEditorState, reduceEditor, createPosition, createSpan } from "./test-helpers";
-import { createEditorStateFromState } from "../editor-state";
+import { createEditorStateFromDocument } from "../editor-state";
 import type { EditorState } from "../editor-state";
-import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent } from "../../test-utils/document-builders";
 import { getBlock, getChildIds, topLevelBlockIds } from "../../state";
-import type { BlockId, BlockInit, State } from "../../state";
+import type { BlockId, BlockInit, Document } from "../../state";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -29,27 +29,27 @@ function editorWithTable(): EditorState {
 }
 
 /** Find the table block id (first top-level table, in document order). */
-function findTableId(state: State): BlockId {
-  for (const id of topLevelBlockIds(state)) {
-    if (getBlock(state, id)?.type === "table") return id;
+function findTableId(document: Document): BlockId {
+  for (const id of topLevelBlockIds(document)) {
+    if (getBlock(document, id)?.type === "table") return id;
   }
   throw new Error("no table in state");
 }
 
 /** The first paragraph inside the table's first cell. */
-function firstCellParagraph(state: State, tableId: BlockId): BlockId {
-  const row0 = nth(getChildIds(state, tableId), 0, "row");
-  const cellA = nth(getChildIds(state, row0), 0, "cell");
-  const para = getBlock(state, cellA)?.firstChildId;
+function firstCellParagraph(document: Document, tableId: BlockId): BlockId {
+  const row0 = nth(getChildIds(document, tableId), 0, "row");
+  const cellA = nth(getChildIds(document, row0), 0, "cell");
+  const para = getBlock(document, cellA)?.firstChildId;
   if (para == null) throw new Error("no paragraph in first cell");
   return para;
 }
 
 /** The first paragraph inside the cell at [row r, column c] of the table. */
-function cellParagraph(state: State, tableId: BlockId, r: number, c: number): BlockId {
-  const row = nth(getChildIds(state, tableId), r, "row");
-  const cell = nth(getChildIds(state, row), c, "cell");
-  const para = getBlock(state, cell)?.firstChildId;
+function cellParagraph(document: Document, tableId: BlockId, r: number, c: number): BlockId {
+  const row = nth(getChildIds(document, tableId), r, "row");
+  const cell = nth(getChildIds(document, row), c, "cell");
+  const para = getBlock(document, cell)?.firstChildId;
   if (para == null) throw new Error(`no paragraph in cell [${r}, ${c}]`);
   return para;
 }
@@ -139,9 +139,9 @@ describe("handleInsertTableRow — INSERT_TABLE_ROW (P15a.S2)", () => {
       buildBlock({ id: "C", type: "table-cell", parentId: "r1", firstChildId: "Cp", lastChildId: "Cp" }),
       buildBlock({ id: "Cp", type: "paragraph", parentId: "C", inlineContent: inlineContent([]) }),
     ];
-    const state = buildState({ rootId: "doc", blocks });
+    const document = buildDocument({ rootId: "doc", blocks });
     const caret = createPosition("Bp" as BlockId, 0);
-    let editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    let editor = createEditorStateFromDocument(document, createSpan(caret, caret), config);
 
     const next = reduceEditor(editor, { type: "INSERT_TABLE_ROW", position: "below" });
     expect(next).not.toBe(editor);
@@ -205,7 +205,7 @@ describe("handleDeleteTable — DELETE_TABLE (P15a.S3)", () => {
     // A document whose only authored child is a 1×1 table. Invariant I:
     // a paragraph always follows a table, so deleting the table leaves exactly
     // that paragraph and the caret lands on it (no replacement paragraph is minted).
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
@@ -216,7 +216,7 @@ describe("handleDeleteTable — DELETE_TABLE (P15a.S3)", () => {
       ],
     });
     const caret = createPosition("cp" as BlockId, 0);
-    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    const editor = createEditorStateFromDocument(document, createSpan(caret, caret), config);
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE" });
 
@@ -284,9 +284,9 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
       buildBlock({ id: "C", type: "table-cell", parentId: "r1", firstChildId: "Cp", lastChildId: "Cp" }),
       buildBlock({ id: "Cp", type: "paragraph", parentId: "C", inlineContent: inlineContent([]) }),
     ];
-    const state = buildState({ rootId: "doc", blocks });
+    const document = buildDocument({ rootId: "doc", blocks });
     const caret = createPosition("Cp" as BlockId, 0);
-    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    const editor = createEditorStateFromDocument(document, createSpan(caret, caret), config);
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" });
     expect(next).not.toBe(editor);
@@ -340,7 +340,7 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
   });
 
   it("deleting the only row of a sole-child table → caret on the paragraph after it (invariant I)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
@@ -351,7 +351,7 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
       ],
     });
     const caret = createPosition("cp" as BlockId, 0);
-    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    const editor = createEditorStateFromDocument(document, createSpan(caret, caret), config);
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" });
 
@@ -377,9 +377,9 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
 
   it("keeps headerRowCount naming the leading block across a plain row delete (#487)", () => {
     // 3-row single-column PLAIN (no-span) table with headerRowCount=2 (rows 0–1 pinned).
-    const hrc = (s: State): unknown => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
-    const plainTable3 = (): State =>
-      buildState({
+    const hrc = (s: Document): unknown => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
+    const plainTable3 = (): Document =>
+      buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
@@ -399,7 +399,7 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
     // Delete row 0 (a header row) → headerRowCount 2 → 1.
     {
       const caret = createPosition("p0" as BlockId, 0);
-      const editor = createEditorStateFromState(plainTable3(), createSpan(caret, caret), config);
+      const editor = createEditorStateFromDocument(plainTable3(), createSpan(caret, caret), config);
       const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" });
       expect(getChildIds(next.document, "table" as BlockId).length).toBe(2);
       expect(hrc(next.document)).toBe(1);
@@ -408,14 +408,14 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
     // Delete a BODY row (row 2) → headerRowCount unchanged at 2.
     {
       const caret = createPosition("p2" as BlockId, 0);
-      const editor = createEditorStateFromState(plainTable3(), createSpan(caret, caret), config);
+      const editor = createEditorStateFromDocument(plainTable3(), createSpan(caret, caret), config);
       const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" });
       expect(hrc(next.document)).toBe(2);
     }
   });
 
   it("deleting the last header row of a headerRowCount=1 plain table turns the header off (#487)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
@@ -429,7 +429,7 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
       ],
     });
     const caret = createPosition("p0" as BlockId, 0);
-    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    const editor = createEditorStateFromDocument(document, createSpan(caret, caret), config);
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" });
     // The last header row removed → header turns OFF (attr dropped, reads as 0/undefined).
@@ -480,9 +480,9 @@ describe("handleInsertTableColumn — INSERT_TABLE_COLUMN (P15a.S5)", () => {
       buildBlock({ id: "D", type: "table-cell", parentId: "r1", prevSiblingId: "C", firstChildId: "Dp", lastChildId: "Dp" }),
       buildBlock({ id: "Dp", type: "paragraph", parentId: "D", inlineContent: inlineContent([]) }),
     ];
-    const state = buildState({ rootId: "doc", blocks });
+    const document = buildDocument({ rootId: "doc", blocks });
     const caret = createPosition("Cp" as BlockId, 0);
-    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    const editor = createEditorStateFromDocument(document, createSpan(caret, caret), config);
 
     const next = reduceEditor(editor, { type: "INSERT_TABLE_COLUMN", position: "right" });
     expect(next).not.toBe(editor);
@@ -576,9 +576,9 @@ describe("handleDeleteTableColumn — DELETE_TABLE_COLUMN (P15a.S6)", () => {
       buildBlock({ id: "D", type: "table-cell", parentId: "r1", prevSiblingId: "C", firstChildId: "Dp", lastChildId: "Dp" }),
       buildBlock({ id: "Dp", type: "paragraph", parentId: "D", inlineContent: inlineContent([]) }),
     ];
-    const state = buildState({ rootId: "doc", blocks });
+    const document = buildDocument({ rootId: "doc", blocks });
     const caret = createPosition("Dp" as BlockId, 0);
-    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    const editor = createEditorStateFromDocument(document, createSpan(caret, caret), config);
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_COLUMN" });
     expect(next).not.toBe(editor);
@@ -672,9 +672,9 @@ describe("handleSplitCell — SPLIT_CELL (P15b.S2)", () => {
       buildBlock({ id: "D", type: "table-cell", parentId: "r1", prevSiblingId: "C", firstChildId: "Dp", lastChildId: "Dp" }),
       buildBlock({ id: "Dp", type: "paragraph", parentId: "D", inlineContent: inlineContent([]) }),
     ];
-    const state = buildState({ rootId: "doc", blocks });
+    const document = buildDocument({ rootId: "doc", blocks });
     const caret = createPosition("Ap" as BlockId, 0);
-    return createEditorStateFromState(state, createSpan(caret, caret), config);
+    return createEditorStateFromDocument(document, createSpan(caret, caret), config);
   }
 
   it("no-ops (same editor ref) when the caret is not inside a table", () => {
@@ -708,9 +708,9 @@ describe("handleSplitCell — SPLIT_CELL (P15b.S2)", () => {
       buildBlock({ id: "D", type: "table-cell", parentId: "r1", prevSiblingId: "C", firstChildId: "Dp", lastChildId: "Dp" }),
       buildBlock({ id: "Dp", type: "paragraph", parentId: "D", inlineContent: inlineContent([]) }),
     ];
-    const state = buildState({ rootId: "doc", blocks });
+    const document = buildDocument({ rootId: "doc", blocks });
     const caret = createPosition("Ap" as BlockId, 0);
-    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    const editor = createEditorStateFromDocument(document, createSpan(caret, caret), config);
     const next = reduceEditor(editor, { type: "SPLIT_CELL" });
     expect(next).not.toBe(editor);
     expect(getBlock(next.document, "A" as BlockId)?.attrs.colSpan).toBeUndefined();
@@ -822,9 +822,9 @@ describe("handleMergeCells — MERGE_CELLS (P15b.S3)", () => {
       buildBlock({ id: "D", type: "table-cell", parentId: "r1", prevSiblingId: "C", firstChildId: "Dp", lastChildId: "Dp" }),
       buildBlock({ id: "Dp", type: "paragraph", parentId: "D", inlineContent: inlineContent([]) }),
     ];
-    const state = buildState({ rootId: "doc", blocks });
-    const editor = createEditorStateFromState(
-      state,
+    const document = buildDocument({ rootId: "doc", blocks });
+    const editor = createEditorStateFromDocument(
+      document,
       createSpan(createPosition("Ap" as BlockId, 0), createPosition("Dp" as BlockId, 0)),
       config,
     );

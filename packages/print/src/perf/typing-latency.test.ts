@@ -122,18 +122,18 @@ const countOf = (label: string): number => core.report().entries.find((e) => e.l
 
 function run(withDecorations: boolean, keystrokes: number, paragraphs = 400): RunResult {
   const config = cfg();
-  const state = core.buildDocumentFromTree(chapter(paragraphs), {}, core.createTestAllocator(), TEST_RESOLVER);
+  const document = core.buildDocumentFromTree(chapter(paragraphs), {}, core.createTestAllocator(), TEST_RESOLVER);
   const ids: core.BlockId[] = [];
-  for (let id = finalSection(state)?.firstChildId ?? null; id !== null; id = core.getBlock(state, id)?.nextSiblingId ?? null) ids.push(id);
-  const container = document.createElement("div");
-  document.body.replaceChildren(container);
+  for (let id = finalSection(document)?.firstChildId ?? null; id !== null; id = core.getBlock(document, id)?.nextSiblingId ?? null) ids.push(id);
+  const container = globalThis.document.createElement("div");
+  globalThis.document.body.replaceChildren(container);
   const controller = createEditorController(container, {
     measurer: core.createMockMeasurer(8, 16),
     dispatch: noop,
     pageHeight: LETTER.pageBlockSize,
     pageGap: LETTER.pageGap,
   });
-  let editor = core.createEditorStateFromState(state, core.initialSelectionForState(state), config);
+  let editor = core.createEditorStateFromDocument(document, core.initialSelectionForDocument(document), config);
   controller.update(editor);
 
   const decorations: core.Decoration[] = [];

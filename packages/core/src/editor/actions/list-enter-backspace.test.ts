@@ -14,21 +14,21 @@ import {
   reduceEditor,
   createPosition,
 } from "./test-helpers";
-import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { createEditorStateFromDocument, type EditorState } from "../editor-state";
 import { getBlock, setListType } from "../../state";
-import type { BlockId, State } from "../../state";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import type { BlockId, Document } from "../../state";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 
 // Phase 0b: core's `EditorState` is geometry-free — these list-editing handlers
 // read no layout, so build only the geometry-free fields.
-function makeEditor(state: State, focusId: string, offset: number): EditorState {
+function makeEditor(document: Document, focusId: string, offset: number): EditorState {
   const caret = createPosition(focusId as BlockId, offset);
-  return createEditorStateFromState(state, { anchor: caret, focus: caret }, config);
+  return createEditorStateFromDocument(document, { anchor: caret, focus: caret }, config);
 }
 
 /** A single list-item `li` (listId L1) as the document's only block. */
-function buildLoneItemDoc(content: string): State {
-  const state = buildState({
+function buildLoneItemDoc(content: string): Document {
+  const document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "li" }),
@@ -41,16 +41,16 @@ function buildLoneItemDoc(content: string): State {
       }),
     ],
   });
-  return setListType(state, "L1", "unordered").state;
+  return setListType(document, "L1", "unordered").document;
 }
 
 /** One list-item `li` (listId L1, given level + content) preceded by a paragraph `p0`. */
-function buildDoc(opts: { level?: number; content: string }): State {
+function buildDoc(opts: { level?: number; content: string }): Document {
   const attrs: Record<string, unknown> =
     opts.level !== undefined && opts.level > 0
       ? { listId: "L1", listLevel: opts.level }
       : { listId: "L1" };
-  let state = buildState({
+  let document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: "li" }),
@@ -71,13 +71,13 @@ function buildDoc(opts: { level?: number; content: string }): State {
       }),
     ],
   });
-  return setListType(state, "L1", "unordered").state;
+  return setListType(document, "L1", "unordered").document;
 }
 
 describe("Enter-exit on an empty list-item (#L16)", () => {
   it("(a) Enter on an EMPTY level-0 list-item → becomes a paragraph (list attrs cleared)", () => {
-    const state = buildDoc({ content: "" });
-    const editor = makeEditor(state, "li", 0);
+    const document = buildDoc({ content: "" });
+    const editor = makeEditor(document, "li", 0);
 
     const next = reduceEditor(editor, { type: "SPLIT_NODE" });
 
@@ -90,8 +90,8 @@ describe("Enter-exit on an empty list-item (#L16)", () => {
   });
 
   it("(b) Enter on an EMPTY level>0 list-item → outdents one level, stays a list-item", () => {
-    const state = buildDoc({ level: 2, content: "" });
-    const editor = makeEditor(state, "li", 0);
+    const document = buildDoc({ level: 2, content: "" });
+    const editor = makeEditor(document, "li", 0);
 
     const next = reduceEditor(editor, { type: "SPLIT_NODE" });
 
@@ -102,8 +102,8 @@ describe("Enter-exit on an empty list-item (#L16)", () => {
   });
 
   it("(a') Enter on an empty level-0 list-item that is the doc's ONLY block → paragraph", () => {
-    const state = buildLoneItemDoc("");
-    const editor = makeEditor(state, "li", 0);
+    const document = buildLoneItemDoc("");
+    const editor = makeEditor(document, "li", 0);
 
     const next = reduceEditor(editor, { type: "SPLIT_NODE" });
 
@@ -116,9 +116,9 @@ describe("Enter-exit on an empty list-item (#L16)", () => {
   });
 
   it("(c) Enter on a NON-empty list-item → splits; new item inherits listId + level", () => {
-    const state = buildDoc({ level: 1, content: "hello" });
+    const document = buildDoc({ level: 1, content: "hello" });
     // Caret in the middle ("hel|lo").
-    const editor = makeEditor(state, "li", 3);
+    const editor = makeEditor(document, "li", 3);
 
     const next = reduceEditor(editor, { type: "SPLIT_NODE" });
 
@@ -136,8 +136,8 @@ describe("Enter-exit on an empty list-item (#L16)", () => {
 
 describe("Backspace-outdent at the start of a list-item (#L16)", () => {
   it("(d) Backspace at offset 0 of a level>0 list-item → outdents (no merge)", () => {
-    const state = buildDoc({ level: 2, content: "item" });
-    const editor = makeEditor(state, "li", 0);
+    const document = buildDoc({ level: 2, content: "item" });
+    const editor = makeEditor(document, "li", 0);
 
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
@@ -149,8 +149,8 @@ describe("Backspace-outdent at the start of a list-item (#L16)", () => {
   });
 
   it("(e) Backspace at offset 0 of a level-0 list-item → un-lists to a paragraph (no merge)", () => {
-    const state = buildDoc({ content: "item" });
-    const editor = makeEditor(state, "li", 0);
+    const document = buildDoc({ content: "item" });
+    const editor = makeEditor(document, "li", 0);
 
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
@@ -164,8 +164,8 @@ describe("Backspace-outdent at the start of a list-item (#L16)", () => {
   });
 
   it("(e') Backspace at start of a level-0 list-item that is the doc's ONLY block → paragraph", () => {
-    const state = buildLoneItemDoc("item");
-    const editor = makeEditor(state, "li", 0);
+    const document = buildLoneItemDoc("item");
+    const editor = makeEditor(document, "li", 0);
 
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
@@ -178,8 +178,8 @@ describe("Backspace-outdent at the start of a list-item (#L16)", () => {
   });
 
   it("Backspace mid-item (offset>0) is a normal grapheme delete, not an outdent", () => {
-    const state = buildDoc({ level: 2, content: "ab" });
-    const editor = makeEditor(state, "li", 2);
+    const document = buildDoc({ level: 2, content: "ab" });
+    const editor = makeEditor(document, "li", 2);
 
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 

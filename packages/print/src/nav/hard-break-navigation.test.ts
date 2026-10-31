@@ -15,7 +15,7 @@
  * Migrated from `packages/core/src/editor/actions/hard-break-navigation.test.ts`.
  * The fixture is rebuilt via the dom package's `decodeHtml` (the real clipboard
  * decode path — `<p>AB<br>CD</p>` → one paragraph with the hard-break embed),
- * since core's `buildState`/`embed` test-utils don't cross the package boundary.
+ * since core's `buildDocument`/`embed` test-utils don't cross the package boundary.
  * Assertions byte-identical; the layout SOURCE is the driver rebuild.
  */
 import { describe, it, expect } from "vitest";
@@ -23,7 +23,7 @@ import { createPosition, getBlock, productionAllocator, decodeHtml, type BlockId
 import { resolvePositionFromPixel, resolvePixelPosition } from "../index";
 import { browserHtmlParser } from "../html-parser";
 import {
-  makeNavEditorFromState,
+  makeNavEditorFromDocument,
   caretAt as caretAtHelper,
   nav,
   layoutOf,
@@ -39,8 +39,8 @@ const LINE_H = 16;
 
 /** A fresh nav context over one paragraph "AB" <hard-break> "CD" (block length 5). */
 function hardBreakCtx(): { ctx: NavCtx; para: BlockId } {
-  const state = decodeHtml("<p>AB<br>CD</p>", productionAllocator, browserHtmlParser, TEST_RESOLVER);
-  const ctx = makeNavEditorFromState(state, {
+  const document = decodeHtml("<p>AB<br>CD</p>", productionAllocator, browserHtmlParser, TEST_RESOLVER);
+  const ctx = makeNavEditorFromDocument(document, {
     containerWidth: 200,
     charWidth: CHAR_W,
     lineHeight: LINE_H,

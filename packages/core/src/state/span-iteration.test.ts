@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./span-iteration";
-import { TEST_RESOLVER, testContainer, buildBlock, buildState, text, inlineContent } from "../test-utils/state-builders";
+import { TEST_RESOLVER, testContainer, buildBlock, buildDocument, text, inlineContent } from "../test-utils/document-builders";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";
 
@@ -15,7 +15,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 
 describe("normalizeSpan", () => {
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -25,50 +25,50 @@ describe("normalizeSpan", () => {
     });
 
   it("returns the span unchanged when anchor is already before focus (same block)", () => {
-    const state = fixture();
+    const document = fixture();
     const a = createPosition("p1" as BlockId, 0);
     const b = createPosition("p1" as BlockId, 5);
     const span = createSpan(a, b);
-    const result = normalizeSpan(state, span);
+    const result = normalizeSpan(document, span);
     expect(result.anchor).toBe(a);
     expect(result.focus).toBe(b);
   });
 
   it("swaps anchor and focus when focus is before anchor (same block)", () => {
-    const state = fixture();
+    const document = fixture();
     const a = createPosition("p1" as BlockId, 5);
     const b = createPosition("p1" as BlockId, 0);
     const span = createSpan(a, b);
-    const result = normalizeSpan(state, span);
+    const result = normalizeSpan(document, span);
     expect(result.anchor).toBe(b);
     expect(result.focus).toBe(a);
   });
 
   it("returns the span unchanged when anchor is in an earlier block than focus", () => {
-    const state = fixture();
+    const document = fixture();
     const a = createPosition("p1" as BlockId, 0);
     const b = createPosition("p2" as BlockId, 0);
     const span = createSpan(a, b);
-    const result = normalizeSpan(state, span);
+    const result = normalizeSpan(document, span);
     expect(result.anchor).toBe(a);
     expect(result.focus).toBe(b);
   });
 
   it("swaps when focus is in an earlier block than anchor", () => {
-    const state = fixture();
+    const document = fixture();
     const a = createPosition("p2" as BlockId, 0);
     const b = createPosition("p1" as BlockId, 0);
     const span = createSpan(a, b);
-    const result = normalizeSpan(state, span);
+    const result = normalizeSpan(document, span);
     expect(result.anchor).toBe(b);
     expect(result.focus).toBe(a);
   });
 
   it("returns the span unchanged when collapsed (anchor === focus)", () => {
-    const state = fixture();
+    const document = fixture();
     const a = createPosition("p1" as BlockId, 5);
     const span = createSpan(a, a);
-    const result = normalizeSpan(state, span);
+    const result = normalizeSpan(document, span);
     expect(result.anchor).toBe(a);
     expect(result.focus).toBe(a);
   });
@@ -77,7 +77,7 @@ describe("normalizeSpan", () => {
 describe("iterateSpan", () => {
   // doc > [p1("hello"), p2("world"), p3("!")]
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
@@ -88,9 +88,9 @@ describe("iterateSpan", () => {
     });
 
   it("yields a single range when span is within one block", () => {
-    const state = fixture();
+    const document = fixture();
     const span = createSpan(createPosition("p1" as BlockId, 1), createPosition("p1" as BlockId, 4));
-    const ranges = [...iterateSpan(state, span)];
+    const ranges = [...iterateSpan(document, span)];
     expect(ranges).toHaveLength(1);
     expect(nth(ranges, 0, "range").block.id).toBe("p1");
     expect(nth(ranges, 0, "range").rangeStart).toBe(1);
@@ -98,9 +98,9 @@ describe("iterateSpan", () => {
   });
 
   it("yields anchor block from anchor.offset to end, then focus block from 0 to focus.offset (two-block span)", () => {
-    const state = fixture();
+    const document = fixture();
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
-    const ranges = [...iterateSpan(state, span)];
+    const ranges = [...iterateSpan(document, span)];
     expect(ranges).toHaveLength(2);
     expect(ranges[0]).toEqual(expect.objectContaining({
       rangeStart: 2,
@@ -115,9 +115,9 @@ describe("iterateSpan", () => {
   });
 
   it("yields anchor, all middle full ranges, then focus (three-block span)", () => {
-    const state = fixture();
+    const document = fixture();
     const span = createSpan(createPosition("p1" as BlockId, 1), createPosition("p3" as BlockId, 1));
-    const ranges = [...iterateSpan(state, span)];
+    const ranges = [...iterateSpan(document, span)];
     expect(ranges).toHaveLength(3);
     expect(nth(ranges, 0, "range").block.id).toBe("p1");
     expect(nth(ranges, 0, "range").rangeStart).toBe(1);
@@ -133,9 +133,9 @@ describe("iterateSpan", () => {
   });
 
   it("normalizes the span before iterating (anchor after focus)", () => {
-    const state = fixture();
+    const document = fixture();
     const span = createSpan(createPosition("p2" as BlockId, 3), createPosition("p1" as BlockId, 2));
-    const ranges = [...iterateSpan(state, span)];
+    const ranges = [...iterateSpan(document, span)];
     // After normalization: anchor=p1@2, focus=p2@3. Same as the two-block test above.
     expect(ranges).toHaveLength(2);
     expect(nth(ranges, 0, "range").block.id).toBe("p1");
@@ -143,10 +143,10 @@ describe("iterateSpan", () => {
   });
 
   it("yields a single zero-width range for a collapsed span (anchor === focus)", () => {
-    const state = fixture();
+    const document = fixture();
     const pos = createPosition("p1" as BlockId, 3);
     const span = createSpan(pos, pos);
-    const ranges = [...iterateSpan(state, span)];
+    const ranges = [...iterateSpan(document, span)];
     expect(ranges).toHaveLength(1);
     expect(nth(ranges, 0, "range").rangeStart).toBe(3);
     expect(nth(ranges, 0, "range").rangeEnd).toBe(3);
@@ -154,7 +154,7 @@ describe("iterateSpan", () => {
 
   it("throws when anchor or focus is on a container block (not a leaf)", () => {
     // doc > section > p1 — section is a container with no inlineContent.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
@@ -163,12 +163,12 @@ describe("iterateSpan", () => {
       ],
     });
     const onContainer = createSpan(createPosition("s" as BlockId, 0), createPosition("p1" as BlockId, 1));
-    expect(() => [...iterateSpan(state, onContainer)]).toThrow(/container/);
+    expect(() => [...iterateSpan(document, onContainer)]).toThrow(/container/);
   });
 
   it("throws when anchor and focus are in different selection contexts", () => {
     // Two roots — anchor in main doc, focus in a footnote body's paragraph.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
@@ -180,14 +180,14 @@ describe("iterateSpan", () => {
       ],
     });
     const cross = createSpan(createPosition("p1" as BlockId, 0), createPosition("fnp" as BlockId, 1));
-    expect(() => [...iterateSpan(state, cross)]).toThrow(/different selection contexts/);
+    expect(() => [...iterateSpan(document, cross)]).toThrow(/different selection contexts/);
   });
 });
 
 describe("iterateBlocksInSpan", () => {
   // doc > [section1 > [p1, p2], section2 > [p3]]
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "s1", lastChildId: "s2" }),
@@ -200,41 +200,41 @@ describe("iterateBlocksInSpan", () => {
     });
 
   it("yields just the block when span is within a single block", () => {
-    const state = fixture();
+    const document = fixture();
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p1" as BlockId, 1));
-    const blocks = [...iterateBlocksInSpan(state, span)];
+    const blocks = [...iterateBlocksInSpan(document, span)];
     expect(blocks.map((b) => b.id)).toEqual(["p1"]);
   });
 
   it("yields all blocks (leaves AND containers) overlapped by the span", () => {
-    const state = fixture();
+    const document = fixture();
     // Span from p1 into p3 — passes through p2, s2 (container), p3.
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p3" as BlockId, 1));
-    const blocks = [...iterateBlocksInSpan(state, span)];
+    const blocks = [...iterateBlocksInSpan(document, span)];
     // Expected sequence in doc order: p1, p2, s2, p3.
     expect(blocks.map((b) => b.id)).toEqual(["p1", "p2", "s2", "p3"]);
   });
 
   it("normalizes the span before iterating", () => {
-    const state = fixture();
+    const document = fixture();
     const span = createSpan(createPosition("p3" as BlockId, 1), createPosition("p1" as BlockId, 0));
-    const blocks = [...iterateBlocksInSpan(state, span)];
+    const blocks = [...iterateBlocksInSpan(document, span)];
     expect(blocks.map((b) => b.id)).toEqual(["p1", "p2", "s2", "p3"]);
   });
 
   it("yields just the single block for a collapsed span", () => {
-    const state = fixture();
+    const document = fixture();
     const pos = createPosition("p1" as BlockId, 0);
     const span = createSpan(pos, pos);
-    const blocks = [...iterateBlocksInSpan(state, span)];
+    const blocks = [...iterateBlocksInSpan(document, span)];
     expect(blocks.map((b) => b.id)).toEqual(["p1"]);
   });
 
   it("supports container-block endpoints (anchor on a section, focus on a leaf)", () => {
-    const state = fixture();
+    const document = fixture();
     // Selecting from s1 to p3 — used by 'wrap in section' / 'set page-break' style ops.
     const span = createSpan(createPosition("s1" as BlockId, 0), createPosition("p3" as BlockId, 0));
-    const blocks = [...iterateBlocksInSpan(state, span)];
+    const blocks = [...iterateBlocksInSpan(document, span)];
     // Doc-order from s1: s1, p1, p2, s2, p3.
     expect(blocks.map((b) => b.id)).toEqual(["s1", "p1", "p2", "s2", "p3"]);
   });
@@ -242,7 +242,7 @@ describe("iterateBlocksInSpan", () => {
   it("yields a deeply-nested cross-subtree range", () => {
     // doc > [outer1 > [s1 > [p1, p2]], outer2 > [s2 > [p3]]] — outer sections, inner
     // generic containers (sections only live in the root flow).
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "o1", lastChildId: "o2" }),
@@ -256,7 +256,7 @@ describe("iterateBlocksInSpan", () => {
       ],
     });
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p3" as BlockId, 1));
-    const blocks = [...iterateBlocksInSpan(state, span)];
+    const blocks = [...iterateBlocksInSpan(document, span)];
     // p1, p2, then the paragraph ending section o1 (a section ending in a container gets
     // its own terminating ¶), o2, s2, p3 — o2 appears before its first child.
     const ids = blocks.map((b) => b.id);
@@ -266,7 +266,7 @@ describe("iterateBlocksInSpan", () => {
   });
 
   it("throws when anchor and focus are in different selection contexts", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
@@ -278,14 +278,14 @@ describe("iterateBlocksInSpan", () => {
       ],
     });
     const cross = createSpan(createPosition("p1" as BlockId, 0), createPosition("fnp" as BlockId, 1));
-    expect(() => [...iterateBlocksInSpan(state, cross)]).toThrow(/different selection contexts/);
+    expect(() => [...iterateBlocksInSpan(document, cross)]).toThrow(/different selection contexts/);
   });
 });
 
 describe("iterateSpan — healthy traversal", () => {
   it("does not fire on healthy traversals (regression: outer guard must not false-positive)", () => {
     // doc > [p1, p2, p3, p4, p5] — 5 leaves, span spans all of them.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p5" }),
@@ -297,7 +297,7 @@ describe("iterateSpan — healthy traversal", () => {
       ],
     });
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p5" as BlockId, 1));
-    const ranges = [...iterateSpan(state, span)];
+    const ranges = [...iterateSpan(document, span)];
     expect(ranges.map((r) => r.block.id)).toEqual(["p1", "p2", "p3", "p4", "p5"]);
   });
 });
@@ -305,7 +305,7 @@ describe("iterateSpan — healthy traversal", () => {
 describe("iterateBlocksInSpan — healthy traversal", () => {
   it("does not fire on healthy traversals (regression: outer guard must not false-positive)", () => {
     // doc > [p1..p5] healthy sibling chain.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p5" }),
@@ -317,7 +317,7 @@ describe("iterateBlocksInSpan — healthy traversal", () => {
       ],
     });
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p5" as BlockId, 1));
-    const blocks = [...iterateBlocksInSpan(state, span)];
+    const blocks = [...iterateBlocksInSpan(document, span)];
     expect(blocks.map((b) => b.id)).toEqual(["p1", "p2", "p3", "p4", "p5"]);
   });
 });

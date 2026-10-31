@@ -1,5 +1,5 @@
-import type { BlockId, State, OperationResult } from "../index";
-import { applyOperation } from "../state";
+import type { BlockId, Document, OperationResult } from "../index";
+import { applyOperation } from "../document";
 import { iterateBlocksInDocumentOrder } from "../document-order";
 import { writeListDefInTx, type ListDef } from "../list-defs";
 
@@ -33,26 +33,26 @@ const UNORDERED_DEF: ListDef = {
  * write captures no block dirty ids on its own, so without the returned set the
  * items would not re-render.
  *
- * The affected ids are collected from `state` BEFORE the transaction (a plain
+ * The affected ids are collected from `document` BEFORE the transaction (a plain
  * document-order walk), which avoids reading raw Yjs attrs inside the op
  * closure. `block.attrs["listId"]` is read with a `typeof` guard — the same
  * untyped-attr access pattern the list-collector and cascade use.
  */
 export function setListType(
-  state: State,
+  document: Document,
   listId: string,
   listType: "ordered" | "unordered",
 ): OperationResult {
   const def = listType === "ordered" ? ORDERED_DEF : UNORDERED_DEF;
   const affected = new Set<BlockId>();
-  for (const block of iterateBlocksInDocumentOrder(state)) {
+  for (const block of iterateBlocksInDocumentOrder(document)) {
     if (block.type !== "list-item") continue;
     const blockListId = block.attrs["listId"];
     if (typeof blockListId === "string" && blockListId === listId) {
       affected.add(block.id);
     }
   }
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     writeListDefInTx(doc, listId, def);
     return affected;
   });

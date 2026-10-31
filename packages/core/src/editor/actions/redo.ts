@@ -10,7 +10,7 @@ export function handleRedo(editor: EditorState): Edit | null {
   // As for undo: an unresolvable stored selection falls back to the current one rebased
   // through the redo's change; the post-restore page is ambiguous, so no view hints.
   return {
-    change: { state: result.state, dirtyIds: result.dirtyIds },
+    change: { document: result.document, dirtyIds: result.dirtyIds },
     selection: result.selection ?? "rebase",
     view: {},
     undoable: false,

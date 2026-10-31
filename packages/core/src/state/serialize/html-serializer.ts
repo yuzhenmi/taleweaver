@@ -41,7 +41,7 @@ export function createHtmlDocumentSerializer(deps: {
 }): DocumentSerializer<string> {
   return {
     format: HTML_FORMAT,
-    encode: (state) => encodeHtml(state),
+    encode: (document) => encodeHtml(document),
     decode: (html) => decodeHtml(html, deps.allocator, deps.parseHtml, deps.blockKindResolver),
   };
 }

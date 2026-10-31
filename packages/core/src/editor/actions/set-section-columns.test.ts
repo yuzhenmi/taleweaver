@@ -14,7 +14,7 @@
  * the attrs — proving the render→layout reflow actually fires on the change.
  * Harness mirrors `toggle-section-landscape.test.ts`.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { topLevelBlockIds } from "../../state";
 import { describe, it, expect } from "vitest";
 import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, getBlock, createPosition, render, cascadePass, type EditorConfig, type PageConfig, type EditorState, type BlockId } from "../../index";
@@ -238,7 +238,7 @@ describe("handleSetSectionColumns — SET_SECTION_COLUMNS action", () => {
       { type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 },
     );
     // Re-dispatching the SAME count + gap is a no-op merge. Phase 0b: the no-op
-    // identity is `state` reference equality — the editor OBJECT differs because
+    // identity is `document` reference equality — the editor OBJECT differs because
     // the dispatch entry-clear strips the prior mutating action's stale
     // `lastDirtyIds` hint (twoCol carries a non-null set; again clears it to null).
     const again = reduceEditor(

@@ -34,7 +34,7 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
     const start = expandedSpanCollapsePoint(editor.document, selection);
     if (start === null) return null;
     const result = deleteRangeOrSuggest(editor, selection);
-    if (result.state === editor.document) return null;
+    if (result.document === editor.document) return null;
     // In suggesting mode a forward word-delete must leave the caret PAST the
     // struck span (its END) so a repeated Delete strikes the NEXT span rather than
     // re-targeting the already-struck text (markDeletion coalesces → no-op);
@@ -69,7 +69,7 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
     direction === "backward" ? createSpan(target, pos) : createSpan(pos, target),
   );
   const result = deleteRangeOrSuggest(editor, span);
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
   // Soft-delete leaves the caret on the FAR edge of the struck span in the
   // deletion direction. For BACKWARD that far edge IS `target` (the word-boundary
   // before the caret = span start) in both modes. For FORWARD the far edge is the

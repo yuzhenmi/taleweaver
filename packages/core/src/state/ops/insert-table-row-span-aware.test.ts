@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { insertTableRowSpanAware } from "./insert-table-row-span-aware";
-import { getBlock } from "../state";
+import { getBlock } from "../document";
 import { resolveTableContext, getChildIds, buildTableGrid } from "../table-context";
-import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent } from "../../test-utils/document-builders";
 import { createTestAllocator } from "../block-id";
 import type { BlockId } from "../block-id";
-import type { Document } from "../state";
+import type { Document } from "../document";
 import type { Block } from "../block";
 import type { RowPosition } from "./insert-table-row";
 
@@ -33,36 +33,36 @@ function buildRowSpanTable(): Document {
     ...cell("B", "r0", undefined, "A", null),
     ...cell("C", "r1", undefined, null, null),
   ];
-  return buildState({ rootId: "doc", blocks });
+  return buildDocument({ rootId: "doc", blocks });
 }
 
-function ctxAt(state: Document, blockId: string) {
-  const ctx = resolveTableContext(state, blockId as BlockId);
+function ctxAt(document: Document, blockId: string) {
+  const ctx = resolveTableContext(document, blockId as BlockId);
   if (ctx === null) throw new Error("expected table context");
   return ctx;
 }
 
-const run = (state: Document, caretBlock: string, pos: RowPosition) =>
-  insertTableRowSpanAware(state, ctxAt(state, caretBlock), pos, createTestAllocator("nr"));
+const run = (document: Document, caretBlock: string, pos: RowPosition) =>
+  insertTableRowSpanAware(document, ctxAt(document, caretBlock), pos, createTestAllocator("nr"));
 
 describe("insertTableRowSpanAware", () => {
   it("insert-below a row that a rowSpan crosses: the spanning cell grows, the rest gets a new cell", () => {
     // Caret in B (grid row 0). Insert below → boundary at grid row 1, which A
     // (rowSpan 2) crosses → A.rowSpan 2→3; column 1 (B/C boundary) gets a new cell.
-    const state = buildRowSpanTable();
-    const result = run(state, "Bp", "below");
-    expect(result.state).not.toBe(state);
+    const document = buildRowSpanTable();
+    const result = run(document, "Bp", "below");
+    expect(result.document).not.toBe(document);
 
-    expect(getBlock(result.state, "A" as BlockId)?.attrs.rowSpan).toBe(3);
-    const rows = getChildIds(result.state, "table" as BlockId);
+    expect(getBlock(result.document, "A" as BlockId)?.attrs.rowSpan).toBe(3);
+    const rows = getChildIds(result.document, "table" as BlockId);
     expect(rows.length).toBe(3); // r0, NEW, r1
     expect(rows[0]).toBe("r0");
     expect(rows[2]).toBe("r1");
     const newRow = nth(rows, 1, "row");
-    const newCells = getChildIds(result.state, newRow);
+    const newCells = getChildIds(result.document, newRow);
     expect(newCells.length).toBe(1); // only the non-covered column
 
-    const grid = buildTableGrid(result.state, "table" as BlockId);
+    const grid = buildTableGrid(result.document, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
     expect(grid.occupancy).toEqual([["A", "B"], ["A", newCells[0]], ["A", "C"]]);
   });
@@ -70,16 +70,16 @@ describe("insertTableRowSpanAware", () => {
   it("insert-above the top row: a full fresh row, no span crosses (caret cell at the top edge)", () => {
     // Caret in A (grid row 0). Insert above → boundary at grid row 0 (table top):
     // nothing above, no crossing → both columns get new cells; A is unchanged.
-    const state = buildRowSpanTable();
-    const result = run(state, "Ap", "above");
+    const document = buildRowSpanTable();
+    const result = run(document, "Ap", "above");
 
-    expect(getBlock(result.state, "A" as BlockId)?.attrs.rowSpan).toBe(2); // unchanged
-    const rows = getChildIds(result.state, "table" as BlockId);
+    expect(getBlock(result.document, "A" as BlockId)?.attrs.rowSpan).toBe(2); // unchanged
+    const rows = getChildIds(result.document, "table" as BlockId);
     expect(rows.length).toBe(3);
     expect(rows[1]).toBe("r0"); // new row is at the head
-    const newCells = getChildIds(result.state, nth(rows, 0, "row"));
+    const newCells = getChildIds(result.document, nth(rows, 0, "row"));
     expect(newCells.length).toBe(2);
-    const grid = buildTableGrid(result.state, "table" as BlockId);
+    const grid = buildTableGrid(result.document, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
     expect(grid.occupancy).toEqual([[newCells[0], newCells[1]], ["A", "B"], ["A", "C"]]);
   });
@@ -87,16 +87,16 @@ describe("insertTableRowSpanAware", () => {
   it("insert-below the bottom of a rowSpan cell: a full fresh row past the span, no crossing", () => {
     // Caret in C (grid row 1, the last row). Insert below → boundary at grid row 2
     // (= rowCount): A's span ends at row 1, so nothing crosses → 2 new cells.
-    const state = buildRowSpanTable();
-    const result = run(state, "Cp", "below");
+    const document = buildRowSpanTable();
+    const result = run(document, "Cp", "below");
 
-    expect(getBlock(result.state, "A" as BlockId)?.attrs.rowSpan).toBe(2); // unchanged
-    const rows = getChildIds(result.state, "table" as BlockId);
+    expect(getBlock(result.document, "A" as BlockId)?.attrs.rowSpan).toBe(2); // unchanged
+    const rows = getChildIds(result.document, "table" as BlockId);
     expect(rows.length).toBe(3);
     expect(rows[2]).not.toBe("r1"); // new row is at the tail
-    const newCells = getChildIds(result.state, nth(rows, 2, "row"));
+    const newCells = getChildIds(result.document, nth(rows, 2, "row"));
     expect(newCells.length).toBe(2);
-    const grid = buildTableGrid(result.state, "table" as BlockId);
+    const grid = buildTableGrid(result.document, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
     expect(grid.occupancy).toEqual([["A", "B"], ["A", "C"], [newCells[0], newCells[1]]]);
   });
@@ -117,17 +117,17 @@ describe("insertTableRowSpanAware", () => {
       ...cell("E", "r2", undefined, null, "D"),
       ...cell("D", "r2", undefined, "E", null),
     ];
-    const state = buildState({ rootId: "doc", blocks });
-    const result = run(state, "Cp", "above"); // boundary at grid row 1
+    const document = buildDocument({ rootId: "doc", blocks });
+    const result = run(document, "Cp", "above"); // boundary at grid row 1
 
-    expect(getBlock(result.state, "A" as BlockId)?.attrs.rowSpan).toBe(3);
-    const rows = getChildIds(result.state, "table" as BlockId);
+    expect(getBlock(result.document, "A" as BlockId)?.attrs.rowSpan).toBe(3);
+    const rows = getChildIds(result.document, "table" as BlockId);
     expect(rows.length).toBe(4); // r0, NEW, r1, r2
     expect(rows[0]).toBe("r0");
     expect(rows[2]).toBe("r1");
-    const newCells = getChildIds(result.state, nth(rows, 1, "row"));
+    const newCells = getChildIds(result.document, nth(rows, 1, "row"));
     expect(newCells.length).toBe(1); // only column 1 uncovered
-    const grid = buildTableGrid(result.state, "table" as BlockId);
+    const grid = buildTableGrid(result.document, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
     expect(grid.occupancy).toEqual([["A", "B"], ["A", newCells[0]], ["A", "C"], ["E", "D"]]);
   });
@@ -152,13 +152,13 @@ describe("insertTableRowSpanAware", () => {
         ...cell("F", "r2", undefined, "E", null),
         ...cell("G", "r3", undefined, null, null),
       ];
-      return buildState({ rootId: "doc", blocks });
+      return buildDocument({ rootId: "doc", blocks });
     };
     const hrc = (s: Document) => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
     // Insert INSIDE the header (above row 1, gr=1 < count=2) → 3.
-    expect(hrc(run(fourRowBodySpan(), "Dp", "above").state)).toBe(3);
+    expect(hrc(run(fourRowBodySpan(), "Dp", "above").document)).toBe(3);
     // Insert AT the boundary (below row 1, gr=2 === count) → body row, unchanged (2).
-    expect(hrc(run(fourRowBodySpan(), "Dp", "below").state)).toBe(2);
+    expect(hrc(run(fourRowBodySpan(), "Dp", "below").document)).toBe(2);
   });
 
   it("a 2×2 cell crossing the boundary bumps rowSpan once (dedup) and preserves colSpan", () => {
@@ -172,17 +172,17 @@ describe("insertTableRowSpanAware", () => {
       ...cell("B", "r0", undefined, "A", null),
       ...cell("C", "r1", undefined, null, null),
     ];
-    const state = buildState({ rootId: "doc", blocks });
-    const result = run(state, "Bp", "below"); // caret in B (col 2, grid row 0); boundary at row 1
+    const document = buildDocument({ rootId: "doc", blocks });
+    const result = run(document, "Bp", "below"); // caret in B (col 2, grid row 0); boundary at row 1
 
-    const a = getBlock(result.state, "A" as BlockId);
+    const a = getBlock(result.document, "A" as BlockId);
     expect(a?.attrs.rowSpan).toBe(3); // bumped once despite covering two columns
     expect(a?.attrs.colSpan).toBe(2); // preserved
-    const rows = getChildIds(result.state, "table" as BlockId);
+    const rows = getChildIds(result.document, "table" as BlockId);
     const newRow = nth(rows, 1, "row");
-    const newCells = getChildIds(result.state, newRow);
+    const newCells = getChildIds(result.document, newRow);
     expect(newCells.length).toBe(1); // only column 2 is uncovered
-    const grid = buildTableGrid(result.state, "table" as BlockId);
+    const grid = buildTableGrid(result.document, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
     expect(grid.occupancy).toEqual([["A", "A", "B"], ["A", "A", newCells[0]], ["A", "A", "C"]]);
   });

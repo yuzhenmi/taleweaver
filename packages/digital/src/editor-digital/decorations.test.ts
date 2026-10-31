@@ -34,18 +34,18 @@ function setup(decorations?: readonly Decoration[], onDecorationPointer?: (e: De
 }
 
 function leaves(controller: ReturnType<typeof setup>["controller"]): BlockId[] {
-  const state = controller.editorState.document;
+  const document = controller.editorState.document;
   const out: BlockId[] = [];
   const walk = (id: BlockId | null): void => {
     for (let cur = id; cur !== null; ) {
-      const b = getBlock(state, cur);
+      const b = getBlock(document, cur);
       if (b === null) return;
       if (b.inlineContent !== null) out.push(b.id);
       else walk(b.firstChildId);
       cur = b.nextSiblingId;
     }
   };
-  walk(getBlock(state, state.rootId)?.firstChildId ?? null);
+  walk(getBlock(document, document.rootId)?.firstChildId ?? null);
   return out;
 }
 
@@ -267,7 +267,7 @@ describe("digital decorations", () => {
     expect(controller.findStatus()).toEqual({ total: 0, activeIndex: -1 });
   });
 
-  it("decorations computed against an older State are mapped onto the current one", () => {
+  it("decorations computed against an older Document are mapped onto the current one", () => {
     const { controller, container, p1 } = twoParas();
     const basedOn = controller.editorState.document; // host snapshots, computes asynchronously…
     controller.dispatch(caret(p1, 0));
@@ -428,7 +428,7 @@ describe("digital — stacked formatting suggestions", () => {
 
     const container = document.createElement("div");
     document.body.replaceChildren(container);
-    const controller = createDigitalController({ container, componentRegistry, attrRegistry, doc: document, initialState: editor.document });
+    const controller = createDigitalController({ container, componentRegistry, attrRegistry, doc: document, initialDocument: editor.document });
     controller.setSuggestionHighlights(ids.map((suggestionId) => ({ suggestionId, active: false })));
     /** [text, font-weight, font-style, color] of the styled text-run spans. */
     const looks = (): string[][] =>
@@ -491,7 +491,7 @@ describe("digital — stacked formatting suggestions", () => {
 
     const container = document.createElement("div");
     document.body.replaceChildren(container);
-    const controller = createDigitalController({ container, componentRegistry, attrRegistry, doc: document, initialState: editor.document });
+    const controller = createDigitalController({ container, componentRegistry, attrRegistry, doc: document, initialDocument: editor.document });
     controller.setSuggestionHighlights([{ suggestionId: only.id, active: false }]);
     const deco = container.querySelector<HTMLElement>(`[data-tw-deco="tw-suggestion:${only.id}"]`);
     expect(deco).not.toBeNull();

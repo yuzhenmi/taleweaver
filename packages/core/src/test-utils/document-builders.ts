@@ -1,13 +1,13 @@
 import { createDefaultComponentRegistry, type ComponentRegistry } from "../components/component-registry";
 import type { ComponentDefinition } from "../components/component-definition";
 import { createElementBox, type RenderNode } from "../render/render-node";
-import type { TextItem, EmbedItem, InlineContent, ReadonlyAttrs, BlockId, Block, State } from "../state";
+import type { TextItem, EmbedItem, InlineContent, ReadonlyAttrs, BlockId, Block, Document } from "../state";
 import type { BlockKindResolver } from "../state/block-kinds";
-import { buildStateFromBlocks } from "../state/build-state-from-blocks";
-import { getBlock } from "../state/state";
+import { buildDocumentFromBlocks } from "../state/build-document-from-blocks";
+import { getBlock } from "../state/document";
 import { createDefaultAttrRegistry, type AttrRegistry } from "../cascade/attr-registry";
 import * as Y from "yjs";
-import { STATE_INTERNAL } from "../state/state-internal";
+import { DOCUMENT_INTERNAL } from "../state/document-internal";
 import { bindAttrRegistry } from "../state/mark-attrs";
 
 const EMPTY_ATTRS: ReadonlyAttrs = Object.freeze({});
@@ -67,7 +67,7 @@ export function buildBlock(args: {
 }
 
 /**
- * Build a Y.Doc-backed State from a list of Block-shape fixtures.
+ * Build a Y.Doc-backed Document from a list of Block-shape fixtures.
  * Each block is materialized into the Y.Doc's blocks map.
  *
  * Optional `embedContents` parameter materializes embed-content blocks
@@ -82,18 +82,18 @@ export function buildBlock(args: {
  * map. Like embed-content blocks, they live in their own top-level map
  * and typically have parentId === null.
  *
- * Delegates to `buildStateFromBlocks` (state-module-internal); the
+ * Delegates to `buildDocumentFromBlocks` (state-module-internal); the
  * indirection is what keeps the Y.Doc-direct writes inside `state/`.
  */
-export function buildState(args: {
+export function buildDocument(args: {
   rootId: string;
   blocks: ReadonlyArray<Block>;
   embedContents?: ReadonlyArray<Block>;
   templateContents?: ReadonlyArray<Block>;
   /** Storage-shape authority; defaults to `TEST_RESOLVER`. Pass a registry that registers a host type. */
   resolver?: BlockKindResolver;
-}): State {
-  return buildStateFromBlocks({
+}): Document {
+  return buildDocumentFromBlocks({
     rootId: args.rootId as BlockId,
     blocks: args.blocks,
     embedContents: args.embedContents,
@@ -164,17 +164,17 @@ function specBlocks(parent: string, children: readonly FlowSpec[], out: Block[])
   });
 }
 
-/** A `doc` rooted State from a {@link FlowSpec} list (a section-less list sits in the final section). */
-export function buildFlowDoc(children: readonly FlowSpec[], resolver?: BlockKindResolver): State {
+/** A `doc` rooted Document from a {@link FlowSpec} list (a section-less list sits in the final section). */
+export function buildFlowDoc(children: readonly FlowSpec[], resolver?: BlockKindResolver): Document {
   const ids = children.map(specId);
   const blocks: Block[] = [buildBlock({ id: "doc", type: "document", firstChildId: ids[0] ?? null, lastChildId: ids[ids.length - 1] ?? null })];
   specBlocks("doc", children, blocks);
-  return buildState({ rootId: "doc", blocks, resolver });
+  return buildDocument({ rootId: "doc", blocks, resolver });
 }
 
 /** The document's final section id (the root's last child — it always exists). */
-export function finalSectionOf(state: State): BlockId {
-  const f = getBlock(state, state.rootId)?.lastChildId;
+export function finalSectionOf(document: Document): BlockId {
+  const f = getBlock(document, document.rootId)?.lastChildId;
   if (f === null || f === undefined) throw new Error("no final section");
   return f;
 }
@@ -191,7 +191,7 @@ export function bodyChildren(root: RenderNode): RenderNode[] {
 const TEST_ATTRS = createDefaultAttrRegistry();
 
 /** `x` with `registry` (default: the default attr registry) bound to its doc, as an editor binds its own. */
-export function withTestAttrs<T extends Y.Doc | State>(x: T, registry: AttrRegistry = TEST_ATTRS): T {
-  bindAttrRegistry(x instanceof Y.Doc ? x : x[STATE_INTERNAL].doc, registry);
+export function withTestAttrs<T extends Y.Doc | Document>(x: T, registry: AttrRegistry = TEST_ATTRS): T {
+  bindAttrRegistry(x instanceof Y.Doc ? x : x[DOCUMENT_INTERNAL].doc, registry);
   return x;
 }

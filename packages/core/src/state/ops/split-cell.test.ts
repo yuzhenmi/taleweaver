@@ -1,16 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { splitCell } from "./split-cell";
-import { getBlock } from "../state";
+import { getBlock } from "../document";
 import { resolveTableContext, getChildIds, buildTableGrid } from "../table-context";
-import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent } from "../../test-utils/document-builders";
 import { createTestAllocator } from "../block-id";
 import type { BlockId } from "../block-id";
-import type { Document } from "../state";
+import type { Document } from "../document";
 import type { Block } from "../block";
 
 /** Resolve a context with the caret in the given block. */
-function ctxAt(state: Document, blockId: string) {
-  const ctx = resolveTableContext(state, blockId as BlockId);
+function ctxAt(document: Document, blockId: string) {
+  const ctx = resolveTableContext(document, blockId as BlockId);
   if (ctx === null) throw new Error("expected a table context");
   return ctx;
 }
@@ -37,13 +37,13 @@ describe("splitCell", () => {
       ...cellBlocks("D", "r1", undefined, "C", "E"),
       ...cellBlocks("E", "r1", undefined, "D", null),
     ];
-    const state = buildState({ rootId: "doc", blocks });
-    const result = splitCell(state, ctxAt(state, "Ap"), createTestAllocator("nc"));
-    expect(result.state).not.toBe(state);
+    const document = buildDocument({ rootId: "doc", blocks });
+    const result = splitCell(document, ctxAt(document, "Ap"), createTestAllocator("nc"));
+    expect(result.document).not.toBe(document);
 
     // A keeps content + position but is now 1×1 (no colSpan attr).
-    expect(getBlock(result.state, "A" as BlockId)?.attrs.colSpan).toBeUndefined();
-    const r0 = getChildIds(result.state, "r0" as BlockId);
+    expect(getBlock(result.document, "A" as BlockId)?.attrs.colSpan).toBeUndefined();
+    const r0 = getChildIds(result.document, "r0" as BlockId);
     expect(r0.length).toBe(3);
     expect(r0[0]).toBe("A");
     expect(r0[2]).toBe("B");
@@ -51,9 +51,9 @@ describe("splitCell", () => {
     if (newId === undefined) throw new Error("expected new cell id at index 1");
     expect(newId).not.toBe("A");
     expect(newId).not.toBe("B");
-    expect(getBlock(result.state, newId)?.type).toBe("table-cell");
+    expect(getBlock(result.document, newId)?.type).toBe("table-cell");
 
-    const grid = buildTableGrid(result.state, "table" as BlockId);
+    const grid = buildTableGrid(result.document, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
     expect(grid.columnCount).toBe(3);
     expect(grid.occupancy).toEqual([["A", newId, "B"], ["C", "D", "E"]]);
@@ -74,17 +74,17 @@ describe("splitCell", () => {
       ...cellBlocks("R", "r1", undefined, "Q", "S"),
       ...cellBlocks("S", "r1", undefined, "R", null),
     ];
-    const state = buildState({ rootId: "doc", blocks });
-    const result = splitCell(state, ctxAt(state, "Ap"), createTestAllocator("nc"));
+    const document = buildDocument({ rootId: "doc", blocks });
+    const result = splitCell(document, ctxAt(document, "Ap"), createTestAllocator("nc"));
 
-    const r0 = getChildIds(result.state, "r0" as BlockId);
+    const r0 = getChildIds(result.document, "r0" as BlockId);
     expect(r0.length).toBe(4);
     expect(r0[0]).toBe("X");
     expect(r0[1]).toBe("A");
     expect(r0[3]).toBe("Y");
     // The survivor's nextSiblingId is rewritten from Y to the new cell.
-    expect(getBlock(result.state, "A" as BlockId)?.nextSiblingId).toBe(r0[2]);
-    const grid = buildTableGrid(result.state, "table" as BlockId);
+    expect(getBlock(result.document, "A" as BlockId)?.nextSiblingId).toBe(r0[2]);
+    const grid = buildTableGrid(result.document, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
     expect(grid.occupancy).toEqual([["X", "A", r0[2], "Y"], ["P", "Q", "R", "S"]]);
   });
@@ -100,15 +100,15 @@ describe("splitCell", () => {
       ...cellBlocks("B", "r0", undefined, "A", null),
       ...cellBlocks("C", "r1", undefined, null, null),
     ];
-    const state = buildState({ rootId: "doc", blocks });
-    const result = splitCell(state, ctxAt(state, "Ap"), createTestAllocator("nc"));
+    const document = buildDocument({ rootId: "doc", blocks });
+    const result = splitCell(document, ctxAt(document, "Ap"), createTestAllocator("nc"));
 
-    expect(getBlock(result.state, "A" as BlockId)?.attrs.rowSpan).toBeUndefined();
-    const r1 = getChildIds(result.state, "r1" as BlockId);
+    expect(getBlock(result.document, "A" as BlockId)?.attrs.rowSpan).toBeUndefined();
+    const r1 = getChildIds(result.document, "r1" as BlockId);
     expect(r1.length).toBe(2);
     expect(r1[1]).toBe("C");
     const newId = r1[0];
-    const grid = buildTableGrid(result.state, "table" as BlockId);
+    const grid = buildTableGrid(result.document, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
     expect(grid.occupancy).toEqual([["A", "B"], [newId, "C"]]);
   });
@@ -124,20 +124,20 @@ describe("splitCell", () => {
       ...cellBlocks("B", "r0", undefined, "A", null),
       ...cellBlocks("C", "r1", undefined, null, null),
     ];
-    const state = buildState({ rootId: "doc", blocks });
-    const result = splitCell(state, ctxAt(state, "Ap"), createTestAllocator("nc"));
+    const document = buildDocument({ rootId: "doc", blocks });
+    const result = splitCell(document, ctxAt(document, "Ap"), createTestAllocator("nc"));
 
-    const a = getBlock(result.state, "A" as BlockId);
+    const a = getBlock(result.document, "A" as BlockId);
     expect(a?.attrs.rowSpan).toBeUndefined();
     expect(a?.attrs.colSpan).toBeUndefined();
 
-    const r0 = getChildIds(result.state, "r0" as BlockId);
-    const r1 = getChildIds(result.state, "r1" as BlockId);
+    const r0 = getChildIds(result.document, "r0" as BlockId);
+    const r1 = getChildIds(result.document, "r1" as BlockId);
     expect(r0[0]).toBe("A");
     expect(r0[2]).toBe("B");
     expect(r1[2]).toBe("C");
 
-    const grid = buildTableGrid(result.state, "table" as BlockId);
+    const grid = buildTableGrid(result.document, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
     expect(grid.columnCount).toBe(3);
     // A at (0,0); new cells fill (0,1),(1,0),(1,1); B at (0,2); C at (1,2).
@@ -155,9 +155,9 @@ describe("splitCell", () => {
       ...cellBlocks("A", "r0", undefined, null, "B"),
       ...cellBlocks("B", "r0", undefined, "A", null),
     ];
-    const state = buildState({ rootId: "doc", blocks });
-    const result = splitCell(state, ctxAt(state, "Ap"), createTestAllocator("nc"));
-    expect(result.state).toBe(state); // identity → handler short-circuits
+    const document = buildDocument({ rootId: "doc", blocks });
+    const result = splitCell(document, ctxAt(document, "Ap"), createTestAllocator("nc"));
+    expect(result.document).toBe(document); // identity → handler short-circuits
     expect(result.dirtyIds.size).toBe(0);
   });
 
@@ -169,8 +169,8 @@ describe("splitCell", () => {
       ...cellBlocks("A", "r0", { colSpan: 1.5 }, null, "B"),
       ...cellBlocks("B", "r0", undefined, "A", null),
     ];
-    const state = buildState({ rootId: "doc", blocks });
-    const result = splitCell(state, ctxAt(state, "Ap"), createTestAllocator("nc"));
-    expect(result.state).toBe(state);
+    const document = buildDocument({ rootId: "doc", blocks });
+    const result = splitCell(document, ctxAt(document, "Ap"), createTestAllocator("nc"));
+    expect(result.document).toBe(document);
   });
 });

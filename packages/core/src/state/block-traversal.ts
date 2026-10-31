@@ -1,6 +1,6 @@
 import type { BlockId } from "./block-id";
 import type { Block } from "./block";
-import { resolveBlock, blockCount, createWalkGuard, type Document } from "./state";
+import { resolveBlock, blockCount, createWalkGuard, type Document } from "./document";
 
 /**
  * Walk to the next block in document order:
@@ -11,11 +11,11 @@ import { resolveBlock, blockCount, createWalkGuard, type Document } from "./stat
  *
  * Each step is O(1) (HAMT lookup + pointer follow).
  */
-export function nextBlockInDocOrder(state: Document, blockId: BlockId): BlockId | null {
-  const block = resolveBlock(state, blockId)?.block ?? null;
+export function nextBlockInDocOrder(document: Document, blockId: BlockId): BlockId | null {
+  const block = resolveBlock(document, blockId)?.block ?? null;
   if (block === null) return null;
   if (block.firstChildId) return block.firstChildId;
-  return nextBlockAfterSubtree(state, blockId);
+  return nextBlockAfterSubtree(document, blockId);
 }
 
 /**
@@ -23,8 +23,8 @@ export function nextBlockInDocOrder(state: Document, blockId: BlockId): BlockId 
  * {@link nextBlockInDocOrder}: never descends into `blockId`). Null at the end of
  * the document.
  */
-export function nextBlockAfterSubtree(state: Document, blockId: BlockId): BlockId | null {
-  const block = resolveBlock(state, blockId)?.block ?? null;
+export function nextBlockAfterSubtree(document: Document, blockId: BlockId): BlockId | null {
+  const block = resolveBlock(document, blockId)?.block ?? null;
   if (block === null) return null;
   let cursor = block;
   // Cycle-detection bound: total block count across all three trees (main
@@ -36,14 +36,14 @@ export function nextBlockAfterSubtree(state: Document, blockId: BlockId): BlockI
   // not the main map's. A main-map-sized bound would under-bound such a walk
   // and spuriously throw. Summing all three is a safe upper limit on the
   // distinct blocks any single doc-order traversal can visit.
-  const guard = createWalkGuard(state);
+  const guard = createWalkGuard(document);
   while (true) {
     if (guard.step()) {
-      throw new Error(`nextBlockInDocOrder: cycle detected in block tree (visited >${blockCount(state) + 1} blocks)`);
+      throw new Error(`nextBlockInDocOrder: cycle detected in block tree (visited >${blockCount(document) + 1} blocks)`);
     }
     if (cursor.nextSiblingId) return cursor.nextSiblingId;
     if (!cursor.parentId) return null;
-    const parent = resolveBlock(state, cursor.parentId)?.block ?? null;
+    const parent = resolveBlock(document, cursor.parentId)?.block ?? null;
     if (parent === null) return null;
     cursor = parent;
   }
@@ -59,21 +59,21 @@ export function nextBlockAfterSubtree(state: Document, blockId: BlockId): BlockI
  * Symmetric to nextBlockInDocOrder. Each step is O(1) for the lookup, but
  * the deepest-last-child descent is O(depth) for blocks with deep subtrees.
  */
-export function prevBlockInDocOrder(state: Document, blockId: BlockId): BlockId | null {
-  const block = resolveBlock(state, blockId)?.block ?? null;
+export function prevBlockInDocOrder(document: Document, blockId: BlockId): BlockId | null {
+  const block = resolveBlock(document, blockId)?.block ?? null;
   if (block === null) return null;
   if (block.prevSiblingId) {
     // Descend to the deepest last child of the previous sibling.
-    let cursor: Block | null = resolveBlock(state, block.prevSiblingId)?.block ?? null;
+    let cursor: Block | null = resolveBlock(document, block.prevSiblingId)?.block ?? null;
     if (cursor === null) return null;
     // Cycle-detection bound: see nextBlockInDocOrder for the rationale
     // on why this uses the all-tree block count.
-    const guard = createWalkGuard(state);
+    const guard = createWalkGuard(document);
     while (cursor.lastChildId) {
       if (guard.step()) {
-        throw new Error(`prevBlockInDocOrder: cycle detected in block tree (visited >${blockCount(state) + 1} blocks)`);
+        throw new Error(`prevBlockInDocOrder: cycle detected in block tree (visited >${blockCount(document) + 1} blocks)`);
       }
-      const next: Block | null = resolveBlock(state, cursor.lastChildId)?.block ?? null;
+      const next: Block | null = resolveBlock(document, cursor.lastChildId)?.block ?? null;
       if (next === null) break;
       cursor = next;
     }
@@ -89,18 +89,18 @@ export function prevBlockInDocOrder(state: Document, blockId: BlockId): BlockId 
  * Throws if a parentId mid-walk references a missing block (malformed
  * state) — silently truncating would mask state corruption.
  */
-export function ancestorChain(state: Document, blockId: BlockId): BlockId[] {
-  if (resolveBlock(state, blockId) === null) return [];
+export function ancestorChain(document: Document, blockId: BlockId): BlockId[] {
+  if (resolveBlock(document, blockId) === null) return [];
   const result: BlockId[] = [];
   let current: BlockId | null = blockId;
   // Cycle-detection bound: see nextBlockInDocOrder for the rationale
   // on why this uses the all-tree block count.
-  const guard = createWalkGuard(state);
+  const guard = createWalkGuard(document);
   while (current) {
     if (guard.step()) {
-      throw new Error(`ancestorChain: cycle detected in block tree (visited >${blockCount(state) + 1} blocks)`);
+      throw new Error(`ancestorChain: cycle detected in block tree (visited >${blockCount(document) + 1} blocks)`);
     }
-    const block: Block | null = resolveBlock(state, current)?.block ?? null;
+    const block: Block | null = resolveBlock(document, current)?.block ?? null;
     if (block === null) {
       throw new Error(
         `ancestorChain: parentId "${current}" references a missing block ` +
@@ -118,17 +118,17 @@ export function ancestorChain(state: Document, blockId: BlockId): BlockId[] {
  * at blockId. Returns blockId itself if it is a leaf (no firstChildId).
  * Returns null if blockId does not exist.
  */
-export function firstLeafBlock(state: Document, blockId: BlockId): BlockId | null {
-  let cursor: Block | null = resolveBlock(state, blockId)?.block ?? null;
+export function firstLeafBlock(document: Document, blockId: BlockId): BlockId | null {
+  let cursor: Block | null = resolveBlock(document, blockId)?.block ?? null;
   if (cursor === null) return null;
   // Cycle-detection bound: see nextBlockInDocOrder for the rationale
   // on why this uses the all-tree block count.
-  const guard = createWalkGuard(state);
+  const guard = createWalkGuard(document);
   while (cursor.firstChildId) {
     if (guard.step()) {
-      throw new Error(`firstLeafBlock: cycle detected in block tree (visited >${blockCount(state) + 1} blocks)`);
+      throw new Error(`firstLeafBlock: cycle detected in block tree (visited >${blockCount(document) + 1} blocks)`);
     }
-    const next: Block | null = resolveBlock(state, cursor.firstChildId)?.block ?? null;
+    const next: Block | null = resolveBlock(document, cursor.firstChildId)?.block ?? null;
     if (next === null) break;
     cursor = next;
   }
@@ -140,17 +140,17 @@ export function firstLeafBlock(state: Document, blockId: BlockId): BlockId | nul
  * at blockId. Returns blockId itself if it is a leaf (no lastChildId).
  * Returns null if blockId does not exist.
  */
-export function lastLeafBlock(state: Document, blockId: BlockId): BlockId | null {
-  let cursor: Block | null = resolveBlock(state, blockId)?.block ?? null;
+export function lastLeafBlock(document: Document, blockId: BlockId): BlockId | null {
+  let cursor: Block | null = resolveBlock(document, blockId)?.block ?? null;
   if (cursor === null) return null;
   // Cycle-detection bound: see nextBlockInDocOrder for the rationale
   // on why this uses the all-tree block count.
-  const guard = createWalkGuard(state);
+  const guard = createWalkGuard(document);
   while (cursor.lastChildId) {
     if (guard.step()) {
-      throw new Error(`lastLeafBlock: cycle detected in block tree (visited >${blockCount(state) + 1} blocks)`);
+      throw new Error(`lastLeafBlock: cycle detected in block tree (visited >${blockCount(document) + 1} blocks)`);
     }
-    const next: Block | null = resolveBlock(state, cursor.lastChildId)?.block ?? null;
+    const next: Block | null = resolveBlock(document, cursor.lastChildId)?.block ?? null;
     if (next === null) break;
     cursor = next;
   }
@@ -162,16 +162,16 @@ export function lastLeafBlock(state: Document, blockId: BlockId): BlockId | null
  * sections (the root's children are always sections — the final one always exists).
  * O(top-level blocks).
  */
-export function topLevelBlockIds(state: Document): BlockId[] {
+export function topLevelBlockIds(document: Document): BlockId[] {
   const out: BlockId[] = [];
-  const guard = createWalkGuard(state);
-  for (let s = resolveBlock(state, state.rootId)?.block.firstChildId ?? null; s !== null; ) {
-    const section = resolveBlock(state, s)?.block ?? null;
+  const guard = createWalkGuard(document);
+  for (let s = resolveBlock(document, document.rootId)?.block.firstChildId ?? null; s !== null; ) {
+    const section = resolveBlock(document, s)?.block ?? null;
     if (section === null) break;
     for (let c = section.firstChildId; c !== null; ) {
       if (guard.step()) throw new Error("topLevelBlockIds: cycle in the sibling chain");
       out.push(c);
-      c = resolveBlock(state, c)?.block.nextSiblingId ?? null;
+      c = resolveBlock(document, c)?.block.nextSiblingId ?? null;
     }
     s = section.nextSiblingId;
   }

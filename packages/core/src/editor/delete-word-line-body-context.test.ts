@@ -28,15 +28,15 @@ import {
 } from "./actions/test-helpers";
 import type { EditorState } from "./editor-state";
 import { resolveBlock, inlineContentLength } from "../state";
-import type { BlockId, State } from "../state";
+import type { BlockId, Document } from "../state";
 
 /**
  * Tree-aware plain-text reader: the test-helpers `getTextOf` uses `getBlock`
  * (main-tree only), which returns "" for a footnote-body block (it lives in
  * embedContents). `resolveBlock` resolves across main + embed + template trees.
  */
-function bodyTextOf(state: State, blockId: BlockId): string {
-  const block = resolveBlock(state, blockId)?.block ?? null;
+function bodyTextOf(document: Document, blockId: BlockId): string {
+  const block = resolveBlock(document, blockId)?.block ?? null;
   if (block === null || block.inlineContent === null) return "";
   return block.inlineContent.items
     .map((it) => (it.kind === "text" ? it.text : ""))

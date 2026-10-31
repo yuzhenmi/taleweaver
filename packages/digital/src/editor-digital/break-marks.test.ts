@@ -23,7 +23,7 @@ import {
   type BlockId,
   type EditorAction,
   type EditorState,
-  type State,
+  type Document,
 } from "@taleweaver/core";
 import { createDigitalController, type DecorationPointerEvent } from "./digital-controller";
 import { createDigitalSelectionBridge } from "./digital-selection-bridge";
@@ -39,7 +39,7 @@ const select = (a: BlockId, ao: number, f: BlockId, fo: number): EditorAction =>
   selection: createSpan(createPosition(a, ao), createPosition(f, fo)),
 });
 
-function leaves(s: State): BlockId[] {
+function leaves(s: Document): BlockId[] {
   const out: BlockId[] = [];
   const walk = (start: BlockId | null): void => {
     for (let cur = start; cur !== null; ) {
@@ -64,15 +64,15 @@ function paras(texts: readonly string[]): EditorState {
   return e;
 }
 
-function mount(state: State, onDecorationPointer?: (e: DecorationPointerEvent) => void) {
-  const container = document.createElement("div");
-  document.body.replaceChildren(container);
+function mount(document: Document, onDecorationPointer?: (e: DecorationPointerEvent) => void) {
+  const container = globalThis.document.createElement("div");
+  globalThis.document.body.replaceChildren(container);
   const controller = createDigitalController({
     container,
     componentRegistry,
     attrRegistry,
-    doc: document,
-    initialState: state,
+    doc: globalThis.document,
+    initialDocument: document,
     ...(onDecorationPointer !== undefined ? { onDecorationPointer } : {}),
   });
   // A standalone bridge over the same DOM, reading the controller's state (caret affinity).
@@ -89,23 +89,23 @@ function mount(state: State, onDecorationPointer?: (e: DecorationPointerEvent) =
 }
 
 /** "Anna" | "Rosa" with a pending join (alice's Backspace at the start of "Rosa"). */
-function joined(): { state: State; l: BlockId; r: BlockId } {
+function joined(): { document: Document; l: BlockId; r: BlockId } {
   const e0 = paras(["Anna", "Rosa"]);
   const [l, r] = leaves(e0.document);
   if (l === undefined || r === undefined) throw new Error("setup");
   const e = reduceEditor(reduceEditor({ ...e0, config: alice }, caret(r, 0)), { type: "DELETE_BACKWARD" });
-  return { state: e.document, l, r };
+  return { document: e.document, l, r };
 }
 
 /** "Ax" | "B"; alice's section break at (B, 0) — an empty paragraph H ends the first section (Word). */
-function sectioned(): { state: State; h: BlockId; b: BlockId } {
+function sectioned(): { document: Document; h: BlockId; b: BlockId } {
   const e0 = paras(["Ax", "B"]);
   const [, b] = leaves(e0.document);
   if (b === undefined) throw new Error("setup");
   const e = reduceEditor(reduceEditor({ ...e0, config: alice }, caret(b, 0)), { type: "SECTION_BREAK" });
   const [, h, b2] = leaves(e.document);
   if (h === undefined || b2 !== b) throw new Error("setup: expected Ax | H | B");
-  return { state: e.document, h, b };
+  return { document: e.document, h, b };
 }
 
 describe("digital boundary ¶ marks", () => {
@@ -145,16 +145,16 @@ describe("digital boundary ¶ marks", () => {
   });
 
   it("no start anchor exists: only the block BEFORE the step carries a ¶", () => {
-    const { state, l, r } = joined();
-    const { el } = mount(state);
+    const { document, l, r } = joined();
+    const { el } = mount(document);
     expect(el(l).querySelectorAll("[data-tw-generated]")).toHaveLength(1);
     expect(el(r).querySelector("[data-tw-generated]")).toBeNull();
     expect(el(l).querySelector("[data-tw-break-side]")).toBeNull();
   });
 
   it("host widgets at (E, len) are inserted BEFORE the ¶ anchor (the ¶ follows every widget)", () => {
-    const { state, l } = joined();
-    const { controller, el } = mount(state);
+    const { document, l } = joined();
+    const { controller, el } = mount(document);
     controller.setDecorations([
       { kind: "widget", id: "w1", at: createPosition(l, 4), side: 1, text: "Z" },
       { kind: "widget", id: "w0", at: createPosition(l, 4), side: -1, text: "Y" },
@@ -168,10 +168,10 @@ describe("digital boundary ¶ marks", () => {
   });
 
   it("the glyph is excluded from offsets; a click on it maps to (N, len); IME at (N, len) composes before it", () => {
-    const { state, l } = joined();
-    const { el, bridge } = mount(state);
+    const { document, l } = joined();
+    const { el, bridge } = mount(document);
     const anchor = el(l).querySelector("[data-tw-generated]");
-    expect(anchor?.getAttribute("data-tw-suggestion-id")).toBe(getSuggestions(state)[0]?.id);
+    expect(anchor?.getAttribute("data-tw-suggestion-id")).toBe(getSuggestions(document)[0]?.id);
     const glyphText = anchor?.firstElementChild?.firstChild ?? null;
     if (glyphText === null) throw new Error("no glyph");
     expect(bridge.domToPosition(glyphText, 0)).toEqual(createPosition(l, 4));
@@ -181,8 +181,8 @@ describe("digital boundary ¶ marks", () => {
   });
 
   it("after-slot normalization: a collapsed DOM caret after (or inside) the anchor is moved before it, same model position", () => {
-    const { state, l } = joined();
-    const { controller, el } = mount(state);
+    const { document, l } = joined();
+    const { controller, el } = mount(document);
     const sel = window.getSelection();
     if (sel === null) throw new Error("no selection");
     const expectBeforeMark = (): void => {
@@ -192,20 +192,20 @@ describe("digital boundary ¶ marks", () => {
       expect(controller.editorState.selection.focus).toEqual(createPosition(l, 4));
     };
     sel.collapse(el(l), el(l).childNodes.length); // the after-slot: past the anchor
-    document.dispatchEvent(new Event("selectionchange"));
+    globalThis.document.dispatchEvent(new Event("selectionchange"));
     expectBeforeMark();
     const glyphText = el(l).querySelector(".tw-break-mark-glyph")?.firstChild ?? null;
     if (glyphText === null) throw new Error("no glyph");
     sel.collapse(glyphText, 1); // a click inside the glyph
-    document.dispatchEvent(new Event("selectionchange"));
+    globalThis.document.dispatchEvent(new Event("selectionchange"));
     expectBeforeMark();
   });
 
   it("suggestion highlights and host group styles reach the glyph; suggestionRects = text rects + the glyph once, no empty slices", () => {
-    const { state, l } = joined();
-    const id = getSuggestions(state)[0]?.id;
+    const { document, l } = joined();
+    const id = getSuggestions(document)[0]?.id;
     if (id === undefined) throw new Error("no suggestion");
-    const { controller, el } = mount(state);
+    const { controller, el } = mount(document);
     controller.setSuggestionHighlights([{ suggestionId: id, active: true }]);
     expect(el(l).querySelector(".tw-break-mark-glyph .tw-suggestion")).not.toBeNull();
     controller.clearSuggestionHighlights();
@@ -217,8 +217,8 @@ describe("digital boundary ¶ marks", () => {
     glyph.getBoundingClientRect = () => rect;
     // The range's own rects: a zero-width caret / anchor rect, the glyph (inside the range,
     // twice), the empty slice at (R, 0) — only the glyph is reported, once.
-    const createRange = document.createRange.bind(document);
-    document.createRange = () => {
+    const createRange = globalThis.document.createRange.bind(globalThis.document);
+    globalThis.document.createRange = () => {
       const r = createRange();
       r.getClientRects = () => [new DOMRect(40, 20, 0, 16), rect, new DOMRect(10, 20, 7, 16), new DOMRect(0, 40, 0, 16)] as unknown as DOMRectList;
       return r;
@@ -226,16 +226,16 @@ describe("digital boundary ¶ marks", () => {
     try {
       expect(controller.suggestionRects(id)).toEqual([rect]);
     } finally {
-      document.createRange = createRange;
+      globalThis.document.createRange = createRange;
     }
   });
 
   it("a host underline style composes with the join strike; the glyph reports decoration-pointer events", () => {
-    const { state, l } = joined();
-    const id = getSuggestions(state)[0]?.id;
+    const { document, l } = joined();
+    const id = getSuggestions(document)[0]?.id;
     if (id === undefined) throw new Error("no suggestion");
     const events: DecorationPointerEvent[] = [];
-    const { controller, el } = mount(state, (e) => events.push(e));
+    const { controller, el } = mount(document, (e) => events.push(e));
     controller.setSuggestionStyles(() => ({ style: { underline: { style: "wavy", color: "red" } } }));
     const glyph = el(l).querySelector(".tw-break-mark-glyph");
     if (!(glyph instanceof HTMLElement)) throw new Error("glyph");
@@ -250,8 +250,8 @@ describe("digital boundary ¶ marks", () => {
 
 describe("digital section-kind ¶", () => {
   it("a tracked section-end ¶ draws Word's \"Section Break\" label after the content of the paragraph ending the section; no separate band element", () => {
-    const { state, h, b } = sectioned();
-    const { container, controller, el, bridge } = mount(state);
+    const { document, h, b } = sectioned();
+    const { container, controller, el, bridge } = mount(document);
     expect(container.querySelector(".tw-section-band")).toBeNull();
     const anchor = el(h).querySelector(":scope > .tw-break-mark");
     if (!(anchor instanceof HTMLElement)) throw new Error("no section-kind ¶");
@@ -312,8 +312,8 @@ describe("digital selected ¶", () => {
   });
 
   it("a tracked ¶ glyph is highlighted instead of a second indicator; a re-rendered covered block keeps its indicator", () => {
-    const { state, l, r } = joined();
-    const { controller, el, selected } = mount(state);
+    const { document, l, r } = joined();
+    const { controller, el, selected } = mount(document);
     controller.dispatch(select(l, 0, r, 1));
     expect(selected()).toEqual([`¶:${l}`]);
     expect(el(l).querySelectorAll("[data-tw-generated]")).toHaveLength(1);
@@ -458,7 +458,7 @@ describe("digital caret affinity (markers are never caret stops)", () => {
     controller.destroy();
     // A tracked ¶ (a generated END anchor) after the content: ArrowRight goes past it.
     const j = joined();
-    const m = mount(j.state);
+    const m = mount(j.document);
     m.controller.dispatch(caret(j.l, 4));
     m.container.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
     const mark = m.el(j.l).querySelector(":scope > .tw-break-mark");

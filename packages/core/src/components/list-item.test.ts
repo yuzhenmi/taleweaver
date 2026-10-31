@@ -3,7 +3,7 @@ import { listItemComponent } from "./list-item";
 import { paragraphComponent } from "./paragraph";
 import type { LeafBlockView, RenderContext } from "../render/block-view";
 import type { ElementBox } from "../render/render-node";
-import type { BlockId, State, ReadonlyAttrs } from "../state";
+import type { BlockId, Document, ReadonlyAttrs } from "../state";
 import type { CounterValue } from "../numbering/types";
 import type { ComputedStyle } from "../styles";
 
@@ -20,7 +20,7 @@ function leafView(attrs: ReadonlyAttrs = {}): LeafBlockView {
 
 function stubCtx(counter?: CounterValue): RenderContext {
   return {
-    state: {} as State,
+    document: {} as Document,
     footnoteNumber: () => undefined,
     counterValue: () => counter,
   };
@@ -150,7 +150,7 @@ describe("listItemComponent (flat Google-Docs model)", () => {
   });
 
   it("emits no markerText when ctx has no counterValue method at all (legacy stub)", () => {
-    const ctx: RenderContext = { state: {} as State, footnoteNumber: () => undefined };
+    const ctx: RenderContext = { document: {} as Document, footnoteNumber: () => undefined };
     const el = listItemComponent.render(
       leafView({ listId: "L1", listLevel: 0 }),
       ctx,

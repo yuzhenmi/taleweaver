@@ -14,8 +14,8 @@ import { applyDeletionStrikeInTx, rebuildBlockForDeletion } from "./suggestion-o
 import { runTransaction } from "../yjs-doc";
 import { inlineItemsFromYText } from "../y-inline";
 import { blockText, relAt, survives } from "../../test-utils/relpos-survival";
-import { freshState } from "../state";
-import { STATE_INTERNAL } from "../state-internal";
+import { freshDocument } from "../document";
+import { DOCUMENT_INTERNAL } from "../document-internal";
 import { writeSuggestionRecordInTx } from "../suggestions";
 import type { SuggestionId } from "../suggestions";
 import {
@@ -24,13 +24,13 @@ import {
 } from "../suggestions";
 import {
   buildBlock,
-  buildState,
+  buildDocument,
   text,
   embed,
   inlineContent,
-} from "../../test-utils/state-builders";
+} from "../../test-utils/document-builders";
 import { mergeAdjacentTextItems } from "../inline-content";
-import type { Document } from "../state";
+import type { Document } from "../document";
 import type { ReadonlyAttrs } from "../attrs";
 import type { InlineContent, InlineItem } from "../inline-content";
 import type { BlockId } from "../block-id";
@@ -46,7 +46,7 @@ const AUTHOR = "alice";
 
 /** doc > [ p(<items>) ] — one leaf block "p" holding the given inline content. */
 function oneBlock(content: InlineContent): Document {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -61,18 +61,18 @@ function oneBlock(content: InlineContent): Document {
 }
 
 /** Block "p"'s live inline items (the read model of its Y.Text). */
-function liveItems(state: Document): InlineItem[] {
-  return inlineItemsFromYText(blockText(state, "p"));
+function liveItems(document: Document): InlineItem[] {
+  return inlineItemsFromYText(blockText(document, "p"));
 }
 
 /** `{ text, attrs }` of every text item (compact assertions). */
-function yItems2(state: Document): { text: string; attrs: ReadonlyAttrs }[] {
-  return liveItems(state).flatMap((it) => (it.kind === "text" ? [{ text: it.text, attrs: it.attrs }] : []));
+function yItems2(document: Document): { text: string; attrs: ReadonlyAttrs }[] {
+  return liveItems(document).flatMap((it) => (it.kind === "text" ? [{ text: it.text, attrs: it.attrs }] : []));
 }
 
 /** Run the applier on block "p" over [start, end) with the standard id/author. */
-function strike(state: Document, start: number, end: number): boolean {
-  const doc = state[STATE_INTERNAL].doc;
+function strike(document: Document, start: number, end: number): boolean {
+  const doc = document[DOCUMENT_INTERNAL].doc;
   let tagged = false;
   runTransaction(doc, () => {
     tagged = applyDeletionStrikeInTx(doc, [{ blockId: "p" as BlockId, rangeStart: start, rangeEnd: end }], DEL_ID, AUTHOR, "test", new Set()).tagged;
@@ -81,8 +81,8 @@ function strike(state: Document, start: number, end: number): boolean {
 }
 
 /** Seed an `insertion` record by `AUTHOR` for `id`, so it counts as own-insertion. */
-function seedOwnInsertion(state: Document, id: string): void {
-  const doc = state[STATE_INTERNAL].doc;
+function seedOwnInsertion(document: Document, id: string): void {
+  const doc = document[DOCUMENT_INTERNAL].doc;
   runTransaction(doc, () => {
     writeSuggestionRecordInTx(doc, {
       id: id as SuggestionId,
@@ -95,20 +95,20 @@ function seedOwnInsertion(state: Document, id: string): void {
 
 describe("applyDeletionStrikeInTx", () => {
   it("tags a covered run in place — every struck character keeps its identity", () => {
-    const state = oneBlock(
+    const document = oneBlock(
       inlineContent([text("xx", { bold: true }), text("yy", { italic: true })]),
     );
-    const relX = relAt(state, "p", 1);
-    const relY = relAt(state, "p", 2);
+    const relX = relAt(document, "p", 1);
+    const relY = relAt(document, "p", 2);
 
-    const tagged = strike(state, 0, 2);
+    const tagged = strike(document, 0, 2);
 
     expect(tagged).toBe(true);
-    expect(yItems2(state)).toEqual([
+    expect(yItems2(document)).toEqual([
       { text: "xx", attrs: { bold: true, [DELETION_SUGGESTION_ATTR]: DEL_ID } },
       { text: "yy", attrs: { italic: true } },
     ]);
-    const after = freshState(state, new Set(["p" as BlockId]));
+    const after = freshDocument(document, new Set(["p" as BlockId]));
     expect(survives(relX, after, "x")).toBe(true);
     expect(survives(relY, after, "y")).toBe(true);
   });
@@ -116,42 +116,42 @@ describe("applyDeletionStrikeInTx", () => {
   it("drops a whole-covered own-insertion run by index (not tagged)", () => {
     // items: text("ab", {ins:"i1"}) own-insertion, text("cd", {bold:true})
     // strike [0,2): "ab" is the deleter's own pending insertion → deleted for real.
-    const state = oneBlock(
+    const document = oneBlock(
       inlineContent([
         text("ab", { [INSERTION_SUGGESTION_ATTR]: "i1" }),
         text("cd", { bold: true }),
       ]),
     );
-    seedOwnInsertion(state, "i1");
-    const relC = relAt(state, "p", 2);
+    seedOwnInsertion(document, "i1");
+    const relC = relAt(document, "p", 2);
 
-    const tagged = strike(state, 0, 2);
+    const tagged = strike(document, 0, 2);
 
     expect(tagged).toBe(false); // nothing tagged — only an own-insertion dropped
-    expect(yItems2(state)).toEqual([{ text: "cd", attrs: { bold: true } }]);
-    expect(survives(relC, freshState(state, new Set(["p" as BlockId])), "c")).toBe(true);
+    expect(yItems2(document)).toEqual([{ text: "cd", attrs: { bold: true } }]);
+    expect(survives(relC, freshDocument(document, new Set(["p" as BlockId])), "c")).toBe(true);
   });
 
   it("splits a straddling run — before kept (orig attrs), middle tagged", () => {
     // items: text("abcd", {bold:true})
     // strike [2,4): "ab" stays {bold}, "cd" gains the deletion id.
-    const state = oneBlock(inlineContent([text("abcd", { bold: true })]));
+    const document = oneBlock(inlineContent([text("abcd", { bold: true })]));
 
-    const tagged = strike(state, 2, 4);
+    const tagged = strike(document, 2, 4);
 
     expect(tagged).toBe(true);
-    expect(yItems2(state)).toEqual([
+    expect(yItems2(document)).toEqual([
       { text: "ab", attrs: { bold: true } },
       { text: "cd", attrs: { bold: true, [DELETION_SUGGESTION_ATTR]: DEL_ID } },
     ]);
   });
 
   it("a range endpoint inside a surrogate pair is snapped OUT before tagging (no U+FFFD)", () => {
-    const state = oneBlock(inlineContent([text("a😀b")]));
+    const document = oneBlock(inlineContent([text("a😀b")]));
 
-    expect(strike(state, 2, 4)).toBe(true);
+    expect(strike(document, 2, 4)).toBe(true);
 
-    expect(yItems2(state)).toEqual([
+    expect(yItems2(document)).toEqual([
       { text: "a", attrs: {} },
       { text: "😀b", attrs: { [DELETION_SUGGESTION_ATTR]: DEL_ID } },
     ]);
@@ -164,20 +164,20 @@ describe("applyDeletionStrikeInTx", () => {
     // OWN-insertion partial-drop in isolation (before kept, middle OMITTED, after
     // kept) with NO coalescing masking it, give before/after DISTINCT attrs from
     // each other via a neighbor: text("abcdef", {ins:"i1"}) then a distinct tail.
-    const state = oneBlock(
+    const document = oneBlock(
       inlineContent([
         text("abcdef", { [INSERTION_SUGGESTION_ATTR]: "i1" }),
         text("Z", { bold: true }),
       ]),
     );
-    seedOwnInsertion(state, "i1");
+    seedOwnInsertion(document, "i1");
 
-    const tagged = strike(state, 2, 4);
+    const tagged = strike(document, 2, 4);
 
     expect(tagged).toBe(false);
     // "cd" dropped; "ab" + "ef" are same-attrs adjacent → coalesce into "abef"
     // (byte-identical to the rebuild+merge oracle); the distinct "Z" tail follows.
-    expect(yItems2(state)).toEqual([
+    expect(yItems2(document)).toEqual([
       { text: "abef", attrs: { [INSERTION_SUGGESTION_ATTR]: "i1" } },
       { text: "Z", attrs: { bold: true } },
     ]);
@@ -186,7 +186,7 @@ describe("applyDeletionStrikeInTx", () => {
   it("keeps an embed in range untagged", () => {
     // items: text("ab", {}), embed(footnote-anchor), text("cd", {})
     // strike [0,4): both text runs covered; the embed (offset 2) is kept untagged.
-    const state = oneBlock(
+    const document = oneBlock(
       inlineContent([
         text("ab", {}),
         embed("footnote-anchor", { contentBlockId: "fn1" }, {}),
@@ -194,55 +194,55 @@ describe("applyDeletionStrikeInTx", () => {
       ]),
     );
 
-    strike(state, 0, 4);
+    strike(document, 0, 4);
 
     // The embed survives untagged at its position; surrounding text is tagged.
-    const embedIdx = liveItems(state).findIndex((it) => it.kind === "embed");
+    const embedIdx = liveItems(document).findIndex((it) => it.kind === "embed");
     expect(embedIdx).toBeGreaterThanOrEqual(0);
-    expect(nth(liveItems(state), embedIdx, "embed item").attrs).toEqual({});
+    expect(nth(liveItems(document), embedIdx, "embed item").attrs).toEqual({});
   });
 
   it("coalesces a newly-tagged run into a same-id neighbor (post-pass)", () => {
     // items: text("ab", {del:DEL_ID}) already-tagged, text("cd", {})
     // strike [2,4): tagging "cd" with DEL_ID makes it attrs-equal to "ab" ⇒ merge.
-    const state = oneBlock(
+    const document = oneBlock(
       inlineContent([
         text("ab", { [DELETION_SUGGESTION_ATTR]: DEL_ID }),
         text("cd", {}),
       ]),
     );
 
-    strike(state, 2, 4);
+    strike(document, 2, 4);
 
-    expect(yItems2(state)).toEqual([{ text: "abcd", attrs: { [DELETION_SUGGESTION_ATTR]: DEL_ID } }]);
+    expect(yItems2(document)).toEqual([{ text: "abcd", attrs: { [DELETION_SUGGESTION_ATTR]: DEL_ID } }]);
   });
 
   it("re-striking a run already carrying this exact id fires no change (no-op guard)", () => {
     // items: text("ab", {del:DEL_ID})
     // strike [0,2) with the SAME id → the no-op guard skips the write; Y.Text ===.
-    const state = oneBlock(
+    const document = oneBlock(
       inlineContent([text("ab", { [DELETION_SUGGESTION_ATTR]: DEL_ID })]),
     );
-    const doc = state[STATE_INTERNAL].doc;
+    const doc = document[DOCUMENT_INTERNAL].doc;
     let changed = 0;
     const onTx = (tx: { changed: Map<unknown, unknown> }): void => {
       if (tx.changed.size > 0) changed++;
     };
     doc.on("afterTransaction", onTx);
-    strike(state, 0, 2);
+    strike(document, 0, 2);
     doc.off("afterTransaction", onTx);
 
     expect(changed).toBe(0); // no write fired
-    expect(yItems2(state)).toEqual([{ text: "ab", attrs: { [DELETION_SUGGESTION_ATTR]: DEL_ID } }]);
+    expect(yItems2(document)).toEqual([{ text: "ab", attrs: { [DELETION_SUGGESTION_ATTR]: DEL_ID } }]);
   });
 
   it("zero-width range no-ops (rangeStart === rangeEnd)", () => {
-    const state = oneBlock(inlineContent([text("ab", {})]));
+    const document = oneBlock(inlineContent([text("ab", {})]));
 
-    const tagged = strike(state, 1, 1);
+    const tagged = strike(document, 1, 1);
 
     expect(tagged).toBe(false);
-    expect(yItems2(state)).toEqual([{ text: "ab", attrs: {} }]);
+    expect(yItems2(document)).toEqual([{ text: "ab", attrs: {} }]);
   });
 
   describe("oracle-diff against rebuildBlockForDeletion + mergeAdjacentTextItems", () => {
@@ -316,16 +316,16 @@ describe("applyDeletionStrikeInTx", () => {
 
     for (const c of cases) {
       it(c.name, () => {
-        const state = oneBlock(inlineContent([...c.items]));
-        for (const id of c.ownInsertionIds ?? []) seedOwnInsertion(state, id);
-        const doc = state[STATE_INTERNAL].doc;
+        const document = oneBlock(inlineContent([...c.items]));
+        for (const id of c.ownInsertionIds ?? []) seedOwnInsertion(document, id);
+        const doc = document[DOCUMENT_INTERNAL].doc;
 
         // Oracle: pure rebuild + merge over the SAME items/range/id/author.
         const oracle = mergeAdjacentTextItems(
           rebuildBlockForDeletion(c.items, c.start, c.end, DEL_ID, AUTHOR, doc).items,
         );
 
-        const tagged = strike(state, c.start, c.end);
+        const tagged = strike(document, c.start, c.end);
         // The applier's `tagged` return is the load-bearing cross-check the wiring
         // (markDeletion) dev-asserts against `plan.taggedAny`. Diff it against the
         // oracle too: tagged iff the oracle produced ≥1 run carrying the deletion id.
@@ -334,7 +334,7 @@ describe("applyDeletionStrikeInTx", () => {
         );
         expect(tagged).toBe(expectedTagged);
 
-        const live = liveItems(state);
+        const live = liveItems(document);
 
         expect(live.length).toBe(oracle.length);
         for (let i = 0; i < oracle.length; i++) {

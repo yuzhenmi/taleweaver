@@ -1,5 +1,5 @@
 import { createPosition, createSpan } from "../../../state";
-import type { State, Selection } from "../../../state";
+import type { Document, Selection } from "../../../state";
 import { findFirstContentBlock } from "./find-first-content-block";
 
 /**
@@ -13,8 +13,8 @@ import { findFirstContentBlock } from "./find-first-content-block";
  * paragraph, so this matches the prior `firstChildId` result there, but it also
  * handles a loaded doc whose first child is a container, e.g. a section).
  */
-export function initialSelectionForState(state: State): Selection {
-  const firstContent = findFirstContentBlock(state) ?? state.rootId;
+export function initialSelectionForDocument(document: Document): Selection {
+  const firstContent = findFirstContentBlock(document) ?? document.rootId;
   const caret = createPosition(firstContent, 0);
   return createSpan(caret, caret);
 }

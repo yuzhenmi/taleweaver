@@ -20,16 +20,16 @@ import { markParagraphMarkDeletion } from "./merge-blocks";
 import { getSuggestions, type SuggestionId } from "../suggestions";
 import { acceptSuggestion } from "./suggestion-ops";
 import { createHistory } from "../history";
-import { getBlock } from "../state";
-import type { Document } from "../state";
+import { getBlock } from "../document";
+import type { Document } from "../document";
 import { inlineContentLength } from "../inline-content";
 import { TEST_RESOLVER, testContainer,
   buildBlock,
-  buildState,
+  buildDocument,
   text,
   embed,
   inlineContent,
-} from "../../test-utils/state-builders";
+} from "../../test-utils/document-builders";
 import type { BlockId } from "../block-id";
 
 // Host container types the default registry lacks (file-local registry instance).
@@ -46,7 +46,7 @@ const INPUT = { id: SID, author: "alice", createdAt: 2000 } as const;
 
 /** doc > [ p1("abc"), p2("def") ] — two sibling paragraphs. */
 function twoBlocks(): Document {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -95,7 +95,7 @@ function leafBlockIds(s: Document, ids: readonly string[]): string[] {
 describe("markParagraphMarkDeletion — basic join mark: no merge + deletion tag + deletion record", () => {
   it("keeps both blocks SEPARATE; second block gets the deletion tag; one deletion record; range round-trips", () => {
     const result = markParagraphMarkDeletion(twoBlocks(), "p1" as BlockId, INPUT);
-    const s = result.state;
+    const s = result.document;
 
     // NO merge: both blocks still present and still SEPARATE in the chain.
     expect(leafBlockIds(s, ["p1", "p2"])).toEqual(["p1", "p2"]);
@@ -132,7 +132,7 @@ describe("markParagraphMarkDeletion — basic join mark: no merge + deletion tag
 
 describe("markParagraphMarkDeletion — offset invariant: no inline item is added", () => {
   it("both blocks' inline lengths are unchanged; no embed anywhere", () => {
-    const s = markParagraphMarkDeletion(twoBlocks(), "p1" as BlockId, INPUT).state;
+    const s = markParagraphMarkDeletion(twoBlocks(), "p1" as BlockId, INPUT).document;
 
     const nContent = getBlock(s, "p1" as BlockId)?.inlineContent;
     if (nContent == null) throw new Error("expected block N inlineContent");
@@ -152,7 +152,7 @@ describe("markParagraphMarkDeletion — ONE undo entry (tag + record are one tra
     history.beginEntry("command", 0);
     const join = markParagraphMarkDeletion(s0, "p1" as BlockId, INPUT);
     history.commit(join, { before: null, after: null });
-    const s1 = join.state;
+    const s1 = join.document;
 
     // Post-op: key on ¶p1, one record.
     expect(getSuggestions(s1).length).toBe(1);
@@ -161,7 +161,7 @@ describe("markParagraphMarkDeletion — ONE undo entry (tag + record are one tra
     // ONE undo reverts everything.
     const undone = history.undo();
     if (undone === null) throw new Error("expected undo to return a result");
-    const s2 = undone.state;
+    const s2 = undone.document;
     // Back to clean "abc" | "def".
     expect(textOf(s2, "p1")).toBe("abc");
     expect(textOf(s2, "p2")).toBe("def");
@@ -176,29 +176,29 @@ describe("markParagraphMarkDeletion — ONE undo entry (tag + record are one tra
 
 describe("markParagraphMarkDeletion — no-op on a ¶ accepting would keep", () => {
   it("the flow's FINAL ¶ is an identity no-op: same state ref, no record, no tag", () => {
-    const state = twoBlocks();
+    const document = twoBlocks();
     // ¶p2 is the flow's last unit (I2): never deleted, so never keyed.
-    const result = markParagraphMarkDeletion(state, "p2" as BlockId, INPUT);
+    const result = markParagraphMarkDeletion(document, "p2" as BlockId, INPUT);
 
-    // Identity: the input State reference is returned unchanged.
-    expect(result.state).toBe(state);
+    // Identity: the input Document reference is returned unchanged.
+    expect(result.document).toBe(document);
     // No suggestion record written.
-    expect(getSuggestions(result.state).length).toBe(0);
+    expect(getSuggestions(result.document).length).toBe(0);
     // No tag anywhere.
-    expect(breakOf(result.state, "p1")).toBeUndefined();
-    expect(breakOf(result.state, "p2")).toBeUndefined();
+    expect(breakOf(result.document, "p1")).toBeUndefined();
+    expect(breakOf(result.document, "p2")).toBeUndefined();
   });
 
   it("marking a MISSING block is an identity no-op", () => {
-    const state = twoBlocks();
-    const result = markParagraphMarkDeletion(state, "nope" as BlockId, INPUT);
-    expect(result.state).toBe(state);
-    expect(getSuggestions(result.state).length).toBe(0);
+    const document = twoBlocks();
+    const result = markParagraphMarkDeletion(document, "nope" as BlockId, INPUT);
+    expect(result.document).toBe(document);
+    expect(getSuggestions(result.document).length).toBe(0);
   });
 
   /** doc → [p (text), container c, after]; ¶p is the unit before the container. */
   function beforeContainer(pText: string): Document {
-    return buildState({
+    return buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "after" }),
@@ -211,30 +211,30 @@ describe("markParagraphMarkDeletion — no-op on a ¶ accepting would keep", () 
   }
 
   it("a NON-empty ¶ before a container is never keyed (accepting would keep it: the final-projection check)", () => {
-    const state = beforeContainer("def");
-    const result = markParagraphMarkDeletion(state, "p" as BlockId, INPUT);
-    expect(result.state).toBe(state);
-    expect(getSuggestions(result.state).length).toBe(0);
+    const document = beforeContainer("def");
+    const result = markParagraphMarkDeletion(document, "p" as BlockId, INPUT);
+    expect(result.document).toBe(document);
+    expect(getSuggestions(result.document).length).toBe(0);
   });
 
   it("an EMPTY ¶ before a container is a tracked ¶ deletion; accept removes the paragraph", () => {
     const result = markParagraphMarkDeletion(beforeContainer(""), "p" as BlockId, INPUT);
-    expect(breakOf(result.state, "p")).toEqual({ deletionId: SID });
-    expect(nth(getSuggestions(result.state), 0, "suggestion").range).toEqual({ start: { blockId: "p", offset: 0 }, end: { blockId: "p", offset: 0 } });
-    const accepted = acceptSuggestion(result.state, SID).state;
+    expect(breakOf(result.document, "p")).toEqual({ deletionId: SID });
+    expect(nth(getSuggestions(result.document), 0, "suggestion").range).toEqual({ start: { blockId: "p", offset: 0 }, end: { blockId: "p", offset: 0 } });
+    const accepted = acceptSuggestion(result.document, SID).document;
     expect(getBlock(accepted, "p" as BlockId)).toBeNull();
     expect(getSuggestions(accepted).length).toBe(0);
   });
 
   it("the flow's final ¶ right after a container is never keyed (I2)", () => {
-    const state = beforeContainer("def");
-    expect(markParagraphMarkDeletion(state, "after" as BlockId, INPUT).state).toBe(state);
+    const document = beforeContainer("def");
+    expect(markParagraphMarkDeletion(document, "after" as BlockId, INPUT).document).toBe(document);
   });
 
   it("leaves an existing trailing embed on block N untouched (the key goes on N's own ¶ entry)", () => {
     // Block N already ends in some other (non-suggestion) embed; the join is a key on
     // ¶p1's entry, so N's items are unchanged.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -254,19 +254,19 @@ describe("markParagraphMarkDeletion — no-op on a ¶ accepting would keep", () 
         }),
       ],
     });
-    const result = markParagraphMarkDeletion(state, "p1" as BlockId, INPUT);
-    const items = itemsOf(result.state, "p1");
+    const result = markParagraphMarkDeletion(document, "p1" as BlockId, INPUT);
+    const items = itemsOf(result.document, "p1");
     // "ab"(text) + tab embed — unchanged.
     expect(items.length).toBe(2);
     expect(nth(items, 1, "tab").kind).toBe("embed");
-    expect(breakOf(result.state, "p1")).toEqual({ deletionId: SID });
+    expect(breakOf(result.document, "p1")).toEqual({ deletionId: SID });
   });
 });
 
 describe("markParagraphMarkDeletion — multi-block: key the ¶ between p2 and p3", () => {
   it("the key lands on ¶p2 (its own entry); p1/p3 untouched; one deletion record", () => {
     // doc > [ p1("one"), p2("two"), p3("three") ]
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
@@ -295,7 +295,7 @@ describe("markParagraphMarkDeletion — multi-block: key the ¶ between p2 and p
       ],
     });
 
-    const s = markParagraphMarkDeletion(state, "p2" as BlockId, INPUT).state;
+    const s = markParagraphMarkDeletion(document, "p2" as BlockId, INPUT).document;
 
     // The key lands on ¶p2, NOT p1 or p3.
     expect(breakOf(s, "p2")).toEqual({ deletionId: SID });

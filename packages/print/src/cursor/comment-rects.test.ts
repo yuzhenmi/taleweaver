@@ -22,7 +22,7 @@ import { createMockShaper } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
 import type { PageConfig } from "../layout/page-config";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
@@ -37,7 +37,7 @@ import {
   COMMENT_START_EMBED_TYPE,
   COMMENT_END_EMBED_TYPE,
   type BlockId,
-  type State,
+  type Document,
   type CommentId,
 } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
@@ -52,12 +52,12 @@ const CID = "c1" as CommentId;
 const ADD = { id: CID, author: "alice", body: "look here", createdAt: 1000 } as const;
 
 function pipeline(
-  state: State,
+  document: Document,
   containerInlineSize: number = 800,
   pageConfig?: PageConfig,
 ): { layout: LayoutBox; shaper: TextShaper } {
   const root = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -66,8 +66,8 @@ function pipeline(
   return { layout, shaper };
 }
 
-function singleParagraph(textContent: string): State {
-  return buildState({
+function singleParagraph(textContent: string): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -92,10 +92,10 @@ describe("getCommentRangeRects", () => {
       createPosition("p" as BlockId, 6),
       createPosition("p" as BlockId, 11),
     );
-    const state = addComment(singleParagraph("hello world"), span, ADD).state;
-    const { layout, shaper } = pipeline(state, 800);
+    const document = addComment(singleParagraph("hello world"), span, ADD).document;
+    const { layout, shaper } = pipeline(document, 800);
 
-    const rects = getCommentRangeRects(state, layout, shaper, CID);
+    const rects = getCommentRangeRects(document, layout, shaper, CID);
     expect(rects.length).toBe(1);
     const r = nth(rects, 0, "comment rect");
     // "world" = offsets 6..11 of "hello world": 8px/char → x 48, width 40.
@@ -111,7 +111,7 @@ describe("getCommentRangeRects", () => {
       createPosition("p" as BlockId, 6),
       createPosition("p" as BlockId, 12),
     );
-    const plainRects = computeSelectionRects(state, plainSpan, layout, shaper);
+    const plainRects = computeSelectionRects(document, plainSpan, layout, shaper);
     expect(rects).toEqual(plainRects);
   });
 
@@ -124,10 +124,10 @@ describe("getCommentRangeRects", () => {
       createPosition("p" as BlockId, 50),
       createPosition("p" as BlockId, 150),
     );
-    const state = addComment(singleParagraph(s), span, ADD).state;
-    const { layout, shaper } = pipeline(state, 800);
+    const document = addComment(singleParagraph(s), span, ADD).document;
+    const { layout, shaper } = pipeline(document, 800);
 
-    const rects = getCommentRangeRects(state, layout, shaper, CID);
+    const rects = getCommentRangeRects(document, layout, shaper, CID);
     expect(rects.length).toBeGreaterThanOrEqual(2);
     // Per-line y-coordinates differ (each rect lives on a distinct line).
     const ys = new Set(rects.map((r) => r.y));
@@ -137,7 +137,7 @@ describe("getCommentRangeRects", () => {
   it("returns rects on each page for a range crossing a page boundary", () => {
     // Five single-line paragraphs, tiny pages → each paragraph on its own page.
     // Comment from p1 to p5 crosses page boundaries → rects on ≥2 pages.
-    const state0 = buildState({
+    const document0 = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p5" }),
@@ -152,16 +152,16 @@ describe("getCommentRangeRects", () => {
       createPosition("p1" as BlockId, 0),
       createPosition("p5" as BlockId, 5),
     );
-    const state = addComment(state0, span, ADD).state;
+    const document = addComment(document0, span, ADD).document;
     const pageConfig: PageConfig = {
       pageInlineSize: 800,
       pageBlockSize: 60,
       pageMargins: { blockStart: 10, blockEnd: 10, inlineStart: 0, inlineEnd: 0 },
       pageGap: 0,
     };
-    const { layout, shaper } = pipeline(state, 800, pageConfig);
+    const { layout, shaper } = pipeline(document, 800, pageConfig);
 
-    const rects = getCommentRangeRects(state, layout, shaper, CID);
+    const rects = getCommentRangeRects(document, layout, shaper, CID);
     const pages = new Set(rects.map((r) => r.pageIndex));
     expect(pages.size).toBeGreaterThanOrEqual(2);
   });
@@ -174,17 +174,17 @@ describe("getCommentRangeRects", () => {
       createPosition("p" as BlockId, 6),
       createPosition("p" as BlockId, 11),
     );
-    let state = addComment(singleParagraph("hello world"), span, ADD).state;
-    state = deleteRange(
-      state,
+    let document = addComment(singleParagraph("hello world"), span, ADD).document;
+    document = deleteRange(
+      document,
       createSpan(
         createPosition("p" as BlockId, 6),
         createPosition("p" as BlockId, 7),
       ),
-    ).state;
-    const { layout, shaper } = pipeline(state, 800);
+    ).document;
+    const { layout, shaper } = pipeline(document, 800);
 
-    expect(getCommentRangeRects(state, layout, shaper, CID)).toEqual([]);
+    expect(getCommentRangeRects(document, layout, shaper, CID)).toEqual([]);
   });
 
   it("returns [] for an INVERTED orphaned comment (end-before-start, non-collapsed)", () => {
@@ -195,7 +195,7 @@ describe("getCommentRangeRects", () => {
     // before end → resolveCommentRange.orphaned === true with start.offset >
     // end.offset. This makes the `range.orphaned` guard load-bearing: without it,
     // createSpan(start,end) would normalize to a NON-empty span and emit a rect.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -214,13 +214,13 @@ describe("getCommentRangeRects", () => {
       ],
     });
     // Sanity: the range resolves orphaned with distinct, inverted endpoints.
-    const range = resolveCommentRange(state, CID);
+    const range = resolveCommentRange(document, CID);
     expect(range).not.toBeNull();
     expect(range?.orphaned).toBe(true);
     expect(range?.start.offset).not.toBe(range?.end.offset);
 
-    const { layout, shaper } = pipeline(state, 800);
-    expect(getCommentRangeRects(state, layout, shaper, CID)).toEqual([]);
+    const { layout, shaper } = pipeline(document, 800);
+    expect(getCommentRangeRects(document, layout, shaper, CID)).toEqual([]);
   });
 
   it("returns [] for a fully-deleted comment (both markers gone)", () => {
@@ -231,17 +231,17 @@ describe("getCommentRangeRects", () => {
       createPosition("p" as BlockId, 6),
       createPosition("p" as BlockId, 11),
     );
-    let state = addComment(singleParagraph("hello world"), span, ADD).state;
-    state = deleteRange(
-      state,
+    let document = addComment(singleParagraph("hello world"), span, ADD).document;
+    document = deleteRange(
+      document,
       createSpan(
         createPosition("p" as BlockId, 6),
         createPosition("p" as BlockId, 13),
       ),
-    ).state;
-    const { layout, shaper } = pipeline(state, 800);
+    ).document;
+    const { layout, shaper } = pipeline(document, 800);
 
-    expect(getCommentRangeRects(state, layout, shaper, CID)).toEqual([]);
+    expect(getCommentRangeRects(document, layout, shaper, CID)).toEqual([]);
   });
 
   it("returns [] for an absent commentId", () => {
@@ -249,9 +249,9 @@ describe("getCommentRangeRects", () => {
       createPosition("p" as BlockId, 6),
       createPosition("p" as BlockId, 11),
     );
-    const state = addComment(singleParagraph("hello world"), span, ADD).state;
-    const { layout, shaper } = pipeline(state, 800);
+    const document = addComment(singleParagraph("hello world"), span, ADD).document;
+    const { layout, shaper } = pipeline(document, 800);
 
-    expect(getCommentRangeRects(state, layout, shaper, "nope" as CommentId)).toEqual([]);
+    expect(getCommentRangeRects(document, layout, shaper, "nope" as CommentId)).toEqual([]);
   });
 });

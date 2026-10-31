@@ -1,4 +1,4 @@
-import { inspectDocument, type IncompatibleDocumentReport, createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, selectParagraph, getBlock, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, type Proposal, type ProposeResult, type ProposalOutcome, proposeResultOf, type SuggestionGroupStyle, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
+import { inspectDocument, type IncompatibleDocumentReport, createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, selectParagraph, getBlock, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type EditorAction, type EditorState, type Document, type TextMatch, type FindMatchesOptions, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, type Proposal, type ProposeResult, type ProposalOutcome, proposeResultOf, type SuggestionGroupStyle, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
 import { resolvePixelPosition, type PixelPosition } from "./cursor/cursor-position";
 import { resolvePositionFromPixel } from "./cursor/hit-test";
 import { computeSelectionRects, computeSelectionRectsForPage, computeSelectionRectsAcrossPages, type SelectionRect } from "./cursor/selection-geometry";
@@ -34,8 +34,8 @@ const SCROLL_DURATION = 250;
  * an empty `language` ("" = no language) is skipped so a language-free document
  * emits no `/Lang`.
  */
-/** `editorState` is, or was reduced from, a forbidden State (its change chain reaches one; bounded walk). */
-function descendsFrom(editorState: EditorState, forbidden: (s: State) => boolean): boolean {
+/** `editorState` is, or was reduced from, a forbidden Document (its change chain reaches one; bounded walk). */
+function descendsFrom(editorState: EditorState, forbidden: (s: Document) => boolean): boolean {
   if (forbidden(editorState.document)) return true;
   for (let c = editorState.lastChange; c !== null; c = c.prior) if (forbidden(c.from)) return true;
   return false;
@@ -70,10 +70,10 @@ export type { PrintDecorationPointerEvent } from "./decoration-pointer";
  * a hyperlink. Used by Cmd+Click handling.
  */
 function linkUrlAtPosition(
-  state: import("@taleweaver/core").State,
+  document: import("@taleweaver/core").Document,
   pos: Position,
 ): string | null {
-  const block = getBlock(state, pos.blockId);
+  const block = getBlock(document, pos.blockId);
   if (block === null || block.inlineContent === null) return null;
   const { itemIndex } = findItemAtOffset(block.inlineContent, pos.offset);
   const item = block.inlineContent.items[itemIndex];
@@ -126,7 +126,7 @@ export interface EditorControllerOptions {
    * while still halted, when a legacy write lands after `onDocumentCompatible` was
    * reported. Do not keep reading the halted Document with core read functions. Exit: the
    * host calls `update` with a FRESH EditorState that holds no legacy storage — one built
-   * anew (`createEditorStateFromState`) over the same Y.Doc, or one over another
+   * anew (`createEditorStateFromDocument`) over the same Y.Doc, or one over another
    * document, possibly with edits on top. A Document reduced from the halted one (its change
    * chain reaches the halted Document) is ignored. While halted, setters and clears of
    * decorations / highlights / styles are no-ops; the replacement drops every layer (the
@@ -137,7 +137,7 @@ export interface EditorControllerOptions {
    * While HALTED on a NOT-YET-UPGRADED document ("legacy-schema"), it was upgraded (by
    * this host or an upgraded peer — any transaction is re-checked): the host can now
    * resume by calling `update` with a fresh EditorState over the same Y.Doc
-   * (`createState({ rootId, doc })`). Called once per halt; the controller stays halted
+   * (`createDocument({ rootId, doc })`). Called once per halt; the controller stays halted
    * until that `update`. Never for a sticky halt.
    */
   onDocumentCompatible?: () => void;
@@ -188,19 +188,19 @@ export interface EditorController {
    */
   runCommand(command: string | Command): boolean;
   /** The current document version (an opaque token for `mapPosition` / `createAnchor`); null before the first `update`. */
-  readonly version: State | null;
+  readonly version: Document | null;
   /**
    * Map `position` from an earlier `version` to the current document: `{ position, deleted }`,
    * or null once that version has aged out of the controller's mapping log.
    */
-  mapPosition(position: Position, version: State, assoc?: Assoc): MappedPosition | null;
+  mapPosition(position: Position, version: Document, assoc?: Assoc): MappedPosition | null;
   /**
    * Anchor a point (`to` omitted) or range that follows every later edit (local, undo /
    * redo, collaborative). `basedOn`: the version the positions refer to (default: the
    * current one); null when that version can no longer be mapped, the content is gone,
    * or before the first `update`.
    */
-  createAnchor(from: Position, to?: Position, options?: AnchorOptions & { readonly basedOn?: State }): Anchor | null;
+  createAnchor(from: Position, to?: Position, options?: AnchorOptions & { readonly basedOn?: Document }): Anchor | null;
   /**
    * Offer `proposal` as ONE suggestion group, dispatched to the host as `PROPOSE` (any
    * editing mode; the caret is only rebased). `basedOn`: the version its positions refer
@@ -211,7 +211,7 @@ export interface EditorController {
    * controller is destroyed first, and at once before the first `update` ("no document
    * yet") or after `destroy`.
    */
-  propose(proposal: Proposal, options?: { readonly basedOn?: State }): Promise<ProposeResult>;
+  propose(proposal: Proposal, options?: { readonly basedOn?: Document }): Promise<ProposeResult>;
   /**
    * Host per-group styling of suggestions (e.g. per `metadata.source`), kept live through
    * proposals, accept / reject and undo. `null` clears it.
@@ -243,7 +243,7 @@ export interface EditorController {
    * mapping log); if that Document is unknown or too old to map, the decorations are
    * dropped rather than drawn on the wrong text.
    */
-  setDecorations(decorations: readonly Decoration[], basedOn?: State): void;
+  setDecorations(decorations: readonly Decoration[], basedOn?: Document): void;
   /**
    * Show the find-match highlights: `matches` as translucent yellow
    * decorations (`tw-find:*`), the match at `activeIndex` emphasized in orange.
@@ -363,11 +363,11 @@ export function createEditorController(
   const mirrorEnabled = options.accessibilityMirror === true;
   let mirrorHost: DomMirrorHost | null = null;
 
-  // ── State ──────────────────────────────────────────────────────────────
+  // ── Document ──────────────────────────────────────────────────────────────
 
   let state: EditorState | null = null;
   // The current layout tree, built by the backend layout-driver from
-  // `state.state` + `state.lastDirtyIds` in `update()`. In paginated mode
+  // `state.document` + `state.lastDirtyIds` in `update()`. In paginated mode
   // it is a `VirtualLayoutTree` (a `PagePlan` + lazily-materialized pages); in
   // unpaginated / unsupported-feature-fallback mode it is a fully-positioned
   // `LayoutBox`. The HOT PATH (paint visible pages, slot sizing, caret) reads
@@ -439,7 +439,7 @@ export function createEditorController(
   /** `onDocumentCompatible` was reported since the last `onIncompatibleDocument`. */
   let toldCompatible = false;
   /** Replacement Documents refused while halted (legacy storage): their descendants never resume. */
-  let refusedStates = new WeakSet<State>();
+  let refusedDocuments = new WeakSet<Document>();
 
   /**
    * Halt on legacy storage in a peer update (see `onIncompatibleDocument`). Once per
@@ -603,9 +603,9 @@ export function createEditorController(
   // report a queued host set meanwhile.
   let layers = createDecorationLayers();
   // Recent transitions + their mappings, so decorations a host computed against an
-  // older State (`setDecorations(d, basedOn)`) can be mapped onto the current one.
+  // older Document (`setDecorations(d, basedOn)`) can be mapped onto the current one.
   const mappingLog = createMappingLog();
-  let pendingLayerOps: ((s: State) => void)[] = [];
+  let pendingLayerOps: ((s: Document) => void)[] = [];
   let pendingHost: readonly Decoration[] | null = null;
   if (options.decorations !== undefined) {
     const initial = options.decorations;
@@ -613,7 +613,7 @@ export function createEditorController(
     pendingLayerOps.push((s) => layers.setHost(s, initial));
   }
   /** A layer setter: a no-op while halted (deriving reads the doc), queued before the first document. */
-  function withLayers(op: (s: State) => void): void {
+  function withLayers(op: (s: Document) => void): void {
     if (halted) return;
     if (state === null) pendingLayerOps.push(op);
     else op(state.document);
@@ -622,14 +622,14 @@ export function createEditorController(
   // painted / hit) and cached by (layout tree, merged set, page box, document[,
   // band]) — blink repaints and unaffected pages never re-resolve. Key: page index
   // (paginated) or -1 (single canvas). Cleared on every `update()` (so it never
-  // pins an old tree / State) and when a page's canvas is released.
+  // pins an old tree / Document) and when a page's canvas is released.
   const decoRectCache = new Map<
     number,
     {
       tree: LayoutBox | VirtualLayoutTree;
       set: DecorationSet;
       root: LayoutBox;
-      doc: State;
+      doc: Document;
       band: { top: number; bottom: number } | null;
       rects: readonly DecorationRect[];
     }
@@ -897,7 +897,7 @@ export function createEditorController(
     const band = pageIndex === null ? singleBand() : null;
     const tDeco = markStart("ctrl.decorationRects");
     const raw = computeDecorationRects({
-      state: st.document,
+      document: st.document,
       decorations: set,
       root,
       pageIndex,
@@ -1014,7 +1014,7 @@ export function createEditorController(
    * off-screen widgets; a header/footer widget gets one instance per visible page
    * showing it. Single canvas: the blocks with a box inside the visible band.
    */
-  let widgetSyncKey: { tree: LayoutBox | VirtualLayoutTree | null; set: DecorationSet; pages: string; doc: State | null; band: string } | null = null;
+  let widgetSyncKey: { tree: LayoutBox | VirtualLayoutTree | null; set: DecorationSet; pages: string; doc: Document | null; band: string } | null = null;
   function syncWidgets(): void {
     const st = state;
     const tree = layoutTree;
@@ -2142,7 +2142,7 @@ export function createEditorController(
   //
   // When `accessibilityMirror` is ON, build the hidden AT-visible DOM mirror and
   // make it the focus/IME/clipboard host. Built AFTER the handler closures +
-  // `isComposing`/`state` locals are in scope so they can be forwarded verbatim.
+  // `isComposing`/`document` locals are in scope so they can be forwarded verbatim.
   // The engine still owns every edit: the mirror's events dispatch the SAME
   // actions the textarea path does (INSERT_TEXT, SET_SELECTION, …); the mirror
   // never mutates the document directly. `update()` re-syncs the mirror tree +
@@ -2227,16 +2227,16 @@ export function createEditorController(
   function update(editorState: EditorState) {
     if (destroyed) return;
     const doc = getYDoc(editorState.document);
-    // A document REPLACEMENT (the first State, another Y.Doc, or a Document not reduced from
+    // A document REPLACEMENT (the first Document, another Y.Doc, or a Document not reduced from
     // the current one) must hold no legacy storage (the load assertion; O(blocks), only
-    // here) — checked even when not halted (legacy may land between `createState` and
+    // here) — checked even when not halted (legacy may land between `createDocument` and
     // here): refused, the controller halts on it and keeps the last good render. Halted,
     // only such a replacement resumes; the halted Document, a refused replacement and any
-    // State reduced from either keep the last good render.
+    // Document reduced from either keep the last good render.
     let resumed = false;
     if (halted) {
-      const haltedState = state?.document ?? options.startHaltedOn?.document;
-      if (descendsFrom(editorState, (s) => s === haltedState || refusedStates.has(s))) return;
+      const haltedDocument = state?.document ?? options.startHaltedOn?.document;
+      if (descendsFrom(editorState, (s) => s === haltedDocument || refusedDocuments.has(s))) return;
     }
     const current = state?.document;
     const replacing = halted || current === undefined || doc !== remoteDoc || !descendsFrom(editorState, (s) => s === current);
@@ -2244,7 +2244,7 @@ export function createEditorController(
       const legacy = inspectDocument(doc).legacyBlocks;
       if (legacy.length > 0) {
         // A refused replacement is forbidden like the halted Document: so is anything reduced from it.
-        refusedStates.add(editorState.document);
+        refusedDocuments.add(editorState.document);
         // Its legacy storage went unseen (not halted yet, another document, or a local
         // write after "compatible"): halt (or report again if the host was told
         // "compatible") and watch this document halted — so its upgrade is reported.
@@ -2258,7 +2258,7 @@ export function createEditorController(
     if (halted) {
       halted = false;
       toldCompatible = false;
-      refusedStates = new WeakSet();
+      refusedDocuments = new WeakSet();
       resumed = true;
     }
     // Collaboration: follow the document's Y.Doc (re-subscribing when the host swaps
@@ -2445,7 +2445,7 @@ export function createEditorController(
     decorationPointer?.sync();
   }
 
-  function setDecorations(decorations: readonly Decoration[], basedOn?: State): void {
+  function setDecorations(decorations: readonly Decoration[], basedOn?: Document): void {
     if (destroyed) return;
     if (halted) return; // a no-op: `decorations` keeps the last good set
     if (state === null) pendingHost = decorations;
@@ -2579,12 +2579,12 @@ export function createEditorController(
         "exportToPdf: paginated layout required (float/clear documents are not yet exportable)",
       );
     }
-    const coreState = st.document;
-    const parentOf = makeBlockParentLookup(coreState);
+    const coreDocument = st.document;
+    const parentOf = makeBlockParentLookup(coreDocument);
     // The RAW core accessibility projection: the injected emitter maps it
     // to the PDF structure model. `null` (a document whose root is dropped —
     // should not occur for a real document root) ⇒ no /StructTreeRoot.
-    const accessibilityTree = buildAccessibilityTree(coreState);
+    const accessibilityTree = buildAccessibilityTree(coreDocument);
     // Document /Lang ← the first body text-run's content language. Empty ⇒ omit.
     const page0 = tree.getPage(0);
     const lang = firstBodyLanguage(page0) ?? "";
@@ -2592,12 +2592,12 @@ export function createEditorController(
       pageCount: tree.plan.entries.length,
       getPage: (i) => tree.getPage(i),
       resolveInternalDestination: makeInternalDestinationResolver(
-        coreState,
+        coreDocument,
         tree,
         measurer,
         parentOf,
       ),
-      outline: buildPdfOutline(coreState, tree, measurer, parentOf),
+      outline: buildPdfOutline(coreDocument, tree, measurer, parentOf),
       accessibilityTree,
       ...(lang !== "" ? { lang } : {}),
     });
@@ -2708,16 +2708,16 @@ export function createEditorController(
     get version() {
       return state?.document ?? null;
     },
-    mapPosition(position: Position, version: State, assoc?: Assoc): MappedPosition | null {
+    mapPosition(position: Position, version: Document, assoc?: Assoc): MappedPosition | null {
       if (halted || state === null) return null;
       return mapPositionFrom(mappingLog, state.document, version, position, assoc);
     },
-    createAnchor(from: Position, to?: Position, anchorOptions: AnchorOptions & { readonly basedOn?: State } = {}): Anchor | null {
+    createAnchor(from: Position, to?: Position, anchorOptions: AnchorOptions & { readonly basedOn?: Document } = {}): Anchor | null {
       if (halted || state === null) return null;
       const { basedOn, ...rest } = anchorOptions;
       return anchors.createAt(mappingLog, state.document, basedOn ?? state.document, from, to, rest);
     },
-    propose(proposal: Proposal, proposeOptions: { readonly basedOn?: State } = {}): Promise<ProposeResult> {
+    propose(proposal: Proposal, proposeOptions: { readonly basedOn?: Document } = {}): Promise<ProposeResult> {
       if (destroyed) return Promise.resolve(rejectedProposal("controller destroyed"));
       if (halted) return Promise.resolve(HALTED_RESULT);
       if (state === null) return Promise.resolve(rejectedProposal("no document yet"));

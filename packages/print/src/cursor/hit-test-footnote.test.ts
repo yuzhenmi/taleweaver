@@ -37,7 +37,7 @@ import type { ElementBox, RenderNode } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
 import type { PageConfig } from "../layout/page-config";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
@@ -49,7 +49,7 @@ import {
   FOOTNOTE_ANCHOR_EMBED_TYPE,
 } from "@taleweaver/core";
 import { collectFootnoteAnchors } from "@taleweaver/core";
-import type { State, BlockId } from "@taleweaver/core";
+import type { Document, BlockId } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -88,7 +88,7 @@ function fnAnchor() {
 }
 
 interface Built {
-  state: State;
+  document: Document;
   positioned: LayoutBox;
   shaper: TextShaper;
 }
@@ -118,7 +118,7 @@ function buildDoc(opts: { footnoteText: string; footerPara?: string }): Built {
     );
   }
 
-  const state = buildState({
+  const document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "sec", lastChildId: "sec" }),
@@ -170,7 +170,7 @@ function buildDoc(opts: { footnoteText: string; footerPara?: string }): Built {
   });
 
   const out = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   );
@@ -188,7 +188,7 @@ function buildDoc(opts: { footnoteText: string; footerPara?: string }): Built {
     if (c.type === "element") cascadedTemplateContents.set(id, c);
   }
 
-  const footnoteAnchors = collectFootnoteAnchors(state);
+  const footnoteAnchors = collectFootnoteAnchors(document);
   expect(footnoteAnchors.map((a) => a.contentBlockId)).toEqual([FN_BODY]);
 
   const cfg = pageConfig();
@@ -205,7 +205,7 @@ function buildDoc(opts: { footnoteText: string; footerPara?: string }): Built {
     footnoteAnchors,
   );
   const positioned = positionTreeForTest(virtual);
-  return { state, positioned, shaper };
+  return { document, positioned, shaper };
 }
 
 /**
@@ -237,16 +237,16 @@ function page0Geometry(positioned: LayoutBox): {
 }
 
 /** Body / footnote / footer line partitions on page 0, keyed by context. */
-function lineGeometry(state: State, positioned: LayoutBox) {
+function lineGeometry(document: Document, positioned: LayoutBox) {
   const all = getLineIndex(positioned).all;
   const bodyLines = all.filter(
-    (l) => selectionContextOf(state, l.line.ownerBlockId) === state.rootId,
+    (l) => selectionContextOf(document, l.line.ownerBlockId) === document.rootId,
   );
   const footnoteLines = all.filter(
-    (l) => selectionContextOf(state, l.line.ownerBlockId) === FN_BODY,
+    (l) => selectionContextOf(document, l.line.ownerBlockId) === FN_BODY,
   );
   const footerLines = all.filter(
-    (l) => selectionContextOf(state, l.line.ownerBlockId) === FOOTER_ROOT,
+    (l) => selectionContextOf(document, l.line.ownerBlockId) === FOOTER_ROOT,
   );
   const bodyMaxBottom = Math.max(
     ...bodyLines.map((l) => l.absoluteY + l.line.blockSize),
@@ -260,8 +260,8 @@ beforeEach(() => {
 
 describe("FN-7.2 — click into the footnote-slot band resolves to the footnote body", () => {
   it("precondition: the footnote slot sits below the body content with a gap, inside the content band", () => {
-    const { state, positioned } = buildDoc({ footnoteText: "the footnote" });
-    const g = lineGeometry(state, positioned);
+    const { document, positioned } = buildDoc({ footnoteText: "the footnote" });
+    const g = lineGeometry(document, positioned);
     const edges = page0Geometry(positioned);
     // 2 body lines + at least 1 footnote line.
     expect(g.bodyLines.length).toBe(2);
@@ -277,17 +277,17 @@ describe("FN-7.2 — click into the footnote-slot band resolves to the footnote 
 
   it("CASE 1 (THE BUG): a click in the footnote-slot band → INSIDE the footnote body (NOT the nearest body line)", () => {
     const fnText = "the footnote";
-    const { state, positioned, shaper } = buildDoc({ footnoteText: fnText });
-    const g = lineGeometry(state, positioned);
+    const { document, positioned, shaper } = buildDoc({ footnoteText: fnText });
+    const g = lineGeometry(document, positioned);
     const fnLine = nth(g.footnoteLines, 0, "footnote line");
     // Click squarely on the footnote line, a few chars in.
     const y = fnLine.absoluteY + fnLine.line.blockSize / 2;
     const x = fnLine.absoluteX + SHAPER_CHAR_W * 3;
-    const pos = resolvePositionFromPixel(state, positioned, shaper, x, y, 0);
+    const pos = resolvePositionFromPixel(document, positioned, shaper, x, y, 0);
     expect(pos).not.toBeNull();
     if (pos === null) return;
     // The blockId must be the footnote body paragraph — an embedContent block.
-    const resolved = resolveBlock(state, pos.blockId);
+    const resolved = resolveBlock(document, pos.blockId);
     expect(resolved).not.toBeNull();
     if (resolved === null) return;
     expect(resolved.kind).toBe("embedContent");
@@ -300,15 +300,15 @@ describe("FN-7.2 — click into the footnote-slot band resolves to the footnote 
   });
 
   it("CASE 2: a click in the body ABOVE the slot still resolves to a body position", () => {
-    const { state, positioned, shaper } = buildDoc({ footnoteText: "the footnote" });
-    const g = lineGeometry(state, positioned);
+    const { document, positioned, shaper } = buildDoc({ footnoteText: "the footnote" });
+    const g = lineGeometry(document, positioned);
     const first = nth(g.bodyLines, 0, "body line");
     const y = first.absoluteY + first.line.blockSize / 2;
     const x = first.absoluteX + SHAPER_CHAR_W * 1 + 1; // mid second-char
-    const pos = resolvePositionFromPixel(state, positioned, shaper, x, y, 0);
+    const pos = resolvePositionFromPixel(document, positioned, shaper, x, y, 0);
     expect(pos).not.toBeNull();
     if (pos === null) return;
-    const resolved = resolveBlock(state, pos.blockId);
+    const resolved = resolveBlock(document, pos.blockId);
     expect(resolved).not.toBeNull();
     if (resolved === null) return;
     expect(resolved.kind).toBe("block");
@@ -324,17 +324,17 @@ describe("FN-7.2 — click into the footnote-slot band resolves to the footnote 
     // past-end click on a text-only line lands after the last glyph). It must NOT
     // be captured by the footnote slot.
     const lastBodyText = "body two"; // the bp1 text content (before the anchor)
-    const { state, positioned, shaper } = buildDoc({ footnoteText: "the footnote" });
-    const g = lineGeometry(state, positioned);
+    const { document, positioned, shaper } = buildDoc({ footnoteText: "the footnote" });
+    const g = lineGeometry(document, positioned);
     const edges = page0Geometry(positioned);
     // A y strictly between the last body line's bottom and the slot's top.
     const y = (g.bodyMaxBottom + edges.slotTop) / 2;
     expect(y).toBeGreaterThan(g.bodyMaxBottom);
     expect(y).toBeLessThan(edges.slotTop);
-    const pos = resolvePositionFromPixel(state, positioned, shaper, 1000, y, 0);
+    const pos = resolvePositionFromPixel(document, positioned, shaper, 1000, y, 0);
     expect(pos).not.toBeNull();
     if (pos === null) return;
-    const resolved = resolveBlock(state, pos.blockId);
+    const resolved = resolveBlock(document, pos.blockId);
     expect(resolved).not.toBeNull();
     if (resolved === null) return;
     // Last body block, clamped to the line END = AFTER the 1-unit marker
@@ -345,11 +345,11 @@ describe("FN-7.2 — click into the footnote-slot band resolves to the footnote 
   });
 
   it("CASE 4: with BOTH a footnote slot and a footer, a click in the FOOTER band still resolves to the footer (no regression)", () => {
-    const { state, positioned, shaper } = buildDoc({
+    const { document, positioned, shaper } = buildDoc({
       footnoteText: "the footnote",
       footerPara: "the footer",
     });
-    const g = lineGeometry(state, positioned);
+    const g = lineGeometry(document, positioned);
     const edges = page0Geometry(positioned);
     expect(g.footerLines.length).toBe(1);
     const footer = nth(g.footerLines, 0, "footer line");
@@ -358,10 +358,10 @@ describe("FN-7.2 — click into the footnote-slot band resolves to the footnote 
     expect(footer.absoluteY).toBeGreaterThanOrEqual(edges.slotBottom - 0.5);
     const y = footer.absoluteY + footer.line.blockSize / 2;
     const x = footer.absoluteX + SHAPER_CHAR_W * 2;
-    const pos = resolvePositionFromPixel(state, positioned, shaper, x, y, 0);
+    const pos = resolvePositionFromPixel(document, positioned, shaper, x, y, 0);
     expect(pos).not.toBeNull();
     if (pos === null) return;
-    const resolved = resolveBlock(state, pos.blockId);
+    const resolved = resolveBlock(document, pos.blockId);
     expect(resolved).not.toBeNull();
     if (resolved === null) return;
     expect(resolved.kind).toBe("templateContent");
@@ -377,7 +377,7 @@ describe("FN-7.2 — click into the footnote-slot band resolves to the footnote 
     // marker — including just past it — resolved to 8, making the caret
     // impossible to place after a footnote marker by clicking.
     const bp1Text = "body two";
-    const { state, positioned, shaper } = buildDoc({ footnoteText: "the footnote" });
+    const { document, positioned, shaper } = buildDoc({ footnoteText: "the footnote" });
 
     // Locate the marker leaf on bp1's line.
     const bp1Lines = getLineIndex(positioned).byBlock.get("bp1" as BlockId) ?? [];
@@ -394,7 +394,7 @@ describe("FN-7.2 — click into the footnote-slot band resolves to the footnote 
 
     // RIGHT half → AFTER the marker (offset = text length + 1).
     const right = resolvePositionFromPixel(
-      state,
+      document,
       positioned,
       shaper,
       marker.absoluteX + marker.width * 0.9,
@@ -408,7 +408,7 @@ describe("FN-7.2 — click into the footnote-slot band resolves to the footnote 
 
     // LEFT half → BEFORE the marker (offset = text length).
     const left = resolvePositionFromPixel(
-      state,
+      document,
       positioned,
       shaper,
       marker.absoluteX + marker.width * 0.1,
@@ -422,18 +422,18 @@ describe("FN-7.2 — click into the footnote-slot band resolves to the footnote 
   });
 
   it("CASE 5: with BOTH a slot and a footer, a click in the FOOTNOTE band still resolves to the footnote (footnote wins over body, footer untouched)", () => {
-    const { state, positioned, shaper } = buildDoc({
+    const { document, positioned, shaper } = buildDoc({
       footnoteText: "the footnote",
       footerPara: "the footer",
     });
-    const g = lineGeometry(state, positioned);
+    const g = lineGeometry(document, positioned);
     const fnLine = nth(g.footnoteLines, 0, "footnote line");
     const y = fnLine.absoluteY + fnLine.line.blockSize / 2;
     const x = fnLine.absoluteX + SHAPER_CHAR_W * 1;
-    const pos = resolvePositionFromPixel(state, positioned, shaper, x, y, 0);
+    const pos = resolvePositionFromPixel(document, positioned, shaper, x, y, 0);
     expect(pos).not.toBeNull();
     if (pos === null) return;
-    const resolved = resolveBlock(state, pos.blockId);
+    const resolved = resolveBlock(document, pos.blockId);
     expect(resolved).not.toBeNull();
     if (resolved === null) return;
     expect(resolved.kind).toBe("embedContent");

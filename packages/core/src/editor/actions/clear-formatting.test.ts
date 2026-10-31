@@ -1,4 +1,4 @@
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   createInitialEditorState,
@@ -91,7 +91,7 @@ describe("handleClearFormatting", () => {
     editor = selectAll(editor, 10);
     const before = editor;
     editor = reduceEditor(editor, { type: "CLEAR_FORMATTING" });
-    // State-equality short-circuit: nothing to clear → same editor object.
+    // Document-equality short-circuit: nothing to clear → same editor object.
     expect(editor).toBe(before);
   });
 

@@ -9,7 +9,7 @@ import {
   type Proposal,
   type ProposedEdit,
   type ProposeResult,
-  type State,
+  type Document,
   type SuggestionGroupStyle,
 } from "@taleweaver/core";
 
@@ -38,7 +38,7 @@ const WORD_SWAPS: Readonly<Record<string, string>> = {
   good: "fine",
 };
 
-export type Propose = (proposal: Proposal, options?: { readonly basedOn?: State }) => Promise<ProposeResult>;
+export type Propose = (proposal: Proposal, options?: { readonly basedOn?: Document }) => Promise<ProposeResult>;
 
 /** The edits the simulated assistant proposes for the paragraph holding the caret. */
 function draftEdits(editor: EditorState): ProposedEdit[] {

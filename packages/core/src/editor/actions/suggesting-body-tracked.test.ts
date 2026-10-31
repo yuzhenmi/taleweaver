@@ -20,7 +20,7 @@
  * stranded provenance attr — the MT round-trip that proves no zombie. The final
  * regression block confirms the SAME actions in the MAIN body still track.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,

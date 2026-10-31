@@ -16,7 +16,7 @@
 
 import { describe, it, expect } from "vitest";
 import { reduceEditor } from "../reduce-editor";
-import { type EditorState, createEditorStateFromState } from "../editor-state";
+import { type EditorState, createEditorStateFromDocument } from "../editor-state";
 import { type EditorConfig } from "../editor-config";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
@@ -26,8 +26,8 @@ import {
   getBlock,
   INLINE_IMAGE_EMBED_TYPE,
 } from "../../state";
-import type { State, BlockId, InlineItem, EmbedItem } from "../../state";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import type { Document, BlockId, InlineItem, EmbedItem } from "../../state";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 
 const componentRegistry = createDefaultComponentRegistry();
 const attrRegistry = createDefaultAttrRegistry();
@@ -37,8 +37,8 @@ const BODY_P = "p" as BlockId;
 
 const IMG = { src: "blob:img-1", width: 120, height: 80, alt: "a kitten" } as const;
 
-function buildStateWithBody(): State {
-  return buildState({
+function buildDocumentWithBody(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -57,9 +57,9 @@ function buildStateWithBody(): State {
  * INSERT_INLINE_IMAGE handler reads only caret/selection state (no layout), so
  * the synthetic state needs only the geometry-free fields.
  */
-function buildEditor(state: State, caret: { blockId: BlockId; offset: number }): EditorState {
+function buildEditor(document: Document, caret: { blockId: BlockId; offset: number }): EditorState {
   const cursor = createPosition(caret.blockId, caret.offset);
-  return createEditorStateFromState(state, createSpan(cursor, cursor), config);
+  return createEditorStateFromDocument(document, createSpan(cursor, cursor), config);
 }
 
 function inlineImageItemsOf(items: readonly InlineItem[] | undefined): EmbedItem[] {
@@ -67,13 +67,13 @@ function inlineImageItemsOf(items: readonly InlineItem[] | undefined): EmbedItem
     (it): it is EmbedItem => it.kind === "embed" && it.embedType === INLINE_IMAGE_EMBED_TYPE,
   );
 }
-function bodyInlineImages(state: State, id: BlockId): EmbedItem[] {
-  return inlineImageItemsOf(getBlock(state, id)?.inlineContent?.items);
+function bodyInlineImages(document: Document, id: BlockId): EmbedItem[] {
+  return inlineImageItemsOf(getBlock(document, id)?.inlineContent?.items);
 }
 
 describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
   it("splices an inline-image EmbedItem at a collapsed caret and advances the caret by 1 (one embed = one offset)", () => {
-    const editor = buildEditor(buildStateWithBody(), { blockId: BODY_P, offset: 1 }); // between "a" and "b"
+    const editor = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 1 }); // between "a" and "b"
     const out = reduceEditor(
       editor,
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
@@ -104,7 +104,7 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
   });
 
   it("removes the whole embed in ONE DELETE_BACKWARD step (atomic, #407)", () => {
-    const editor = buildEditor(buildStateWithBody(), { blockId: BODY_P, offset: 1 });
+    const editor = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 1 });
     const inserted = reduceEditor(
       editor,
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
@@ -124,7 +124,7 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
     // suggestingAuthor — they splice directly. This handler mirrors them, so a
     // configured suggestingAuthor must NOT throw or alter the direct-insert path.
     const suggestingConfig: EditorConfig = { ...config, suggestingAuthor: "alice" };
-    const editor = buildEditor(buildStateWithBody(), { blockId: BODY_P, offset: 1 });
+    const editor = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 1 });
     const out = reduceEditor(
       { ...editor, config: suggestingConfig },
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
@@ -133,7 +133,7 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
   });
 
   it("is its own undo unit — UNDO removes the inserted image", () => {
-    const editor = buildEditor(buildStateWithBody(), { blockId: BODY_P, offset: 1 });
+    const editor = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 1 });
     const inserted = reduceEditor(
       editor,
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
@@ -145,7 +145,7 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
 
   it("REPLACES an expanded selection (delete-then-insert, one undo step) — Google Docs field behavior", () => {
     const editor: EditorState = (() => {
-      const base = buildEditor(buildStateWithBody(), { blockId: BODY_P, offset: 0 });
+      const base = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 0 });
       // select the whole "ab"
       return {
         ...base,

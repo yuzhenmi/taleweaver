@@ -1,8 +1,8 @@
 import type * as Y from "yjs";
 import { requireBlockText } from "../block-text";
-import type { Document, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
-import { STATE_INTERNAL } from "../state-internal";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
+import { DOCUMENT_INTERNAL } from "../document-internal";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import type { Position } from "../block-position";
@@ -71,29 +71,29 @@ export interface SplitBlockResult extends OperationResult {
  * transaction.
  */
 export function splitBlockAtPosition(
-  state: Document,
+  document: Document,
   position: Position,
   allocator: IdAllocator,
   newBlockInit?: { readonly type?: string; readonly attrs?: ReadonlyAttrs },
 ): SplitBlockResult {
-  const plan = planSplitBlockAtPosition(state, position, allocator, newBlockInit);
-  const r = applyOperation(state, (doc) => {
+  const plan = planSplitBlockAtPosition(document, position, allocator, newBlockInit);
+  const r = applyOperation(document, (doc) => {
     splitBlockAtPositionInTx(doc, plan);
   });
   return { ...r, newBlockId: plan.newBlockId };
 }
 
 /**
- * Validate `position` against `state` and produce the {@link SplitBlockPlan}. Throws
+ * Validate `position` against `document` and produce the {@link SplitBlockPlan}. Throws
  * on every condition `splitBlockAtPosition` lists. Allocates the head's id once.
  */
 export function planSplitBlockAtPosition(
-  state: Document,
+  document: Document,
   position: Position,
   allocator: IdAllocator,
   newBlockInit?: { readonly type?: string; readonly attrs?: ReadonlyAttrs },
 ): SplitBlockPlan {
-  const resolved = resolveBlock(state, position.blockId);
+  const resolved = resolveBlock(document, position.blockId);
   if (resolved === null) {
     throw new Error(`splitBlockAtPosition: block "${position.blockId}" not found`);
   }
@@ -118,7 +118,7 @@ export function planSplitBlockAtPosition(
   // adjacent start markers — a bookmark / comment stays on its text.
   const k = splitOffsetBetweenMarkers(block.inlineContent.items, position.offset);
   const newBlockId = allocator.allocate();
-  const doc = state[STATE_INTERNAL].doc;
+  const doc = document[DOCUMENT_INTERNAL].doc;
   const withoutOneShot = withoutOneShotAttrs(block.attrs, doc);
   // One-shot attrs follow the content: they stay on B only at k = 0 of a non-empty B.
   const oneShotStays = k === 0 && totalLen > 0;
@@ -183,14 +183,14 @@ export function splitBlockAtPositionInTx(doc: Y.Doc, plan: SplitBlockPlan, opts:
  * delegated to {@link planSplitBlockAtPosition}.
  */
 export function splitWithSuggestion(
-  state: Document,
+  document: Document,
   position: Position,
   allocator: IdAllocator,
   input: SuggestionMintInput,
   newBlockInit?: { readonly type?: string; readonly attrs?: ReadonlyAttrs },
 ): SplitBlockResult {
-  const plan = planSplitBlockAtPosition(state, position, allocator, newBlockInit);
-  const r = applyOperation(state, (doc) => {
+  const plan = planSplitBlockAtPosition(document, position, allocator, newBlockInit);
+  const r = applyOperation(document, (doc) => {
     splitBlockAtPositionInTx(doc, plan);
     writeSplitSuggestionInTx(doc, plan.newBlockId, input);
   });

@@ -1,4 +1,4 @@
-import type { Selection, Position, Span, BlockInit, TextMatch, BlockId, CrossReferenceMode, CommentId, SuggestionId, PageFieldNumberStyle, State } from "../state";
+import type { Selection, Position, Span, BlockInit, TextMatch, BlockId, CrossReferenceMode, CommentId, SuggestionId, PageFieldNumberStyle, Document } from "../state";
 import type { TextAlign, TextTransform } from "../styles/style";
 import type { TabStop } from "../styles/tab-stops";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
@@ -177,7 +177,7 @@ export type EditorAction =
    * invalid / self-overlapping / overlapping a pending suggestion. The verdict lands on
    * `EditorState.lastProposal`.
    */
-  | { type: "PROPOSE"; proposal: Proposal; basedOn?: State };
+  | { type: "PROPOSE"; proposal: Proposal; basedOn?: Document };
 
 /** The member of `EditorAction` whose `type` is `K`. */
 export type ActionOf<K extends EditorAction["type"]> = Extract<EditorAction, { type: K }>;

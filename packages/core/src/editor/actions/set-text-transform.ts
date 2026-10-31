@@ -45,7 +45,7 @@ export function handleSetTextTransform(
   // keyword is written explicitly.
   const attrValue = value === "none" ? undefined : value;
   const result = applyAttrsOrSuggest(editor, selection, { textTransform: attrValue });
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
 
   // An attr-only edit shifts no offsets, so the selection is unchanged — it is
   // committed and rebuilt AS-IS, preserving both endpoints and the anchor/focus

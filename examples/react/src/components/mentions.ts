@@ -8,7 +8,7 @@ import {
   type Decoration,
   type EditorAction,
   type EditorState,
-  type State,
+  type Document,
 } from "@taleweaver/core";
 
 /**
@@ -63,8 +63,8 @@ export function mentionAction(editor: EditorState): EditorAction | null {
 }
 
 /** Hover-only decorations over every mention (payload read by the shared popover). */
-export function mentionDecorations(state: State): Decoration[] {
-  return getMarkRanges(state, MENTION).map((r, i) => ({
+export function mentionDecorations(document: Document): Decoration[] {
+  return getMarkRanges(document, MENTION).map((r, i) => ({
     kind: "inline",
     id: `mention:${i}:${r.from.blockId}:${r.from.offset}`,
     from: r.from,

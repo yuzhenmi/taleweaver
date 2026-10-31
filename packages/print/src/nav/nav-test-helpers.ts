@@ -18,7 +18,7 @@
  * leave the state untouched when the intent is a no-op `null`). This is exactly the
  * controller's per-keystroke loop, distilled for tests.
  */
-import { createInitialEditorState, createEditorStateFromState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, firstLeafBlock, createPosition, createSpan, initialSelectionForState, type EditorState, type EditorConfig, type EditorAction, type Selection, type Position, type State, type BlockId, type PageConfig, type Hyphenator, type TextShaper, type ComponentRegistry, type AttrRegistry } from "@taleweaver/core";
+import { createInitialEditorState, createEditorStateFromDocument, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, firstLeafBlock, createPosition, createSpan, initialSelectionForDocument, type EditorState, type EditorConfig, type EditorAction, type Selection, type Position, type Document, type BlockId, type PageConfig, type Hyphenator, type TextShaper, type ComponentRegistry, type AttrRegistry } from "@taleweaver/core";
 import { type LayoutBox, type VirtualLayoutTree } from "../index";
 import { createLayoutDriver, type LayoutDriver } from "../layout-driver/layout-driver";
 import { resolveNavIntent, type NavIntent } from "./nav-intent";
@@ -90,7 +90,7 @@ export function makeNavEditor(opts: MakeNavEditorOptions = {}): NavCtx {
  * selection is the document's natural start (first content block, offset 0).
  * Everything else (config, driver, registries) matches `makeNavEditor`.
  */
-export function makeNavEditorFromState(state: State, opts: MakeNavEditorOptions = {}): NavCtx {
+export function makeNavEditorFromDocument(document: Document, opts: MakeNavEditorOptions = {}): NavCtx {
   const containerWidth = opts.containerWidth ?? 800;
   const measurer = createMockShaper(opts.charWidth ?? 8, opts.lineHeight ?? 16);
   const componentRegistry = createDefaultComponentRegistry();
@@ -106,7 +106,7 @@ export function makeNavEditorFromState(state: State, opts: MakeNavEditorOptions 
   const driver = createLayoutDriver({ measurer, hyphenator: opts.hyphenator });
 
   return {
-    editor: createEditorStateFromState(state, initialSelectionForState(state), config),
+    editor: createEditorStateFromDocument(document, initialSelectionForDocument(document), config),
     config,
     driver,
     measurer,

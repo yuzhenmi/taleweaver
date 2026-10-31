@@ -5,13 +5,13 @@ import { encodeFragmentClip, decodeFragmentClip, TALEWEAVER_CLIP_MIME } from "./
 import { extractFragment } from "../ops/extract-fragment";
 import { createSpan, createPosition } from "../block-position";
 import type { BlockId } from "../block-id";
-import type { Document } from "../state";
-import { getBlock, getEmbedContent } from "../state";
-import { TEST_RESOLVER, buildBlock, inlineContent, text, embed } from "../../test-utils/state-builders";
-import { buildStateFromBlocks } from "../build-state-from-blocks";
+import type { Document } from "../document";
+import { getBlock, getEmbedContent } from "../document";
+import { TEST_RESOLVER, buildBlock, inlineContent, text, embed } from "../../test-utils/document-builders";
+import { buildDocumentFromBlocks } from "../build-document-from-blocks";
 import {
   INSERTION_SUGGESTION_ATTR,
-  readSuggestionRecordFromState,
+  readSuggestionRecordFromDocument,
   type SuggestionId,
   type SuggestionRecord,
 } from "../suggestions";
@@ -51,7 +51,7 @@ function suggestionRecordsOf(frag: Document): readonly SuggestionRecord[] {
     cur = block.nextSiblingId;
   }
   return [...ids]
-    .map((id) => readSuggestionRecordFromState(frag, id as SuggestionId))
+    .map((id) => readSuggestionRecordFromDocument(frag, id as SuggestionId))
     .filter((r): r is SuggestionRecord => r !== null);
 }
 
@@ -85,8 +85,8 @@ const FOOTNOTE_EMBED_TYPE = "footnote-anchor";
  * A rich state with a paragraph containing a footnote anchor + embed content
  * AND a text run carrying a pending insertion suggestion.
  */
-function buildRichState(): Document {
-  return buildStateFromBlocks({ resolver: TEST_RESOLVER,
+function buildRichDocument(): Document {
+  return buildDocumentFromBlocks({ resolver: TEST_RESOLVER,
     rootId: bid("doc"),
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -128,11 +128,11 @@ describe("fragment-clip codec", () => {
     expect(TALEWEAVER_CLIP_MIME).toBe("application/x-taleweaver-clip");
   });
 
-  it("round-trips a fragment State losslessly (blocks + marks + footnotes + suggestions)", () => {
-    const richState = buildRichState();
+  it("round-trips a fragment Document losslessly (blocks + marks + footnotes + suggestions)", () => {
+    const richDocument = buildRichDocument();
     // Select the entire paragraph: "Hello " (6) + footnote embed (1) + " World" (6) = 13
     const span = createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 13));
-    const frag = extractFragment(richState, span);
+    const frag = extractFragment(richDocument, span);
 
     const clip = encodeFragmentClip(frag);
     expect(typeof clip).toBe("string");
@@ -140,26 +140,26 @@ describe("fragment-clip codec", () => {
 
     const back = decodeFragmentClip(clip, TEST_RESOLVER, attrRegistry);
     expect(back).not.toBeNull();
-    const backState = back as Document;
+    const backDocument = back as Document;
 
     // Same top-level block types
-    expect(fragTopLevelTypes(backState)).toEqual(fragTopLevelTypes(frag));
+    expect(fragTopLevelTypes(backDocument)).toEqual(fragTopLevelTypes(frag));
 
     // Suggestion records survive the round-trip
     const origRecords = suggestionRecordsOf(frag);
-    const backRecords = suggestionRecordsOf(backState);
+    const backRecords = suggestionRecordsOf(backDocument);
     expect(backRecords.map((r) => r.id)).toEqual(origRecords.map((r) => r.id));
     expect(backRecords.map((r) => r.kind)).toEqual(origRecords.map((r) => r.kind));
     expect(backRecords.map((r) => r.author)).toEqual(origRecords.map((r) => r.author));
 
     // Footnote embed content survives
-    expect(fragHasEmbedContent(backState)).toBe(true);
+    expect(fragHasEmbedContent(backDocument)).toBe(true);
   });
 
   it("encodeFragmentClip returns a valid base64 string", () => {
-    const richState = buildRichState();
+    const richDocument = buildRichDocument();
     const span = createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 13));
-    const frag = extractFragment(richState, span);
+    const frag = extractFragment(richDocument, span);
     const clip = encodeFragmentClip(frag);
     // Valid standard base64: only A-Za-z0-9+/= chars and length is a multiple of 4
     expect(clip).toMatch(/^[A-Za-z0-9+/]+=*$/);
@@ -175,7 +175,7 @@ describe("fragment-clip codec", () => {
     expect(decodeFragmentClip("AAAA", TEST_RESOLVER, attrRegistry)).toBeNull();
   });
 
-  it("decodeFragmentClip never throws — always returns State or null", () => {
+  it("decodeFragmentClip never throws — always returns Document or null", () => {
     // Garbage strings that are neither base64 nor valid docs
     for (const bad of ["", "!!!!", "not-base64-at-all", "AAAAAAAAAA=="]) {
       expect(() => decodeFragmentClip(bad, TEST_RESOLVER, attrRegistry)).not.toThrow();

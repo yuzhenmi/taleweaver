@@ -2,7 +2,7 @@
 //
 // Phase 0b slice 3 (D2a), Step 1. The backend layout-driver owns the
 // render → cascade → layout pipeline that used to live inside core's
-// `rebuildTrees` / `createEditorStateFromState`. These tests prove the driver
+// `rebuildTrees` / `createEditorStateFromDocument`. These tests prove the driver
 // is a faithful relocation:
 //   1. `rebuild(editor)` with no dirty set (a full build) produces a layout tree
 //      structurally equal to core's own `editorState.layoutTree` oracle.

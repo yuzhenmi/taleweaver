@@ -19,15 +19,15 @@ import {
   createSpan,
   asBlockId,
 } from "../../state";
-import type { BlockId, State } from "../../state";
+import type { BlockId, Document } from "../../state";
 import { isObjectSelection } from "../../cursor/object-selection";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
-} from "../../test-utils/state-builders";
-import { createEditorStateFromState } from "../editor-state";
+} from "../../test-utils/document-builders";
+import { createEditorStateFromDocument } from "../editor-state";
 import type { EditorState } from "../editor-state";
 import { config, componentRegistry, reduceEditor } from "./test-helpers";
 
@@ -36,8 +36,8 @@ const PARA_ID = asBlockId("para");
 const TRAILING_ID = asBlockId("trailing");
 
 /** [para "above"] [image] [trailing para] */
-function standardDoc(): State {
-  return buildState({
+function standardDoc(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "para", lastChildId: "trailing" }),
@@ -70,13 +70,13 @@ function standardDoc(): State {
 /** Collapsed object selection on the image. */
 function objectEditor(): EditorState {
   const sel = createSpan(createPosition(IMAGE_ID, 0), createPosition(IMAGE_ID, 0));
-  const editor = createEditorStateFromState(standardDoc(), sel, config);
+  const editor = createEditorStateFromDocument(standardDoc(), sel, config);
   expect(isObjectSelection(editor.document, editor.selection, componentRegistry)).toBe(IMAGE_ID);
   return editor;
 }
 
-function textOf(state: State, id: BlockId): string {
-  const b = getBlock(state, id);
+function textOf(document: Document, id: BlockId): string {
+  const b = getBlock(document, id);
   return (b?.inlineContent?.items ?? [])
     .map((it) => (it.kind === "text" ? it.text : ""))
     .join("");

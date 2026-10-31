@@ -18,16 +18,16 @@
  * clean enough to gate on a ratio).
  */
 import { describe, it, expect } from "vitest";
-import { getBlock } from "./state";
-import type { Document } from "./state";
+import { getBlock } from "./document";
+import type { Document } from "./document";
 import { setBlockAttrs } from "./ops/set-block-attrs";
 import type { BlockId } from "./block-id";
-import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent } from "../test-utils/document-builders";
 
 /** A flat N-paragraph document: root + empty paragraphs p-0 … p-(n-1). */
 function buildFlatDoc(n: number): Document {
   const ids = Array.from({ length: n }, (_, i) => `p-${i}`);
-  return buildState({
+  return buildDocument({
     rootId: "root",
     blocks: [
       buildBlock({ id: "root", type: "document", firstChildId: ids[0] ?? null, lastChildId: ids[n - 1] ?? null }),
@@ -48,22 +48,22 @@ function buildFlatDoc(n: number): Document {
 describe("perf benchmark (smoke)", () => {
   it("setBlockAttrs stays fast per keystroke on a large document (averaged, contention-proof)", () => {
     const LARGE = 10000;
-    const state = buildFlatDoc(LARGE);
+    const document = buildFlatDoc(LARGE);
     const blockId = `p-${Math.floor(LARGE * 0.75)}` as BlockId;
 
     // Correctness (defensive — a setBlockAttrs that stopped dirtying its own block
     // would make the perf claim meaningless).
-    expect(setBlockAttrs(state, blockId, { order: -1 }).dirtyIds.has(blockId)).toBe(true);
+    expect(setBlockAttrs(document, blockId, { order: -1 }).dirtyIds.has(blockId)).toBe(true);
 
     // Warm up (JIT + snapshot-cache base materialization), then AVERAGE over many
     // calls — averaging is the contention defence (see file header). Each call sets a
     // DISTINCT value so the no-op short-circuit never fires (it would otherwise
     // measure the cheap identity path, not the real write); calls share the same base
-    // `state`, so each is an independent op.
-    for (let i = 0; i < 200; i++) setBlockAttrs(state, blockId, { order: i });
+    // `document`, so each is an independent op.
+    for (let i = 0; i < 200; i++) setBlockAttrs(document, blockId, { order: i });
     const iterations = 2000;
     const t0 = performance.now();
-    for (let i = 0; i < iterations; i++) setBlockAttrs(state, blockId, { order: i });
+    for (let i = 0; i < iterations; i++) setBlockAttrs(document, blockId, { order: i });
     const perOpMs = (performance.now() - t0) / iterations;
 
     // Generous bound (~25× the observed ~0.4ms/op): a per-keystroke attr write
@@ -72,13 +72,13 @@ describe("perf benchmark (smoke)", () => {
   });
 
   it("getBlock on cached snapshot is sub-millisecond", () => {
-    const state = buildFlatDoc(1);
+    const document = buildFlatDoc(1);
     // Prime the cache.
-    getBlock(state, "root" as BlockId);
+    getBlock(document, "root" as BlockId);
     // Time 10k cache-hits (averaged → robust to a single contention spike).
     const t0 = performance.now();
     for (let i = 0; i < 10000; i++) {
-      getBlock(state, "root" as BlockId);
+      getBlock(document, "root" as BlockId);
     }
     const elapsed = performance.now() - t0;
     expect(elapsed / 10000).toBeLessThan(0.01); // <10us per cache hit.

@@ -9,65 +9,65 @@ import { documentFootnotePolicy } from "./policy";
 import { createInitialEditorState } from "../editor/actions/test-helpers";
 import { config } from "../editor/actions/test-helpers";
 import { mergeBlockAttrs } from "../state";
-import type { State } from "../state";
+import type { Document } from "../state";
 
-/** Build a base State (empty document) for policy reads. */
-function baseState(): State {
+/** Build a base Document (empty document) for policy reads. */
+function baseDocument(): Document {
   return createInitialEditorState(config).document;
 }
 
 describe("documentFootnotePolicy", () => {
   it("defaults to continuous/decimal when the root has no policy attrs", () => {
-    const state = baseState();
-    expect(documentFootnotePolicy(state)).toEqual({
+    const document = baseDocument();
+    expect(documentFootnotePolicy(document)).toEqual({
       reset: "continuous",
       format: "decimal",
     });
   });
 
   it("reads a valid reset + format from the root attrs", () => {
-    let state = baseState();
-    state = mergeBlockAttrs(state, state.rootId, {
+    let document = baseDocument();
+    document = mergeBlockAttrs(document, document.rootId, {
       footnoteNumberingReset: "restart-per-section",
       footnoteNumberingFormat: "lower-roman",
-    }).state;
-    expect(documentFootnotePolicy(state)).toEqual({
+    }).document;
+    expect(documentFootnotePolicy(document)).toEqual({
       reset: "restart-per-section",
       format: "lower-roman",
     });
   });
 
   it("reads restart-per-page as a valid reset", () => {
-    let state = baseState();
-    state = mergeBlockAttrs(state, state.rootId, {
+    let document = baseDocument();
+    document = mergeBlockAttrs(document, document.rootId, {
       footnoteNumberingReset: "restart-per-page",
-    }).state;
-    expect(documentFootnotePolicy(state).reset).toBe("restart-per-page");
+    }).document;
+    expect(documentFootnotePolicy(document).reset).toBe("restart-per-page");
   });
 
   it("falls back to continuous when reset is invalid", () => {
-    let state = baseState();
-    state = mergeBlockAttrs(state, state.rootId, {
+    let document = baseDocument();
+    document = mergeBlockAttrs(document, document.rootId, {
       footnoteNumberingReset: "nonsense",
-    }).state;
-    expect(documentFootnotePolicy(state).reset).toBe("continuous");
+    }).document;
+    expect(documentFootnotePolicy(document).reset).toBe("continuous");
   });
 
   it("falls back to decimal when format is invalid", () => {
-    let state = baseState();
-    state = mergeBlockAttrs(state, state.rootId, {
+    let document = baseDocument();
+    document = mergeBlockAttrs(document, document.rootId, {
       footnoteNumberingFormat: "klingon",
-    }).state;
-    expect(documentFootnotePolicy(state).format).toBe("decimal");
+    }).document;
+    expect(documentFootnotePolicy(document).format).toBe("decimal");
   });
 
   it("falls back per-field independently (valid reset, invalid format)", () => {
-    let state = baseState();
-    state = mergeBlockAttrs(state, state.rootId, {
+    let document = baseDocument();
+    document = mergeBlockAttrs(document, document.rootId, {
       footnoteNumberingReset: "restart-per-section",
       footnoteNumberingFormat: 42,
-    }).state;
-    expect(documentFootnotePolicy(state)).toEqual({
+    }).document;
+    expect(documentFootnotePolicy(document)).toEqual({
       reset: "restart-per-section",
       format: "decimal",
     });
@@ -83,11 +83,11 @@ describe("documentFootnotePolicy", () => {
       "symbol",
     ] as const;
     for (const format of formats) {
-      let state = baseState();
-      state = mergeBlockAttrs(state, state.rootId, {
+      let document = baseDocument();
+      document = mergeBlockAttrs(document, document.rootId, {
         footnoteNumberingFormat: format,
-      }).state;
-      expect(documentFootnotePolicy(state).format).toBe(format);
+      }).document;
+      expect(documentFootnotePolicy(document).format).toBe(format);
     }
   });
 });

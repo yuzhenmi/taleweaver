@@ -10,7 +10,7 @@ import {
   type DecorationSet,
   type ElementBox,
   type RenderNode,
-  type State,
+  type Document,
 } from "@taleweaver/core";
 import {
   renderBlockToDom,
@@ -56,7 +56,7 @@ export interface DigitalReconciler {
 }
 
 interface Rendered extends StyledTree {
-  readonly state: State;
+  readonly document: Document;
   readonly decorations: DecorationSet;
 }
 
@@ -131,7 +131,7 @@ function sameListStructure(a: readonly ElementBox[], b: readonly ElementBox[]): 
 export function createDigitalReconciler(
   componentRegistry: ComponentRegistry,
   attrRegistry: AttrRegistry,
-  doc: Document,
+  doc: globalThis.Document,
   /** Called for every block element the reconciler (re)mounts, as it is indexed. */
   onBlockMounted?: (blockId: BlockId, el: HTMLElement) => void,
 ): DigitalReconciler {
@@ -176,11 +176,11 @@ export function createDigitalReconciler(
     unindexSubtree(el);
     el.remove();
   }
-  function fullRebuild(state: State, decorations: DecorationSet): void {
+  function fullRebuild(document: Document, decorations: DecorationSet): void {
     if (container === null) return;
-    const tree = renderStyled(state, componentRegistry, attrRegistry);
+    const tree = renderStyled(document, componentRegistry, attrRegistry);
     materialize(tree.cascaded, decorations);
-    rendered = { ...tree, state, decorations };
+    rendered = { ...tree, document, decorations };
   }
 
   function materialize(cascaded: RenderNode, decorations: DecorationSet): void {
@@ -202,7 +202,7 @@ export function createDigitalReconciler(
     const win = doc.defaultView ?? window;
     // Thread the authoritative `blockElMap` into the bridge so `positionToDom` resolves blocks via
     // an O(1) map lookup instead of an O(n) `querySelectorAll` scan per keystroke.
-    bridge = createDigitalSelectionBridge(c, win, (blockId) => blockElMap.get(blockId) ?? null, () => rendered?.state ?? null);
+    bridge = createDigitalSelectionBridge(c, win, (blockId) => blockElMap.get(blockId) ?? null, () => rendered?.document ?? null);
     fullRebuild(initial.document, decorations);
     bridge.positionToDom(initial.selection);
   }
@@ -225,7 +225,7 @@ export function createDigitalReconciler(
    * One incremental patch cycle against the last rendered tree. Returns false when the root
    * itself had to be rebuilt from scratch (the caller's bookkeeping is then already done).
    */
-  function patch(next: State, prev: Rendered, cascaded: RenderNode, decorations: DecorationSet, isComposing: boolean): boolean {
+  function patch(next: Document, prev: Rendered, cascaded: RenderNode, decorations: DecorationSet, isComposing: boolean): boolean {
     if (container === null) return false;
     // `rebuild`: IME-deferred keys (wholesale). `redecorate`: blocks whose drawn
     // decorations changed (a leaf re-renders; a container re-applies block decorations).
@@ -450,7 +450,7 @@ export function createDigitalReconciler(
       return;
     }
     const dirty = next.lastDirtyIds;
-    const stateChanged = prev.state !== next.document;
+    const stateChanged = prev.document !== next.document;
     if (stateChanged && dirty === null) {
       // Unknown change set (document replaced): rebuild everything.
       fullRebuild(next.document, decorations);
@@ -463,10 +463,10 @@ export function createDigitalReconciler(
     }
     const tree: StyledTree =
       stateChanged && dirty !== null
-        ? renderStyled(next.document, componentRegistry, attrRegistry, undefined, { prev, prevState: prev.state, dirtyIds: dirty })
+        ? renderStyled(next.document, componentRegistry, attrRegistry, undefined, { prev, prevDocument: prev.document, dirtyIds: dirty })
         : prev;
     if (patch(next.document, prev, tree.cascaded, decorations, isComposing)) {
-      rendered = { out: tree.out, cascaded: tree.cascaded, state: next.document, decorations };
+      rendered = { out: tree.out, cascaded: tree.cascaded, document: next.document, decorations };
     }
     projectSelection();
   }

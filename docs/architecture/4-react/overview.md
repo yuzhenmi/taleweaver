@@ -17,7 +17,7 @@ state and no rendering of its own — it bridges React's lifecycle to
   Mounts a single HTML container; on mount, instantiates a `print`
   controller pointing at that container and wires the controller's
   dispatch callback to the hook's reducer. On every state change, it
-  forwards the new state to the controller via `controller.update(state)`.
+  forwards the new state to the controller via `controller.update(document)`.
   Calls `controller.destroy()` on unmount.
 
 ## How modules connect

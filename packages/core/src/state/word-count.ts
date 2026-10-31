@@ -1,5 +1,5 @@
-import type { Document } from "./state";
-import { getBlock } from "./state";
+import type { Document } from "./document";
+import { getBlock } from "./document";
 import type { BlockId } from "./block-id";
 import type { Selection } from "./block-position";
 import { createPosition, createSpan } from "./block-position";
@@ -99,7 +99,7 @@ export function countText(text: string): WordCount {
 
 /**
  * Compute word / character / character-excluding-spaces counts over the target
- * blocks of `state` — the read-only query behind Google Docs' Tools ▸ Word
+ * blocks of `document` — the read-only query behind Google Docs' Tools ▸ Word
  * count.
  *
  * Read-only query over state; no mutation, no paint. Counts the MAIN document
@@ -116,13 +116,13 @@ export function countText(text: string): WordCount {
  * An empty document / all-empty blocks → `{ words: 0, characters: 0,
  * charactersExcludingSpaces: 0 }`.
  */
-export function getWordCount(state: Document, options?: WordCountOptions): WordCount {
+export function getWordCount(document: Document, options?: WordCountOptions): WordCount {
   let words = 0;
   let characters = 0;
   let charactersExcludingSpaces = 0;
 
-  for (const blockId of iterateTargetBlocks(state, options?.blockIds)) {
-    const block = getBlock(state, blockId);
+  for (const blockId of iterateTargetBlocks(document, options?.blockIds)) {
+    const block = getBlock(document, blockId);
     // Only leaf blocks carry countable inline content; skip containers.
     if (!block || block.inlineContent === null) continue;
 
@@ -134,7 +134,7 @@ export function getWordCount(state: Document, options?: WordCountOptions): WordC
       createPosition(blockId, length),
     );
     const blockText = extractText(
-      state,
+      document,
       span,
       builtinEmbedSerializer,
       options?.suggestionView ?? "suggesting",
@@ -158,7 +158,7 @@ export function getWordCount(state: Document, options?: WordCountOptions): WordC
 
 /**
  * Compute word / character / character-excluding-spaces counts over the text
- * currently SELECTED in `state` — the per-selection figure Google Docs shows
+ * currently SELECTED in `document` — the per-selection figure Google Docs shows
  * alongside the document total in Tools ▸ Word count.
  *
  * Read-only query over state; no mutation, no paint. The selection (a directed
@@ -180,7 +180,7 @@ export function getWordCount(state: Document, options?: WordCountOptions): WordC
  * `{ words: 0, characters: 0, charactersExcludingSpaces: 0 }`.
  */
 export function getSelectionWordCount(
-  state: Document,
+  document: Document,
   selection: Selection,
   suggestionView: SuggestionView = "suggesting",
 ): WordCount {
@@ -189,7 +189,7 @@ export function getSelectionWordCount(
   // selection yields the same text as the forward one. Passing the selection
   // through directly avoids a redundant normalize here. `suggestionView` projects
   // pending tracked changes (default `"suggesting"` = the literal selection).
-  const selectedText = extractText(state, selection, builtinEmbedSerializer, suggestionView);
+  const selectedText = extractText(document, selection, builtinEmbedSerializer, suggestionView);
   return countText(selectedText);
 }
 
@@ -202,14 +202,14 @@ export function getSelectionWordCount(
  * content, so yielding leaves only is identical to the old behavior here.
  */
 function* iterateTargetBlocks(
-  state: Document,
+  document: Document,
   blockIds: Iterable<BlockId> | undefined,
 ): Iterable<BlockId> {
   if (blockIds !== undefined) {
     yield* blockIds;
     return;
   }
-  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+  for (const block of iterateLeafBlocksInDocumentOrder(document)) {
     yield block.id;
   }
 }

@@ -1,5 +1,5 @@
 import { resolvePositionFromPixel as resolveHitRaw } from "../cursor/hit-test";
-import type { Position, State } from "@taleweaver/core";
+import type { Position, Document } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 import type { TextShaper } from "@taleweaver/core";
 import type { TextMeasurer } from "@taleweaver/core";
@@ -15,13 +15,13 @@ import type { TextMeasurer } from "@taleweaver/core";
  * `resolvePositionFromPixel` in hit-test.test.ts / set-selection tests.
  */
 export function resolveHitPosition(
-  state: State,
+  document: Document,
   tree: LayoutBox,
   shaperOrMeasurer: TextShaper | TextMeasurer,
   x: number,
   y: number,
   pageIndex?: number,
 ): Position | null {
-  const hit = resolveHitRaw(state, tree, shaperOrMeasurer, x, y, pageIndex);
+  const hit = resolveHitRaw(document, tree, shaperOrMeasurer, x, y, pageIndex);
   return hit === null ? null : hit.position;
 }

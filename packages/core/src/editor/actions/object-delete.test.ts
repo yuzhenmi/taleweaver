@@ -7,8 +7,8 @@
  * matches the pre-existing `deleteAdjacentAtomicLeaf` boundary-delete).
  *
  * Behavior-level tests through the real reducer (`reduceEditor`). Fixtures are
- * built at the STATE layer (`buildState`) and wrapped into a real Y.Doc-backed
- * `EditorState` (`createEditorStateFromState`), then the object selection is set
+ * built at the STATE layer (`buildDocument`) and wrapped into a real Y.Doc-backed
+ * `EditorState` (`createEditorStateFromDocument`), then the object selection is set
  * via SET_SELECTION. Doc shapes:
  *   - standard:    [para "above"] [image] [trailing para]
  *   - image-last:  [para "above"] [image]
@@ -20,15 +20,15 @@ import {
   createSpan,
   asBlockId,
 } from "../../state";
-import type { Selection, State } from "../../state";
+import type { Selection, Document } from "../../state";
 import { isObjectSelection } from "../../cursor/object-selection";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
-} from "../../test-utils/state-builders";
-import { createEditorStateFromState } from "../editor-state";
+} from "../../test-utils/document-builders";
+import { createEditorStateFromDocument } from "../editor-state";
 import type { EditorConfig } from "../editor-config";
 import type { EditorState } from "../editor-state";
 import { config, componentRegistry, reduceEditor } from "./test-helpers";
@@ -46,8 +46,8 @@ function objectSelection(): Selection {
 }
 
 /** [para "above"] [image] [trailing para] */
-function standardDoc(): State {
-  return buildState({
+function standardDoc(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "para", lastChildId: "trailing" }),
@@ -78,8 +78,8 @@ function standardDoc(): State {
 }
 
 /** [para "above"] [image] — the image is the LAST block. */
-function imageLastDoc(): State {
-  return buildState({
+function imageLastDoc(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "para", lastChildId: "image" }),
@@ -102,8 +102,8 @@ function imageLastDoc(): State {
 }
 
 /** Wrap a state into an editor with the image object-selected (active config). */
-function editorFrom(state: State, cfg: EditorConfig): EditorState {
-  const editor = createEditorStateFromState(state, objectSelection(), cfg);
+function editorFrom(document: Document, cfg: EditorConfig): EditorState {
+  const editor = createEditorStateFromDocument(document, objectSelection(), cfg);
   expect(isObjectSelection(editor.document, editor.selection, componentRegistry)).toBe(IMAGE_ID);
   return editor;
 }
@@ -185,7 +185,7 @@ describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection", () => {
     // The guard must fire ONLY for object selections — a plain mid-word caret
     // backspace behaves exactly as before.
     let s = reduceEditor(
-      createEditorStateFromState(standardDoc(), objectSelection(), config),
+      createEditorStateFromDocument(standardDoc(), objectSelection(), config),
       {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(PARA_ID, 5), createPosition(PARA_ID, 5)),

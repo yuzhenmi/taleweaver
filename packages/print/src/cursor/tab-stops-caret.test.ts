@@ -9,9 +9,9 @@ import { layoutTree } from "../layout/dispatch";
 import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
-import { buildState, buildBlock, inlineContent, text, embed } from "@taleweaver/core";
+import { buildDocument, buildBlock, inlineContent, text, embed } from "@taleweaver/core";
 import { createPosition, createSpan } from "@taleweaver/core";
-import type { BlockId, State } from "@taleweaver/core";
+import type { BlockId, Document } from "@taleweaver/core";
 import type { TabStop } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 
@@ -48,8 +48,8 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   return v;
 }
 
-function pipeline(state: State, width: number): { layout: LayoutBox; shaper: TextShaper } {
-  const root = render(state, componentRegistry, attrRegistry).root;
+function pipeline(document: Document, width: number): { layout: LayoutBox; shaper: TextShaper } {
+  const root = render(document, componentRegistry, attrRegistry).root;
   const shaper = createMockShaper(8, 16);
   const layout = positionTreeForTest(layoutTree(root, width, shaper));
   return { layout, shaper };
@@ -60,8 +60,8 @@ function pipeline(state: State, width: number): { layout: LayoutBox; shaper: Tex
  * `tabStops` is carried as a paragraph block-attr; the cascade resolves it onto
  * the paragraph's ComputedStyle, which the IFC reads to resolve the tab advance.
  */
-function tabDoc(tabStops: readonly TabStop[]): State {
-  return buildState({
+function tabDoc(tabStops: readonly TabStop[]): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -79,30 +79,30 @@ function tabDoc(tabStops: readonly TabStop[]): State {
 /** Caret x of position(blockId, offset). Returns NaN if it fails to resolve, so
  *  a regression fails loudly rather than silently passing on null. */
 function caretX(
-  state: State,
+  document: Document,
   blockId: string,
   offset: number,
   layout: LayoutBox,
   shaper: TextShaper,
 ): number {
-  const r = resolvePixelPosition(state, createPosition(blockId as BlockId, offset), layout, shaper);
+  const r = resolvePixelPosition(document, createPosition(blockId as BlockId, offset), layout, shaper);
   return r === null ? Number.NaN : r.x;
 }
 
 /** Click → state offset at (px, py). Returns -1 if it fails to resolve. */
 function offsetAt(
-  state: State,
+  document: Document,
   layout: LayoutBox,
   shaper: TextShaper,
   px: number,
   py: number,
 ): number {
-  const r = resolvePositionFromPixel(state, layout, shaper, px, py, 0);
+  const r = resolvePositionFromPixel(document, layout, shaper, px, py, 0);
   return r === null ? -1 : r.position.offset;
 }
 
 function selRects(
-  state: State,
+  document: Document,
   blockId: string,
   from: number,
   to: number,
@@ -110,7 +110,7 @@ function selRects(
   shaper: TextShaper,
 ) {
   return computeSelectionRects(
-    state,
+    document,
     createSpan(createPosition(blockId as BlockId, from), createPosition(blockId as BlockId, to)),
     layout,
     shaper,
@@ -121,35 +121,35 @@ describe("tab-stops S4 — caret/click/selection over a tab (inline-block leaf p
   const stops: readonly TabStop[] = [{ position: 100, alignment: "left", leader: "none" }];
 
   it("caret before the tab sits at the tab box inline-start (x=8)", () => {
-    const state = tabDoc(stops);
-    const { layout, shaper } = pipeline(state, 800);
-    expect(caretX(state, "p", 1, layout, shaper)).toBe(8);
+    const document = tabDoc(stops);
+    const { layout, shaper } = pipeline(document, 800);
+    expect(caretX(document, "p", 1, layout, shaper)).toBe(8);
   });
 
   it("caret after the tab sits at the tab box inline-end / 'b' start (x=100)", () => {
-    const state = tabDoc(stops);
-    const { layout, shaper } = pipeline(state, 800);
-    expect(caretX(state, "p", 2, layout, shaper)).toBe(100);
+    const document = tabDoc(stops);
+    const { layout, shaper } = pipeline(document, 800);
+    expect(caretX(document, "p", 2, layout, shaper)).toBe(100);
   });
 
   it("click in the first half of the tab advance resolves to before (offset 1)", () => {
     // tab box spans x∈[8,100]; midpoint = 8 + 92/2 = 54. x=30 < 54 → before.
-    const state = tabDoc(stops);
-    const { layout, shaper } = pipeline(state, 800);
-    expect(offsetAt(state, layout, shaper, 30, 8)).toBe(1);
+    const document = tabDoc(stops);
+    const { layout, shaper } = pipeline(document, 800);
+    expect(offsetAt(document, layout, shaper, 30, 8)).toBe(1);
   });
 
   it("click in the second half of the tab advance resolves to after (offset 2)", () => {
     // x=80 ≥ 54 → after.
-    const state = tabDoc(stops);
-    const { layout, shaper } = pipeline(state, 800);
-    expect(offsetAt(state, layout, shaper, 80, 8)).toBe(2);
+    const document = tabDoc(stops);
+    const { layout, shaper } = pipeline(document, 800);
+    expect(offsetAt(document, layout, shaper, 80, 8)).toBe(2);
   });
 
   it("selection over just the tab [1,2) yields one rect spanning the advance (width 92, x=8)", () => {
-    const state = tabDoc(stops);
-    const { layout, shaper } = pipeline(state, 800);
-    const rects = selRects(state, "p", 1, 2, layout, shaper);
+    const document = tabDoc(stops);
+    const { layout, shaper } = pipeline(document, 800);
+    const rects = selRects(document, "p", 1, 2, layout, shaper);
     expect(rects.length).toBe(1);
     expect(nth(rects, 0, "rect").width).toBe(92); // 100 − 8
     expect(nth(rects, 0, "rect").x).toBe(8);
@@ -157,9 +157,9 @@ describe("tab-stops S4 — caret/click/selection over a tab (inline-block leaf p
 
   it("the tab is selectable as part of a larger range: [0,3) covers x=0..108 on one line", () => {
     // Whole paragraph "a"(0..8) + tab(8..100) + "b"(100..108) on a single line.
-    const state = tabDoc(stops);
-    const { layout, shaper } = pipeline(state, 800);
-    const rects = selRects(state, "p", 0, 3, layout, shaper);
+    const document = tabDoc(stops);
+    const { layout, shaper } = pipeline(document, 800);
+    const rects = selRects(document, "p", 0, 3, layout, shaper);
     expect(rects.length).toBe(1);
     const ys = new Set(rects.map((r) => r.y));
     expect(ys.size).toBe(1); // single line

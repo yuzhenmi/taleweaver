@@ -24,7 +24,7 @@
 // Spec: docs/superpowers/specs/2026-06-09-vl-bridge-removal-design.md §Bucket A.
 
 import { describe, it, expect } from "vitest";
-import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockMeasurer, createSpan, createPosition, INITIAL_COMPUTED_STYLE, getBlock, inlineContentLength, render, cascadePass, type EditorState, type EditorConfig, type State, type TextShaper, type TextMeasurer, type BlockId, type PageConfig } from "@taleweaver/core";
+import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockMeasurer, createSpan, createPosition, INITIAL_COMPUTED_STYLE, getBlock, inlineContentLength, render, cascadePass, type EditorState, type EditorConfig, type Document, type TextShaper, type TextMeasurer, type BlockId, type PageConfig } from "@taleweaver/core";
 import { computeSelectionRects, computeSelectionRectsAcrossPages, createBlockBox, computeUsedStyle, layoutTree, type LayoutBox, type VirtualLayoutTree, type SelectionRect } from "./index";
 import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
 
@@ -85,10 +85,10 @@ function makeConfig(): EditorConfig {
 const MEASURER: TextMeasurer = createMockMeasurer(CHAR_W, LINE_H);
 
 function buildVirtualTree(
-  state: State,
+  document: Document,
   config: EditorConfig,
 ): LayoutBox | VirtualLayoutTree {
-  const rendered = render(state, config.componentRegistry, config.attrRegistry);
+  const rendered = render(document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   return layoutTree(cascaded, config.containerWidth, MEASURER, config.pageConfig);
 }

@@ -26,7 +26,7 @@ import {
   getBlock,
   getSuggestions,
   type BlockId,
-  type State,
+  type Document,
 } from "@taleweaver/core";
 import { makeNavEditor, dispatch, nav, firstBlockId, type NavCtx } from "./nav-test-helpers";
 
@@ -38,8 +38,8 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 }
 
 /** Plain text of a block (concatenation of its text-item runs). */
-function getTextOf(state: State, blockId: BlockId): string {
-  const block = getBlock(state, blockId);
+function getTextOf(document: Document, blockId: BlockId): string {
+  const block = getBlock(document, blockId);
   if (block === null || block.inlineContent === null) return "";
   return block.inlineContent.items
     .map((it) => (it.kind === "text" ? it.text : ""))
@@ -48,8 +48,8 @@ function getTextOf(state: State, blockId: BlockId): string {
 
 /** The `deletionSuggestionId` carried by the run at character index `idx`, or
  *  `undefined` if no text run covers it / the run carries no deletion id. */
-function deletionIdAt(state: State, paraId: BlockId, idx: number): unknown {
-  const items = getBlock(state, paraId)?.inlineContent?.items ?? [];
+function deletionIdAt(document: Document, paraId: BlockId, idx: number): unknown {
+  const items = getBlock(document, paraId)?.inlineContent?.items ?? [];
   let offset = 0;
   for (const it of items) {
     if (it.kind !== "text") continue;

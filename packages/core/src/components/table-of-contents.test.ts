@@ -3,7 +3,7 @@ import { tableOfContentsComponent } from "./table-of-contents";
 import { createDefaultComponentRegistry } from "./component-registry";
 import type { LeafBlockView, RenderContext } from "../render/block-view";
 import type { ElementBox } from "../render/render-node";
-import type { BlockId, State } from "../state";
+import type { BlockId, Document } from "../state";
 import type { ComputedStyle } from "../styles";
 
 function leafView(): LeafBlockView {
@@ -18,7 +18,7 @@ function leafView(): LeafBlockView {
 }
 
 function stubCtx(): RenderContext {
-  return { state: {} as State, footnoteNumber: () => undefined };
+  return { document: {} as Document, footnoteNumber: () => undefined };
 }
 
 describe("tableOfContentsComponent", () => {

@@ -1,6 +1,6 @@
 export { findFirstContentBlock } from "./helpers/find-first-content-block";
 export { findLastContentBlock } from "./helpers/find-last-content-block";
-export { initialSelectionForState } from "./helpers/initial-selection-for-state";
+export { initialSelectionForDocument } from "./helpers/initial-selection-for-document";
 // Geometry-free helpers the print backend's NavIntent resolver reuses:
 // the object-nav selection + the line-delete span guards.
 export { objectMoveSelection } from "./helpers/object-move-selection";

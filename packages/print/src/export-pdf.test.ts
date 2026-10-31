@@ -234,16 +234,16 @@ function buildRealPaginatedEditorState(): {
   }
 
   // Pass 2: rebuild with the cross-ref pointing at the (deterministic) minted id.
-  const state = core.buildDocumentFromTree(
+  const document = core.buildDocumentFromTree(
     buildTree(conclusionId),
     {},
     core.createTestAllocator("probe"), TEST_RESOLVER
   );
-  const selection = core.initialSelectionForState(state);
-  const editorState = core.createEditorStateFromState(state, selection, config);
+  const selection = core.initialSelectionForDocument(document);
+  const editorState = core.createEditorStateFromDocument(document, selection, config);
   // Phase 0b: the layout tree lives in the driver, not on EditorState. Build it
   // here via core's pipeline (what the driver does) to assert the doc paginates.
-  const rendered = core.render(state, config.componentRegistry, config.attrRegistry);
+  const rendered = core.render(document, config.componentRegistry, config.attrRegistry);
   const cascaded = core.cascadePass(rendered.root);
   const layout = printPkg.layoutTree(cascaded, config.containerWidth, layoutMeasurer, config.pageConfig);
   if (layout.type !== "virtual-root") {
@@ -426,11 +426,11 @@ describe("controller.exportToPdf", () => {
         },
       ],
     };
-    const state = core.buildDocumentFromTree(tree, {}, core.createTestAllocator("lang"), TEST_RESOLVER);
-    const selection = core.initialSelectionForState(state);
-    const editorState = core.createEditorStateFromState(state, selection, config);
+    const document = core.buildDocumentFromTree(tree, {}, core.createTestAllocator("lang"), TEST_RESOLVER);
+    const selection = core.initialSelectionForDocument(document);
+    const editorState = core.createEditorStateFromDocument(document, selection, config);
 
-    const container = document.createElement("div");
+    const container = globalThis.document.createElement("div");
     const ctrl = createEditorController(container, makeOptions());
     ctrl.update(editorState);
 

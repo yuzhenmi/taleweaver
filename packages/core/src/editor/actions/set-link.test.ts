@@ -1,4 +1,4 @@
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   createInitialEditorState,
@@ -119,12 +119,12 @@ describe("handleSetLink", () => {
   });
 
   it("clearing a link that never existed leaves the content unchanged (defensive)", () => {
-    // The state-equality short-circuit (`result.state === editor.document`)
+    // The state-equality short-circuit (`result.document === editor.document`)
     // is the standard pattern across all attr-mutating handlers but
     // is not actually reachable here via the public SET_LINK API:
     // `applyAttrsToRange` writes to Y.Doc on every call (even
     // setting an absent key to undefined emits a delete op), so
-    // `result.state !== editor.document`. The short-circuit remains
+    // `result.document !== editor.document`. The short-circuit remains
     // as defensive insurance against a future state-module
     // enhancement (true no-op detection in `applyAttrsToRange`).
     // What we CAN verify here: the content is unchanged.

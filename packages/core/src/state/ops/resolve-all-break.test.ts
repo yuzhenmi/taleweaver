@@ -24,16 +24,16 @@ import { markParagraphMarkDeletion } from "./merge-blocks";
 import { acceptAll, rejectAll, mintInsertion } from "./suggestion-ops";
 import { getSuggestions, type SuggestionId } from "../suggestions";
 import { createHistory } from "../history";
-import { finalSectionOf } from "../../test-utils/state-builders";
-import { getBlock } from "../state";
-import type { Document } from "../state";
+import { finalSectionOf } from "../../test-utils/document-builders";
+import { getBlock } from "../document";
+import type { Document } from "../document";
 import {
   buildBlock,
-  buildState,
+  buildDocument,
   text,
   embed,
   inlineContent,
-} from "../../test-utils/state-builders";
+} from "../../test-utils/document-builders";
 import { createPosition } from "../block-position";
 import { createTestAllocator, type BlockId } from "../block-id";
 
@@ -47,7 +47,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 
 /** doc > [ p("ABCD") ] — one text run, the base for the consecutive-split cascade. */
 function oneBlock(): Document {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -63,7 +63,7 @@ function oneBlock(): Document {
 
 /** doc > [ p1("abc"), p2("def") ] — two linked blocks, the base for JOIN cases. */
 function twoBlocks(): Document {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -136,30 +136,30 @@ function inlineLen(s: Document, id: string): number {
  *
  * with the FIRST THREE blocks' own ¶s keyed. Returns the seeded state + the ids in order.
  */
-function threeConsecutiveSplits(): { state: Document; ids: BlockId[] } {
+function threeConsecutiveSplits(): { document: Document; ids: BlockId[] } {
   const alloc = createTestAllocator("p2");
   let s = oneBlock();
   s = splitWithSuggestion(s, createPosition("p" as BlockId, 1), alloc, {
     id: "split-3" as SuggestionId,
     author: ALICE,
     createdAt: 100,
-  }).state;
+  }).document;
   s = splitWithSuggestion(s, createPosition("p" as BlockId, 1), alloc, {
     id: "split-2" as SuggestionId,
     author: ALICE,
     createdAt: 200,
-  }).state;
+  }).document;
   s = splitWithSuggestion(s, createPosition("p" as BlockId, 1), alloc, {
     id: "split-1" as SuggestionId,
     author: ALICE,
     createdAt: 300,
-  }).state;
-  return { state: s, ids: ["p2-0", "p2-1", "p2-2", "p"] as BlockId[] };
+  }).document;
+  return { document: s, ids: ["p2-0", "p2-1", "p2-2", "p"] as BlockId[] };
 }
 
 describe("resolveAll break — THE CASCADE: rejectAll over 3 consecutive splits → ONE block", () => {
   it("merges the whole run back into ONE block 'ABCD' (would CRASH under pre-tx plans)", () => {
-    const { state: seeded, ids } = threeConsecutiveSplits();
+    const { document: seeded, ids } = threeConsecutiveSplits();
 
     // Sanity on the seed: 4 blocks, the first three ¶s keyed, three records.
     expect(bodyBlockIds(seeded)).toEqual(ids);
@@ -169,7 +169,7 @@ describe("resolveAll break — THE CASCADE: rejectAll over 3 consecutive splits 
     expect(hasBreakTag(seeded, "p2-0")).toBe(true);
     expect(getSuggestions(seeded).length).toBe(3);
 
-    const s = rejectAll(seeded).state;
+    const s = rejectAll(seeded).document;
 
     // ONE block "ABCD" — the cascade of consecutive merges collapsed the run.
     const body = bodyBlockIds(s);
@@ -192,9 +192,9 @@ describe("resolveAll break — THE CASCADE: rejectAll over 3 consecutive splits 
 
 describe("resolveAll break — acceptAll over 3 consecutive splits → keeps all splits", () => {
   it("deletes every tag but keeps FOUR well-linked blocks A|B|C|D", () => {
-    const { state: seeded } = threeConsecutiveSplits();
+    const { document: seeded } = threeConsecutiveSplits();
 
-    const s = acceptAll(seeded).state;
+    const s = acceptAll(seeded).document;
 
     const body = bodyBlockIds(s);
     expect(body.length).toBe(4);
@@ -220,11 +220,11 @@ describe("resolveAll break — JOIN mark", () => {
       id: "join-1" as SuggestionId,
       author: ALICE,
       createdAt: 400,
-    }).state;
+    }).document;
     expect(hasBreakTag(seeded, "p1")).toBe(true);
     expect(nth(getSuggestions(seeded), 0, "suggestion").kind).toBe("deletion");
 
-    const s = acceptAll(seeded).state;
+    const s = acceptAll(seeded).document;
 
     expect(bodyBlockIds(s).length).toBe(1);
     expect(textOf(s, "p2")).toBe("abcdef");
@@ -240,9 +240,9 @@ describe("resolveAll break — JOIN mark", () => {
       id: "join-1" as SuggestionId,
       author: ALICE,
       createdAt: 400,
-    }).state;
+    }).document;
 
-    const s = rejectAll(seeded).state;
+    const s = rejectAll(seeded).document;
 
     expect(bodyBlockIds(s)).toEqual(["p1", "p2"]);
     expect(textOf(s, "p1")).toBe("abc");
@@ -257,7 +257,7 @@ describe("resolveAll break — JOIN mark", () => {
 describe("resolveAll break — MIXED break + text-run resolution in one bulk resolve", () => {
   it("rejectAll: split merges, join keeps two blocks, text-run insertion dropped", () => {
     // doc > [ a("hello"), b("foo"), c("bar") ].
-    let s = buildState({
+    let s = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "a", lastChildId: "c" }),
@@ -294,19 +294,19 @@ describe("resolveAll break — MIXED break + text-run resolution in one bulk res
       id: "split-x" as SuggestionId,
       author: ALICE,
       createdAt: 10,
-    }).state;
+    }).document;
     // (2) A suggested JOIN of the b|c boundary (the break BEFORE c).
     s = markParagraphMarkDeletion(s, "b" as BlockId, {
       id: "join-x" as SuggestionId,
       author: ALICE,
       createdAt: 20,
-    }).state;
+    }).document;
     // (3) A plain text-run insertion inside "b".
     s = mintInsertion(s, createPosition("b" as BlockId, 0), "INS", {}, {
       id: "ins-x" as SuggestionId,
       author: ALICE,
       createdAt: 30,
-    }).state;
+    }).document;
     // (4) A text-run insertion on the SPLIT OWNER "a" itself (offset 0) — exercises
     // the merge head that ALSO carries a resolved text run: the insertion drops AND
     // the boundary merges, both in one transaction.
@@ -314,10 +314,10 @@ describe("resolveAll break — MIXED break + text-run resolution in one bulk res
       id: "ins-a" as SuggestionId,
       author: ALICE,
       createdAt: 40,
-    }).state;
+    }).document;
     expect(getSuggestions(s).length).toBe(4);
 
-    const out = rejectAll(s).state;
+    const out = rejectAll(s).document;
 
     // The split (insertion + reject) deletes ¶a2-0 → "a" survives holding the text; the
     // text-run insertion "PRE" (reject) is DROPPED → "a" = "hello".
@@ -343,7 +343,7 @@ describe("resolveAll break — MIXED break + text-run resolution in one bulk res
 
 describe("resolveAll break — TQ-1: split at offset 0 + middle-of-doc pair", () => {
   it("(a) split at offset 0 → the new EMPTY head above carries the keyed ¶ (Word); rejectAll → ONE block 'abcdef' with p's id", () => {
-    const base = buildState({
+    const base = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -360,14 +360,14 @@ describe("resolveAll break — TQ-1: split at offset 0 + middle-of-doc pair", ()
       id: "s0" as SuggestionId,
       author: ALICE,
       createdAt: 1,
-    }).state;
+    }).document;
     // Enter at 0 (no special case): the new head "z-0" is the empty paragraph
     // above and its ¶ carries the key; "p" keeps the text and its id.
     expect(textOf(seeded, "z-0")).toBe("");
     expect(getBlock(seeded, "z-0" as BlockId)?.breakSuggestion).toEqual({ insertionId: "s0" });
     expect(textOf(seeded, "p")).toBe("abcdef");
 
-    const s = rejectAll(seeded).state;
+    const s = rejectAll(seeded).document;
     // ¶z-0 deleted: p is restored with its id.
     expect(bodyBlockIds(s)).toEqual(["p"]);
     expect(textOf(s, "p")).toBe("abcdef");
@@ -379,7 +379,7 @@ describe("resolveAll break — TQ-1: split at offset 0 + middle-of-doc pair", ()
     // doc > [ top("X"), m1("mm"), m2("nn"), bot("Y") ]. The split is on m1; the
     // join marks the m1|m2 boundary's successor — actually the OUTER blocks
     // (top, bot) must stay untouched while the inner pair resolves.
-    let s = buildState({
+    let s = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "top", lastChildId: "bot" }),
@@ -420,9 +420,9 @@ describe("resolveAll break — TQ-1: split at offset 0 + middle-of-doc pair", ()
       id: "jm" as SuggestionId,
       author: ALICE,
       createdAt: 5,
-    }).state;
+    }).document;
 
-    const out = acceptAll(s).state;
+    const out = acceptAll(s).document;
 
     // The inner pair merged: m2 = "mmnn", m1 gone. The OUTER blocks untouched.
     expect(textOf(out, "m2")).toBe("mmnn");
@@ -441,7 +441,7 @@ describe("resolveAll break — TQ-1: split at offset 0 + middle-of-doc pair", ()
 
 describe("resolveAll break — UNDOABLE + identity no-op", () => {
   it("a break-cascade rejectAll is ONE undo step that restores the splits and their records", () => {
-    const { state: seeded } = threeConsecutiveSplits();
+    const { document: seeded } = threeConsecutiveSplits();
     const before = getSuggestions(seeded).length;
 
     const history = createHistory(seeded);
@@ -451,12 +451,12 @@ describe("resolveAll break — UNDOABLE + identity no-op", () => {
     const resolved = rejectAll(seeded);
     history.commit(resolved, { before: null, after: null });
     // The cascade landed (one block "ABCD")...
-    expect(textOf(resolved.state, "p")).toBe("ABCD");
-    expect(getSuggestions(resolved.state).length).toBe(0);
+    expect(textOf(resolved.document, "p")).toBe("ABCD");
+    expect(getSuggestions(resolved.document).length).toBe(0);
     // ...as ONE undo step, which restores every split suggestion.
     expect(history.canUndo()).toBe(true);
     const undone = history.undo();
-    expect(undone === null ? -1 : getSuggestions(undone.state).length).toBe(before);
+    expect(undone === null ? -1 : getSuggestions(undone.document).length).toBe(before);
     expect(history.canUndo()).toBe(false);
 
     history.destroy();
@@ -464,7 +464,7 @@ describe("resolveAll break — UNDOABLE + identity no-op", () => {
 
   it("acceptAll / rejectAll on a doc with no suggestions returns the input state (identity)", () => {
     const s0 = oneBlock();
-    expect(acceptAll(s0).state).toBe(s0);
-    expect(rejectAll(s0).state).toBe(s0);
+    expect(acceptAll(s0).document).toBe(s0);
+    expect(rejectAll(s0).document).toBe(s0);
   });
 });

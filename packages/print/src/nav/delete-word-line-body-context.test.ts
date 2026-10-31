@@ -21,7 +21,7 @@
  * Assertions byte-identical; fixtures are authored through the public editor API.
  */
 import { describe, it, expect } from "vitest";
-import { resolveBlock, type BlockId, type State } from "@taleweaver/core";
+import { resolveBlock, type BlockId, type Document } from "@taleweaver/core";
 import { makeNavEditor, dispatch, nav, type NavCtx } from "./nav-test-helpers";
 
 /**
@@ -29,8 +29,8 @@ import { makeNavEditor, dispatch, nav, type NavCtx } from "./nav-test-helpers";
  * footnote-body block (it lives in embedContents). `resolveBlock` resolves across
  * main + embed + template trees.
  */
-function bodyTextOf(state: State, blockId: BlockId): string {
-  const block = resolveBlock(state, blockId)?.block ?? null;
+function bodyTextOf(document: Document, blockId: BlockId): string {
+  const block = resolveBlock(document, blockId)?.block ?? null;
   if (block === null || block.inlineContent === null) return "";
   return block.inlineContent.items
     .map((it) => (it.kind === "text" ? it.text : ""))

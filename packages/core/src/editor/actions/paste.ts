@@ -21,7 +21,7 @@ import {
   isFormattingSuggestionKey,
 } from "../../state";
 import type {
-  State,
+  Document,
   BlockId,
   Position,
   SiblingBlockInit,
@@ -85,7 +85,7 @@ function stripCarriedSuggestionState(items: ReadonlyArray<InlineItem>): InlineIt
 }
 
 /**
- * Linearize a fragment State to a flat array of leaf `SiblingBlockInit[]` for
+ * Linearize a fragment Document to a flat array of leaf `SiblingBlockInit[]` for
  * the suggesting-mode paste path. Containers (tables) are FLATTENED
  * to their leaf paragraphs (block-level structural-insertion tracking is not
  * built). Un-trackable content embeds are
@@ -102,7 +102,7 @@ function stripCarriedSuggestionState(items: ReadonlyArray<InlineItem>): InlineIt
  * never emitted — only its descendants are).
  */
 function linearizeFragmentForSuggesting(
-  fragment: State,
+  fragment: Document,
   sourceType: string,
   sourceAttrs: ReadonlyAttrs,
 ): SiblingBlockInit[] {
@@ -172,7 +172,7 @@ function linearizeFragmentForSuggesting(
 function resolveFragment(
   { config }: EditorState,
   action: Extract<EditorAction, { type: "PASTE" }>,
-): State | null {
+): Document | null {
   const { clip, html } = action;
 
   // Priority 1: lossless clip flavor.
@@ -205,7 +205,7 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
   const fragment = resolveFragment(editor, action);
 
   if (fragment !== null) {
-    // ── Rich path: clip or html decoded to a fragment State ─────────────────
+    // ── Rich path: clip or html decoded to a fragment Document ─────────────────
 
     // Determine suggesting mode.
     const startBlockId = spanStart(editor.document, selection).blockId;
@@ -227,16 +227,16 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
         replaceInput,
         productionAllocator,
       );
-      if (result.state === editor.document) return null;
+      if (result.document === editor.document) return null;
       const newSelection = createSpan(result.endPosition, result.endPosition);
-      return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: newSelection };
+      return { change: { document: result.document, dirtyIds: result.dirtyIds }, selection: newSelection };
     }
 
     // ── Direct mode: insertFragment ──────────────────────────────────────────
     const result = insertFragment(editor.document, selection, fragment, productionAllocator);
-    if (result.state === editor.document) return null;
+    if (result.document === editor.document) return null;
     const newSelection = createSpan(result.endPosition, result.endPosition);
-    return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: newSelection };
+    return { change: { document: result.document, dirtyIds: result.dirtyIds }, selection: newSelection };
   }
 
   // ── Plain-text path ─────────────────────────
@@ -279,13 +279,13 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
       replaceInputForText,
       productionAllocator,
     );
-    if (result.state === editor.document) return null;
+    if (result.document === editor.document) return null;
     const newSelection = createSpan(result.endPosition, result.endPosition);
-    return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: newSelection };
+    return { change: { document: result.document, dirtyIds: result.dirtyIds }, selection: newSelection };
   }
 
   // Collapse selection (delete the existing range first).
-  let state: State = editor.document;
+  let document: Document = editor.document;
   let pos: Position = editor.selection.focus;
 
   // Accumulate dirtyIds across every chained op so commit reflects the
@@ -294,10 +294,10 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
 
   if (!isCollapsed(selection)) {
     // Deletable-span guard + the seam the delete leaves (see expandedSpanCollapsePoint).
-    const seam = expandedSpanCollapsePoint(state, selection);
+    const seam = expandedSpanCollapsePoint(document, selection);
     if (seam === null) return null;
-    const deleteResult = deleteRange(state, selection);
-    state = deleteResult.state;
+    const deleteResult = deleteRange(document, selection);
+    document = deleteResult.document;
     for (const id of deleteResult.dirtyIds) accumulatedDirtyIds.add(id);
     pos = seam;
   }
@@ -314,8 +314,8 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
   // Insert the first line as text at the current position. (If L0 is empty,
   // skip; pos stays put — matching the legacy path.)
   if (firstLine.length > 0) {
-    const r = insertText(state, pos, firstLine, attrs);
-    state = r.state;
+    const r = insertText(document, pos, firstLine, attrs);
+    document = r.document;
     for (const id of r.dirtyIds) accumulatedDirtyIds.add(id);
     pos = createPosition(pos.blockId, pos.offset + firstLine.length);
   }
@@ -326,7 +326,7 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
   // calls regardless of line count (replacing the legacy O(k) per-line
   // split+insert chain).
   if (k > 1) {
-    const block = getBlock(state, pos.blockId);
+    const block = getBlock(document, pos.blockId);
     // Match the legacy guard: a null-parent / null-inlineContent / missing
     // boundary block STOPS the multi-line path (cursor stays after L0).
     if (block !== null && block.inlineContent !== null && block.parentId !== null) {
@@ -336,8 +336,8 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
 
       // (a) Split B at pos: a NEW head H takes `prefix⊕L0` and
       //     B keeps `suffix` + its ¶ — so B is the last pasted line's block.
-      const splitResult = splitBlockAtPosition(state, pos, productionAllocator);
-      state = splitResult.state;
+      const splitResult = splitBlockAtPosition(document, pos, productionAllocator);
+      document = splitResult.document;
       for (const id of splitResult.dirtyIds) accumulatedDirtyIds.add(id);
       const headId = splitResult.newBlockId;
       const lastNewBlockId = sourceId;
@@ -352,12 +352,12 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
       // (b) Prepend the last line to N_last (offset 0).
       if (lastLine.length > 0) {
         const r = insertText(
-          state,
+          document,
           createPosition(lastNewBlockId, 0),
           lastLine,
           attrs,
         );
-        state = r.state;
+        document = r.document;
         for (const id of r.dirtyIds) accumulatedDirtyIds.add(id);
       }
 
@@ -380,12 +380,12 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
           });
         }
         const bulkResult = insertBlocksAfter(
-          state,
+          document,
           headId,
           middleInits,
           productionAllocator,
         );
-        state = bulkResult.state;
+        document = bulkResult.document;
         for (const id of bulkResult.dirtyIds) accumulatedDirtyIds.add(id);
       }
 
@@ -396,10 +396,10 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
 
   // Chained ops accumulate dirtyIds manually. Use
   // state-equality check (the identity-no-op contract) for consistency with
-  // other handlers — `state` remains === editor.document iff every chained
+  // other handlers — `document` remains === editor.document iff every chained
   // op was a no-op.
-  if (state === editor.document) return null;
+  if (document === editor.document) return null;
 
   const newSelection = createSpan(pos, pos);
-  return { change: { state, dirtyIds: accumulatedDirtyIds }, selection: newSelection };
+  return { change: { document, dirtyIds: accumulatedDirtyIds }, selection: newSelection };
 }

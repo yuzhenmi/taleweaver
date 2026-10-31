@@ -93,7 +93,7 @@ export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT
 
   // the identity-no-op contract: a no-op op returns the same state reference, so
   // nothing is edited.
-  if (result.state === editor.document) return null;
+  if (result.document === editor.document) return null;
 
   const newCursor = createPosition(newCursorBlockId, newCursorOffset);
   const newSelection = createSpan(newCursor, newCursor);

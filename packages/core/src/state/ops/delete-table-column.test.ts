@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { deleteTableColumn } from "./delete-table-column";
-import { getBlock } from "../state";
+import { getBlock } from "../document";
 import { resolveTableContext, getChildIds } from "../table-context";
-import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent } from "../../test-utils/document-builders";
 import type { BlockId } from "../block-id";
-import type { Document } from "../state";
+import type { Document } from "../document";
 import type { Block } from "../block";
 
 /** A 2×2 table (doc > table > 2 rows > 2 cells each > paragraph). */
@@ -23,12 +23,12 @@ function build2x2(tableAttrs: Record<string, unknown>): Document {
       buildBlock({ id: `${r}p1`, type: "paragraph", parentId: `${r}c1`, inlineContent: inlineContent([]) }),
     );
   }
-  return buildState({ rootId: "doc", blocks });
+  return buildDocument({ rootId: "doc", blocks });
 }
 
 /** A 1×1 table (doc > table > row > cell > paragraph). */
 function build1x1(): Document {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
@@ -40,17 +40,17 @@ function build1x1(): Document {
   });
 }
 
-function ctxAt(state: Document, cellParagraphId: string) {
-  const ctx = resolveTableContext(state, cellParagraphId as BlockId);
+function ctxAt(document: Document, cellParagraphId: string) {
+  const ctx = resolveTableContext(document, cellParagraphId as BlockId);
   if (ctx === null) throw new Error("expected a table context");
   return ctx;
 }
 
 describe("deleteTableColumn", () => {
   it("removes the caret column's cell (column 0) in every row; survivor becomes first", () => {
-    const state = build2x2({ columnWidths: [0.5, 0.5] });
-    const ctx = ctxAt(state, "r0p0"); // caret in column 0
-    const { state: next } = deleteTableColumn(state, ctx);
+    const document = build2x2({ columnWidths: [0.5, 0.5] });
+    const ctx = ctxAt(document, "r0p0"); // caret in column 0
+    const { document: next } = deleteTableColumn(document, ctx);
 
     for (const r of ["r0", "r1"]) {
       const cells = getChildIds(next, r as BlockId);
@@ -67,9 +67,9 @@ describe("deleteTableColumn", () => {
   });
 
   it("removes the LAST column (column 1) in every row; survivor becomes last", () => {
-    const state = build2x2({ columnWidths: [0.5, 0.5] });
-    const ctx = ctxAt(state, "r0p1"); // caret in column 1 (last)
-    const { state: next } = deleteTableColumn(state, ctx);
+    const document = build2x2({ columnWidths: [0.5, 0.5] });
+    const ctx = ctxAt(document, "r0p1"); // caret in column 1 (last)
+    const { document: next } = deleteTableColumn(document, ctx);
 
     for (const r of ["r0", "r1"]) {
       const cells = getChildIds(next, r as BlockId);
@@ -82,31 +82,31 @@ describe("deleteTableColumn", () => {
   });
 
   it("re-removes columnWidths (present) and renormalizes to sum ≈ 1", () => {
-    const state = build2x2({ columnWidths: [0.5, 0.5] });
-    const ctx = ctxAt(state, "r0p0");
-    const { state: next } = deleteTableColumn(state, ctx);
+    const document = build2x2({ columnWidths: [0.5, 0.5] });
+    const ctx = ctxAt(document, "r0p0");
+    const { document: next } = deleteTableColumn(document, ctx);
     // removeColumnWidth([0.5,0.5], 0) → normalize([0.5]) → [1]
     expect(getBlock(next, "table" as BlockId)?.attrs.columnWidths).toEqual([1]);
   });
 
   it("auto-layout (absent columnWidths) → cells removed, NO columnWidths attr written", () => {
-    const state = build2x2({});
-    const ctx = ctxAt(state, "r0p1");
-    const { state: next } = deleteTableColumn(state, ctx);
+    const document = build2x2({});
+    const ctx = ctxAt(document, "r0p1");
+    const { document: next } = deleteTableColumn(document, ctx);
     expect(getChildIds(next, "r0" as BlockId).length).toBe(1);
     expect(getBlock(next, "table" as BlockId)?.attrs.columnWidths).toBeUndefined();
   });
 
   it("throws on a single-column table (the caller must collapse the whole table)", () => {
-    const state = build1x1();
-    const ctx = ctxAt(state, "cp");
-    expect(() => deleteTableColumn(state, ctx)).toThrow(/last column/);
+    const document = build1x1();
+    const ctx = ctxAt(document, "cp");
+    expect(() => deleteTableColumn(document, ctx)).toThrow(/last column/);
   });
 
   it("dirtyIds covers the table, every touched row, removed cells, and survivors", () => {
-    const state = build2x2({ columnWidths: [0.5, 0.5] });
-    const ctx = ctxAt(state, "r0p0"); // delete column 0
-    const { dirtyIds } = deleteTableColumn(state, ctx);
+    const document = build2x2({ columnWidths: [0.5, 0.5] });
+    const ctx = ctxAt(document, "r0p0"); // delete column 0
+    const { dirtyIds } = deleteTableColumn(document, ctx);
 
     expect(dirtyIds.has("table" as BlockId)).toBe(true); // columnWidths write
     expect(dirtyIds.has("r0" as BlockId)).toBe(true); // firstChildId rewired

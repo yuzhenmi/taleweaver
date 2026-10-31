@@ -9,14 +9,14 @@ import { createMockShaper } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
 import type { PageConfig } from "../layout/page-config";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
   embed,
 } from "@taleweaver/core";
 import { createPosition, createSpan } from "@taleweaver/core";
-import type { BlockId, State } from "@taleweaver/core";
+import type { BlockId, Document } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 import { getLineIndex } from "./line-flatten";
 
@@ -27,12 +27,12 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 }
 
 function pipeline(
-  state: State,
+  document: Document,
   containerInlineSize: number = 800,
   pageConfig?: PageConfig,
 ): { layout: LayoutBox; shaper: TextShaper } {
   const root = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -41,8 +41,8 @@ function pipeline(
   return { layout, shaper };
 }
 
-function singleParagraph(textContent: string): State {
-  return buildState({
+function singleParagraph(textContent: string): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -63,13 +63,13 @@ function singleParagraph(textContent: string): State {
 
 describe("computeSelectionRects (new)", () => {
   it("returns one rect for a single-block single-line span", () => {
-    const state = singleParagraph("hello world");
-    const { layout, shaper } = pipeline(state);
+    const document = singleParagraph("hello world");
+    const { layout, shaper } = pipeline(document);
     const span = createSpan(
       createPosition("p" as BlockId, 1),
       createPosition("p" as BlockId, 4),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBe(1);
     const r = nth(rects, 0, "rect");
     // 8px/char: x from 8 to 32 → width 24.
@@ -81,20 +81,20 @@ describe("computeSelectionRects (new)", () => {
   it("returns multiple rects for a span crossing a soft-wrap boundary", () => {
     let s = "";
     for (let i = 0; i < 20; i++) s += "abcdefghi "; // 200 chars
-    const state = singleParagraph(s);
-    const { layout, shaper } = pipeline(state, 800);
+    const document = singleParagraph(s);
+    const { layout, shaper } = pipeline(document, 800);
     // 8px/char in 800px container → soft wrap after ~100 chars.
     // Span from offset 50 to offset 150 spans two lines.
     const span = createSpan(
       createPosition("p" as BlockId, 50),
       createPosition("p" as BlockId, 150),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBeGreaterThanOrEqual(2);
   });
 
   it("returns rects across two blocks for a multi-block span", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -119,12 +119,12 @@ describe("computeSelectionRects (new)", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state);
+    const { layout, shaper } = pipeline(document);
     const span = createSpan(
       createPosition("p1" as BlockId, 2),
       createPosition("p2" as BlockId, 3),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBeGreaterThanOrEqual(2);
     // First rect should be on p1's line, last on p2's line.
     const firstY = nth(rects, 0, "rects").y;
@@ -133,7 +133,7 @@ describe("computeSelectionRects (new)", () => {
   });
 
   it("returns rects on each page for a selection crossing a page break", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -155,27 +155,27 @@ describe("computeSelectionRects (new)", () => {
       pageMargins: { blockStart: 10, blockEnd: 10, inlineStart: 0, inlineEnd: 0 },
       pageGap: 0,
     };
-    const { layout, shaper } = pipeline(state, 800, pageConfig);
+    const { layout, shaper } = pipeline(document, 800, pageConfig);
     const span = createSpan(
       createPosition("p1" as BlockId, 0),
       createPosition("p5" as BlockId, 5),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     const pages = new Set(rects.map((r) => r.pageIndex));
     expect(pages.size).toBeGreaterThanOrEqual(2);
   });
 
   it("returns empty array for a collapsed (anchor === focus) span", () => {
-    const state = singleParagraph("hello");
-    const { layout, shaper } = pipeline(state);
+    const document = singleParagraph("hello");
+    const { layout, shaper } = pipeline(document);
     const pos = createPosition("p" as BlockId, 2);
     const span = createSpan(pos, pos);
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects).toEqual([]);
   });
 
   it("includes a paragraph-break bridge rect at the end of the source paragraph", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -200,7 +200,7 @@ describe("computeSelectionRects (new)", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state);
+    const { layout, shaper } = pipeline(document);
     // Select from end of p1 ("hello") to mid p2 ("wor"). The legacy
     // selection-geometry adds a small "line-break indicator" rect after
     // "hello" to bridge to p2's start. We expect ≥ 2 rects (one on p1's
@@ -209,7 +209,7 @@ describe("computeSelectionRects (new)", () => {
       createPosition("p1" as BlockId, 3),
       createPosition("p2" as BlockId, 3),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBeGreaterThanOrEqual(2);
     // p1's rect should extend past "hello" (5*8=40); the indicator is
     // added to that rect's width.
@@ -221,7 +221,7 @@ describe("computeSelectionRects (new)", () => {
   });
 
   it("handles a span ending at offset 0 of the next block (zero-extent in end-block)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -246,12 +246,12 @@ describe("computeSelectionRects (new)", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state);
+    const { layout, shaper } = pipeline(document);
     const span = createSpan(
       createPosition("p1" as BlockId, 2),
       createPosition("p2" as BlockId, 0),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     // p1 portion only — p2's zero-extent end shouldn't add a rect on p2's line.
     expect(rects.length).toBeGreaterThanOrEqual(1);
     // First rect: starts at x=16 (offset 2), extends to end of "hello" + indicator.
@@ -268,7 +268,7 @@ describe("computeSelectionRects (new)", () => {
   // ─────────────────────────────────────────────────────────────────────
 
   it("paints one rect per line when selection crosses one empty paragraph", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -302,13 +302,13 @@ describe("computeSelectionRects (new)", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state);
+    const { layout, shaper } = pipeline(document);
     // Select from offset 3 of p1 ("hel|lo") to offset 3 of p3 ("wor|ld").
     const span = createSpan(
       createPosition("p1" as BlockId, 3),
       createPosition("p3" as BlockId, 3),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     // Three lines visited (p1, empty p2, p3) → three rects.
     expect(rects.length).toBe(3);
     // Each rect lives on a strictly greater y.
@@ -323,7 +323,7 @@ describe("computeSelectionRects (new)", () => {
   });
 
   it("paints rects for N consecutive empty paragraphs in a selection", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -372,13 +372,13 @@ describe("computeSelectionRects (new)", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state);
+    const { layout, shaper } = pipeline(document);
     // Span the entire range from start of p1 to end of p5.
     const span = createSpan(
       createPosition("p1" as BlockId, 0),
       createPosition("p5" as BlockId, 3),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     // Five distinct line ys: p1's line, three empty paragraphs, p5's line.
     expect(rects.length).toBe(5);
     // The three middle rects (empty paragraphs) all have positive width
@@ -397,7 +397,7 @@ describe("computeSelectionRects (new)", () => {
   // producing a full-line rect. Post-fix, synthetic entries skip the
   // lineEnd update so the existing narrow-indicator fallback fires.
   it("empty paragraph rect is NARROW (paragraph-break indicator only), not full-line", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
@@ -408,12 +408,12 @@ describe("computeSelectionRects (new)", () => {
     });
     // Container 800px wide. Mock shaper: 8px/char, 16px line height.
     // Full empty-line width would be ~800; narrow indicator (`"  "`) = 16px.
-    const { layout, shaper } = pipeline(state, 800);
+    const { layout, shaper } = pipeline(document, 800);
     const span = createSpan(
       createPosition("p1" as BlockId, 0),
       createPosition("p3" as BlockId, 3),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     // Three rects: p1 line, empty p2 strut, p3 line.
     expect(rects.length).toBe(3);
     // The middle rect (on the empty paragraph) must be narrow — width
@@ -426,7 +426,7 @@ describe("computeSelectionRects (new)", () => {
   });
 
   it("paints a rect inside a single empty paragraph when selection starts at its end and extends to next block", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -451,13 +451,13 @@ describe("computeSelectionRects (new)", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state);
+    const { layout, shaper } = pipeline(document);
     // Selection from start of empty p1 to mid p2.
     const span = createSpan(
       createPosition("p1" as BlockId, 0),
       createPosition("p2" as BlockId, 2),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     // Two lines: empty p1's strut, p2's line.
     expect(rects.length).toBe(2);
     // First rect (empty p1) must have positive width.
@@ -466,20 +466,20 @@ describe("computeSelectionRects (new)", () => {
   });
 
   it("does not regress: single-line selection in a non-empty paragraph still produces text-width rect (not full-line)", () => {
-    const state = singleParagraph("hello world");
-    const { layout, shaper } = pipeline(state, 800);
+    const document = singleParagraph("hello world");
+    const { layout, shaper } = pipeline(document, 800);
     const span = createSpan(
       createPosition("p" as BlockId, 1),
       createPosition("p" as BlockId, 4),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBe(1);
     // Width of "ell" = 24px (8px/char). Must not be full-line (800px).
     expect(nth(rects, 0, "rects").width).toBe(24);
   });
 
   it("produces a rect covering content around an embed item", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -507,13 +507,13 @@ describe("computeSelectionRects (new)", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state);
+    const { layout, shaper } = pipeline(document);
     // Span from offset 1 (mid "ab") to offset 4 (mid "cd") — spans across embed slot.
     const span = createSpan(
       createPosition("p" as BlockId, 1),
       createPosition("p" as BlockId, 4),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBeGreaterThanOrEqual(1);
     // Single line — one rect.
     const r = nth(rects, 0, "rect");
@@ -540,8 +540,8 @@ describe("computeSelectionRects (new)", () => {
    * IFC produces a DISPLAY string and, when length-changing, a
    * `sourceDisplayLengths` map on the leaf box.
    */
-  function transformedParagraph(textContent: string, textTransform: string): State {
-    return buildState({
+  function transformedParagraph(textContent: string, textTransform: string): Document {
+    return buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -566,13 +566,13 @@ describe("computeSelectionRects (new)", () => {
     // offset 1..2 — must cover the WHOLE rendered "SS" (display index 1..3):
     // left ≈ leaf left + 8, right ≈ leaf left + 24 (width 16). A raw
     // `text.slice(0, 2)` = "AS" would wrongly give the end edge at +16 → width 8.
-    const state = transformedParagraph("aß", "uppercase");
-    const { layout, shaper } = pipeline(state, 800);
+    const document = transformedParagraph("aß", "uppercase");
+    const { layout, shaper } = pipeline(document, 800);
     const span = createSpan(
       createPosition("p" as BlockId, 1),
       createPosition("p" as BlockId, 2),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBe(1);
     const r = nth(rects, 0, "rect");
     expect(r.x).toBe(8); // after "A"
@@ -617,14 +617,14 @@ describe("computeSelectionRects (new)", () => {
   // ─────────────────────────────────────────────────────────────────────
 
   it("pure-LTR same-line range is ONE rect, byte-identical to the legacy strip", () => {
-    const state = singleParagraph("abc");
-    const { layout, shaper } = pipeline(state, 800);
+    const document = singleParagraph("abc");
+    const { layout, shaper } = pipeline(document, 800);
     // offsets 0..2 of "abc" (LTR, 8px/char): x=0, width=16.
     const span = createSpan(
       createPosition("p" as BlockId, 0),
       createPosition("p" as BlockId, 2),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBe(1);
     expect(nth(rects, 0, "rects").x).toBe(0);
     expect(nth(rects, 0, "rects").width).toBe(16);
@@ -634,13 +634,13 @@ describe("computeSelectionRects (new)", () => {
     // "אבג" resolves to a single RTL (level-1) run. caretX: off0→24, off3→0.
     // Selecting the whole run (0..3) → xLo=caretX(3)=0, xHi=caretX(0)=24 →
     // {x:0, width:24}. The legacy `endX - startX` (= 0 - 24) would be -24.
-    const state = singleParagraph("אבג");
-    const { layout, shaper } = pipeline(state, 800);
+    const document = singleParagraph("אבג");
+    const { layout, shaper } = pipeline(document, 800);
     const span = createSpan(
       createPosition("p" as BlockId, 0),
       createPosition("p" as BlockId, 3),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBe(1);
     expect(nth(rects, 0, "rects").x).toBe(0);
     expect(nth(rects, 0, "rects").width).toBe(24);
@@ -654,13 +654,13 @@ describe("computeSelectionRects (new)", () => {
     //   Latin overlap [2,3): LTR → xLo=caretX(2)=16, xHi=caretX(3)=24 → {16,8}
     //   Hebrew overlap [3,5): RTL → xLo=caretX(5)=32, xHi=caretX(3)=48 → {32,16}
     // Two DISJOINT rects (24 ≠ 32 → not coalesced; different levels anyway).
-    const state = singleParagraph("abcאבג");
-    const { layout, shaper } = pipeline(state, 800);
+    const document = singleParagraph("abcאבג");
+    const { layout, shaper } = pipeline(document, 800);
     const span = createSpan(
       createPosition("p" as BlockId, 2),
       createPosition("p" as BlockId, 5),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBe(2);
     // Logical order: Latin segment first, Hebrew second.
     expect(nth(rects, 0, "rects").x).toBe(16);
@@ -677,13 +677,13 @@ describe("computeSelectionRects (new)", () => {
     // "abcאבג": a range 4..6 lies entirely inside the Hebrew RTL run [3,6).
     // RTL swap: xLo=caretX(6)=24, xHi=caretX(4)=40 → {x:24, width:16}. The
     // logically-LATER offset (6) sits at the LOWER x (24).
-    const state = singleParagraph("abcאבג");
-    const { layout, shaper } = pipeline(state, 800);
+    const document = singleParagraph("abcאבג");
+    const { layout, shaper } = pipeline(document, 800);
     const span = createSpan(
       createPosition("p" as BlockId, 4),
       createPosition("p" as BlockId, 6),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBe(1);
     expect(nth(rects, 0, "rects").x).toBe(24);
     expect(nth(rects, 0, "rects").width).toBe(16);
@@ -696,13 +696,13 @@ describe("computeSelectionRects (new)", () => {
     // bidi segmentation (which only touches first/last/same-line partials).
     let s = "";
     for (let i = 0; i < 40; i++) s += "abcdefghi "; // 400 chars → ≥4 lines @800px
-    const state = singleParagraph(s);
-    const { layout, shaper } = pipeline(state, 800);
+    const document = singleParagraph(s);
+    const { layout, shaper } = pipeline(document, 800);
     const span = createSpan(
       createPosition("p" as BlockId, 5),
       createPosition("p" as BlockId, 395),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBeGreaterThanOrEqual(3);
     // A middle rect (neither first nor last) spans the full content width: it
     // starts at lineLeft (x=0) and is much wider than a single character.
@@ -716,13 +716,13 @@ describe("computeSelectionRects (new)", () => {
     // Sanity that the harness distinguishes transformed vs not: text-transform:
     // none → "aß" renders as-is (2 code units, no sourceDisplayLengths), so
     // selecting the ß (offset 1..2) covers a single 8px glyph.
-    const state = transformedParagraph("aß", "none");
-    const { layout, shaper } = pipeline(state, 800);
+    const document = transformedParagraph("aß", "none");
+    const { layout, shaper } = pipeline(document, 800);
     const span = createSpan(
       createPosition("p" as BlockId, 1),
       createPosition("p" as BlockId, 2),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBe(1);
     expect(nth(rects, 0, "rects").x).toBe(8); // after "a"
     expect(nth(rects, 0, "rects").width).toBe(8); // single ß glyph
@@ -761,8 +761,8 @@ const verticalPageConfig: PageConfig = {
   pageGap: 20,
 };
 
-function verticalDoc(wm: "vertical-rl" | "vertical-lr"): State {
-  return buildState({
+function verticalDoc(wm: "vertical-rl" | "vertical-lr"): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -783,8 +783,8 @@ function verticalDoc(wm: "vertical-rl" | "vertical-lr"): State {
   });
 }
 
-function verticalPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
-  const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
+function verticalPipeline(document: Document): { layout: LayoutBox; shaper: TextShaper } {
+  const root = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
   const shaper = createMockShaper(8, 16);
   const layout = positionTreeForTest(
     layoutTree(root, verticalPageConfig.pageInlineSize, shaper, verticalPageConfig),
@@ -797,8 +797,8 @@ function pLines(layout: LayoutBox): ReturnType<typeof getLineIndex>["all"] {
 }
 
 describe("P3.5c vertical SelectionRect projection — vertical-rl", () => {
-  const state = verticalDoc("vertical-rl");
-  const { layout, shaper } = verticalPipeline(state);
+  const document = verticalDoc("vertical-rl");
+  const { layout, shaper } = verticalPipeline(document);
   const lines = pLines(layout);
 
   it("layout sanity: three lines, block band mirrored along physical X (line0 far/high)", () => {
@@ -815,7 +815,7 @@ describe("P3.5c vertical SelectionRect projection — vertical-rl", () => {
       createPosition("p" as BlockId, 0),
       createPosition("p" as BlockId, 8),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     // One rect per line (no bidi splits, pure-LTR runs).
     expect(rects.length).toBe(3);
 
@@ -858,7 +858,7 @@ describe("P3.5c vertical SelectionRect projection — vertical-rl", () => {
       createPosition("p" as BlockId, 0),
       createPosition("p" as BlockId, 1),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBe(1);
     const r = nth(rects, 0, "rect");
     expect(r.x).toBe(nth(lines, 0, "lines").absoluteX); // block band start
@@ -869,8 +869,8 @@ describe("P3.5c vertical SelectionRect projection — vertical-rl", () => {
 });
 
 describe("P3.5c vertical SelectionRect projection — vertical-lr", () => {
-  const state = verticalDoc("vertical-lr");
-  const { layout, shaper } = verticalPipeline(state);
+  const document = verticalDoc("vertical-lr");
+  const { layout, shaper } = verticalPipeline(document);
   const lines = pLines(layout);
 
   it("layout sanity: three lines, block band ascending along physical X (no mirror)", () => {
@@ -884,7 +884,7 @@ describe("P3.5c vertical SelectionRect projection — vertical-lr", () => {
       createPosition("p" as BlockId, 0),
       createPosition("p" as BlockId, 8),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBe(3);
 
     const r0 = nth(rects, 0, "rect");
@@ -915,7 +915,7 @@ describe("P3.5c vertical SelectionRect projection — vertical-lr", () => {
       createPosition("p" as BlockId, 0),
       createPosition("p" as BlockId, 1),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBe(1);
     const r = nth(rects, 0, "rect");
     expect(r.x).toBe(nth(lines, 0, "lines").absoluteX);
@@ -944,8 +944,8 @@ describe("P3.7 vertical bidi SelectionRect — range crossing an LTR↔RTL bound
     pageGap: 20,
   };
 
-  function bidiDoc(wm: "vertical-rl" | "vertical-lr"): State {
-    return buildState({
+  function bidiDoc(wm: "vertical-rl" | "vertical-lr"): Document {
+    return buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", attrs: { writingMode: wm }, firstChildId: "p", lastChildId: "p" }),
@@ -954,8 +954,8 @@ describe("P3.7 vertical bidi SelectionRect — range crossing an LTR↔RTL bound
     });
   }
 
-  function bidiPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
-    const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
+  function bidiPipeline(document: Document): { layout: LayoutBox; shaper: TextShaper } {
+    const root = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
     const shaper = createMockShaper(8, 16);
     const layout = positionTreeForTest(
       layoutTree(root, wideBidiPage.pageInlineSize, shaper, wideBidiPage),
@@ -965,8 +965,8 @@ describe("P3.7 vertical bidi SelectionRect — range crossing an LTR↔RTL bound
 
   for (const wm of ["vertical-lr", "vertical-rl"] as const) {
     it(`${wm}: two disjoint rects projected onto physical Y, block band on physical X`, () => {
-      const state = bidiDoc(wm);
-      const { layout, shaper } = bidiPipeline(state);
+      const document = bidiDoc(wm);
+      const { layout, shaper } = bidiPipeline(document);
       const lines = pLines(layout);
       expect(lines.length).toBe(1);
       const blockX = nth(lines, 0, "lines").absoluteX;
@@ -975,7 +975,7 @@ describe("P3.7 vertical bidi SelectionRect — range crossing an LTR↔RTL bound
         createPosition("p" as BlockId, 1),
         createPosition("p" as BlockId, 3),
       );
-      const rects = computeSelectionRects(state, span, layout, shaper);
+      const rects = computeSelectionRects(document, span, layout, shaper);
       // The bidi-reorder signature: a single logical range → TWO visual rects.
       expect(rects.length).toBe(2);
 
@@ -1000,8 +1000,8 @@ describe("P3.7 vertical bidi SelectionRect — range crossing an LTR↔RTL bound
 });
 
 describe("computeSelectionRects — table cells (#P8.S4.T3 audit)", () => {
-  function tableState(): State {
-    return buildState({
+  function tableDocument(): Document {
+    return buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "tbl", lastChildId: "tbl" }),
@@ -1025,10 +1025,10 @@ describe("computeSelectionRects — table cells (#P8.S4.T3 audit)", () => {
   // column — is a separate future selection-MODEL feature, not text-flow rect
   // geometry; out of scope here.)
   it("selection across two cells emits a per-cell rect, each within its own column", () => {
-    const state = tableState();
-    const { layout, shaper } = pipeline(state, 400); // cols [200, 200]
+    const document = tableDocument();
+    const { layout, shaper } = pipeline(document, 400); // cols [200, 200]
     const span = createSpan(createPosition("pA" as BlockId, 1), createPosition("pB" as BlockId, 2));
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects).toHaveLength(2);
     const rA = nth(rects, 0, "rect");
     const rB = nth(rects, 1, "rect");

@@ -1,4 +1,4 @@
-import { TEST_RESOLVER } from "../../test-utils/state-builders";
+import { TEST_RESOLVER } from "../../test-utils/document-builders";
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { asBlockId, createTestAllocator, type BlockId } from "../block-id";
@@ -10,17 +10,17 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   return v;
 }
 import {
-  buildStateFromBlocks,
-  buildStateWithListDefs,
-} from "../build-state-from-blocks";
-import { createEmptyDocument } from "../initial-state";
+  buildDocumentFromBlocks,
+  buildDocumentWithListDefs,
+} from "../build-document-from-blocks";
+import { createEmptyDocument } from "../create-empty-document";
 import {
   getBlock,
   getEmbedContent,
   getTemplateContent,
   type Document,
-} from "../state";
-import { getListDefsForState, type ListDef } from "../list-defs";
+} from "../document";
+import { getListDefsForDocument, type ListDef } from "../list-defs";
 import { addComment } from "../ops/comment-ops";
 import { getComments, buildCommentRangeIndex, type CommentId } from "../comments";
 import {
@@ -30,9 +30,9 @@ import {
   type SuggestionId,
   type SuggestionRecord,
 } from "../suggestions";
-import { applyOperation } from "../state";
+import { applyOperation } from "../document";
 import { splitWithSuggestion } from "../ops/split-block";
-import { STATE_INTERNAL } from "../state-internal";
+import { DOCUMENT_INTERNAL } from "../document-internal";
 import { createPosition, createSpan } from "../block-position";
 import type { InlineItem } from "../inline-content";
 import { INLINE_IMAGE_EMBED_TYPE } from "../inline-content";
@@ -180,10 +180,10 @@ function buildRichFixture(): Document {
   ];
 
   // The three-tree fixture (main + embedContents + templateContents). listDefs
-  // round-tripping is covered by a dedicated test below (buildStateFromBlocks
-  // does not seed listDefs; buildStateWithListDefs seeds them on a main-tree-only
+  // round-tripping is covered by a dedicated test below (buildDocumentFromBlocks
+  // does not seed listDefs; buildDocumentWithListDefs seeds them on a main-tree-only
   // state — the two dimensions are exercised separately).
-  return buildStateFromBlocks({ resolver: TEST_RESOLVER,
+  return buildDocumentFromBlocks({ resolver: TEST_RESOLVER,
     rootId,
     blocks,
     embedContents,
@@ -223,35 +223,35 @@ describe("serialize-document", () => {
       const tmplRoot = ID("tmpl-root");
       const tmplPara = ID("tmpl-para");
 
-      const state = buildRichFixture();
+      const document = buildRichFixture();
 
       // Capture originals from the live state (frozen snapshots) for comparison.
       // requireBlock asserts presence + narrows, so every round-trip comparison
       // below is UNCONDITIONAL (no `if (orig)` guard that could silently skip an
       // assertion — the property is "every block round-trips exactly").
-      const origRoot = requireBlock(getBlock(state, rootId));
-      const origP1 = requireBlock(getBlock(state, p1));
-      const origP2 = requireBlock(getBlock(state, p2));
-      const origEmbedRoot = requireBlock(getEmbedContent(state, embedRoot));
-      const origEmbedPara = requireBlock(getEmbedContent(state, embedPara));
-      const origTmplRoot = requireBlock(getTemplateContent(state, tmplRoot));
-      const origTmplPara = requireBlock(getTemplateContent(state, tmplPara));
+      const origRoot = requireBlock(getBlock(document, rootId));
+      const origP1 = requireBlock(getBlock(document, p1));
+      const origP2 = requireBlock(getBlock(document, p2));
+      const origEmbedRoot = requireBlock(getEmbedContent(document, embedRoot));
+      const origEmbedPara = requireBlock(getEmbedContent(document, embedPara));
+      const origTmplRoot = requireBlock(getTemplateContent(document, tmplRoot));
+      const origTmplPara = requireBlock(getTemplateContent(document, tmplPara));
 
       const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
-      const bytes = serializeDocument(state, BINARY_FORMAT, reg);
+      const bytes = serializeDocument(document, BINARY_FORMAT, reg);
       expect(bytes).toBeInstanceOf(Uint8Array);
 
-      const state2 = deserializeDocument(bytes, BINARY_FORMAT, reg);
-      expect(state2.rootId).toBe(state.rootId);
+      const document2 = deserializeDocument(bytes, BINARY_FORMAT, reg);
+      expect(document2.rootId).toBe(document.rootId);
 
-      expectBlockEqual(getBlock(state2, rootId), origRoot);
-      expectBlockEqual(getBlock(state2, p1), origP1);
-      expectBlockEqual(getBlock(state2, p2), origP2);
+      expectBlockEqual(getBlock(document2, rootId), origRoot);
+      expectBlockEqual(getBlock(document2, p1), origP1);
+      expectBlockEqual(getBlock(document2, p2), origP2);
 
       // #529: the inline-image embed survives binary round-trip — embedType +
       // properties intact. (expectBlockEqual above already deep-compares
       // inlineContent; this pins the inline-image case explicitly.)
-      const p1After = requireBlock(getBlock(state2, p1));
+      const p1After = requireBlock(getBlock(document2, p1));
       const inlineImage = p1After.inlineContent?.items.find(
         (item): item is Extract<InlineItem, { kind: "embed" }> =>
           item.kind === "embed" && item.embedType === INLINE_IMAGE_EMBED_TYPE,
@@ -263,10 +263,10 @@ describe("serialize-document", () => {
         height: 30,
         alt: "a",
       });
-      expectBlockEqual(getEmbedContent(state2, embedRoot), origEmbedRoot);
-      expectBlockEqual(getEmbedContent(state2, embedPara), origEmbedPara);
-      expectBlockEqual(getTemplateContent(state2, tmplRoot), origTmplRoot);
-      expectBlockEqual(getTemplateContent(state2, tmplPara), origTmplPara);
+      expectBlockEqual(getEmbedContent(document2, embedRoot), origEmbedRoot);
+      expectBlockEqual(getEmbedContent(document2, embedPara), origEmbedPara);
+      expectBlockEqual(getTemplateContent(document2, tmplRoot), origTmplRoot);
+      expectBlockEqual(getTemplateContent(document2, tmplPara), origTmplPara);
     });
 
     it("round-trips listDefs losslessly", () => {
@@ -304,14 +304,14 @@ describe("serialize-document", () => {
           ],
         },
       };
-      const state = buildStateWithListDefs({ resolver: TEST_RESOLVER, rootId, blocks, listDefs });
+      const document = buildDocumentWithListDefs({ resolver: TEST_RESOLVER, rootId, blocks, listDefs });
 
       const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
-      const bytes = serializeDocument(state, BINARY_FORMAT, reg);
-      const state2 = deserializeDocument(bytes, BINARY_FORMAT, reg);
+      const bytes = serializeDocument(document, BINARY_FORMAT, reg);
+      const document2 = deserializeDocument(bytes, BINARY_FORMAT, reg);
 
-      const origDefs = getListDefsForState(state);
-      const newDefs = getListDefsForState(state2);
+      const origDefs = getListDefsForDocument(document);
+      const newDefs = getListDefsForDocument(document2);
       expect([...newDefs.entries()]).toEqual([...origDefs.entries()]);
       expect(newDefs.get("list-1")).toEqual(listDefs["list-1"]);
     });
@@ -347,22 +347,22 @@ describe("serialize-document", () => {
           inlineContent: { items: [{ kind: "text", text: "hello world", attrs: {} }] },
         },
       ];
-      const base = buildStateFromBlocks({ resolver: TEST_RESOLVER, rootId, blocks });
-      const state = addComment(
+      const base = buildDocumentFromBlocks({ resolver: TEST_RESOLVER, rootId, blocks });
+      const document = addComment(
         base,
         createSpan(createPosition(para, 6), createPosition(para, 11)),
         { id: "cm-1" as CommentId, author: "alice", body: "note", createdAt: 42 },
-      ).state;
+      ).document;
 
-      const origComments = getComments(state);
+      const origComments = getComments(document);
       expect(origComments.length).toBe(1);
 
       const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
-      const bytes = serializeDocument(state, BINARY_FORMAT, reg);
-      const state2 = deserializeDocument(bytes, BINARY_FORMAT, reg);
+      const bytes = serializeDocument(document, BINARY_FORMAT, reg);
+      const document2 = deserializeDocument(bytes, BINARY_FORMAT, reg);
 
       // The record survives (author/body/createdAt/resolved + empty replies).
-      const newComments = getComments(state2);
+      const newComments = getComments(document2);
       expect(newComments.length).toBe(1);
       expect(nth(newComments, 0, "comment").author).toBe("alice");
       expect(nth(newComments, 0, "comment").body).toBe("note");
@@ -373,7 +373,7 @@ describe("serialize-document", () => {
       // proving both `comment-start`/`comment-end` embeds round-tripped.
       expect(nth(newComments, 0, "comment").range.orphaned).toBe(false);
       expect(nth(newComments, 0, "comment").range).toEqual(nth(origComments, 0, "comment").range);
-      expect(buildCommentRangeIndex(state2).get("cm-1" as CommentId)?.orphaned).toBe(false);
+      expect(buildCommentRangeIndex(document2).get("cm-1" as CommentId)?.orphaned).toBe(false);
     });
 
     it("round-trips a suggestion losslessly (record + tagged TextItem + break tag)", () => {
@@ -424,42 +424,42 @@ describe("serialize-document", () => {
           },
         },
       ];
-      const base = buildStateFromBlocks({ resolver: TEST_RESOLVER, rootId, blocks });
+      const base = buildDocumentFromBlocks({ resolver: TEST_RESOLVER, rootId, blocks });
       // Side-table-only write surfaces state.rootId (the comments/listDefs
       // precedent) so applyOperation advances state.
       const withRecord = applyOperation(base, (doc) => {
         writeSuggestionRecordInTx(doc, record);
         return new Set<BlockId>([base.rootId]);
-      }).state;
+      }).document;
       const splitRecord: SuggestionRecord = { id: "sg-2" as SuggestionId, kind: "insertion", author: "bob", createdAt: 100 };
       const split = splitWithSuggestion(withRecord, createPosition(para, 10), createTestAllocator("t"), splitRecord);
-      const state = split.state;
+      const document = split.document;
 
       const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
-      const bytes = serializeDocument(state, BINARY_FORMAT, reg);
-      const state2 = deserializeDocument(bytes, BINARY_FORMAT, reg);
+      const bytes = serializeDocument(document, BINARY_FORMAT, reg);
+      const document2 = deserializeDocument(bytes, BINARY_FORMAT, reg);
 
       // The side-table record survives.
-      const doc2 = state2[STATE_INTERNAL].doc;
+      const doc2 = document2[DOCUMENT_INTERNAL].doc;
       expect(readSuggestionRecord(doc2, record.id)).toEqual(record);
       expect(readSuggestionRecord(doc2, splitRecord.id)).toEqual(splitRecord);
 
       // The tagged TextItem survives (the whole paragraph round-trips, incl. the
       // suggestion attr), and the split's tail keeps its boundary tag.
-      const origPara = requireBlock(getBlock(state, para));
-      expectBlockEqual(getBlock(state2, para), origPara);
-      expectBlockEqual(getBlock(state2, split.newBlockId), requireBlock(getBlock(state, split.newBlockId)));
-      expect(getBlock(state2, split.newBlockId)?.breakSuggestion).toEqual({ insertionId: splitRecord.id });
+      const origPara = requireBlock(getBlock(document, para));
+      expectBlockEqual(getBlock(document2, para), origPara);
+      expectBlockEqual(getBlock(document2, split.newBlockId), requireBlock(getBlock(document, split.newBlockId)));
+      expect(getBlock(document2, split.newBlockId)?.breakSuggestion).toEqual({ insertionId: splitRecord.id });
     });
 
     it("round-trips an empty document (rootId + root block preserved)", () => {
-      const state = createEmptyDocument({ resolver: TEST_RESOLVER });
+      const document = createEmptyDocument({ resolver: TEST_RESOLVER });
       const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
-      const bytes = serializeDocument(state, BINARY_FORMAT, reg);
-      const state2 = deserializeDocument(bytes, BINARY_FORMAT, reg);
+      const bytes = serializeDocument(document, BINARY_FORMAT, reg);
+      const document2 = deserializeDocument(bytes, BINARY_FORMAT, reg);
 
-      expect(state2.rootId).toBe(state.rootId);
-      const root = getBlock(state2, state.rootId);
+      expect(document2.rootId).toBe(document.rootId);
+      const root = getBlock(document2, document.rootId);
       expect(root).not.toBeNull();
       expect(root?.type).toBe("document");
     });
@@ -495,8 +495,8 @@ describe("serialize-document", () => {
   describe("error paths", () => {
     it("serializeDocument throws UnknownSerializerFormatError for an unregistered format", () => {
       const reg = createSerializerRegistry();
-      const state = createEmptyDocument({ resolver: TEST_RESOLVER });
-      expect(() => serializeDocument(state, "no-such-format", reg)).toThrow(
+      const document = createEmptyDocument({ resolver: TEST_RESOLVER });
+      expect(() => serializeDocument(document, "no-such-format", reg)).toThrow(
         UnknownSerializerFormatError,
       );
     });

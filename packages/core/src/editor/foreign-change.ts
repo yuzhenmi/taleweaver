@@ -6,14 +6,14 @@ import {
   selectionContextOf,
   positionsEqual,
 } from "../state";
-import type { BlockId, Position, Selection, State, IncompatibleDocumentReport } from "../state";
-import { peekBlock } from "../state/state";
-import { STATE_INTERNAL } from "../state/state-internal";
+import type { BlockId, Position, Selection, Document, IncompatibleDocumentReport } from "../state";
+import { peekBlock } from "../state/document";
+import { DOCUMENT_INTERNAL } from "../state/document-internal";
 import { snapOffset } from "../state/y-inline";
 import { compatibilityGate, type CompatibilityGateOptions } from "../state/collab";
 import { transitionMapping } from "../decorations/decoration-layers";
 import { comparePositionsCached, type Assoc } from "../state/position-mapping";
-import { initialSelectionForState } from "./actions/helpers/initial-selection-for-state";
+import { initialSelectionForDocument } from "./actions/helpers/initial-selection-for-document";
 import type { EditorState } from "./editor-state";
 
 /**
@@ -23,12 +23,12 @@ import type { EditorState } from "./editor-state";
  */
 
 /** The Y.Doc behind a document `Document` — what a Yjs provider syncs. */
-export function getYDoc(state: State): Y.Doc {
-  return state[STATE_INTERNAL].doc;
+export function getYDoc(document: Document): Y.Doc {
+  return document[DOCUMENT_INTERNAL].doc;
 }
 
 /**
- * Call `onRemoteChange(dirtyIds)` after every transaction applied to `state`'s Y.Doc
+ * Call `onRemoteChange(dirtyIds)` after every transaction applied to `document`'s Y.Doc
  * from OUTSIDE (`!transaction.local` — a `Y.applyUpdate` of a peer's update). Local
  * edits, undo / redo and suggestion resolution are local transactions and never
  * reported. A peer change touching only the side tables (comments, suggestions, list
@@ -44,18 +44,18 @@ export function getYDoc(state: State): Y.Doc {
  * `state/collab.ts`).
  */
 export function subscribeRemoteChanges(
-  state: State,
+  document: Document,
   onRemoteChange: (dirtyIds: ReadonlySet<BlockId>) => void,
   onIncompatible: (report: IncompatibleDocumentReport) => void,
   onCompatible?: () => void,
   options?: CompatibilityGateOptions,
 ): () => void {
-  const doc = getYDoc(state);
+  const doc = getYDoc(document);
   const gate = compatibilityGate(doc, onIncompatible, onCompatible, options);
   const handler = (tx: Y.Transaction): void => {
     if (tx.changed.size === 0) return;
     const dirtyIds = gate.check(tx, !tx.local);
-    if (dirtyIds !== null) onRemoteChange(dirtyIds.size > 0 ? dirtyIds : new Set([state.rootId]));
+    if (dirtyIds !== null) onRemoteChange(dirtyIds.size > 0 ? dirtyIds : new Set([document.rootId]));
   };
   doc.on("afterTransaction", handler);
   return () => {
@@ -69,7 +69,7 @@ export function subscribeRemoteChanges(
  * back to a grapheme-cluster boundary (a peer's edit can leave an offset inside a
  * surrogate pair / cluster), or null.
  */
-function clampInto(next: State, blockId: BlockId, offset: number): Position | null {
+function clampInto(next: Document, blockId: BlockId, offset: number): Position | null {
   const content = resolveBlock(next, blockId)?.block.inlineContent ?? null;
   if (content === null) return null;
   return createPosition(blockId, snapOffset(content.items, offset));
@@ -80,7 +80,7 @@ function clampInto(next: State, blockId: BlockId, offset: number): Position | nu
  * place it: the same block clamped; else the end of the closest previous sibling that
  * still exists; else the start of the closest next one; else the document start.
  */
-function nearestValid(prev: State, next: State, pos: Position): Position {
+function nearestValid(prev: Document, next: Document, pos: Position): Position {
   const same = clampInto(next, pos.blockId, pos.offset);
   if (same !== null) return same;
   const old = peekBlock(prev, pos.blockId);
@@ -92,19 +92,19 @@ function nearestValid(prev: State, next: State, pos: Position): Position {
     const p = clampInto(next, id, 0);
     if (p !== null) return p;
   }
-  return initialSelectionForState(next).focus;
+  return initialSelectionForDocument(next).focus;
 }
 
 /**
- * Whether `anchor` precedes `focus` in the PRE-change document. That State is superseded
+ * Whether `anchor` precedes `focus` in the PRE-change document. That Document is superseded
  * (its Y.Doc already holds the peer's change), so it is read cache-only; unknown → forward.
  */
-function isForward(prev: State, anchor: Position, focus: Position): boolean {
+function isForward(prev: Document, anchor: Position, focus: Position): boolean {
   return (comparePositionsCached(prev, anchor, focus) ?? 0) <= 0;
 }
 
 /**
- * Rebase `before.selection` onto `after.state` through the transition: a collapsed
+ * Rebase `before.selection` onto `after.document` through the transition: a collapsed
  * caret sticks to the content before it (assoc −1, so a peer typing at the caret does
  * not push it), a range keeps its content (from +1, to −1). Unmappable endpoints go to
  * the nearest valid position; endpoints that end up in different selection contexts

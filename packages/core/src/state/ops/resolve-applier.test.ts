@@ -14,17 +14,17 @@ import { describe, it, expect } from "vitest";
 import { applyResolveDecisionsInTx } from "./suggestion-ops";
 import type { ScanItemResult } from "./suggestion-ops";
 import { runTransaction } from "../yjs-doc";
-import { STATE_INTERNAL } from "../state-internal";
-import { freshState, resolveBlock } from "../state";
-import { buildBlock, buildState, text, embed, inlineContent } from "../../test-utils/state-builders";
+import { DOCUMENT_INTERNAL } from "../document-internal";
+import { freshDocument, resolveBlock } from "../document";
+import { buildBlock, buildDocument, text, embed, inlineContent } from "../../test-utils/document-builders";
 import { relAt, survives } from "../../test-utils/relpos-survival";
-import type { Document } from "../state";
+import type { Document } from "../document";
 import type { InlineContent, InlineItem } from "../inline-content";
 import type { BlockId } from "../block-id";
 
 /** doc > [ p(<items>) ] — one leaf block "p" holding the given inline content. */
 function oneBlock(content: InlineContent): Document {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -34,44 +34,44 @@ function oneBlock(content: InlineContent): Document {
 }
 
 /** Apply `decisions` (aligned to block "p"'s current items) and return the post-state + items. */
-function resolveP(state: Document, decisions: readonly ScanItemResult[]): { after: Document; items: readonly InlineItem[] } {
-  const doc = state[STATE_INTERNAL].doc;
-  const items = resolveBlock(state, "p" as BlockId)?.block.inlineContent?.items ?? [];
+function resolveP(document: Document, decisions: readonly ScanItemResult[]): { after: Document; items: readonly InlineItem[] } {
+  const doc = document[DOCUMENT_INTERNAL].doc;
+  const items = resolveBlock(document, "p" as BlockId)?.block.inlineContent?.items ?? [];
   const { dirtyIds } = runTransaction(doc, () => {
     applyResolveDecisionsInTx(doc, [{ blockId: "p" as BlockId, items, decisions }]);
   });
-  const after = freshState(state, dirtyIds);
+  const after = freshDocument(document, dirtyIds);
   return { after, items: resolveBlock(after, "p" as BlockId)?.block.inlineContent?.items ?? [] };
 }
 
 describe("applyResolveDecisionsInTx", () => {
   it("a strip that makes neighbours equal reads back as one run; every character survives", () => {
-    const state = oneBlock(inlineContent([text("a", { ins: "s1" }), text("b", {}), text("c", { bold: true })]));
-    const rels = [0, 1, 2].map((o) => relAt(state, "p", o));
-    const { after, items } = resolveP(state, [{ op: "rewrite", attrs: {} }, { op: "keep" }, { op: "keep" }]);
+    const document = oneBlock(inlineContent([text("a", { ins: "s1" }), text("b", {}), text("c", { bold: true })]));
+    const rels = [0, 1, 2].map((o) => relAt(document, "p", o));
+    const { after, items } = resolveP(document, [{ op: "rewrite", attrs: {} }, { op: "keep" }, { op: "keep" }]);
     expect(items).toEqual([text("ab"), text("c", { bold: true })]);
     expect(rels.map((r, k) => survives(r, after, "abc".charAt(k)))).toEqual([true, true, true]);
   });
 
   it("a rewrite is an in-place format (the rewritten characters keep their identity)", () => {
-    const state = oneBlock(inlineContent([text("x", { ins: "s1" }), text("y", { bold: true })]));
-    const relX = relAt(state, "p", 0);
-    const { after, items } = resolveP(state, [{ op: "rewrite", attrs: { italic: true } }, { op: "keep" }]);
+    const document = oneBlock(inlineContent([text("x", { ins: "s1" }), text("y", { bold: true })]));
+    const relX = relAt(document, "p", 0);
+    const { after, items } = resolveP(document, [{ op: "rewrite", attrs: { italic: true } }, { op: "keep" }]);
     expect(items).toEqual([text("x", { italic: true }), text("y", { bold: true })]);
     expect(survives(relX, after, "x")).toBe(true);
   });
 
   it("drop deletes exactly its item; kept characters survive", () => {
-    const state = oneBlock(inlineContent([text("x", {}), text("y", { del: "s1" }), text("z", { bold: true })]));
-    const relZ = relAt(state, "p", 2);
-    const { after, items } = resolveP(state, [{ op: "keep" }, { op: "drop" }, { op: "keep" }]);
+    const document = oneBlock(inlineContent([text("x", {}), text("y", { del: "s1" }), text("z", { bold: true })]));
+    const relZ = relAt(document, "p", 2);
+    const { after, items } = resolveP(document, [{ op: "keep" }, { op: "drop" }, { op: "keep" }]);
     expect(items).toEqual([text("x"), text("z", { bold: true })]);
     expect(survives(relZ, after, "z")).toBe(true);
   });
 
   it("several drops in one block (descending offsets) empty it exactly", () => {
-    const state = oneBlock(inlineContent([text("a", { del: "s1" }), text("b", { bold: true }), text("cd", { del: "s2" })]));
-    const { items } = resolveP(state, [{ op: "drop" }, { op: "keep" }, { op: "drop" }]);
+    const document = oneBlock(inlineContent([text("a", { del: "s1" }), text("b", { bold: true }), text("cd", { del: "s2" })]));
+    const { items } = resolveP(document, [{ op: "drop" }, { op: "keep" }, { op: "drop" }]);
     expect(items).toEqual([text("b", { bold: true })]);
     const { items: none } = resolveP(oneBlock(inlineContent([text("a", { del: "s1" }), text("b", { x: 1 })])), [
       { op: "drop" },
@@ -81,8 +81,8 @@ describe("applyResolveDecisionsInTx", () => {
   });
 
   it("rewrites a visible embed's attrs in place, preserving embedType and properties", () => {
-    const state = oneBlock(inlineContent([embed("footnote-anchor", { contentBlockId: "fn1" }, { fmt: "s1" })]));
-    const { items } = resolveP(state, [{ op: "rewrite", attrs: {} }]);
+    const document = oneBlock(inlineContent([embed("footnote-anchor", { contentBlockId: "fn1" }, { fmt: "s1" })]));
+    const { items } = resolveP(document, [{ op: "rewrite", attrs: {} }]);
     expect(items).toEqual([embed("footnote-anchor", { contentBlockId: "fn1" })]);
   });
 });

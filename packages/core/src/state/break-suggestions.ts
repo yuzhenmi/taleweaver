@@ -10,9 +10,9 @@
 import type * as Y from "yjs";
 import type { Block } from "./block";
 import type { BlockId } from "./block-id";
-import type { Document } from "./state";
-import { resolveBlock } from "./state";
-import { STATE_INTERNAL } from "./state-internal";
+import type { Document } from "./document";
+import { resolveBlock } from "./document";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import type { Position, Span } from "./block-position";
 import { createPosition } from "./block-position";
 import { inlineContentLength, type InlineItem } from "./inline-content";
@@ -44,8 +44,8 @@ export interface BoundaryMark {
   readonly suggestionIds: readonly SuggestionId[];
 }
 
-const docOf = (state: Document): Y.Doc => state[STATE_INTERNAL].doc;
-const blockOf = (state: Document, id: BlockId): Block | null => resolveBlock(state, id)?.block ?? null;
+const docOf = (document: Document): Y.Doc => document[DOCUMENT_INTERNAL].doc;
+const blockOf = (document: Document, id: BlockId): Block | null => resolveBlock(document, id)?.block ?? null;
 
 function live(doc: Y.Doc, id: SuggestionId | undefined): id is SuggestionId {
   return id !== undefined && getSuggestionsMap(doc).has(id);
@@ -56,14 +56,14 @@ function live(doc: Y.Doc, id: SuggestionId | undefined): id is SuggestionId {
  * `section-*` when the ¶ is a section-end item (the block ends a doc-root section that
  * another follows). O(1).
  */
-export function endMarkOf(state: Document, blockId: BlockId): BoundaryMark | null {
-  const b = blockOf(state, blockId);
+export function endMarkOf(document: Document, blockId: BlockId): BoundaryMark | null {
+  const b = blockOf(document, blockId);
   if (b === null || b.inlineContent === null) return null;
-  const doc = docOf(state);
+  const doc = docOf(document);
   const ins = live(doc, b.breakSuggestion?.insertionId) ? b.breakSuggestion?.insertionId : undefined;
   const del = live(doc, b.breakSuggestion?.deletionId) ? b.breakSuggestion?.deletionId : undefined;
   if (ins === undefined && del === undefined) return null;
-  const section = blockAfter(state, b)?.sectionBreak != null;
+  const section = blockAfter(document, b)?.sectionBreak != null;
   const kind: BoundaryMarkKind =
     ins !== undefined && del !== undefined
       ? section ? "section-insert+section-join" : "split+join"
@@ -81,11 +81,11 @@ export function endMarkOf(state: Document, blockId: BlockId): BoundaryMark | nul
  * right after ¶`left`. A key on a required ¶ (before an object / at a flow end) never
  * merges, exactly as resolving it keeps the ¶. O(1).
  */
-export function boundaryMergesInView(state: Document, left: Block, right: Block, view: SuggestionView): boolean {
+export function boundaryMergesInView(document: Document, left: Block, right: Block, view: SuggestionView): boolean {
   if (view === "suggesting" || left.inlineContent === null || right.inlineContent === null) return false;
-  const doc = docOf(state);
+  const doc = docOf(document);
   const id = view === "final" ? left.breakSuggestion?.deletionId : left.breakSuggestion?.insertionId;
-  return live(doc, id) && blockAfter(state, left)?.block.id === right.id;
+  return live(doc, id) && blockAfter(document, left)?.block.id === right.id;
 }
 
 /** One `[start, end)` range contribution of a ¶ key. */
@@ -100,11 +100,11 @@ export interface BoundaryRangePart {
  * key, `(b, len)`–`(N, 0)` with N the text block after ¶b, collapsed at `(b, len)` when
  * an object or the flow end follows.
  */
-export function boundaryRangeParts(state: Document, b: Block): BoundaryRangePart[] {
+export function boundaryRangeParts(document: Document, b: Block): BoundaryRangePart[] {
   const tags = b.breakSuggestion;
   if (b.inlineContent === null || tags === undefined) return [];
   const start = createPosition(b.id, inlineContentLength(b.inlineContent));
-  const next = blockAfter(state, b)?.block ?? null;
+  const next = blockAfter(document, b)?.block ?? null;
   const end = next !== null && next.inlineContent !== null ? createPosition(next.id, 0) : start;
   const out: BoundaryRangePart[] = [];
   if (tags.insertionId !== undefined) out.push({ id: tags.insertionId, start, end });
@@ -126,8 +126,8 @@ export type MarkDeletion =
   | "key";
 
 /** The suggested-deletion rule for ¶`b` (own pending insertion → remove; live deletion → keep; else key). */
-export function markDeletionOf(state: Document, b: Block, author: string): MarkDeletion {
-  const doc = docOf(state);
+export function markDeletionOf(document: Document, b: Block, author: string): MarkDeletion {
+  const doc = docOf(document);
   const ins = b.breakSuggestion?.insertionId;
   if (live(doc, ins) && readSuggestionRecord(doc, ins)?.author === author) return "remove";
   return live(doc, b.breakSuggestion?.deletionId) ? "keep" : "key";
@@ -141,14 +141,14 @@ export function markDeletionOf(state: Document, b: Block, author: string): MarkD
  * "final" view shows them) is empty and does not follow an object (I1). O(1) unless an
  * object follows (then O(the deletion-keyed run before b)).
  */
-export function markDeletableInFinal(state: Document, b: Block): boolean {
-  const after = blockAfter(state, b)?.block ?? null;
+export function markDeletableInFinal(document: Document, b: Block): boolean {
+  const after = blockAfter(document, b)?.block ?? null;
   if (after === null) return false;
   if (after.inlineContent !== null) return true;
-  const doc = docOf(state);
+  const doc = docOf(document);
   for (let cur: Block = b; ; ) {
     if (cur.inlineContent === null || liveOutside(cur.inlineContent.items, 0, 0)) return false;
-    const prev = cur.prevSiblingId === null ? null : blockOf(state, cur.prevSiblingId);
+    const prev = cur.prevSiblingId === null ? null : blockOf(document, cur.prevSiblingId);
     if (prev === null) return true;
     if (prev.inlineContent === null) return false;
     if (!live(doc, prev.breakSuggestion?.deletionId)) return true;
@@ -180,8 +180,8 @@ function liveOutside(items: readonly InlineItem[], from: number, to: number): bo
  *     follows an object (I1).
  * O(span + #¶).
  */
-export function paragraphMarksInSpan(state: Document, span: Span): Block[] {
-  const segs = [...iterateSpan(state, span)];
+export function paragraphMarksInSpan(document: Document, span: Span): Block[] {
+  const segs = [...iterateSpan(document, span)];
   const out: Block[] = [];
   let runLive = false;
   let runAfterObject = false;
@@ -193,14 +193,14 @@ export function paragraphMarksInSpan(state: Document, span: Span): Block[] {
       return;
     }
     if (!runOpen) {
-      const prev = b.prevSiblingId === null ? null : blockOf(state, b.prevSiblingId);
+      const prev = b.prevSiblingId === null ? null : blockOf(document, b.prevSiblingId);
       runAfterObject = prev !== null && prev.inlineContent === null;
       runLive = false;
       runOpen = true;
     }
     runLive ||= liveOutside(b.inlineContent.items, seg.rangeStart, seg.rangeEnd);
     if (i === segs.length - 1) return;
-    const after = blockAfter(state, b)?.block ?? null;
+    const after = blockAfter(document, b)?.block ?? null;
     const deletable = after !== null && (after.inlineContent !== null || (!runLive && !runAfterObject));
     if (deletable) out.push(b);
     else runOpen = false;

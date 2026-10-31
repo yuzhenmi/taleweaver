@@ -644,7 +644,7 @@ describe("DigitalController — paste rich clipboard (T12)", () => {
     });
     const before = controller.editorState;
     container.dispatchEvent(makeClipboardEvent("paste", data));
-    // State changes (html paste decoded by htmlParser + core)
+    // Document changes (html paste decoded by htmlParser + core)
     expect(controller.editorState).not.toBe(before);
     controller.destroy();
   });
@@ -1053,7 +1053,7 @@ describe("DigitalController — keyboard edge cases (host extensions)", () => {
 });
 
 describe("DigitalController — anchors, versions and collaboration", () => {
-  function mountWith(initialState?: core.State): { controller: DigitalController; container: HTMLElement } {
+  function mountWith(initialDocument?: core.Document): { controller: DigitalController; container: HTMLElement } {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const controller = createDigitalController({
@@ -1062,7 +1062,7 @@ describe("DigitalController — anchors, versions and collaboration", () => {
       attrRegistry: createDefaultAttrRegistry(),
       containerWidth: 800,
       doc: document,
-      ...(initialState !== undefined ? { initialState } : {}),
+      ...(initialDocument !== undefined ? { initialDocument } : {}),
     });
     return { controller, container };
   }
@@ -1100,7 +1100,7 @@ describe("DigitalController — anchors, versions and collaboration", () => {
     const docA = core.getYDoc(peerA.document);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
-    const { controller, container } = mountWith(core.createState({ resolver: TEST_RESOLVER, rootId: peerA.document.rootId, doc: docB }));
+    const { controller, container } = mountWith(core.createDocument({ resolver: TEST_RESOLVER, rootId: peerA.document.rootId, doc: docB }));
     docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
     const id = peerA.selection.focus.blockId;
     controller.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 5) });
@@ -1127,17 +1127,17 @@ describe("DigitalController — remote changes: lifetime, ownership, IME", () =>
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
     docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
-    const stateB = core.createState({ resolver: TEST_RESOLVER, rootId: peerA.document.rootId, doc: docB });
+    const documentB = core.createDocument({ resolver: TEST_RESOLVER, rootId: peerA.document.rootId, doc: docB });
     return {
-      stateB,
+      documentB,
       type: (t: string) => {
         peerA = core.reduceEditor(peerA, { type: "INSERT_TEXT", text: t });
       },
     };
   }
-  function mountOn(state: core.State, remoteChanges?: "observe" | "ignore") {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
+  function mountOn(document: core.Document, remoteChanges?: "observe" | "ignore") {
+    const container = globalThis.document.createElement("div");
+    globalThis.document.body.appendChild(container);
     const seen: core.EditorAction[] = [];
     const reduce = vi.mocked(core.reduceEditor);
     const controller = createDigitalController({
@@ -1145,8 +1145,8 @@ describe("DigitalController — remote changes: lifetime, ownership, IME", () =>
       componentRegistry: createDefaultComponentRegistry(),
       attrRegistry: createDefaultAttrRegistry(),
       containerWidth: 800,
-      doc: document,
-      initialState: state,
+      doc: globalThis.document,
+      initialDocument: document,
       ...(remoteChanges !== undefined ? { remoteChanges } : {}),
       onChange: () => {
         const last = reduce.mock.calls.at(-1)?.[1];
@@ -1158,7 +1158,7 @@ describe("DigitalController — remote changes: lifetime, ownership, IME", () =>
 
   it("local edits dispatch no foreign change; after destroy() a peer update is ignored", () => {
     const pair = peerPair();
-    const m = mountOn(pair.stateB);
+    const m = mountOn(pair.documentB);
     m.container.dispatchEvent(makeBeforeInput("insertText", { data: "!" }));
     expect(m.foreign()).toBe(0);
     pair.type("A");
@@ -1170,8 +1170,8 @@ describe("DigitalController — remote changes: lifetime, ownership, IME", () =>
 
   it("with two controllers on one document, only the observing one applies peer changes", () => {
     const pair = peerPair();
-    const owner = mountOn(pair.stateB);
-    const other = mountOn(pair.stateB, "ignore");
+    const owner = mountOn(pair.documentB);
+    const other = mountOn(pair.documentB, "ignore");
     pair.type("A");
     expect(owner.foreign()).toBe(1);
     expect(other.foreign()).toBe(0);
@@ -1181,7 +1181,7 @@ describe("DigitalController — remote changes: lifetime, ownership, IME", () =>
 
   it("a peer change during IME composition never writes the DOM selection; compositionend re-projects it", () => {
     const pair = peerPair();
-    const m = mountOn(pair.stateB);
+    const m = mountOn(pair.documentB);
     m.container.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
     const sel = window.getSelection();
     if (sel === null) throw new Error("no selection");

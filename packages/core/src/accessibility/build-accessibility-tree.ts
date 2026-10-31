@@ -18,17 +18,17 @@ import {
   COMMENT_END_EMBED_TYPE,
   PAGE_FIELD_EMBED_TYPE,
   CROSS_REFERENCE_EMBED_TYPE,
-  getListDefsForState,
+  getListDefsForDocument,
   classifyListDef,
   docHasLists,
   type Block,
   type BlockId,
   type InlineItem,
-  type State,
+  type Document,
   type SuggestionView,
 } from "../state";
 import { collectListEvents, computeCounters } from "../numbering";
-import { endMarkOf, readSuggestionRecordFromState, type BoundaryMarkKind } from "../state";
+import { endMarkOf, readSuggestionRecordFromDocument, type BoundaryMarkKind } from "../state";
 import type { CounterValue } from "../numbering";
 import { inlineRenderKey } from "../render/inline-render-key";
 import type {
@@ -139,7 +139,7 @@ function pageFieldKindOf(
  * Returns an empty array when the block carries no inline content or it is empty.
  */
 function collectRuns(
-  state: State,
+  document: Document,
   block: Block,
   view: SuggestionView,
 ): readonly AccessibilityTextRun[] {
@@ -247,7 +247,7 @@ function collectRuns(
     // exhaustiveness guard; a per-embed guard would require enumerating
     // every "serializable" embed type explicitly, which is a maintenance trap.
     const display = extractText(
-      state,
+      document,
       createSpan(
         createPosition(block.id, offset),
         createPosition(block.id, offset + literalLen),
@@ -329,12 +329,12 @@ const BOUNDARY_DESCRIPTION: Readonly<Record<BoundaryMarkKind, string>> = {
  * node describes it), as `{ suggestion }` — only in the literal "suggesting" view and
  * only while the suggestion's record exists. The text is unchanged.
  */
-function boundarySuggestion(state: State, block: Block, view: SuggestionView): { suggestion?: AccessibilityBoundarySuggestion } {
+function boundarySuggestion(document: Document, block: Block, view: SuggestionView): { suggestion?: AccessibilityBoundarySuggestion } {
   if (view !== "suggesting") return {};
-  const mark = endMarkOf(state, block.id);
+  const mark = endMarkOf(document, block.id);
   const first = mark?.suggestionIds[0];
   if (mark === null || first === undefined) return {};
-  const author = readSuggestionRecordFromState(state, first)?.author ?? "";
+  const author = readSuggestionRecordFromDocument(document, first)?.author ?? "";
   const description = author === "" ? BOUNDARY_DESCRIPTION[mark.kind] : `${BOUNDARY_DESCRIPTION[mark.kind]} by ${author}`;
   return { suggestion: { kind: mark.kind, author, description } };
 }
@@ -345,7 +345,7 @@ function boundarySuggestion(state: State, block: Block, view: SuggestionView): {
  * later by the nesting algorithm) and `buildBlockNode` (isolation path).
  */
 function buildBareListItem(
-  state: State,
+  document: Document,
   block: Block,
   view: SuggestionView,
   listOrdinal?: number,
@@ -354,9 +354,9 @@ function buildBareListItem(
     role: "listitem",
     sourceBlockId: block.id,
     level: listLevelOf(block.attrs),
-    text: collectRuns(state, block, view),
+    text: collectRuns(document, block, view),
     children: [],
-    ...boundarySuggestion(state, block, view),
+    ...boundarySuggestion(document, block, view),
     // The resolved ordinal of an ORDERED item, so the dom-mirror emits
     // `<li value=N>` and AT announces the true number (start-at/restart aware),
     // not the browser-native 1,2,3… of a bare `<ol>`. Omitted for bullets.
@@ -382,13 +382,13 @@ function buildBareListItem(
  * to `false` (unordered) rather than calling `classifyListDef(undefined)`.
  */
 function groupListItems(
-  state: State,
+  document: Document,
   items: readonly Block[],
   view: SuggestionView,
 ): readonly AccessibilityNode[] {
   if (items.length === 0) return [];
 
-  const listDefs = getListDefsForState(state);
+  const listDefs = getListDefsForDocument(document);
 
   // Resolve every item's ordinal via the SAME numbering engine the
   // render/HTML paths use (single source of truth, never re-derived). Ordered
@@ -405,8 +405,8 @@ function groupListItems(
   // measures as a bottleneck, hoist this to `buildAccessibilityTree` (compute once)
   // and thread the map through `buildBlockNode`/`buildChildren`/`buildTable*` to
   // here — pure mechanical threading, deferred until profiling demands it.
-  const counters: ReadonlyMap<BlockId, CounterValue> = docHasLists(state)
-    ? computeCounters(collectListEvents(state), listDefs)
+  const counters: ReadonlyMap<BlockId, CounterValue> = docHasLists(document)
+    ? computeCounters(collectListEvents(document), listDefs)
     : new Map();
 
   /** Resolve ordered-ness from a listId; safe when def is absent. */
@@ -500,7 +500,7 @@ function groupListItems(
       const itemLevel = listLevelOf(block.attrs);
       // Ordered items carry the resolved ordinal; bullets carry none.
       const ordinal = ordered ? counters.get(block.id)?.value : undefined;
-      const bareItem = buildBareListItem(state, block, view, ordinal);
+      const bareItem = buildBareListItem(document, block, view, ordinal);
 
       // Invariant: the stack is seeded with a root frame and popTo never pops
       // below it (loop guard `stack.length > 1`), so the top frame always exists.
@@ -603,7 +603,7 @@ function groupListItems(
  * `getBlock` would fail for siblings inside those trees.
  */
 function buildChildren(
-  state: State,
+  document: Document,
   block: Block,
   view: SuggestionView,
   resolve: BlockResolver,
@@ -641,20 +641,20 @@ function buildChildren(
         cursor = next;
       }
       // Emit synthetic list node(s) for this run.
-      for (const listNode of groupListItems(state, run, view)) {
+      for (const listNode of groupListItems(document, run, view)) {
         out.push(listNode);
       }
       // Advance past the last list-item in the run.
       childId = cursor.nextSiblingId;
     } else {
-      const nodeOrFlatten = buildBlockNode(state, child, view, resolve);
+      const nodeOrFlatten = buildBlockNode(document, child, view, resolve);
       if (nodeOrFlatten === "flatten") {
         // section (display:contents / accessibility-transparent): splice its
         // children inline. Note: a section acts as a list-grouping BOUNDARY —
         // any list-item run is consumed BEFORE we process the section, so
         // items inside the section do not merge with outer items (the recursive
         // buildChildren(child) call groups them independently).
-        for (const grandchild of buildChildren(state, child, view, resolve)) {
+        for (const grandchild of buildChildren(document, child, view, resolve)) {
           out.push(grandchild);
         }
       } else {
@@ -714,7 +714,7 @@ function headerRowCountOf(attrs: Block["attrs"]): number {
  * for all others.
  */
 function buildTableCell(
-  state: State,
+  document: Document,
   cellBlock: Block,
   view: SuggestionView,
   isHeaderRow: boolean,
@@ -723,7 +723,7 @@ function buildTableCell(
   return {
     role: isHeaderRow ? "columnheader" : "cell",
     sourceBlockId: cellBlock.id,
-    children: buildChildren(state, cellBlock, view, resolve),
+    children: buildChildren(document, cellBlock, view, resolve),
   };
 }
 
@@ -732,7 +732,7 @@ function buildTableCell(
  * cell children and delegates to `buildTableCell`, passing down `isHeaderRow`.
  */
 function buildTableRow(
-  state: State,
+  document: Document,
   rowBlock: Block,
   view: SuggestionView,
   isHeaderRow: boolean,
@@ -747,7 +747,7 @@ function buildTableRow(
         `buildAccessibilityTree: cell "${cellId}" of row "${rowBlock.id}" not found`,
       );
     }
-    cells.push(buildTableCell(state, cell, view, isHeaderRow, resolve));
+    cells.push(buildTableCell(document, cell, view, isHeaderRow, resolve));
     cellId = cell.nextSiblingId;
   }
   return {
@@ -765,7 +765,7 @@ function buildTableRow(
  * others are body rows (cells → `"cell"`).
  */
 function buildTable(
-  state: State,
+  document: Document,
   tableBlock: Block,
   view: SuggestionView,
   resolve: BlockResolver,
@@ -782,7 +782,7 @@ function buildTable(
       );
     }
     const isHeaderRow = rowIndex < headerRowCount;
-    rows.push(buildTableRow(state, row, view, isHeaderRow, resolve));
+    rows.push(buildTableRow(document, row, view, isHeaderRow, resolve));
     rowId = row.nextSiblingId;
     rowIndex += 1;
   }
@@ -804,10 +804,10 @@ function buildTable(
  * pass can build a single bodyId→role map upfront if needed.
  */
 function classifyTemplateBodyRole(
-  state: State,
+  document: Document,
   bodyId: BlockId,
 ): "banner" | "contentinfo" {
-  for (const block of iterateBlocksInDocumentOrder(state)) {
+  for (const block of iterateBlocksInDocumentOrder(document)) {
     if (block.attrs.headerBlockId === bodyId) return "banner";
     if (block.attrs.footerBlockId === bodyId) return "contentinfo";
   }
@@ -854,7 +854,7 @@ function assertUnmappedBlockType(block: Block): never {
  * that embed/template body subtrees are resolved through the correct Y.Map.
  */
 function buildBlockNode(
-  state: State,
+  document: Document,
   block: Block,
   view: SuggestionView,
   resolve: BlockResolver,
@@ -864,7 +864,7 @@ function buildBlockNode(
       return {
         role: "document",
         sourceBlockId: block.id,
-        children: buildChildren(state, block, view, resolve),
+        children: buildChildren(document, block, view, resolve),
       };
     case "section":
       // A section is layout-transparent (display:contents) and therefore
@@ -902,29 +902,29 @@ function buildBlockNode(
       return {
         role: "paragraph",
         sourceBlockId: block.id,
-        text: collectRuns(state, block, view),
+        text: collectRuns(document, block, view),
         children: [],
-        ...boundarySuggestion(state, block, view),
+        ...boundarySuggestion(document, block, view),
       };
     case "heading":
       return {
         role: "heading",
         sourceBlockId: block.id,
         level: headingLevel(block.attrs),
-        text: collectRuns(state, block, view),
+        text: collectRuns(document, block, view),
         children: [],
-        ...boundarySuggestion(state, block, view),
+        ...boundarySuggestion(document, block, view),
       };
     case "list-item":
       // A bare list-item node (used when buildBlockNode is called directly on a
       // list-item block — e.g. in isolation tests). The grouping logic in
       // buildChildren wraps these into synthetic list nodes and injects nested
       // lists into `children`; a directly-built item has no children.
-      return buildBareListItem(state, block, view);
+      return buildBareListItem(document, block, view);
     case "table":
       // Table rows and cells are built by the dedicated table-subtree builders
       // below; they are never dispatched through `buildBlockNode` directly.
-      return buildTable(state, block, view, resolve);
+      return buildTable(document, block, view, resolve);
     case "footnote-body":
       // A footnote body: projected as a `doc-footnote` ARIA landmark so that
       // screen readers announce and navigate to footnote content separately from
@@ -932,16 +932,16 @@ function buildBlockNode(
       return {
         role: "doc-footnote",
         sourceBlockId: block.id,
-        children: buildChildren(state, block, view, resolve),
+        children: buildChildren(document, block, view, resolve),
       };
     case "template-body":
       // A header/footer template body: classified as `banner` (header) or
       // `contentinfo` (footer) by scanning the main tree for the section block
       // that links to this body via `headerBlockId` / `footerBlockId`.
       return {
-        role: classifyTemplateBodyRole(state, block.id),
+        role: classifyTemplateBodyRole(document, block.id),
         sourceBlockId: block.id,
-        children: buildChildren(state, block, view, resolve),
+        children: buildChildren(document, block, view, resolve),
       };
     default:
       return assertUnmappedBlockType(block);
@@ -949,12 +949,12 @@ function buildBlockNode(
 }
 
 export function buildAccessibilityTree(
-  state: State,
+  document: Document,
   options?: BuildAccessibilityTreeOptions,
 ): AccessibilityNode {
-  const root = getBlock(state, state.rootId);
+  const root = getBlock(document, document.rootId);
   if (root === null) {
-    throw new Error(`buildAccessibilityTree: root block "${state.rootId}" not found`);
+    throw new Error(`buildAccessibilityTree: root block "${document.rootId}" not found`);
   }
   const view = options?.suggestionView ?? DEFAULT_VIEW;
 
@@ -962,10 +962,10 @@ export function buildAccessibilityTree(
   //  - mainResolve: looks up only the main blocks tree (for the document subtree).
   //  - anyResolve: looks across all three trees (main, embedContents, templateContents)
   //    — required for embed/template body subtrees whose blocks live in their own Y.Map.
-  const mainResolve: BlockResolver = (id) => getBlock(state, id);
-  const anyResolve: BlockResolver = (id) => resolveBlock(state, id)?.block ?? null;
+  const mainResolve: BlockResolver = (id) => getBlock(document, id);
+  const anyResolve: BlockResolver = (id) => resolveBlock(document, id)?.block ?? null;
 
-  const result = buildBlockNode(state, root, view, mainResolve);
+  const result = buildBlockNode(document, root, view, mainResolve);
   // The document root is always a "document" block — it never returns "flatten".
   // Guard explicitly so this function's return type stays `AccessibilityNode`
   // without resorting to a non-null assertion.
@@ -986,10 +986,10 @@ export function buildAccessibilityTree(
   // state, but be defensive) are skipped rather than thrown.
   const bodyNodes: AccessibilityNode[] = [];
 
-  for (const rootId of getEmbedContentIds(state)) {
+  for (const rootId of getEmbedContentIds(document)) {
     const bodyRoot = anyResolve(rootId);
     if (bodyRoot === null) continue;
-    const bodyResult = buildBlockNode(state, bodyRoot, view, anyResolve);
+    const bodyResult = buildBlockNode(document, bodyRoot, view, anyResolve);
     // A body root (footnote-body) is never a section, so "flatten" should not occur.
     // Type-safely skip any unexpected "flatten" rather than asserting.
     if (bodyResult !== "flatten") {
@@ -997,10 +997,10 @@ export function buildAccessibilityTree(
     }
   }
 
-  for (const rootId of getTemplateContentIds(state)) {
+  for (const rootId of getTemplateContentIds(document)) {
     const bodyRoot = anyResolve(rootId);
     if (bodyRoot === null) continue;
-    const bodyResult = buildBlockNode(state, bodyRoot, view, anyResolve);
+    const bodyResult = buildBlockNode(document, bodyRoot, view, anyResolve);
     // A body root (template-body) is never a section, so "flatten" should not occur.
     if (bodyResult !== "flatten") {
       bodyNodes.push(bodyResult);

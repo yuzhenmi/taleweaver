@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import { iterateSpan, blockMarkRanges, markEqualityOf, deepValueEqual, createPosition, createSpan } from "../../state";
-import type { Span, ReadonlyAttrs, State } from "../../state";
+import type { Span, ReadonlyAttrs, Document } from "../../state";
 import { type AttrRegistry } from "../../cascade/attr-registry";
 import type { ActionOf } from "../editor-action";
 import { applyDeltas } from "./helpers/apply-deltas";
@@ -14,7 +14,7 @@ import { isNonExclusive } from "./helpers/is-non-exclusive";
  * nothing outside an actual mark range is touched (no empty tracked suggestion).
  */
 function removalDeltas(
-  state: State,
+  document: Document,
   span: Span,
   key: string,
   value: unknown,
@@ -26,7 +26,7 @@ function removalDeltas(
   const equality = markEqualityOf(registry);
   const equals = registry.get(key)?.equals ?? deepValueEqual;
   const out: Array<readonly [Span, ReadonlyAttrs]> = [];
-  for (const seg of iterateSpan(state, span)) {
+  for (const seg of iterateSpan(document, span)) {
     const content = seg.block.inlineContent;
     if (content === null) continue;
     for (const r of blockMarkRanges(content, match, equality)) {

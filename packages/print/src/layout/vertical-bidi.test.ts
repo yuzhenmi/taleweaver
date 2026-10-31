@@ -28,7 +28,7 @@ import { createTextRunBox, type LayoutBox, type TextRunBox } from "./layout-box"
 import { resolveParagraphBidi } from "./ifc-bidi";
 import { applyL1 } from "@taleweaver/core";
 import { reorderLineLeaves } from "./ifc-bidi-reorder";
-import { buildBlock, buildState, inlineContent, text } from "@taleweaver/core";
+import { buildBlock, buildDocument, inlineContent, text } from "@taleweaver/core";
 import { render } from "@taleweaver/core";
 import { createDefaultComponentRegistry } from "@taleweaver/core";
 import { createDefaultAttrRegistry } from "@taleweaver/core";
@@ -36,7 +36,7 @@ import { layoutTree } from "./dispatch";
 import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "@taleweaver/core";
 import { getLineIndex, collectLineLeaves } from "../cursor/line-flatten";
-import type { State, BlockId } from "@taleweaver/core";
+import type { Document, BlockId } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
 import type { PageConfig } from "./page-config";
 
@@ -58,8 +58,8 @@ const widePage: PageConfig = {
   pageGap: 20,
 };
 
-function bidiDoc(wm: WritingMode, content: string): State {
-  return buildState({
+function bidiDoc(wm: WritingMode, content: string): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -80,8 +80,8 @@ function bidiDoc(wm: WritingMode, content: string): State {
   });
 }
 
-function pipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
-  const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
+function pipeline(document: Document): { layout: LayoutBox; shaper: TextShaper } {
+  const root = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
   const shaper = createMockShaper(CHAR_W, LINE_CROSS);
   const layout = positionTreeForTest(layoutTree(root, widePage.pageInlineSize, shaper, widePage));
   return { layout, shaper };

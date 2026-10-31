@@ -34,8 +34,8 @@ export function resolveActiveSection(
   editor: EditorState,
   focusBlockId: BlockId,
 ): BlockId | null {
-  const state = editor.document;
-  let current = getBlock(state, focusBlockId);
+  const document = editor.document;
+  let current = getBlock(document, focusBlockId);
   if (current === null) return null;
 
   // Cycle-detection bound: each step strictly ascends the parent chain, so the
@@ -55,10 +55,10 @@ export function resolveActiveSection(
     const parentId = current.parentId;
     // The doc-root child is reached when its parent is the root (or null for a
     // malformed/detached chain).
-    if (parentId === null || parentId === state.rootId) {
+    if (parentId === null || parentId === document.rootId) {
       return current.type === "section" ? current.id : null;
     }
-    const parent = getBlock(state, parentId);
+    const parent = getBlock(document, parentId);
     if (parent === null) return null;
     current = parent;
   }

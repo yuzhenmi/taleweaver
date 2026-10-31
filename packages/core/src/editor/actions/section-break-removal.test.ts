@@ -14,15 +14,15 @@
  */
 import { describe, it, expect } from "vitest";
 import { config, reduceEditor } from "./test-helpers";
-import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { createEditorStateFromDocument, type EditorState } from "../editor-state";
 import { getBlock } from "../../state";
 import type { BlockId } from "../../state";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
-} from "../../test-utils/state-builders";
+} from "../../test-utils/document-builders";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -39,7 +39,7 @@ function makeEditor(
   cursorBlock: BlockId,
   cursorOffset = 0,
 ): EditorState {
-  const initialState = buildState({
+  const initialDocument = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -81,7 +81,7 @@ function makeEditor(
     ],
   });
   const cursor = { blockId: cursorBlock, offset: cursorOffset };
-  return createEditorStateFromState(initialState, { anchor: cursor, focus: cursor }, config);
+  return createEditorStateFromDocument(initialDocument, { anchor: cursor, focus: cursor }, config);
 }
 
 /** Ordered list of the document root's direct children (its sections). */
