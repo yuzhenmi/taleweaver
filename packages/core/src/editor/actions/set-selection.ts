@@ -1,7 +1,7 @@
 import { selectionContextOf } from "../../state";
 import type { Edit } from "../edit";
 import { isDevMode } from "../../state/dev-mode";
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -37,7 +37,7 @@ import type { ActionOf } from "../editor-action";
  * passes no `targetX`, so the field is untouched here and cleared centrally.
  */
 export function handleSetSelection(
-  editor: EditorState,
+  editor: Editor,
   { selection, caretPageHint, caretAffinity, anchorAffinity, targetX }: ActionOf<"SET_SELECTION">,
 ): Edit | null {
   // Engine backstop: a Span must keep BOTH endpoints in the SAME

@@ -14,7 +14,7 @@ import {
   type RenderNode,
   type ElementBox,
   type FootnoteNumber,
-  type EditorState,
+  type EditorSnapshot,
   type EditorConfig,
 } from "@taleweaver/core";
 import { layoutTreeIncremental } from "../layout/layout-incremental";
@@ -30,7 +30,7 @@ import type { LayoutConfig } from "./layout-config";
  * each rebuild reuses unchanged render / cascade / layout subtrees by reference
  * (the incremental path keys reuse off `lastDirtyIds`).
  *
- * This is a relocation of what `rebuildTrees` / `createEditorStateFromDocument`
+ * This is a relocation of what `rebuildTrees` / `createEditor`
  * used to do inside core — the SAME render→cascade→layout pipeline, now living
  * behind the print-mode seam so `@taleweaver/core` carries no geometry.
  */
@@ -48,7 +48,7 @@ export interface LayoutDriver {
    *    against the prior cascaded tree when one exists (so a tall-header doc
    *    re-paginates with the grown insets), else a fresh full build.
    */
-  rebuild(editor: EditorState): LayoutBox | VirtualLayoutTree;
+  rebuild(editor: EditorSnapshot): LayoutBox | VirtualLayoutTree;
 }
 
 /**
@@ -255,7 +255,7 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
     return current;
   }
 
-  function rebuild(editor: EditorState): LayoutBox | VirtualLayoutTree {
+  function rebuild(editor: EditorSnapshot): LayoutBox | VirtualLayoutTree {
     const { document, containerWidth, lastDirtyIds, config } = editor;
     // The retained trees were built with the previous registries / page setup: a change
     // to any of them invalidates all of it.

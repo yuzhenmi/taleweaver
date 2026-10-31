@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import type { Edit } from "../../edit";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../../state";
 import type { Document, BlockId } from "../../../state";
@@ -50,7 +50,7 @@ export const MIN_INDENT_CONTENT_WIDTH = 96;
  *
  * Selection is UNCHANGED: indent is a block-geometry change, not a caret move.
  */
-export function shiftIndent(editor: EditorState, delta: number): Edit | null {
+export function shiftIndent(editor: Editor, delta: number): Edit | null {
   const targetIds = targetLeafBlockIds(editor);
 
   // INDENT cap: don't let the margin push content off the page. The block's
@@ -118,7 +118,7 @@ export function shiftIndent(editor: EditorState, delta: number): Edit | null {
  * path; the BFC composes it ON TOP of the level padding (paddingInlineStart +
  * marginInlineStart). Mirrors `handleSetLineSpacing` otherwise.
  */
-function targetLeafBlockIds(editor: EditorState): BlockId[] {
+function targetLeafBlockIds(editor: Editor): BlockId[] {
   const { document, selection } = editor;
 
   if (positionsEqual(selection.anchor, selection.focus)) {

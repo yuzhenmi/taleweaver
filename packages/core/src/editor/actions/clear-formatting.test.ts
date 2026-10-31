@@ -1,8 +1,7 @@
 import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
-  createInitialEditorState,
-  reduceEditor,
+  createEditor,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   getBlock,
@@ -23,7 +22,7 @@ function makeConfig(): EditorConfig {
 
 /** All text items from the doc's first (and only) paragraph. */
 function textItems(
-  editor: ReturnType<typeof createInitialEditorState>,
+  editor: ReturnType<typeof createEditor>,
 ): TextItem[] {
   const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
   if (root === null || root.firstChildId === null) return [];
@@ -35,33 +34,31 @@ function textItems(
 }
 
 function selectAll(
-  editor: ReturnType<typeof createInitialEditorState>,
+  editor: ReturnType<typeof createEditor>,
   length: number,
-): ReturnType<typeof createInitialEditorState> {
+): ReturnType<typeof createEditor> {
   const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
   if (root === null || root.firstChildId === null) throw new Error("no para");
   const pId = root.firstChildId;
-  return reduceEditor(
-    editor,
-    {
+  editor.dispatch({
       type: "SET_SELECTION",
       selection: createSpan(createPosition(pId, 0), createPosition(pId, length)),
-    },
-  );
+    });
+    return editor;
 }
 
 describe("handleClearFormatting", () => {
   it("removes every inline-format attr from each text item in the selection", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "format me" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "format me" });
     // Apply a spread of inline formats: bold + color + font size.
     editor = selectAll(editor, 9);
-    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
+    editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
     editor = selectAll(editor, 9);
-    editor = reduceEditor(editor, { type: "SET_TEXT_COLOR", color: "#ff0000" });
+    editor.dispatch({ type: "SET_TEXT_COLOR", color: "#ff0000" });
     editor = selectAll(editor, 9);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 24 });
+    editor.dispatch({ type: "SET_FONT_SIZE", size: 24 });
 
     // Sanity: the formats actually landed.
     const before = textItems(editor);
@@ -71,7 +68,7 @@ describe("handleClearFormatting", () => {
     expect(before.some((i) => i.attrs.fontSize === 24)).toBe(true);
 
     editor = selectAll(editor, 9);
-    editor = reduceEditor(editor, { type: "CLEAR_FORMATTING" });
+    editor.dispatch({ type: "CLEAR_FORMATTING" });
 
     const after = textItems(editor);
     // The text content survives untouched.
@@ -86,39 +83,39 @@ describe("handleClearFormatting", () => {
 
   it("no-ops on an already-clean selection (returns the same editor ref)", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "plain text" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "plain text" });
     editor = selectAll(editor, 10);
     const before = editor;
-    editor = reduceEditor(editor, { type: "CLEAR_FORMATTING" });
+    editor.dispatch({ type: "CLEAR_FORMATTING" });
     // Document-equality short-circuit: nothing to clear → same editor object.
     expect(editor).toBe(before);
   });
 
   it("no-ops on a collapsed selection (same state reference)", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "hello" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "hello" });
     const before = editor;
     // Collapsed at end of insert.
-    editor = reduceEditor(editor, { type: "CLEAR_FORMATTING" });
+    editor.dispatch({ type: "CLEAR_FORMATTING" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(editor.document).toBe(before.document);
   });
 
   it("undo restores all the cleared formatting in one step", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "format me" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "format me" });
     editor = selectAll(editor, 9);
-    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
+    editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
     editor = selectAll(editor, 9);
-    editor = reduceEditor(editor, { type: "SET_TEXT_COLOR", color: "#ff0000" });
+    editor.dispatch({ type: "SET_TEXT_COLOR", color: "#ff0000" });
     editor = selectAll(editor, 9);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 24 });
+    editor.dispatch({ type: "SET_FONT_SIZE", size: 24 });
 
     editor = selectAll(editor, 9);
-    editor = reduceEditor(editor, { type: "CLEAR_FORMATTING" });
+    editor.dispatch({ type: "CLEAR_FORMATTING" });
     // Cleared.
     for (const item of textItems(editor)) {
       for (const key of INLINE_FORMAT_ATTR_KEYS) {
@@ -127,7 +124,7 @@ describe("handleClearFormatting", () => {
     }
 
     // A single undo brings every format back at once.
-    editor = reduceEditor(editor, { type: "UNDO" });
+    editor.dispatch({ type: "UNDO" });
     const restored = textItems(editor);
     expect(restored.some((i) => i.attrs.bold === true)).toBe(true);
     expect(restored.some((i) => i.attrs.color === "#ff0000")).toBe(true);

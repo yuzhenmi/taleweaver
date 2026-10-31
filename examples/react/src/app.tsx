@@ -6,7 +6,6 @@ import { ModeTabs, type EditorMode } from "@/components/mode-tabs";
 import { PrintSurface } from "@/components/print-surface";
 import { DigitalSurface } from "@/components/digital-surface";
 import { CollabSurface } from "@/components/collab-surface";
-import "./app.css";
 
 export function App() {
   // The print/digital fork is DOWNSTREAM of the core `Document`: both backends drive

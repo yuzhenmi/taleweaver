@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { resolveTableContext, insertTableColumn, insertTableColumnSpanAware, productionAllocator } from "../../state";
 import type { ActionOf } from "../editor-action";
@@ -15,7 +15,7 @@ import type { ActionOf } from "../editor-action";
  * Docs keeps the cursor in its current cell on insert-column).
  */
 export function handleInsertTableColumn(
-  editor: EditorState,
+  editor: Editor,
   { position }: ActionOf<"INSERT_TABLE_COLUMN">,
 ): Edit | null {
   const ctx = resolveTableContext(editor.document, editor.selection.focus.blockId);

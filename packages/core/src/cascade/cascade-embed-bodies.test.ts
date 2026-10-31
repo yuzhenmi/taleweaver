@@ -13,7 +13,7 @@ const attrRegistry = createDefaultAttrRegistry();
 /**
  * Phase 0b: `cascadeEmbedContents` is core's pure footnote-body cascade pass
  * (barrel-exported; the print backend's layout-driver calls it). Core's editor
- * reducer no longer cascades embed bodies into `EditorState`, so these tests
+ * reducer no longer cascades embed bodies into `Editor`, so these tests
  * exercise the function DIRECTLY over a `RenderOutput` — the same call the
  * driver makes — asserting the full + incremental (reuse-by-reference) contract.
  */

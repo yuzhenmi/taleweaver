@@ -22,11 +22,8 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  config,
-  reduceEditor,
-  createInitialEditorState,
-} from "./actions/test-helpers";
-import type { EditorState } from "./editor-state";
+  config, createEditor } from "./actions/test-helpers";
+import type { Editor } from "./editor";
 import { resolveBlock, inlineContentLength } from "../state";
 import type { BlockId, Document } from "../state";
 
@@ -49,21 +46,21 @@ function bodyTextOf(document: Document, blockId: BlockId): string {
  * drops the caret into the body, then INSERT_TEXT types into the body.
  */
 function withFootnoteBodyText(text: string): {
-  editor: EditorState;
+  editor: Editor;
   bodyId: BlockId;
   bodyLength: number;
 } {
-  const initial = createInitialEditorState(config);
-  const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" });
-  const withFn = reduceEditor(typed, { type: "INSERT_FOOTNOTE" });
-  const bodyTyped = reduceEditor(withFn, { type: "INSERT_TEXT", text });
-  const bodyId = bodyTyped.selection.focus.blockId;
-  const block = resolveBlock(bodyTyped.document, bodyId)?.block ?? null;
+  const initial = createEditor(config);
+  initial.dispatch({ type: "INSERT_TEXT", text: "abc" });
+  initial.dispatch({ type: "INSERT_FOOTNOTE" });
+  initial.dispatch({ type: "INSERT_TEXT", text });
+  const bodyId = initial.selection.focus.blockId;
+  const block = resolveBlock(initial.document, bodyId)?.block ?? null;
   if (block === null || block.inlineContent === null) {
     throw new Error("test setup: footnote body block missing inline content");
   }
   return {
-    editor: bodyTyped,
+    editor: initial,
     bodyId,
     bodyLength: inlineContentLength(block.inlineContent),
   };
@@ -71,21 +68,19 @@ function withFootnoteBodyText(text: string): {
 
 /** Set a non-collapsed selection [start, end) inside one block. */
 function selectInBlock(
-  editor: EditorState,
+  editor: Editor,
   blockId: BlockId,
   start: number,
   end: number,
-): EditorState {
-  return reduceEditor(
-    editor,
-    {
+): Editor {
+  editor.dispatch({
       type: "SET_SELECTION",
       selection: {
         anchor: { blockId, offset: start },
         focus: { blockId, offset: end },
       },
-    },
-  );
+    });
+    return editor;
 }
 
 describe("#430 — DELETE_WORD deletes a non-collapsed range inside a footnote body", () => {
@@ -95,10 +90,7 @@ describe("#430 — DELETE_WORD deletes a non-collapsed range inside a footnote b
 
     // Select "hello " (offsets 0..6).
     editor = selectInBlock(editor, bodyId, 0, 6);
-    editor = reduceEditor(
-      editor,
-      { type: "DELETE_WORD", direction: "backward" },
-    );
+    editor.dispatch({ type: "DELETE_WORD", direction: "backward" });
 
     // The selected range is deleted (NOT extended by word — a selection delete
     // just removes the selection). Body shrinks from "hello world" → "world".
@@ -117,16 +109,13 @@ describe("#430 — DELETE_WORD deletes a non-collapsed range inside a footnote b
 
 describe("#430 — main-tree DELETE_WORD selection delete unchanged", () => {
   it("DELETE_WORD with a selection in the MAIN tree deletes the selection", () => {
-    const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello world" });
-    const blockId = typed.selection.focus.blockId;
-    const selected = selectInBlock(typed, blockId, 0, 6);
-    const after = reduceEditor(
-      selected,
-      { type: "DELETE_WORD", direction: "backward" },
-    );
-    expect(bodyTextOf(after.document, blockId)).toBe("world");
-    expect(after.selection.anchor).toEqual(after.selection.focus);
-    expect(after.selection.focus).toEqual({ blockId, offset: 0 });
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "hello world" });
+    const blockId = initial.selection.focus.blockId;
+    const selected = selectInBlock(initial, blockId, 0, 6);
+    selected.dispatch({ type: "DELETE_WORD", direction: "backward" });
+    expect(bodyTextOf(selected.document, blockId)).toBe("world");
+    expect(selected.selection.anchor).toEqual(selected.selection.focus);
+    expect(selected.selection.focus).toEqual({ blockId, offset: 0 });
   });
 });

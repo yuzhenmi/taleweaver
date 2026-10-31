@@ -16,15 +16,11 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  createInitialEditorState,
-  reduceEditor,
-  createDefaultComponentRegistry,
-  createDefaultAttrRegistry,
+  createEditor,
   type EditorConfig,
   type PageConfig,
   createPosition,
-  createSpan,
-} from "@taleweaver/core";
+  createSpan, createDefaultComponentRegistry, createDefaultAttrRegistry } from "@taleweaver/core";
 import {
   __getLayoutCacheStatsForTest,
   __resetLayoutCacheStatsForTest,
@@ -53,7 +49,7 @@ function makeConfig(): EditorConfig {
 describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
   it("single-paragraph INSERT_TEXT on a 50-paragraph doc cache-hits ~49 of 50 paragraphs", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
+    let editor = createEditor(config);
     const firstId = (() => {
       const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("?");
@@ -61,41 +57,32 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     })();
     // Seed 50 paragraphs by INSERT_TEXT + SPLIT_NODE. Position cursor at
     // start of the first paragraph (it's empty).
-    editor = reduceEditor(
-      editor,
-      {
+    editor.dispatch({
         type: "SET_SELECTION",
         selection: createSpan(
           createPosition(firstId, 0),
           createPosition(firstId, 0),
         ),
-      },
-    );
+      });
     for (let i = 0; i < 50; i++) {
-      editor = reduceEditor(
-        editor,
-        { type: "INSERT_TEXT", text: `para${i}` },
-      );
+      editor.dispatch({ type: "INSERT_TEXT", text: `para${i}` });
       if (i < 49) {
-        editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+        editor.dispatch({ type: "SPLIT_NODE" });
       }
     }
     // Move cursor back to the FIRST paragraph for a localized edit.
-    editor = reduceEditor(
-      editor,
-      {
+    editor.dispatch({
         type: "SET_SELECTION",
         selection: createSpan(
           createPosition(firstId, 0),
           createPosition(firstId, 0),
         ),
-      },
-    );
+      });
 
     // Reset counters, dispatch ONE keystroke, report.
     __resetLayoutCacheStatsForTest();
     __resetMetaBuildCountForTest();
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" });
+    editor.dispatch({ type: "INSERT_TEXT", text: "X" });
     const stats = __getLayoutCacheStatsForTest();
     const metaBuildCount = __getMetaBuildCountForTest();
 
@@ -134,28 +121,22 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     // O(N_children_per_page) child iteration that L-PERF-A's per-
     // child cache reduced but did not eliminate.
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
+    let editor = createEditor(config);
     const firstId = (() => {
       const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("?");
       return root.firstChildId;
     })();
-    editor = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
-    );
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) });
     for (let i = 0; i < 500; i++) {
-      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `p${i}` });
-      if (i < 499) editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+      editor.dispatch({ type: "INSERT_TEXT", text: `p${i}` });
+      if (i < 499) editor.dispatch({ type: "SPLIT_NODE" });
     }
     // Cursor at first para start.
-    editor = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
-    );
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) });
 
     __resetLayoutCacheStatsForTest();
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" });
+    editor.dispatch({ type: "INSERT_TEXT", text: "X" });
     const stats = __getLayoutCacheStatsForTest();
 
     (globalThis as unknown as { console: { log: (...args: unknown[]) => void } }).console.log(
@@ -181,27 +162,21 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     // reported ~150ms is dominated by model work or by React/paint.
     const config = makeConfig();
     for (const N of [500]) {
-      let editor = createInitialEditorState(config);
+      let editor = createEditor(config);
       const firstId = (() => {
         const root = finalSection(editor.document);
         if (root === null || root.firstChildId === null) throw new Error("?");
         return root.firstChildId;
       })();
-      editor = reduceEditor(
-        editor,
-        { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
-      );
+      editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) });
       for (let i = 0; i < N; i++) {
-        editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `p${i}` });
-        if (i < N - 1) editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+        editor.dispatch({ type: "INSERT_TEXT", text: `p${i}` });
+        if (i < N - 1) editor.dispatch({ type: "SPLIT_NODE" });
       }
-      editor = reduceEditor(
-        editor,
-        { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
-      );
+      editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) });
       __resetLayoutCacheStatsForTest();
       const t0 = performance.now();
-      editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+      editor.dispatch({ type: "SPLIT_NODE" });
       const ms = performance.now() - t0;
       const stats = __getLayoutCacheStatsForTest();
       (globalThis as unknown as { console: { log: (...args: unknown[]) => void } }).console.log(
@@ -224,10 +199,10 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     const config = makeConfig();
 
     for (const N of [200, 1000, 4000]) {
-      let testEditor = createInitialEditorState(config);
+      let testEditor = createEditor(config);
       const lines = Array(N).fill(0).map((_, i) => `paste-line-${i}`).join("\n");
       const t0 = performance.now();
-      testEditor = reduceEditor(testEditor, { type: "PASTE", text: lines });
+      testEditor.dispatch({ type: "PASTE", text: lines });
       const pasteMs = performance.now() - t0;
       (globalThis as unknown as { console: { log: (...args: unknown[]) => void } }).console.log(
         `[L-PERF-E ${N}-line PASTE] ${pasteMs.toFixed(2)}ms (${(pasteMs / N).toFixed(3)}ms/line)`,
@@ -239,29 +214,23 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
 
   it("single keystroke on a 500-paragraph doc: hit ratio + scaling diagnostic", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
+    let editor = createEditor(config);
     const firstId = (() => {
       const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("?");
       return root.firstChildId;
     })();
-    editor = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
-    );
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) });
     for (let i = 0; i < 500; i++) {
-      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `p${i}` });
-      if (i < 499) editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+      editor.dispatch({ type: "INSERT_TEXT", text: `p${i}` });
+      if (i < 499) editor.dispatch({ type: "SPLIT_NODE" });
     }
-    editor = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
-    );
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) });
 
     __resetLayoutCacheStatsForTest();
     __resetMetaBuildCountForTest();
     const t0 = performance.now();
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" });
+    editor.dispatch({ type: "INSERT_TEXT", text: "X" });
     const keystrokeMs = performance.now() - t0;
     const stats = __getLayoutCacheStatsForTest();
     const metaBuildCount = __getMetaBuildCountForTest();

@@ -3,8 +3,7 @@ import { TEST_RESOLVER } from "../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import {
-  createInitialEditorState,
-  reduceEditor,
+  createEditor,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   getBlock,
@@ -24,8 +23,6 @@ import {
   subscribeForeignChanges,
   subscribeRemoteChanges,
   runWithTransactionOrigin,
-  createEditorStateFromDocument,
-  initialSelectionForDocument,
   serializeDocument,
   deserializeDocument,
   createDefaultSerializerRegistry,
@@ -36,7 +33,7 @@ import {
   formattingSuggestionIds,
   type EditorAction,
   type EditorConfig,
-  type EditorState,
+  type Editor,
   type BlockId,
   type Position,
   type Proposal,
@@ -48,20 +45,21 @@ const config: EditorConfig = {
   containerWidth: 800,
 };
 
-function run(editor: EditorState, cfg: EditorConfig, ...actions: EditorAction[]): EditorState {
+function run(editor: Editor, cfg: EditorConfig, ...actions: EditorAction[]): Editor {
   let s = editor;
-  for (const a of actions) s = reduceEditor({ ...s, config: cfg }, a);
+  s.config = cfg;
+  for (const a of actions) s.dispatch(a);
   return s;
 }
 const at = (id: BlockId, o: number): Position => createPosition(id, o);
 const caret = (id: BlockId, o: number): EditorAction => ({ type: "SET_SELECTION", selection: createSpan(at(id, o), at(id, o)) });
-const runsOf = (e: EditorState, id: BlockId) =>
+const runsOf = (e: Editor, id: BlockId) =>
   (getBlock(e.document, id)?.inlineContent?.items ?? []).map((i) => [i.kind === "text" ? i.text : "￼", { ...i.attrs }] as const);
-const textOf = (e: EditorState, id: BlockId): string => runsOf(e, id).map(([t]) => t).join("");
+const textOf = (e: Editor, id: BlockId): string => runsOf(e, id).map(([t]) => t).join("");
 
 /** "The  quick fox" / "jumps over": two paragraphs; caret at the end of the second. */
 function twoParagraphs(cfg: EditorConfig = config) {
-  const s = run(createInitialEditorState(cfg), cfg, { type: "INSERT_TEXT", text: "The  quick fox" }, { type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "jumps over" });
+  const s = run(createEditor(cfg), cfg, { type: "INSERT_TEXT", text: "The  quick fox" }, { type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "jumps over" });
   const p2 = s.selection.focus.blockId;
   const p1 = getBlock(s.document, p2)?.prevSiblingId ?? null;
   if (p1 === null) throw new Error("setup");
@@ -86,8 +84,9 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
   it("records every edit as a suggestion of ONE group with metadata, outside suggesting mode, without moving the caret", () => {
     const { s, p1, p2 } = twoParagraphs();
     const proposal = proposalFor(p1, p2);
+    const selectionBefore = s.selection;
     const after = run(s, config, { type: "PROPOSE", proposal });
-    expect(after.selection).toEqual(s.selection); // caret untouched (after every edit)
+    expect(after.selection).toEqual(selectionBefore); // caret untouched (after every edit)
     const groups = getSuggestionGroups(after.document);
     expect(groups).toHaveLength(1);
     const [g] = groups;
@@ -145,7 +144,7 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
   it("an untracked proposal is SELF to its own host's subscriptions, FOREIGN to a second host on the same doc", () => {
     const { s, p1 } = twoParagraphs();
     // A collab host: its edits carry its own origin, which its History tracks.
-    const hostA = createEditorStateFromDocument(s.document, s.selection, config, "hostA");
+    const hostA = createEditor(config, { document: s.document, selection: s.selection, historyOrigin: "hostA" });
     const seenByA: ReadonlySet<BlockId>[] = [];
     const seenByB: ReadonlySet<BlockId>[] = [];
     const remoteA: ReadonlySet<BlockId>[] = [];
@@ -177,7 +176,8 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
     expect(remoteA).toEqual([]);
     expect(remoteB.length).toBeGreaterThan(0); // a synced peer sees it
     // Still untracked: the host's undo stack does not hold it.
-    expect(textOf(runWithTransactionOrigin("hostA", () => run(after, config, { type: "UNDO" })), p1)).toBe(textOf(after, p1));
+    const proposedText = textOf(after, p1);
+    expect(textOf(runWithTransactionOrigin("hostA", () => run(after, config, { type: "UNDO" })), p1)).toBe(proposedText);
   });
 
   it("a proposal whose every tagged char the user's undo removes is hidden, and dropped by its group's resolve", () => {
@@ -321,8 +321,9 @@ describe("proposal overlaps and staleness", () => {
     };
     const problem = validateProposal(first.document, clash);
     expect(problem?.kind).toBe("conflict");
+    const firstDocument = first.document;
     const after = run(first, config, { type: "PROPOSE", proposal: clash });
-    expect(after.document).toBe(first.document); // refused whole: nothing applied
+    expect(after.document).toBe(firstDocument); // refused whole: nothing applied
     const self: Proposal = {
       groupId: newSuggestionGroupId(),
       author: "other",
@@ -335,26 +336,34 @@ describe("proposal overlaps and staleness", () => {
   });
 
   it("the reducer maps a proposal from its basedOn version: lands at mapped positions, stale when its ranges changed or the version is unknown", () => {
-    const { s, p1, p2 } = twoParagraphs();
-    const v0 = s.document;
-    const proposal = proposalFor(p1, p2);
-    // The user types at the start of paragraph 1 meanwhile.
-    const typed = run(s, config, caret(p1, 0), { type: "INSERT_TEXT", text: ">> " });
-    const landed = run(typed, config, { type: "PROPOSE", proposal, basedOn: v0 });
-    expect(landed.lastProposal).toMatchObject({ groupId: proposal.groupId, outcome: "applied" });
-    expect(textOf(run(landed, config, { type: "ACCEPT_SUGGESTION_GROUP", groupId: proposal.groupId }), p1)).toBe(">> The swift fox");
-    // An edit inside "quick" since v0 → stale, nothing applied.
-    const edited = run(typed, config, caret(p1, 9), { type: "INSERT_TEXT", text: "Z" });
-    const stale = run(edited, config, { type: "PROPOSE", proposal, basedOn: v0 });
-    expect(stale.lastProposal).toMatchObject({ groupId: proposal.groupId, outcome: "stale" });
-    expect(stale.document).toBe(edited.document);
-    // A version that is not on the change chain (another document) → stale.
-    const foreign = twoParagraphs().s.document;
-    expect(run(typed, config, { type: "PROPOSE", proposal, basedOn: foreign }).lastProposal?.outcome).toBe("stale");
+    // Each continuation on a fresh setup (a dispatch changes the editor in place).
+    const setup = () => {
+      const { s, p1, p2 } = twoParagraphs();
+      const v0 = s.document;
+      const proposal = proposalFor(p1, p2);
+      // The user types at the start of paragraph 1 meanwhile.
+      const typed = run(s, config, caret(p1, 0), { type: "INSERT_TEXT", text: ">> " });
+      return { typed, v0, proposal, p1, p2 };
+    };
+    const a = setup();
+    const landed = run(a.typed, config, { type: "PROPOSE", proposal: a.proposal, basedOn: a.v0 });
+    expect(landed.lastProposal).toMatchObject({ groupId: a.proposal.groupId, outcome: "applied" });
     // A refused proposal records why.
-    const refused = run(landed, config, { type: "PROPOSE", proposal: { ...proposalFor(p1, p2), groupId: newSuggestionGroupId() } });
+    const refused = run(landed, config, { type: "PROPOSE", proposal: { ...proposalFor(a.p1, a.p2), groupId: newSuggestionGroupId() } });
     expect(refused.lastProposal?.outcome).toBe("rejected");
     expect(refused.lastProposal?.problem?.kind).toBe("conflict");
+    expect(textOf(run(refused, config, { type: "ACCEPT_SUGGESTION_GROUP", groupId: a.proposal.groupId }), a.p1)).toBe(">> The swift fox");
+    // An edit inside "quick" since v0 → stale, nothing applied.
+    const b = setup();
+    const edited = run(b.typed, config, caret(b.p1, 9), { type: "INSERT_TEXT", text: "Z" });
+    const editedDocument = edited.document;
+    const stale = run(edited, config, { type: "PROPOSE", proposal: b.proposal, basedOn: b.v0 });
+    expect(stale.lastProposal).toMatchObject({ groupId: b.proposal.groupId, outcome: "stale" });
+    expect(stale.document).toBe(editedDocument);
+    // A version that is not on the change chain (another document) → stale.
+    const c = setup();
+    const foreign = twoParagraphs().s.document;
+    expect(run(c.typed, config, { type: "PROPOSE", proposal: c.proposal, basedOn: foreign }).lastProposal?.outcome).toBe("stale");
   });
 
   it("the verdict chain keeps existing verdict objects (identity) until it is trimmed; copies keep their dispatch number", () => {
@@ -376,7 +385,7 @@ describe("proposal overlaps and staleness", () => {
 
   it("validation is O(n log n): ~1,000 edits cost ~n·log2(n) comparisons, not n²", () => {
     const text = "ab ".repeat(1000);
-    const s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text });
+    const s = run(createEditor(config), config, { type: "INSERT_TEXT", text });
     const id = s.selection.focus.blockId;
     const n = 1000;
     // Shuffled (deterministic) so the sort does real work.
@@ -412,7 +421,7 @@ describe("rendering hook and compatibility", () => {
 
   it("a document with OLD-shape suggestion records (no group / metadata) still loads, lists and resolves", () => {
     // A suggesting-mode insertion, minus its `order`, is exactly the pre-group record shape.
-    const old = run(createInitialEditorState(config), { ...config, suggestingAuthor: "legacy" }, { type: "INSERT_TEXT", text: "abc" });
+    const old = run(createEditor(config), { ...config, suggestingAuthor: "legacy" }, { type: "INSERT_TEXT", text: "abc" });
     const yRecords = getYDoc(old.document).getMap("suggestions");
     const [legacyId] = [...yRecords.keys()];
     const yRecord = legacyId === undefined ? undefined : yRecords.get(legacyId);
@@ -423,7 +432,7 @@ describe("rendering hook and compatibility", () => {
     const loaded = deserializeDocument(serializeDocument(old.document, BINARY_FORMAT, reg), BINARY_FORMAT, reg);
     const groups = getSuggestionGroups(loaded);
     expect(groups.map((g) => [g.id, g.author, g.metadata, g.suggestions.length])).toEqual([[legacyId, "legacy", undefined, 1]]);
-    const editor = createEditorStateFromDocument(loaded, initialSelectionForDocument(loaded), config);
+    const editor = createEditor(config, { document: loaded });
     const accepted = run(editor, config, { type: "ACCEPT_SUGGESTION_GROUP", groupId: legacyId ?? "" });
     expect(getSuggestions(accepted.document)).toHaveLength(0);
     expect(runsOf(accepted, accepted.selection.focus.blockId)).toEqual([["abc", {}]]);

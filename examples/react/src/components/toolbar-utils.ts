@@ -2,7 +2,7 @@ import {
   positionsEqual,
   getBlock,
   iterateSpan,
-  type EditorState,
+  type Editor,
 } from "@taleweaver/core";
 
 export interface FormatState {
@@ -64,7 +64,7 @@ const ATTR_KEYS = {
  * its own `attrs`).
  */
 function selectionHasAttr(
-  editor: EditorState,
+  editor: Editor,
   attrKey: string,
 ): boolean {
   let sawTextItem = false;
@@ -93,7 +93,7 @@ function selectionHasAttr(
  * Check whether the cursor's containing text item carries `attrKey`. Used for
  * collapsed selections (single cursor position).
  */
-function cursorHasAttr(editor: EditorState, attrKey: string): boolean {
+function cursorHasAttr(editor: Editor, attrKey: string): boolean {
   // Pending typing attrs (a format command at the caret) are what typing gets.
   if (editor.storedAttrs !== undefined) return editor.storedAttrs[attrKey] !== undefined;
   const { blockId, offset } = editor.selection.focus;
@@ -127,7 +127,7 @@ function cursorHasAttr(editor: EditorState, attrKey: string): boolean {
  * Mirrors `selectionHasAttr`'s span iteration.
  */
 function selectionCommonAttrValue(
-  editor: EditorState,
+  editor: Editor,
   attrKey: string,
 ): unknown | "mixed" {
   let sawTextItem = false;
@@ -164,7 +164,7 @@ function selectionCommonAttrValue(
  * item when the cursor is at offset 0). Returns `undefined` when there is no
  * such text item.
  */
-function cursorAttrValue(editor: EditorState, attrKey: string): unknown {
+function cursorAttrValue(editor: Editor, attrKey: string): unknown {
   if (editor.storedAttrs !== undefined) return editor.storedAttrs[attrKey];
   const { blockId, offset } = editor.selection.focus;
   const block = getBlock(editor.document, blockId);
@@ -189,7 +189,7 @@ function cursorAttrValue(editor: EditorState, attrKey: string): unknown {
  * `marginInlineStart`, `marginBlockStart`, `marginBlockEnd`). Returns
  * `undefined` when the focus block is missing or carries no such attr.
  */
-function focusBlockAttr(editor: EditorState, attrKey: string): unknown {
+function focusBlockAttr(editor: Editor, attrKey: string): unknown {
   const block = getBlock(editor.document, editor.selection.focus.blockId);
   if (!block) return undefined;
   return block.attrs[attrKey];
@@ -205,7 +205,7 @@ function asStringOrNull(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-export function getFormatState(editor: EditorState): FormatState {
+export function getFormatState(editor: Editor): FormatState {
   const { document, selection, history } = editor;
 
   // Block type and heading level from the focus block.

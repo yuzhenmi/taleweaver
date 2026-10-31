@@ -77,25 +77,21 @@ function mount(text: string, pageConfig?: core.PageConfig): {
   container: HTMLElement;
   textarea: HTMLTextAreaElement;
   controller: EditorController;
-  get: () => core.EditorState;
+  get: () => core.Editor;
   dispatch: (a: core.EditorAction) => void;
   id: core.BlockId;
 } {
   const cfg = { ...makeConfig(), ...(pageConfig !== undefined ? { pageConfig } : {}) };
-  let editor = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text });
+  const editor = core.createEditor(cfg);
+  editor.dispatch({ type: "INSERT_TEXT", text });
   const container = document.createElement("div");
   document.body.appendChild(container);
-  let controller: EditorController | null = null;
-  const dispatch = (a: core.EditorAction): void => {
-    editor = core.reduceEditor(editor, a);
-    controller?.update(editor);
-  };
-  controller = createEditorController(container, {
+  const dispatch = (a: core.EditorAction): void => editor.dispatch(a);
+  const controller = createEditorController(container, {
     measurer: core.createMockMeasurer(8, 16),
-    dispatch,
+    editor,
     ...(pageConfig !== undefined ? { pageHeight: pageConfig.pageBlockSize, pageGap: pageConfig.pageGap } : {}),
   });
-  controller.update(editor);
   const textarea = container.querySelector("textarea");
   if (!(textarea instanceof HTMLTextAreaElement)) throw new Error("no textarea");
   return { container, textarea, controller, get: () => editor, dispatch, id: editor.selection.focus.blockId };
@@ -104,7 +100,7 @@ function mount(text: string, pageConfig?: core.PageConfig): {
 const span = (id: core.BlockId, a: number, b: number): core.Span =>
   core.createSpan(core.createPosition(id, a), core.createPosition(id, b));
 
-function runsOf(editor: core.EditorState, id: core.BlockId): Array<[string, Record<string, unknown>]> {
+function runsOf(editor: core.Editor, id: core.BlockId): Array<[string, Record<string, unknown>]> {
   return (core.resolveBlock(editor.document, id)?.block.inlineContent?.items ?? []).map((it) => [it.kind === "text" ? it.text : "", { ...it.attrs }]);
 }
 

@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./helpers/apply-attrs-or-suggest";
 import { storeTypingAttrs } from "../typing-attrs";
@@ -28,7 +28,7 @@ import type { ActionOf } from "../editor-action";
  * state-equality short-circuit; the selection is preserved unchanged;
  * dirtyIds threaded through to the incremental render pipeline.
  */
-export function handleSetTextColor(editor: EditorState, { color }: ActionOf<"SET_TEXT_COLOR">): Edit | null {
+export function handleSetTextColor(editor: Editor, { color }: ActionOf<"SET_TEXT_COLOR">): Edit | null {
   const { selection } = editor;
   // Normalize empty string to a removal — an empty color isn't a
   // meaningful value, so this handler is where we reject it.

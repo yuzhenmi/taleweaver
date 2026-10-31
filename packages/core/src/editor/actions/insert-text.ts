@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import {
   insertText,
   mintInsertion,
@@ -20,7 +20,7 @@ import { replaceObjectWithText } from "./helpers/replace-object-with-text";
 import { getTypingAttrs } from "../typing-attrs";
 import type { ActionOf } from "../editor-action";
 
-export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT_TEXT">): Edit | null {
+export function handleInsertText(editor: Editor, { text }: ActionOf<"INSERT_TEXT">): Edit | null {
   const { config } = editor;
   // Object selection: typing over a selected atomic-leaf (image) replaces
   // the object with the typed text (Google Docs). Routes BEFORE the collapsed

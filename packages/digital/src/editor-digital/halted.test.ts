@@ -6,10 +6,11 @@
  *     over a not-yet-upgraded document) halts the controller (hook
  *     once, no APPLY_FOREIGN_CHANGE, input ignored, `contenteditable` off, the screen
  *     kept, every member a defined no-op without reading the Y.Doc, decoration setters
- *     no-ops, an in-flight composition dropped); `replaceDocument` with a Document holding
+ *     no-ops, an in-flight composition dropped); `setEditor` with an editor over a Document holding
  *     no legacy storage — the same Y.Doc or another — resumes editing with every layer
  *     dropped.
  */
+import { browserHtmlParser } from "./html-parser";
 import * as Y from "yjs";
 import { describe, it, expect, vi } from "vitest";
 import * as core from "@taleweaver/core";
@@ -24,9 +25,14 @@ const cfg: core.EditorConfig = {
   containerWidth: 800,
 };
 
+/** A fresh editor over `document` (a document replacement for `setEditor`). */
+const fresh = (document: core.Document): core.Editor =>
+  core.createEditor({ ...cfg, htmlParser: browserHtmlParser }, { document });
+
 /** Peer A (reducer-driven, its own Y.Doc) and a digital controller B over a synced replica. */
 function setup(text: string, extra: Partial<DigitalControllerOptions> = {}) {
-  let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text });
+  const peerA = core.createEditor(cfg);
+  peerA.dispatch({ type: "INSERT_TEXT", text });
   const docA = core.getYDoc(peerA.document);
   const docB = new Y.Doc();
   Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
@@ -39,7 +45,7 @@ function setup(text: string, extra: Partial<DigitalControllerOptions> = {}) {
   core.subscribeRemoteChanges(
     peerA.document,
     (dirtyIds) => {
-      peerA = core.reduceEditor(peerA, { type: "APPLY_FOREIGN_CHANGE", dirtyIds });
+      peerA.dispatch({ type: "APPLY_FOREIGN_CHANGE", dirtyIds });
     },
     () => undefined, // peer A is the old-client side in the HALTED test
   );
@@ -50,14 +56,11 @@ function setup(text: string, extra: Partial<DigitalControllerOptions> = {}) {
   let compatible = 0;
   const controller = createDigitalController({
     container,
-    componentRegistry: cfg.componentRegistry,
-    attrRegistry: cfg.attrRegistry,
-    containerWidth: 800,
     doc: document,
-    initialDocument: documentB,
     onIncompatibleDocument: (r) => reports.push(r),
     onDocumentCompatible: () => compatible++,
     ...extra,
+    editor: fresh(documentB),
   });
   const id = peerA.selection.focus.blockId;
   return {
@@ -70,7 +73,7 @@ function setup(text: string, extra: Partial<DigitalControllerOptions> = {}) {
     rootId: peerA.document.rootId,
     compatible: () => compatible,
     a: (...actions: core.EditorAction[]) => {
-      for (const action of actions) peerA = core.reduceEditor(peerA, action);
+      for (const action of actions) peerA.dispatch(action);
     },
   };
 }
@@ -87,7 +90,7 @@ function secondInstanceWrite(from: Y.Doc, doc: Y.Doc): void {
 }
 
 const textOf = (c: DigitalController, id: core.BlockId): string =>
-  (core.getBlock(c.editorState.document, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
+  (core.getBlock(c.editor.document, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
 const span = (id: core.BlockId, a: number, b: number) => core.createSpan(core.createPosition(id, a), core.createPosition(id, b));
 
 describe("digital — undo survives a peer's formatting", () => {
@@ -95,7 +98,7 @@ describe("digital — undo survives a peer's formatting", () => {
     const m = setup("");
     m.controller.dispatch({ type: "INSERT_TEXT", text: "hello" });
     m.a({ type: "SET_SELECTION", selection: span(m.id, 1, 4) }, { type: "TOGGLE_STYLE", style: "bold" });
-    expect(core.getBlock(m.controller.editorState.document, m.id)?.inlineContent?.items.some((i) => i.attrs.bold === true)).toBe(true);
+    expect(core.getBlock(m.controller.editor.document, m.id)?.inlineContent?.items.some((i) => i.attrs.bold === true)).toBe(true);
     m.controller.dispatch({ type: "UNDO" });
     expect(textOf(m.controller, m.id)).toBe("");
     m.controller.destroy();
@@ -141,15 +144,15 @@ function legacyBlock(type: string, parentId: string | null, inline: Y.Array<Y.Ma
  * A NOT-YET-UPGRADED document: the host bound a Document to an empty Y.Doc, then a
  * schema-1 document (`doc > p1("legacy")`) synced in.
  */
-function notYetUpgraded(): { doc: Y.Doc; document: core.Document; } {
+function notYetUpgraded(): { doc: Y.Doc; editor: core.Editor } {
   const doc = new Y.Doc();
-  const document = core.createDocument({ resolver: TEST_RESOLVER, rootId: "doc" as core.BlockId, doc });
+  const editor = fresh(core.createDocument({ resolver: TEST_RESOLVER, rootId: "doc" as core.BlockId, doc }));
   doc.transact(() => {
     const blocks = doc.getMap<Y.Map<unknown>>("blocks");
     blocks.set("doc", legacyBlock("document", null, null, "p1"));
     blocks.set("p1", legacyBlock("paragraph", "doc", legacyRuns("legacy")));
   });
-  return { doc, document };
+  return { doc, editor };
 }
 
 /** Count Y reads (map gets, text deltas, root-map lookups) on `doc` while `run` runs. */
@@ -191,17 +194,19 @@ const kept = (id: core.BlockId): core.Decoration => ({
 });
 
 describe("digital — HALTED on an incompatible document", () => {
-  it("halts once on a legacy write, keeps the screen, ignores input, every member is a no-op that never reads the Y.Doc; replaceDocument resumes with every layer dropped", async () => {
+  it("halts once on a legacy write, keeps the screen, ignores input, every member is a no-op that never reads the Y.Doc; setEditor resumes with every layer dropped", async () => {
     const m = setup("hello");
     const c = m.controller;
     c.setDecorations([kept(m.id)]);
-    const before = c.editorState;
+    const shownEditor = c.editor;
+    const before = { ...shownEditor };
+    const dispatched = vi.spyOn(shownEditor, "dispatch");
     const shown = m.container.textContent;
     // An OLD client writes a paragraph into the frozen legacy root: surfaced with its text.
     const legacyId = legacyWrite(m.docA, "old client");
     expect(m.reports).toEqual([{ reason: "legacy-write", legacyBlocks: [legacyId], legacyText: { [legacyId]: "old client" } }]);
     expect(c.halted).toBe(true);
-    expect(c.editorState).toBe(before); // no APPLY_FOREIGN_CHANGE reached the reducer
+    expect(dispatched).not.toHaveBeenCalled(); // no APPLY_FOREIGN_CHANGE reached the reducer
     expect(m.container.contentEditable).toBe("false");
     expect(m.container.textContent).toBe(shown); // the last good render stays
     legacyWrite(m.docA, "again", legacyId);
@@ -214,17 +219,17 @@ describe("digital — HALTED on an incompatible document", () => {
     expect(input.defaultPrevented).toBe(true);
     m.container.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }));
     c.dispatch({ type: "INSERT_TEXT", text: "x" });
-    expect(c.editorState).toBe(before);
+    expect(dispatched).not.toHaveBeenCalled();
     expect(m.container.textContent).toBe(shown);
 
     const pos = core.createPosition(m.id, 0);
     let results: Record<string, unknown> = {};
     const cases = {
-      editorState: () => c.editorState,
+      editor: () => c.editor,
       decorations: () => c.decorations,
       halted: () => c.halted,
       dispatch: () => c.dispatch({ type: "DELETE_BACKWARD" }),
-      replaceDocument: () => "covered below",
+      setEditor: () => "covered below",
       setDecorations: () => c.setDecorations([{ ...kept(m.id), id: "ignored" }]),
       setFindHighlights: () => c.setFindHighlights([{ blockId: m.id, start: 0, end: 1 }], 0),
       clearFindHighlights: () => c.clearFindHighlights(),
@@ -253,20 +258,21 @@ describe("digital — HALTED on an incompatible document", () => {
       results = Object.fromEntries(Object.entries(cases).map(([k, f]) => [k, f()]));
     });
     expect(reads).toBe(0);
-    expect(results.editorState).toBe(before);
+    expect(results.editor).toBe(shownEditor);
+    expect(c.editor.document).toBe(before.document);
     expect(results.version).toBe(before.document);
     expect(results.mapPosition).toBeNull();
     expect(results.createAnchor).toBeNull();
     expect(results.runCommand).toBe(false);
     expect(results.findStart).toEqual({ total: 0, activeIndex: -1 });
     await expect(results.propose).resolves.toEqual({ ok: false, reason: "halted" });
-    expect(c.editorState).toBe(before);
+    expect(dispatched).not.toHaveBeenCalled();
     // Setters are no-ops: the last good host set is still reported, nothing redrawn.
     expect(c.decorations.decorations.map((d) => d.id)).toEqual(["kept"]);
     expect(m.container.textContent).toBe(shown);
 
     // Exit: the host REPLACES the document (here a fresh Document over the same Y.Doc).
-    c.replaceDocument(core.createDocument({ resolver: TEST_RESOLVER, rootId: before.document.rootId, doc: m.docB }));
+    c.setEditor(fresh(core.createDocument({ resolver: TEST_RESOLVER, rootId: before.document.rootId, doc: m.docB })));
     expect(c.halted).toBe(false);
     expect(m.container.contentEditable).toBe("true");
     expect(m.container.textContent).not.toContain("again"); // surfaced, not merged
@@ -276,19 +282,19 @@ describe("digital — HALTED on an incompatible document", () => {
     c.destroy();
   });
 
-  it("a legacy-write halt is STICKY: upgradeDocument (by a peer or locally) is a no-op and never reports compatible; replaceDocument over the same Y.Doc resumes and observes peers again", () => {
+  it("a legacy-write halt is STICKY: upgradeDocument (by a peer or locally) is a no-op and never reports compatible; setEditor over the same Y.Doc resumes and observes peers again", () => {
     const m = setup("hello");
     const c = m.controller;
     legacyWrite(m.docA, "old");
     expect(c.halted).toBe(true);
     expect(core.upgradeDocument(m.docA, { resolver: TEST_RESOLVER }).upgradedBlocks).toEqual([]);
     expect(core.upgradeDocument(m.docB, { resolver: TEST_RESOLVER }).upgradedBlocks).toEqual([]);
-    const before = c.editorState;
+    const beforeDispatch = vi.spyOn(c.editor, "dispatch");
     m.a({ type: "INSERT_TEXT", text: "?" }); // later peer edits stay withheld
     expect(m.compatible()).toBe(0);
     expect(c.halted).toBe(true);
-    expect(c.editorState).toBe(before);
-    c.replaceDocument(core.createDocument({ resolver: TEST_RESOLVER, rootId: m.rootId, doc: m.docB }));
+    expect(beforeDispatch).not.toHaveBeenCalled();
+    c.setEditor(fresh(core.createDocument({ resolver: TEST_RESOLVER, rootId: m.rootId, doc: m.docB })));
     expect(c.halted).toBe(false);
     expect(textOf(c, m.id)).toBe("hello?");
     // Peer changes are observed again after the resume (peer A edits first: its own
@@ -308,7 +314,7 @@ describe("digital — HALTED on an incompatible document", () => {
       else secondInstanceWrite(m.docA, m.docB);
       expect(c.halted).toBe(true);
       expect(m.reports.map((r) => r.reason)).toEqual([reason]);
-      const before = c.editorState;
+      const beforeDispatch = vi.spyOn(c.editor, "dispatch");
       // Nothing resumes it by itself: the schema dropping back, an upgrade, later peer edits.
       if (reason === "newer-schema") m.docA.getMap("meta").set("schemaVersion", core.CURRENT_SCHEMA_VERSION);
       core.upgradeDocument(m.docB, { resolver: TEST_RESOLVER });
@@ -316,21 +322,21 @@ describe("digital — HALTED on an incompatible document", () => {
       expect(m.compatible()).toBe(0);
       expect(c.halted).toBe(true);
       expect(m.reports).toHaveLength(1);
-      expect(c.editorState).toBe(before);
+      expect(beforeDispatch).not.toHaveBeenCalled();
       c.destroy();
     }
   });
 
-  it("replaceDocument (not halted) refuses a NOT-YET-UPGRADED document: halts on it, keeps the old editor, reports compatible once it is upgraded — and a legacy write before the resume reports again", () => {
+  it("setEditor (not halted) refuses a NOT-YET-UPGRADED document: halts on it, keeps the old editor, reports compatible once it is upgraded — and a legacy write before the resume reports again", () => {
     const m = setup("hello");
     const c = m.controller;
     const x = notYetUpgraded();
-    const before = c.editorState;
+    const before = c.editor;
     const destroy = vi.spyOn(before.history, "destroy");
-    c.replaceDocument(x.document);
+    c.setEditor(x.editor);
     expect(c.halted).toBe(true);
     expect(m.reports).toEqual([{ reason: "legacy-schema", legacyBlocks: ["doc", "p1"], legacyText: {} }]);
-    expect(c.editorState).toBe(before);
+    expect(c.editor).toBe(before);
     expect(destroy).not.toHaveBeenCalled();
     core.bindAttrRegistry(x.doc, cfg.attrRegistry); // the host binds before upgrading a doc no editor adopted
     core.upgradeDocument(x.doc, { resolver: TEST_RESOLVER });
@@ -344,20 +350,20 @@ describe("digital — HALTED on an incompatible document", () => {
     x.doc.transact(() => x.doc.getMap<Y.Map<unknown>>("blocks").get("p1")?.set("inlineContent", legacyRuns("more")));
     expect(m.reports).toHaveLength(2);
     // Replacing with the upgraded document resumes; it shows the upgraded content.
-    c.replaceDocument(core.createDocument({ resolver: TEST_RESOLVER, rootId: "doc" as core.BlockId, doc: x.doc }));
+    c.setEditor(fresh(core.createDocument({ resolver: TEST_RESOLVER, rootId: "doc" as core.BlockId, doc: x.doc })));
     expect(c.halted).toBe(false);
     expect(textOf(c, "p1" as core.BlockId)).toBe("legacy");
     c.destroy();
   });
 
-  it("halted, replaceDocument over a NOT-YET-UPGRADED document is refused: no second report, the editor kept, its document watched (its upgrade is reported)", () => {
+  it("halted, setEditor over a NOT-YET-UPGRADED document is refused: no second report, the editor kept, its document watched (its upgrade is reported)", () => {
     const m = setup("hello");
     legacyWrite(m.docA, "old");
-    const before = m.controller.editorState;
+    const before = m.controller.editor;
     const x = notYetUpgraded();
-    m.controller.replaceDocument(x.document);
+    m.controller.setEditor(x.editor);
     expect(m.controller.halted).toBe(true);
-    expect(m.controller.editorState).toBe(before);
+    expect(m.controller.editor).toBe(before);
     expect(m.reports).toHaveLength(1);
     core.bindAttrRegistry(x.doc, cfg.attrRegistry); // the host binds before upgrading a doc no editor adopted
     core.upgradeDocument(x.doc, { resolver: TEST_RESOLVER });
@@ -365,25 +371,22 @@ describe("digital — HALTED on an incompatible document", () => {
     m.controller.destroy();
   });
 
-  it("replaceDocument builds the new EditorState BEFORE destroying the old History (a throwing build leaves the editor intact)", () => {
+  it("setEditor never destroys the old editor's History (its owner, the host, does)", () => {
     const m = setup("hello");
     const c = m.controller;
     c.dispatch({ type: "INSERT_TEXT", text: "!" });
-    const destroy = vi.spyOn(c.editorState.history, "destroy");
-    const build = vi.spyOn(core, "createEditorStateFromDocument").mockImplementation(() => {
-      throw new Error("build failed");
-    });
-    expect(() => c.replaceDocument(core.createDocument({ resolver: TEST_RESOLVER, rootId: m.rootId, doc: m.docB }))).toThrow("build failed");
-    build.mockRestore();
+    const destroy = vi.spyOn(c.editor.history, "destroy");
+    c.setEditor(fresh(core.createDocument({ resolver: TEST_RESOLVER, rootId: m.rootId, doc: m.docB })));
+    expect(c.halted).toBe(false);
     expect(destroy).not.toHaveBeenCalled();
     c.destroy();
   });
 
   it('halts with remoteChanges: "ignore" too (the shape check runs in every controller)', () => {
     const m = setup("hello", { remoteChanges: "ignore" });
-    const before = m.controller.editorState;
+    const dispatched = vi.spyOn(m.controller.editor, "dispatch");
     m.a({ type: "INSERT_TEXT", text: "!" });
-    expect(m.controller.editorState).toBe(before); // ignored, as before
+    expect(dispatched).not.toHaveBeenCalled(); // ignored, as before
     const legacyId = legacyWrite(m.docA, "old");
     expect(m.reports).toEqual([{ reason: "legacy-write", legacyBlocks: [legacyId], legacyText: { [legacyId]: "old" } }]);
     expect(m.controller.halted).toBe(true);

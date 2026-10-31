@@ -15,7 +15,7 @@ import { DOCUMENT_INTERNAL } from "../state/document-internal";
 
 /** The attr registry bound to the editor's doc (the editor binds `EditorConfig.attrRegistry`). */
 const registryOf = (document: Document): AttrRegistry => requireAttrRegistry(document[DOCUMENT_INTERNAL].doc);
-import type { EditorState } from "./editor-state";
+import type { Editor, EditorSnapshot } from "./editor";
 import type { Edit } from "./edit";
 
 /**
@@ -123,7 +123,7 @@ function typeOverAttrs(document: Document, start: Position, registry: AttrRegist
  * command at a collapsed caret) if any, else the attrs inherited at the caret
  * (or, over a selection, those of its first character).
  */
-export function getTypingAttrs(editor: EditorState): ReadonlyAttrs {
+export function getTypingAttrs(editor: EditorSnapshot): ReadonlyAttrs {
   if (editor.storedAttrs !== undefined) return editor.storedAttrs;
   const { document, selection } = editor;
   return isCollapsed(selection)
@@ -136,7 +136,7 @@ export function getTypingAttrs(editor: EditorState): ReadonlyAttrs {
  * typing attrs; `undefined` values remove) as the pending typing attrs. The
  * document is unchanged; the next typed text takes them.
  */
-export function storeTypingAttrs(editor: EditorState, delta: ReadonlyAttrs): Edit {
+export function storeTypingAttrs(editor: Editor, delta: ReadonlyAttrs): Edit {
   return { storedAttrs: mergeAttrs(getTypingAttrs(editor), delta) };
 }
 

@@ -3,18 +3,14 @@
  * box. jsdom has no layout: ResizeObserver, rects and the
  * computed writing mode are stubbed.
  */
+import { browserHtmlParser } from "../editor-digital/html-parser";
 import { describe, it, expect, afterEach } from "vitest";
 import {
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
-  createInitialEditorState,
-  reduceEditor,
-  createPosition,
-  createSpan,
-  getBlock,
+  createEditor,
   type BlockId,
-  type Document,
-} from "@taleweaver/core";
+  type Document, createPosition, createSpan, getBlock } from "@taleweaver/core";
 import { createDigitalController } from "../editor-digital/digital-controller";
 import { clipGlyph } from "./cell-clip";
 import { endAnchor } from "./render-to-dom";
@@ -93,8 +89,8 @@ describe("cell clip triggers (ResizeObserver on blocks hosting a glyph in a <td>
 
   function tableDoc(): { document: Document; c1: BlockId; c2: BlockId; after: BlockId } {
     const config = { componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800 };
-    let e = createInitialEditorState(config);
-    e = reduceEditor(e, { type: "INSERT_TABLE", rows: 1, cols: 2 });
+    let e = createEditor(config);
+    e.dispatch({ type: "INSERT_TABLE", rows: 1, cols: 2 });
     const leaves: BlockId[] = [];
     const walk = (id: BlockId | null): void => {
       for (let cur = id; cur !== null; ) {
@@ -123,10 +119,8 @@ describe("cell clip triggers (ResizeObserver on blocks hosting a glyph in a <td>
       globalThis.document.body.replaceChildren(container);
       const controller = createDigitalController({
         container,
-        componentRegistry: createDefaultComponentRegistry(),
-        attrRegistry: createDefaultAttrRegistry(),
         doc: globalThis.document,
-        initialDocument: document,
+        editor: createEditor({ componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, htmlParser: browserHtmlParser }, { document: document }),
       });
       const ro = FakeRO.last;
       if (ro === null) throw new Error("no observer");

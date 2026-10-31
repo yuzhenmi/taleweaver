@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import {
   createPosition,
@@ -31,7 +31,7 @@ import { findLastContentBlock } from "./helpers/find-last-content-block";
  * - Header/footer body: span the first→last LEAF within that body via
  *   `firstLeafBlock`/`lastLeafBlock(state, ctxRoot)` (tree-agnostic).
  */
-export function handleSelectAll(editor: EditorState): Edit | null {
+export function handleSelectAll(editor: Editor): Edit | null {
   const ctxRoot = selectionContextOf(editor.document, editor.selection.focus.blockId);
   if (ctxRoot === null) return null;
 
@@ -55,7 +55,7 @@ export function handleSelectAll(editor: EditorState): Edit | null {
  * header/footer body, so it is resolved tree-aware via `resolveBlock`.
  */
 function spanForRange(
-  editor: EditorState,
+  editor: Editor,
   firstId: BlockId,
   lastId: BlockId,
 ): Edit | null {

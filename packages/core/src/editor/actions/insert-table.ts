@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import {
   createTable,
@@ -35,7 +35,7 @@ import type { ActionOf } from "../editor-action";
  * precondition violation; the UI never sends it).
  */
 export function handleInsertTable(
-  editor: EditorState,
+  editor: Editor,
   { rows, cols }: ActionOf<"INSERT_TABLE">,
 ): Edit | null {
   if (rows < 1 || cols < 1) return null;

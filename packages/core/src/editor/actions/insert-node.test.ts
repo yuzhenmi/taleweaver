@@ -16,8 +16,7 @@ import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
-  createInitialEditorState,
-  reduceEditor,
+  createEditor
 } from "./test-helpers";
 import { getBlock } from "../../state";
 import type { BlockId, Document, BlockInit } from "../../state";
@@ -32,7 +31,7 @@ function lastChildOf(document: Document, parentId: BlockId): BlockId {
 
 describe("handleInsertNode — BlockInit shape (T31)", () => {
   it("inserts an inline-bearing-leaf paragraph with inlineContent items", () => {
-    const initial = createInitialEditorState(config);
+    const initial = createEditor(config);
     const root = getBlock(initial.document, finalSectionOf(initial.document)); // the root holds sections
     const beforeLastId = root?.lastChildId ?? null;
 
@@ -50,14 +49,11 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
       },
     };
 
-    const next = reduceEditor(
-      initial,
-      { type: "INSERT_NODE", node: init },
-    );
+    initial.dispatch({ type: "INSERT_NODE", node: init });
 
-    const newId = lastChildOf(next.document, finalSectionOf(next.document));
+    const newId = lastChildOf(initial.document, finalSectionOf(initial.document));
     expect(newId).not.toBe(beforeLastId);
-    const inserted = getBlock(next.document, newId);
+    const inserted = getBlock(initial.document, newId);
     expect(inserted?.type).toBe("paragraph");
     expect(inserted?.inlineContent?.items.length).toBe(1);
     const first = inserted?.inlineContent?.items[0];
@@ -69,7 +65,7 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
   });
 
   it("inserts a list-item with inlineContent and block-level attrs", () => {
-    const initial = createInitialEditorState(config);
+    const initial = createEditor(config);
 
     const init: BlockInit = {
       type: "list-item",
@@ -79,37 +75,31 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
       },
     };
 
-    const next = reduceEditor(
-      initial,
-      { type: "INSERT_NODE", node: init },
-    );
+    initial.dispatch({ type: "INSERT_NODE", node: init });
 
-    const newId = lastChildOf(next.document, finalSectionOf(next.document));
-    const inserted = getBlock(next.document, newId);
+    const newId = lastChildOf(initial.document, finalSectionOf(initial.document));
+    const inserted = getBlock(initial.document, newId);
     expect(inserted?.type).toBe("list-item");
     expect(inserted?.attrs).toEqual({ listType: "unordered" });
     expect(inserted?.inlineContent?.items.length).toBe(1);
   });
 
   it("inserts an atomic-leaf image with no inlineContent", () => {
-    const initial = createInitialEditorState(config);
+    const initial = createEditor(config);
 
     const init: BlockInit = {
       type: "image",
       attrs: { src: "x.png" },
     };
 
-    const next = reduceEditor(
-      initial,
-      { type: "INSERT_NODE", node: init },
-    );
+    initial.dispatch({ type: "INSERT_NODE", node: init });
 
     // Invariant I: a paragraph always follows an object, so the image is
     // the block before the body's last (empty) paragraph.
-    const trailing = getBlock(next.document, lastChildOf(next.document, finalSectionOf(next.document)));
+    const trailing = getBlock(initial.document, lastChildOf(initial.document, finalSectionOf(initial.document)));
     expect(trailing?.type).toBe("paragraph");
     const newId = trailing?.prevSiblingId as BlockId;
-    const inserted = getBlock(next.document, newId);
+    const inserted = getBlock(initial.document, newId);
     expect(inserted?.type).toBe("image");
     expect(inserted?.attrs).toEqual({ src: "x.png" });
     expect(inserted?.inlineContent).toBeNull();
@@ -117,7 +107,7 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
   });
 
   it("inserts a container with recursive children (table with table-row child)", () => {
-    const initial = createInitialEditorState(config);
+    const initial = createEditor(config);
 
     const init: BlockInit = {
       type: "table",
@@ -139,34 +129,31 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
       ],
     };
 
-    const next = reduceEditor(
-      initial,
-      { type: "INSERT_NODE", node: init },
-    );
+    initial.dispatch({ type: "INSERT_NODE", node: init });
 
     // A paragraph always follows a table (invariant I).
-    const tableId = getBlock(next.document, lastChildOf(next.document, finalSectionOf(next.document)))?.prevSiblingId as BlockId;
-    const table = getBlock(next.document, tableId);
+    const tableId = getBlock(initial.document, lastChildOf(initial.document, finalSectionOf(initial.document)))?.prevSiblingId as BlockId;
+    const table = getBlock(initial.document, tableId);
     expect(table?.type).toBe("table");
     expect(table?.inlineContent).toBeNull();
 
-    const rowId = lastChildOf(next.document, tableId);
-    const row = getBlock(next.document, rowId);
+    const rowId = lastChildOf(initial.document, tableId);
+    const row = getBlock(initial.document, rowId);
     expect(row?.type).toBe("table-row");
     expect(row?.parentId).toBe(tableId);
 
-    const cellId = lastChildOf(next.document, rowId);
-    const cell = getBlock(next.document, cellId);
+    const cellId = lastChildOf(initial.document, rowId);
+    const cell = getBlock(initial.document, cellId);
     expect(cell?.type).toBe("table-cell");
 
-    const paraId = lastChildOf(next.document, cellId);
-    const para = getBlock(next.document, paraId);
+    const paraId = lastChildOf(initial.document, cellId);
+    const para = getBlock(initial.document, paraId);
     expect(para?.type).toBe("paragraph");
     expect(para?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "a" });
   });
 
   it("throws when an inline-bearing-leaf BlockInit carries children", () => {
-    const initial = createInitialEditorState(config);
+    const initial = createEditor(config);
 
     const init: BlockInit = {
       type: "paragraph",
@@ -176,22 +163,19 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
     };
 
     expect(() =>
-      reduceEditor(initial, { type: "INSERT_NODE", node: init }),
+      { initial.dispatch({ type: "INSERT_NODE", node: init }); return initial; },
     ).toThrow();
   });
 
   it("throws when an atomic-leaf BlockInit carries inlineContent or children", () => {
-    const initial = createInitialEditorState(config);
+    const initial = createEditor(config);
 
     const initWithInline: BlockInit = {
       type: "image",
       inlineContent: { items: [{ kind: "text", text: "x", attrs: {} }] },
     };
     expect(() =>
-      reduceEditor(
-        initial,
-        { type: "INSERT_NODE", node: initWithInline },
-      ),
+      { initial.dispatch({ type: "INSERT_NODE", node: initWithInline }); return initial; },
     ).toThrow();
 
     const initWithChildren: BlockInit = {
@@ -199,10 +183,7 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
       children: [{ type: "paragraph", inlineContent: { items: [] } }],
     };
     expect(() =>
-      reduceEditor(
-        initial,
-        { type: "INSERT_NODE", node: initWithChildren },
-      ),
+      { initial.dispatch({ type: "INSERT_NODE", node: initWithChildren }); return initial; },
     ).toThrow();
   });
 });

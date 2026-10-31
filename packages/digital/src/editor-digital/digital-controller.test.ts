@@ -1,3 +1,5 @@
+import { createEditor } from "@taleweaver/core";
+import { browserHtmlParser } from "./html-parser";
 import * as Y from "yjs";
 import { describe, it, expect, vi } from "vitest";
 import * as core from "@taleweaver/core";
@@ -9,15 +11,6 @@ import {
 } from "@taleweaver/core";
 import { asBlockId, createPosition, createSpan, getBlock, TALEWEAVER_CLIP_MIME } from "@taleweaver/core";
 
-// Wrap `reduceEditor` as a spy so paste tests can assert the exact action payload
-// forwarded into the reducer.  All other core exports are left as real implementations.
-vi.mock("@taleweaver/core", async () => {
-  const actual = await vi.importActual<typeof core>("@taleweaver/core");
-  return {
-    ...actual,
-    reduceEditor: vi.fn(actual.reduceEditor),
-  };
-});
 import { createDigitalController, type DigitalController } from "./digital-controller";
 import { createDigitalSelectionBridge } from "./digital-selection-bridge";
 
@@ -35,10 +28,8 @@ function makeController(): {
   document.body.appendChild(container);
   const controller = createDigitalController({
     container,
-    componentRegistry,
-    attrRegistry,
-    containerWidth: 800,
     doc: document,
+    editor: createEditor({ componentRegistry, attrRegistry, containerWidth: 800, htmlParser: browserHtmlParser }),
   });
   return { controller, container, componentRegistry, attrRegistry };
 }
@@ -96,12 +87,12 @@ describe("DigitalController — construct + dispatch (2e)", () => {
     controller.destroy();
   });
 
-  it("dispatch(INSERT_TEXT) updates editorState and the DOM", () => {
+  it("dispatch(INSERT_TEXT) updates the editor and the DOM", () => {
     const { controller, container } = makeController();
     controller.dispatch({ type: "INSERT_TEXT", text: "hello" });
     expect(container.textContent).toContain("hello");
     // editorState getter reflects the new state: the caret advanced to the end of "hello".
-    expect(controller.editorState.selection.focus.offset).toBe(5);
+    expect(controller.editor.selection.focus.offset).toBe(5);
     controller.destroy();
   });
 
@@ -148,9 +139,9 @@ describe("DigitalController — construct + dispatch (2e)", () => {
     // …and the caret must resolve INTO the new (second) blank line at offset 0 — verified through
     // the real selection bridge (the model selection round-trips to a DOM point inside that block).
     const secondId = leafIdAt(container, 1);
-    expect(controller.editorState.selection.focus).toEqual(createPosition(asBlockId(secondId), 0));
+    expect(controller.editor.selection.focus).toEqual(createPosition(asBlockId(secondId), 0));
     const bridge = createDigitalSelectionBridge(container, window);
-    bridge.positionToDom(controller.editorState.selection);
+    bridge.positionToDom(controller.editor.selection);
     const focusNode = window.getSelection()?.focusNode ?? null;
     // The DOM caret sits inside the second blank block (its element, or a node it contains).
     expect(focusNode !== null && blocks[1]?.contains(focusNode)).toBe(true);
@@ -201,7 +192,7 @@ describe("DigitalController — construct + dispatch (2e)", () => {
       type: "SET_SELECTION",
       selection: createSpan(createPosition(asBlockId(aId), 1), createPosition(asBlockId(cId), 0)),
     });
-    controller.dispatch({ type: "DELETE_RANGE", span: controller.editorState.selection });
+    controller.dispatch({ type: "DELETE_RANGE", span: controller.editor.selection });
 
     expect(leafTexts(container)).toEqual(["AC", "D"]);
     controller.destroy();
@@ -289,40 +280,31 @@ function makeClipboardEvent(
   return e;
 }
 
-describe("DigitalController — onChange notification", () => {
-  it("fires onChange with the new editorState after a programmatic dispatch", () => {
+describe("DigitalController — host subscription", () => {
+  it("a host subscribed to the editor hears a controller dispatch", () => {
     const componentRegistry = createDefaultComponentRegistry();
     const attrRegistry = createDefaultAttrRegistry();
     const container = document.createElement("div");
     document.body.appendChild(container);
-    const states: import("@taleweaver/core").EditorState[] = [];
-    const controller = createDigitalController({
-      container,
-      componentRegistry,
-      attrRegistry,
-      doc: document,
-      onChange: (s) => states.push(s),
-    });
+    const editor = createEditor({ componentRegistry, attrRegistry, containerWidth: 800, htmlParser: browserHtmlParser });
+    const actions: string[] = [];
+    editor.subscribe(({ action }) => actions.push(action.type));
+    const controller = createDigitalController({ container, doc: document, editor });
     controller.dispatch({ type: "INSERT_TEXT", text: "hi" });
-    // onChange fired, and the LAST state it received is the controller's current state.
-    expect(states.length).toBeGreaterThanOrEqual(1);
-    expect(states[states.length - 1]).toBe(controller.editorState);
+    expect(actions).toEqual(["INSERT_TEXT"]);
+    expect(controller.editor).toBe(editor);
     controller.destroy();
   });
 
-  it("fires onChange for an input-driven dispatch (cut → DELETE_RANGE)", () => {
+  it("a host subscribed to the editor hears an input-driven dispatch (cut → DELETE_RANGE)", () => {
     const componentRegistry = createDefaultComponentRegistry();
     const attrRegistry = createDefaultAttrRegistry();
     const container = document.createElement("div");
     document.body.appendChild(container);
     let calls = 0;
-    const controller = createDigitalController({
-      container,
-      componentRegistry,
-      attrRegistry,
-      doc: document,
-      onChange: () => calls++,
-    });
+    const editor = createEditor({ componentRegistry, attrRegistry, containerWidth: 800, htmlParser: browserHtmlParser });
+    editor.subscribe(() => calls++);
+    const controller = createDigitalController({ container, doc: document, editor });
     controller.dispatch({ type: "INSERT_TEXT", text: "hello" });
     const id = leafBlockId(container);
     controller.dispatch({
@@ -336,8 +318,8 @@ describe("DigitalController — onChange notification", () => {
     controller.destroy();
   });
 
-  it("omitting onChange is a no-op (dispatch does not throw)", () => {
-    const { controller } = makeController(); // makeController passes no onChange
+  it("with no host subscriber, dispatch does not throw", () => {
+    const { controller } = makeController();
     expect(() => controller.dispatch({ type: "INSERT_TEXT", text: "x" })).not.toThrow();
     controller.destroy();
   });
@@ -347,14 +329,14 @@ describe("DigitalController — selectionchange idempotency guard (F2)", () => {
   it("does not re-dispatch when the DOM selection equals the current editor selection", () => {
     const { controller, container } = makeController();
     controller.dispatch({ type: "INSERT_TEXT", text: "abc" });
-    const before = controller.editorState;
+    const beforeDispatch = vi.spyOn(controller.editor, "dispatch");
     // Mirror the editor's collapsed caret (offset 3) into the live DOM via the bridge
     // (which resolves a mappable DOM point through the run-wrapper), then fire selectionchange.
     const bridge = createDigitalSelectionBridge(container, window);
-    bridge.positionToDom(controller.editorState.selection);
+    bridge.positionToDom(controller.editor.selection);
     document.dispatchEvent(new Event("selectionchange"));
     // ref-equality: a guarded no-op leaves the SAME editorState object.
-    expect(controller.editorState).toBe(before);
+    expect(beforeDispatch).not.toHaveBeenCalled();
     controller.destroy();
   });
 
@@ -365,14 +347,14 @@ describe("DigitalController — selectionchange idempotency guard (F2)", () => {
     const id = leafBlockId(container);
     const fwd = createSpan(createPosition(asBlockId(id), 0), createPosition(asBlockId(id), 3));
     controller.dispatch({ type: "SET_SELECTION", selection: fwd });
-    const before = controller.editorState;
+    const beforeDispatch = vi.spyOn(controller.editor, "dispatch");
     // Now mirror the REVERSED span into the DOM (anchor 3 → focus 0) and fire selectionchange.
     const reversed = createSpan(createPosition(asBlockId(id), 3), createPosition(asBlockId(id), 0));
     const bridge = createDigitalSelectionBridge(container, window);
     bridge.positionToDom(reversed);
     document.dispatchEvent(new Event("selectionchange"));
     // selectionsEqual treats the flipped span as equal → no re-dispatch.
-    expect(controller.editorState).toBe(before);
+    expect(beforeDispatch).not.toHaveBeenCalled();
     controller.destroy();
   });
 });
@@ -402,13 +384,13 @@ describe("DigitalController — input correctness (audit Slice A)", () => {
     const { data } = makeClipboardData({ "text/plain": "PASTEME" });
     // The browser fires `paste` (ClipboardEvent) AND a follow-on `beforeinput(insertFromPaste)`.
     container.dispatchEvent(makeClipboardEvent("paste", data));
-    const afterPaste = controller.editorState;
+    const afterPasteDispatch = vi.spyOn(controller.editor, "dispatch");
     const bi = makeBeforeInput("insertFromPaste", { dataTransfer: data });
     container.dispatchEvent(bi);
     // The paste handler is the single source: beforeinput suppresses native mutation (preventDefault)
     // but does not dispatch a second PASTE.
     expect(bi.defaultPrevented).toBe(true);
-    expect(controller.editorState).toBe(afterPaste);
+    expect(afterPasteDispatch).not.toHaveBeenCalled();
     expect(container.textContent?.match(/PASTEME/g)?.length ?? 0).toBe(1);
     controller.destroy();
   });
@@ -416,22 +398,22 @@ describe("DigitalController — input correctness (audit Slice A)", () => {
   it("unrecognized inputType falls through to native handling — no preventDefault, no dispatch (C2)", () => {
     const { controller, container } = makeController();
     controller.dispatch({ type: "INSERT_TEXT", text: "abc" });
-    const before = controller.editorState;
+    const beforeDispatch = vi.spyOn(controller.editor, "dispatch");
     // `insertTranspose` maps to null; the controller must NOT cancel the browser's default.
     const bi = makeBeforeInput("insertTranspose");
     container.dispatchEvent(bi);
     expect(bi.defaultPrevented).toBe(false);
-    expect(controller.editorState).toBe(before);
+    expect(beforeDispatch).not.toHaveBeenCalled();
     controller.destroy();
   });
 
   it("a recognized inputType still preventDefaults and dispatches (C2 regression guard)", () => {
     const { controller, container } = makeController();
-    const before = controller.editorState;
+    const before = controller.editor.document;
     const bi = makeBeforeInput("insertText", { data: "z" });
     container.dispatchEvent(bi);
     expect(bi.defaultPrevented).toBe(true);
-    expect(controller.editorState).not.toBe(before);
+    expect(controller.editor.document).not.toBe(before);
     expect(container.textContent).toContain("z");
     controller.destroy();
   });
@@ -439,7 +421,7 @@ describe("DigitalController — input correctness (audit Slice A)", () => {
   it("Shift+Enter (beforeinput insertLineBreak) is a soft break inside the paragraph; Enter splits", () => {
     const { controller, container } = makeController();
     controller.dispatch({ type: "INSERT_TEXT", text: "ab" });
-    const block = controller.editorState.selection.focus.blockId;
+    const block = controller.editor.selection.focus.blockId;
     container.dispatchEvent(makeBeforeInput("insertLineBreak"));
     // A break ending the paragraph gets a filler <br> so its (empty) next line shows; the
     // caret at (block, 3) sits between the two.
@@ -450,30 +432,30 @@ describe("DigitalController — input correctness (audit Slice A)", () => {
     expect(sel?.focusNode).toBe(el);
     expect(sel?.focusOffset).toBe(2);
     controller.dispatch({ type: "INSERT_TEXT", text: "c" });
-    expect(controller.editorState.selection.focus).toEqual(createPosition(block, 4)); // ab + break + c: one paragraph
+    expect(controller.editor.selection.focus).toEqual(createPosition(block, 4)); // ab + break + c: one paragraph
     expect(container.querySelectorAll("[data-block-id] br:not([data-tw-empty-line])")).toHaveLength(1);
     container.dispatchEvent(makeBeforeInput("insertParagraph"));
-    expect(controller.editorState.selection.focus.offset).toBe(0); // Enter: a new paragraph
+    expect(controller.editor.selection.focus.offset).toBe(0); // Enter: a new paragraph
     controller.destroy();
   });
 
   it("compositionend with null data dispatches nothing (D1)", () => {
     const { controller, container } = makeController();
     controller.dispatch({ type: "INSERT_TEXT", text: "abc" });
-    const before = controller.editorState;
+    const beforeDispatch = vi.spyOn(controller.editor, "dispatch");
     const e = new CompositionEvent("compositionend", { bubbles: true });
     Object.defineProperty(e, "data", { value: null, configurable: true });
     container.dispatchEvent(e);
-    expect(controller.editorState).toBe(before);
+    expect(beforeDispatch).not.toHaveBeenCalled();
     controller.destroy();
   });
 
   it("compositionend with committed text dispatches INSERT_TEXT (D1 regression guard)", () => {
     const { controller, container } = makeController();
-    const before = controller.editorState;
+    const before = controller.editor.document;
     const e = new CompositionEvent("compositionend", { data: "あ", bubbles: true });
     container.dispatchEvent(e);
-    expect(controller.editorState).not.toBe(before);
+    expect(controller.editor.document).not.toBe(before);
     expect(container.textContent).toContain("あ");
     controller.destroy();
   });
@@ -484,31 +466,31 @@ describe("DigitalController — Tab routing is context-sensitive (audit I5)", ()
     const { controller, container } = makeController();
     controller.dispatch({ type: "INSERT_TEXT", text: "item" }); // caret at offset 4
     controller.dispatch({ type: "TOGGLE_LIST", listType: "unordered" });
-    const focusId = controller.editorState.selection.focus.blockId;
-    expect(getBlock(controller.editorState.document, focusId)?.type).toBe("list-item");
+    const focusId = controller.editor.selection.focus.blockId;
+    expect(getBlock(controller.editor.document, focusId)?.type).toBe("list-item");
     // A fresh top-level list-item carries no `listLevel` attr (level 0).
-    expect(getBlock(controller.editorState.document, focusId)?.attrs.listLevel).toBeUndefined();
-    const offsetBefore = controller.editorState.selection.focus.offset;
+    expect(getBlock(controller.editor.document, focusId)?.attrs.listLevel).toBeUndefined();
+    const offsetBefore = controller.editor.selection.focus.offset;
 
     const e = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
     container.dispatchEvent(e);
     // LIST_INDENT (not INSERT_TAB) was dispatched: the list nests to level 1 and the caret offset
     // is unchanged. INSERT_TAB would instead leave listLevel undefined and advance the caret by 1.
     expect(e.defaultPrevented).toBe(true);
-    expect(getBlock(controller.editorState.document, focusId)?.attrs.listLevel).toBe(1);
-    expect(controller.editorState.selection.focus.offset).toBe(offsetBefore);
+    expect(getBlock(controller.editor.document, focusId)?.attrs.listLevel).toBe(1);
+    expect(controller.editor.selection.focus.offset).toBe(offsetBefore);
     controller.destroy();
   });
 
   it("Tab in a plain paragraph inserts a tab (INSERT_TAB) — caret offset advances by 1", () => {
     const { controller, container } = makeController();
     controller.dispatch({ type: "INSERT_TEXT", text: "ab" }); // caret at offset 2
-    const offsetBefore = controller.editorState.selection.focus.offset;
+    const offsetBefore = controller.editor.selection.focus.offset;
 
     const e = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
     container.dispatchEvent(e);
     expect(e.defaultPrevented).toBe(true);
-    expect(controller.editorState.selection.focus.offset).toBe(offsetBefore + 1);
+    expect(controller.editor.selection.focus.offset).toBe(offsetBefore + 1);
     controller.destroy();
   });
 });
@@ -592,8 +574,8 @@ describe("DigitalController — paste rich clipboard (T12)", () => {
     // Insert some text first so there is state to paste into
     controller.dispatch({ type: "INSERT_TEXT", text: "before" });
 
-    // Reset the spy call log so earlier dispatches (INSERT_TEXT above) don't interfere.
-    vi.mocked(core.reduceEditor).mockClear();
+    // Spy from here on, so earlier dispatches (INSERT_TEXT above) don't interfere.
+    const dispatched = vi.spyOn(controller.editor, "dispatch");
 
     // Provide all three clipboard flavors
     const { data } = makeClipboardData({
@@ -603,12 +585,12 @@ describe("DigitalController — paste rich clipboard (T12)", () => {
     });
     container.dispatchEvent(makeClipboardEvent("paste", data));
 
-    // The reducer must have been called with the exact PASTE payload — proving all
+    // The editor must have been dispatched the exact PASTE payload — proving all
     // three flavors were forwarded, not silently dropped.
-    const calls = vi.mocked(core.reduceEditor).mock.calls;
-    const pasteCall = calls.find(([, action]) => action.type === "PASTE");
+    const calls = dispatched.mock.calls;
+    const pasteCall = calls.find(([action]) => action.type === "PASTE");
     expect(pasteCall).toBeDefined();
-    const pasteAction = pasteCall![1];
+    const pasteAction = pasteCall![0];
     expect(pasteAction).toMatchObject({
       type: "PASTE",
       text: "plain text",
@@ -625,9 +607,9 @@ describe("DigitalController — paste rich clipboard (T12)", () => {
     controller.dispatch({ type: "INSERT_TEXT", text: "start" });
 
     const { data } = makeClipboardData({ "text/plain": "world" });
-    const before = controller.editorState;
+    const before = controller.editor.document;
     container.dispatchEvent(makeClipboardEvent("paste", data));
-    expect(controller.editorState).not.toBe(before);
+    expect(controller.editor.document).not.toBe(before);
     // The pasted text appears in the document
     expect(container.textContent).toContain("world");
     controller.destroy();
@@ -642,10 +624,10 @@ describe("DigitalController — paste rich clipboard (T12)", () => {
     const { data } = makeClipboardData({
       "text/html": "<p>rich</p>",
     });
-    const before = controller.editorState;
+    const before = controller.editor.document;
     container.dispatchEvent(makeClipboardEvent("paste", data));
     // Document changes (html paste decoded by htmlParser + core)
-    expect(controller.editorState).not.toBe(before);
+    expect(controller.editor.document).not.toBe(before);
     controller.destroy();
   });
 });
@@ -655,8 +637,8 @@ describe("DigitalController — paste-without-formatting (T13)", () => {
     const { controller, container } = makeController();
     controller.dispatch({ type: "INSERT_TEXT", text: "before" });
 
-    // Reset the spy so earlier dispatches don't interfere
-    vi.mocked(core.reduceEditor).mockClear();
+    // Spy from here on, so earlier dispatches don't interfere
+    const dispatched = vi.spyOn(controller.editor, "dispatch");
 
     // Stub navigator.clipboard.readText to resolve with "hello"
     const readText = vi.fn().mockResolvedValue("hello");
@@ -678,10 +660,10 @@ describe("DigitalController — paste-without-formatting (T13)", () => {
     // Flush the microtask queue so the readText promise resolves
     await Promise.resolve();
 
-    const calls = vi.mocked(core.reduceEditor).mock.calls;
-    const pasteCall = calls.find(([, action]) => action.type === "PASTE");
+    const calls = dispatched.mock.calls;
+    const pasteCall = calls.find(([action]) => action.type === "PASTE");
     expect(pasteCall).toBeDefined();
-    const pasteAction = pasteCall![1];
+    const pasteAction = pasteCall![0];
     expect(pasteAction).toMatchObject({ type: "PASTE", text: "hello" });
     // Must NOT carry html or clip keys
     expect("html" in pasteAction).toBe(false);
@@ -692,7 +674,7 @@ describe("DigitalController — paste-without-formatting (T13)", () => {
 
   it("is a graceful no-op when readText rejects (permission denied)", async () => {
     const { controller, container } = makeController();
-    vi.mocked(core.reduceEditor).mockClear();
+    const dispatched = vi.spyOn(controller.editor, "dispatch");
 
     const readText = vi.fn().mockRejectedValue(new DOMException("NotAllowedError"));
     Object.defineProperty(navigator, "clipboard", {
@@ -712,8 +694,8 @@ describe("DigitalController — paste-without-formatting (T13)", () => {
     // Flush the readText().catch() microtask before asserting no dispatch.
     await Promise.resolve();
 
-    const calls = vi.mocked(core.reduceEditor).mock.calls;
-    expect(calls.find(([, action]) => action.type === "PASTE")).toBeUndefined();
+    const calls = dispatched.mock.calls;
+    expect(calls.find(([action]) => action.type === "PASTE")).toBeUndefined();
 
     controller.destroy();
   });
@@ -735,10 +717,8 @@ describe("DigitalController — inline marks + typing attributes", () => {
     document.body.appendChild(container);
     const controller = createDigitalController({
       container,
-      componentRegistry: createDefaultComponentRegistry(),
-      attrRegistry,
-      containerWidth: 800,
       doc: document,
+      editor: createEditor({ componentRegistry: createDefaultComponentRegistry(), attrRegistry, containerWidth: 800, htmlParser: browserHtmlParser }),
     });
     controller.dispatch({ type: "INSERT_TEXT", text: "Hi Anna and Bob" });
     const id = asBlockId(leafBlockId(container));
@@ -761,7 +741,7 @@ describe("DigitalController — inline marks + typing attributes", () => {
     container.dispatchEvent(makeBeforeInput("insertText", { data: "X" }));
     container.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
     container.dispatchEvent(new CompositionEvent("compositionend", { data: "日", bubbles: true }));
-    const items = getBlock(controller.editorState.document, id)?.inlineContent?.items ?? [];
+    const items = getBlock(controller.editor.document, id)?.inlineContent?.items ?? [];
     const last = items[items.length - 1];
     expect(last?.kind === "text" ? [last.text, last.attrs] : null).toEqual(["BX日ob", { bold: true }]);
     expect(leafBlock(container).querySelector("strong")?.textContent).toBe("BX日ob");
@@ -783,7 +763,7 @@ describe("DigitalController — inline marks + typing attributes", () => {
     const bridge = createDigitalSelectionBridge(container, window);
     bridge.positionToDom(caretAt(id, 4));
     document.dispatchEvent(new Event("selectionchange"));
-    expect(controller.editorState.selection.focus.offset).toBe(3);
+    expect(controller.editor.selection.focus.offset).toBe(3);
     expect(bridge.readDomSelection()?.focus.offset).toBe(3);
     controller.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 7) });
     container.dispatchEvent(makeBeforeInput("deleteContentBackward"));
@@ -797,7 +777,7 @@ describe("DigitalController — inline marks + typing attributes", () => {
     createDigitalSelectionBridge(container, window).positionToDom(createSpan(createPosition(id, a), createPosition(id, f)));
     document.dispatchEvent(new Event("selectionchange"));
   }
-  const offsets = (c: DigitalController) => [c.editorState.selection.anchor.offset, c.editorState.selection.focus.offset];
+  const offsets = (c: DigitalController) => [c.editor.selection.anchor.offset, c.editor.selection.focus.offset];
 
   it.each([
     [4, 13, [3, 13]],
@@ -838,7 +818,7 @@ describe("DigitalController — inline marks + typing attributes", () => {
     controller.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 15) });
     container.dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true, bubbles: true, cancelable: true }));
     container.dispatchEvent(makeBeforeInput("insertText", { data: "!" }));
-    const items = getBlock(controller.editorState.document, id)?.inlineContent?.items ?? [];
+    const items = getBlock(controller.editor.document, id)?.inlineContent?.items ?? [];
     expect(items.at(-1)?.attrs).toEqual({ bold: true });
     controller.destroy();
   });
@@ -884,11 +864,8 @@ describe("DigitalController — host extensions", () => {
     document.body.appendChild(container);
     const controller = createDigitalController({
       container,
-      componentRegistry: createDefaultComponentRegistry(),
-      attrRegistry,
-      containerWidth: 800,
       doc: document,
-      extensions,
+      editor: createEditor({ componentRegistry: createDefaultComponentRegistry(), attrRegistry, containerWidth: 800, extensions, htmlParser: browserHtmlParser }),
     });
     return { controller, container };
   }
@@ -901,7 +878,7 @@ describe("DigitalController — host extensions", () => {
     return e;
   };
   const text = (c: DigitalController) =>
-    (getBlock(c.editorState.document, c.editorState.selection.focus.blockId)?.inlineContent?.items ?? [])
+    (getBlock(c.editor.document, c.editor.selection.focus.blockId)?.inlineContent?.items ?? [])
       .map((i) => (i.kind === "text" ? i.text : ""))
       .join("");
 
@@ -915,7 +892,7 @@ describe("DigitalController — host extensions", () => {
     expect(text(controller)).toBe("Hi ");
     expect(keydown(container, "b", { ctrlKey: true }).defaultPrevented).toBe(true);
     typeKeys(container, "x");
-    const items = getBlock(controller.editorState.document, controller.editorState.selection.focus.blockId)?.inlineContent?.items ?? [];
+    const items = getBlock(controller.editor.document, controller.editor.selection.focus.blockId)?.inlineContent?.items ?? [];
     expect(items.every((i) => i.attrs.bold === undefined)).toBe(true);
     expect(controller.runCommand("insertMention")).toBe(true);
     expect(text(controller)).toBe("Hi xAnna ");
@@ -934,13 +911,13 @@ describe("DigitalController — host extensions", () => {
   it("@ opens a trigger tracking the query; Escape ends it; Enter picks through the keymap", () => {
     const { controller, container } = mountExt();
     typeKeys(container, "Hi @an");
-    expect(controller.editorState.activeTrigger).toMatchObject({ id: "mention", query: "an" });
+    expect(controller.editor.activeTrigger).toMatchObject({ id: "mention", query: "an" });
     keydown(container, "Escape");
-    expect(controller.editorState.activeTrigger).toBeUndefined();
+    expect(controller.editor.activeTrigger).toBeUndefined();
     typeKeys(container, " @a");
     expect(keydown(container, "Enter").defaultPrevented).toBe(true);
     expect(text(controller)).toBe("Hi @an Anna ");
-    expect(controller.editorState.activeTrigger).toBeUndefined();
+    expect(controller.editor.activeTrigger).toBeUndefined();
     controller.destroy();
   });
 
@@ -949,9 +926,9 @@ describe("DigitalController — host extensions", () => {
     container.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
     container.dispatchEvent(makeBeforeInput("insertCompositionText", { data: "@" }));
     expect(keydown(container, "Enter", { isComposing: true }).defaultPrevented).toBe(false);
-    expect(controller.editorState.activeTrigger).toBeUndefined();
+    expect(controller.editor.activeTrigger).toBeUndefined();
     container.dispatchEvent(new CompositionEvent("compositionend", { data: "@あ", bubbles: true }));
-    expect(controller.editorState.activeTrigger).toMatchObject({ query: "あ" });
+    expect(controller.editor.activeTrigger).toMatchObject({ query: "あ" });
     controller.destroy();
   });
 });
@@ -971,11 +948,8 @@ describe("DigitalController — keyboard edge cases (host extensions)", () => {
     document.body.appendChild(container);
     const controller = createDigitalController({
       container,
-      componentRegistry: createDefaultComponentRegistry(),
-      attrRegistry,
-      containerWidth: 800,
       doc: document,
-      extensions: ext,
+      editor: createEditor({ componentRegistry: createDefaultComponentRegistry(), attrRegistry, containerWidth: 800, extensions: ext, htmlParser: browserHtmlParser }),
     });
     return { controller, container };
   }
@@ -988,7 +962,7 @@ describe("DigitalController — keyboard edge cases (host extensions)", () => {
     for (const ch of text) container.dispatchEvent(makeBeforeInput("insertText", { data: ch }));
   };
   const text = (c: DigitalController) =>
-    (getBlock(c.editorState.document, c.editorState.selection.focus.blockId)?.inlineContent?.items ?? [])
+    (getBlock(c.editor.document, c.editor.selection.focus.blockId)?.inlineContent?.items ?? [])
       .map((i) => (i.kind === "text" ? i.text : ""))
       .join("");
 
@@ -1002,7 +976,7 @@ describe("DigitalController — keyboard edge cases (host extensions)", () => {
     expect(keydown(container, "Escape").defaultPrevented).toBe(false);
     typeKeys(container, "@a");
     expect(keydown(container, "Escape", { shiftKey: true }).defaultPrevented).toBe(true);
-    expect(controller.editorState.activeTrigger).toBeUndefined();
+    expect(controller.editor.activeTrigger).toBeUndefined();
     controller.destroy();
   });
 
@@ -1024,11 +998,11 @@ describe("DigitalController — keyboard edge cases (host extensions)", () => {
     const { controller, container } = mount();
     expect(keydown(container, "@", { ctrlKey: true, altKey: true, code: "KeyQ" }).defaultPrevented).toBe(false);
     typeKeys(container, "@");
-    expect(controller.editorState.activeTrigger).toMatchObject({ query: "" });
+    expect(controller.editor.activeTrigger).toMatchObject({ query: "" });
     keydown(container, "Escape");
     expect(keydown(container, "Dead", { code: "BracketLeft" }).defaultPrevented).toBe(false);
     typeKeys(container, " @é");
-    expect(controller.editorState.activeTrigger).toMatchObject({ query: "é" });
+    expect(controller.editor.activeTrigger).toMatchObject({ query: "é" });
     controller.destroy();
   });
 
@@ -1058,11 +1032,8 @@ describe("DigitalController — anchors, versions and collaboration", () => {
     document.body.appendChild(container);
     const controller = createDigitalController({
       container,
-      componentRegistry: createDefaultComponentRegistry(),
-      attrRegistry: createDefaultAttrRegistry(),
-      containerWidth: 800,
       doc: document,
-      ...(initialDocument !== undefined ? { initialDocument } : {}),
+      editor: createEditor({ componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, htmlParser: browserHtmlParser }, { ...(initialDocument !== undefined ? { document: initialDocument } : {}) }),
     });
     return { controller, container };
   }
@@ -1096,7 +1067,8 @@ describe("DigitalController — anchors, versions and collaboration", () => {
 
   it("a peer's update (separate Y.Doc, Y.applyUpdate) is applied: DOM, selection rebased, anchors moved", () => {
     const cfg = { componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800 };
-    let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" });
+    let peerA = core.createEditor(cfg);
+    peerA.dispatch({ type: "INSERT_TEXT", text: "hello world" });
     const docA = core.getYDoc(peerA.document);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
@@ -1105,10 +1077,10 @@ describe("DigitalController — anchors, versions and collaboration", () => {
     const id = peerA.selection.focus.blockId;
     controller.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 5) });
     const anchor = controller.createAnchor(createPosition(id, 6), createPosition(id, 11));
-    peerA = core.reduceEditor(peerA, { type: "SET_SELECTION", selection: caretAt(id, 0) });
-    peerA = core.reduceEditor(peerA, { type: "INSERT_TEXT", text: "Oh, " });
+    peerA.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 0) });
+    peerA.dispatch({ type: "INSERT_TEXT", text: "Oh, " });
     expect(leafBlock(container).textContent).toBe("Oh, hello world");
-    expect(controller.editorState.selection.focus).toEqual(createPosition(id, 9));
+    expect(controller.editor.selection.focus).toEqual(createPosition(id, 9));
     expect(anchor === null ? null : [anchor.from.offset, anchor.to.offset]).toEqual([10, 15]);
     // The local user keeps typing at the rebased caret; undo stays local.
     typeKeys(container, "_");
@@ -1122,7 +1094,8 @@ describe("DigitalController — anchors, versions and collaboration", () => {
 describe("DigitalController — remote changes: lifetime, ownership, IME", () => {
   const cfg = { componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800 };
   function peerPair() {
-    let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" });
+    let peerA = core.createEditor(cfg);
+    peerA.dispatch({ type: "INSERT_TEXT", text: "hello world" });
     const docA = core.getYDoc(peerA.document);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
@@ -1131,7 +1104,7 @@ describe("DigitalController — remote changes: lifetime, ownership, IME", () =>
     return {
       documentB,
       type: (t: string) => {
-        peerA = core.reduceEditor(peerA, { type: "INSERT_TEXT", text: t });
+        peerA.dispatch({ type: "INSERT_TEXT", text: t });
       },
     };
   }
@@ -1139,19 +1112,13 @@ describe("DigitalController — remote changes: lifetime, ownership, IME", () =>
     const container = globalThis.document.createElement("div");
     globalThis.document.body.appendChild(container);
     const seen: core.EditorAction[] = [];
-    const reduce = vi.mocked(core.reduceEditor);
+    const editor = createEditor({ componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, htmlParser: browserHtmlParser }, { document: document });
+    editor.subscribe(({ action }) => seen.push(action));
     const controller = createDigitalController({
       container,
-      componentRegistry: createDefaultComponentRegistry(),
-      attrRegistry: createDefaultAttrRegistry(),
-      containerWidth: 800,
       doc: globalThis.document,
-      initialDocument: document,
       ...(remoteChanges !== undefined ? { remoteChanges } : {}),
-      onChange: () => {
-        const last = reduce.mock.calls.at(-1)?.[1];
-        if (last !== undefined) seen.push(last);
-      },
+      editor,
     });
     return { controller, container, foreign: () => seen.filter((a) => a.type === "APPLY_FOREIGN_CHANGE").length };
   }
@@ -1204,10 +1171,8 @@ describe("DigitalController — host proposals (suggestion groups)", async () =>
     document.body.appendChild(container);
     const controller = createDigitalController({
       container,
-      componentRegistry: createDefaultComponentRegistry(),
-      attrRegistry: createDefaultAttrRegistry(),
-      containerWidth: 800,
       doc: document,
+      editor: createEditor({ componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, htmlParser: browserHtmlParser }),
     });
     controller.dispatch({ type: "INSERT_TEXT", text });
     return { controller, container, id: asBlockId(leafBlockId(container)) };
@@ -1234,10 +1199,10 @@ describe("DigitalController — host proposals (suggestion groups)", async () =>
       ],
     });
     expect(result).toEqual({ ok: true });
-    expect(controller.editorState.lastProposal).toMatchObject({ groupId, outcome: "applied" });
+    expect(controller.editor.lastProposal).toMatchObject({ groupId, outcome: "applied" });
     // The caret stays after "fox" — only rebased past the 5 inserted (pending) characters.
-    expect(controller.editorState.selection.focus).toEqual(createPosition(id, 19));
-    expect(core.getSuggestionGroups(controller.editorState.document).map((g) => g.id)).toEqual([groupId]);
+    expect(controller.editor.selection.focus).toEqual(createPosition(id, 19));
+    expect(core.getSuggestionGroups(controller.editor.document).map((g) => g.id)).toEqual([groupId]);
     // Built-in suggestion visuals: inserted text underlined, deleted struck; host styling on top.
     expect(leafBlock(container).querySelector("u")?.textContent).toBe("swift");
     expect(leafBlock(container).querySelectorAll("s").length).toBeGreaterThan(0);
@@ -1247,7 +1212,7 @@ describe("DigitalController — host proposals (suggestion groups)", async () =>
     expect(leafBlock(container).textContent).toBe("The swift fox");
     expect(styledText(container)).toBe("");
     ctrlZ(container);
-    expect(core.getSuggestionGroups(controller.editorState.document).map((g) => g.id)).toEqual([groupId]);
+    expect(core.getSuggestionGroups(controller.editor.document).map((g) => g.id)).toEqual([groupId]);
     expect(styledText(container)).toBe(styled);
     ctrlShiftZ(container);
     expect(leafBlock(container).textContent).toBe("The swift fox");
@@ -1256,11 +1221,11 @@ describe("DigitalController — host proposals (suggestion groups)", async () =>
     expect(leafBlock(container).textContent).toBe("The  quick fox");
     expect(styledText(container)).toBe("");
     ctrlZ(container);
-    expect(core.getSuggestionGroups(controller.editorState.document).map((g) => g.id)).toEqual([groupId]);
+    expect(core.getSuggestionGroups(controller.editor.document).map((g) => g.id)).toEqual([groupId]);
     expect(styledText(container)).toBe(styled);
     ctrlShiftZ(container);
     expect(leafBlock(container).textContent).toBe("The  quick fox");
-    expect(core.getSuggestions(controller.editorState.document)).toHaveLength(0);
+    expect(core.getSuggestions(controller.editor.document)).toHaveLength(0);
     controller.setSuggestionStyles(null);
     controller.destroy();
   });
@@ -1280,32 +1245,27 @@ describe("DigitalController — host proposals (suggestion groups)", async () =>
     expect(leafBlock(container).textContent).toBe("jumps high over!");
     ctrlZ(container); // the user's own last edit: the typed "!"
     expect(leafBlock(container).textContent).toBe("jumps high over");
-    expect(core.getSuggestionGroups(controller.editorState.document).map((g) => g.id)).toEqual([groupId]);
+    expect(core.getSuggestionGroups(controller.editor.document).map((g) => g.id)).toEqual([groupId]);
     ctrlShiftZ(container);
     expect(leafBlock(container).textContent).toBe("jumps high over!");
-    expect(core.getSuggestionGroups(controller.editorState.document).map((g) => g.id)).toEqual([groupId]);
+    expect(core.getSuggestionGroups(controller.editor.document).map((g) => g.id)).toEqual([groupId]);
     controller.destroy();
   });
 
-  it("a PROPOSE nested inside propose() (from onChange) does not hide the outer verdict; each gets its own", async () => {
+  it("a PROPOSE nested inside propose() (from a host subscriber) does not hide the outer verdict; each gets its own", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const box: { started: boolean; nested?: Promise<core.ProposeResult> } = { started: false };
-    const controller = createDigitalController({
-      container,
-      componentRegistry: createDefaultComponentRegistry(),
-      attrRegistry: createDefaultAttrRegistry(),
-      containerWidth: 800,
-      doc: document,
-      onChange: (state) => {
-        if (box.started || state.lastProposal === undefined) return;
-        box.started = true;
-        box.nested = controller.propose({
-          groupId: core.newSuggestionGroupId(),
-          author: "b",
-          edits: [{ kind: "replace", from: createPosition(id, 0), to: createPosition(id, 2), text: "x" }], // overlaps the outer one
-        });
-      },
+    const editor = createEditor({ componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, htmlParser: browserHtmlParser });
+    const controller = createDigitalController({ container, doc: document, editor });
+    editor.subscribe(() => {
+      if (box.started || editor.lastProposal === undefined) return;
+      box.started = true;
+      box.nested = controller.propose({
+        groupId: core.newSuggestionGroupId(),
+        author: "b",
+        edits: [{ kind: "replace", from: createPosition(id, 0), to: createPosition(id, 2), text: "x" }], // overlaps the outer one
+      });
     });
     controller.dispatch({ type: "INSERT_TEXT", text: "hello world" });
     const id = asBlockId(leafBlockId(container));
@@ -1323,7 +1283,7 @@ describe("DigitalController — host proposals (suggestion groups)", async () =>
 
   it("propose() after destroy is rejected without touching the document", async () => {
     const { controller, id } = mountWithText("abc");
-    const before = controller.editorState.document;
+    const before = controller.editor.document;
     controller.destroy();
     const result = await controller.propose({
       groupId: core.newSuggestionGroupId(),
@@ -1331,7 +1291,7 @@ describe("DigitalController — host proposals (suggestion groups)", async () =>
       edits: [{ kind: "replace", from: createPosition(id, 0), to: createPosition(id, 1), text: "x" }],
     });
     expect(result).toEqual({ ok: false, reason: "rejected", problem: { kind: "invalid", message: "controller destroyed" } });
-    expect(controller.editorState.document).toBe(before);
+    expect(controller.editor.document).toBe(before);
   });
 
   it("a proposal based on an older version lands mapped; one whose range was edited is stale; overlaps are rejected", async () => {

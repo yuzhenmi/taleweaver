@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { getBlock, setListRestart } from "../../state";
 import type { ActionOf } from "../editor-action";
@@ -17,7 +17,7 @@ import type { ActionOf } from "../editor-action";
  * collector drives), so no extra dirty ids are needed here.
  */
 export function handleSetListRestart(
-  editor: EditorState,
+  editor: Editor,
   { value }: ActionOf<"SET_LIST_RESTART">,
 ): Edit | null {
   const blockId = editor.selection.focus.blockId;

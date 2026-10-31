@@ -1,11 +1,11 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { freshDocument } from "../../state";
 import type { ActionOf } from "../editor-action";
 
 /** The reducer arm of `APPLY_FOREIGN_CHANGE`: reconcile, then rebase the selection. */
 export function handleApplyForeignChange(
-  editor: EditorState,
+  editor: Editor,
   { dirtyIds }: ActionOf<"APPLY_FOREIGN_CHANGE">,
 ): Edit | null {
   // A peer's change is already in the Y.Doc: re-read its blocks (`freshDocument`), rebase

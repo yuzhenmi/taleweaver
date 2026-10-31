@@ -8,8 +8,7 @@
 import { describe, it, expect } from "vitest";
 import {
   config,
-  createInitialEditorState,
-  reduceEditor,
+  createEditor,
   firstChildId,
 } from "./test-helpers";
 import { getBlock } from "../../state";
@@ -17,13 +16,10 @@ import type { BlockId } from "../../state";
 
 /** Insert an image (120×80) after the first paragraph; return its block id. */
 function docWithImage() {
-  let editor = createInitialEditorState(config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
+  let editor = createEditor(config);
+  editor.dispatch({ type: "INSERT_TEXT", text: "x" });
   const paraId = firstChildId(editor.document) as BlockId;
-  editor = reduceEditor(
-    editor,
-    { type: "INSERT_IMAGE", src: "i.png", width: 120, height: 80 },
-  );
+  editor.dispatch({ type: "INSERT_IMAGE", src: "i.png", width: 120, height: 80 });
   const imageId = getBlock(editor.document, paraId)?.nextSiblingId as BlockId;
   // Self-validate the fixture: if INSERT_IMAGE ever stops placing the image as
   // the paragraph's next sibling, imageId would be null and the no-op tests
@@ -36,12 +32,9 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
   it("merges width/height onto the target image block", () => {
     const { editor, imageId } = docWithImage();
 
-    const next = reduceEditor(
-      editor,
-      { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: 100 },
-    );
+    editor.dispatch({ type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: 100 });
 
-    const img = getBlock(next.document, imageId);
+    const img = getBlock(editor.document, imageId);
     expect(img?.attrs.width).toBe(200);
     expect(img?.attrs.height).toBe(100);
     // src preserved (merge, not replace).
@@ -52,90 +45,66 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
     const { editor, imageId } = docWithImage();
     const before = editor.selection;
 
-    const next = reduceEditor(
-      editor,
-      { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: 100 },
-    );
+    editor.dispatch({ type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: 100 });
 
-    expect(next.selection).toEqual(before);
+    expect(editor.selection).toEqual(before);
   });
 
   it("is a no-op when the target is not an image block", () => {
     const { editor, paraId } = docWithImage();
 
-    const next = reduceEditor(
-      editor,
-      { type: "SET_IMAGE_SIZE", blockId: paraId, width: 200, height: 100 },
-    );
+    const before = { ...editor };
+    editor.dispatch({ type: "SET_IMAGE_SIZE", blockId: paraId, width: 200, height: 100 });
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(next.document).toBe(editor.document);
+    expect(editor.document).toBe(before.document);
   });
 
   it("is a no-op when the target block does not exist", () => {
     const { editor } = docWithImage();
 
-    const next = reduceEditor(
-      editor,
-      { type: "SET_IMAGE_SIZE", blockId: "missing-id" as BlockId, width: 50, height: 50 },
-    );
+    const before = { ...editor };
+    editor.dispatch({ type: "SET_IMAGE_SIZE", blockId: "missing-id" as BlockId, width: 50, height: 50 });
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(next.document).toBe(editor.document);
+    expect(editor.document).toBe(before.document);
   });
 
   it("is a no-op when width/height are unchanged", () => {
     const { editor, imageId } = docWithImage();
 
-    const next = reduceEditor(
-      editor,
-      { type: "SET_IMAGE_SIZE", blockId: imageId, width: 120, height: 80 },
-    );
+    const before = { ...editor };
+    editor.dispatch({ type: "SET_IMAGE_SIZE", blockId: imageId, width: 120, height: 80 });
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(next.document).toBe(editor.document);
+    expect(editor.document).toBe(before.document);
   });
 
   it("rejects non-positive / non-finite dimensions (no-op)", () => {
     const { editor, imageId } = docWithImage();
 
-    // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(
-      reduceEditor(editor, { type: "SET_IMAGE_SIZE", blockId: imageId, width: 0, height: 100 }).document,
-    ).toBe(editor.document);
-    expect(
-      reduceEditor(editor, { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: -5 }).document,
-    ).toBe(editor.document);
-    expect(
-      reduceEditor(
-        editor,
-        { type: "SET_IMAGE_SIZE", blockId: imageId, width: Number.NaN, height: 100 },
-      ).document,
-    ).toBe(editor.document);
-    expect(
-      reduceEditor(
-        editor,
-        { type: "SET_IMAGE_SIZE", blockId: imageId, width: Number.POSITIVE_INFINITY, height: 100 },
-      ).document,
-    ).toBe(editor.document);
-    expect(
-      reduceEditor(
-        editor,
-        { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: Number.NEGATIVE_INFINITY },
-      ).document,
-    ).toBe(editor.document);
+    const before = { ...editor };
+    const invalid: [number, number][] = [
+      [0, 100],
+      [200, -5],
+      [Number.NaN, 100],
+      [Number.POSITIVE_INFINITY, 100],
+      [200, Number.NEGATIVE_INFINITY],
+    ];
+    for (const [width, height] of invalid) {
+      editor.dispatch({ type: "SET_IMAGE_SIZE", blockId: imageId, width, height });
+      // Nothing written (no-op; reducer entry-clears lastDirtyIds).
+      expect(editor.document).toBe(before.document);
+    }
   });
 
   it("undo restores the previous size in one step", () => {
     const { editor, imageId } = docWithImage();
-    const resized = reduceEditor(
-      editor,
-      { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: 100 },
-    );
-    expect(getBlock(resized.document, imageId)?.attrs.width).toBe(200);
+    editor.dispatch({ type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: 100 });
+    expect(getBlock(editor.document, imageId)?.attrs.width).toBe(200);
 
-    const undone = reduceEditor(resized, { type: "UNDO" });
-    expect(getBlock(undone.document, imageId)?.attrs.width).toBe(120);
-    expect(getBlock(undone.document, imageId)?.attrs.height).toBe(80);
+    editor.dispatch({ type: "UNDO" });
+    expect(getBlock(editor.document, imageId)?.attrs.width).toBe(120);
+    expect(getBlock(editor.document, imageId)?.attrs.height).toBe(80);
   });
 });

@@ -14,7 +14,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { EditorViewHandle } from "@taleweaver/react";
-import type { EditorState, FindMatchesOptions } from "@taleweaver/core";
+import type { Editor, FindMatchesOptions } from "@taleweaver/core";
 
 /** The find/replace surface both backends expose (print `EditorViewHandle`, digital controller). */
 export type FindHandle = Pick<
@@ -49,8 +49,8 @@ export function useFindShortcut(open: (mode: "find" | "replace") => void): void 
  * controller owns the find session (matches + activeIndex), so this component
  * holds only its own input state (query / replacement / options) and DRIVES the
  * handle. The authoritative "n of N" is read from `handle.findStatus()` during
- * render — the parent re-renders this bar whenever `editorState` changes (a new
- * `editorState` prop), so the count auto-refreshes the render AFTER any edit,
+ * render — the parent re-renders this bar whenever `editor` changes (a new
+ * `editor` prop), so the count auto-refreshes the render AFTER any edit,
  * replace, or navigation, with no stale-status hack (per the design's reviewer
  * correction #3).
  */
@@ -62,7 +62,7 @@ export interface FindBarProps {
    * Passed solely so a doc change re-renders the bar → it re-polls
    * `handle.findStatus()` for the live count. Not otherwise read.
    */
-  editorState: EditorState;
+  editor: Editor;
 }
 
 const DEBOUNCE_MS = 150;
@@ -80,11 +80,11 @@ export function FindBar({
   handle,
   mode,
   onClose,
-  // `editorState` is intentionally unused in the body: it exists only as a prop
+  // `editor` is intentionally unused in the body: it exists only as a prop
   // dependency so React re-renders this bar whenever the doc changes, which
   // re-polls `handle.findStatus()` for the live count (see the component
   // docstring). Renamed to satisfy noUnusedParameters.
-  editorState: _editorState,
+  editor: _editor,
 }: FindBarProps) {
   const [query, setQuery] = useState("");
   const [replacement, setReplacement] = useState("");
@@ -138,7 +138,7 @@ export function FindBar({
   };
 
   // Authoritative count: read from the controller on EVERY render (see the
-  // component docstring). `editorState` is a prop dependency that forces a
+  // component docstring). `editor` is a prop dependency that forces a
   // re-render after any doc change, so this stays current.
   const status = handle.findStatus();
   const countLabel = formatCount(query, status.total, status.activeIndex);

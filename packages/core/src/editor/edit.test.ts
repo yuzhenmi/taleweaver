@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { stateWithText, firstChildId, reduceEditor, createPosition, createSpan, type EditorState } from "./actions/test-helpers";
+import { stateWithText, firstChildId, type Editor, createPosition, createSpan } from "./actions/test-helpers";
 import { applyEdit, type Edit } from "./edit";
 import { getBlock, mergeBlockAttrs, positionsEqual } from "../state";
 import type { BlockId } from "../state";
 
 /** A one-paragraph editor with an open undo entry, as the reducer has before an edit runs. */
-function seeded(): { editor: EditorState; id: BlockId } {
+function seeded(): { editor: Editor; id: BlockId } {
   const editor = stateWithText("hello");
   const id = firstChildId(editor.document);
   if (id === null) throw new Error("no paragraph");
@@ -19,32 +19,37 @@ describe("applyEdit", () => {
     const change = mergeBlockAttrs(editor.document, id, { textAlign: "center" });
     const after = createSpan(createPosition(id, 1), createPosition(id, 1));
 
-    const next = applyEdit(editor, { change, selection: after });
-    expect(next.document).toBe(change.document);
-    expect(next.selection).toBe(after);
-    expect(next.lastDirtyIds).toBe(change.dirtyIds);
-    expect(next.lastChange?.from).toBe(editor.document);
+    const before = { ...editor };
+    applyEdit(editor, { change, selection: after });
+    expect(editor.document).toBe(change.document);
+    expect(editor.selection).toBe(after);
+    expect(editor.lastDirtyIds).toBe(change.dirtyIds);
+    expect(editor.lastChange?.from).toBe(before.document);
 
-    const undone = reduceEditor(next, { type: "UNDO" });
-    expect(getBlock(undone.document, id)?.attrs.textAlign).toBeUndefined();
-    expect(positionsEqual(undone.selection.focus, editor.selection.focus)).toBe(true);
+    editor.dispatch({ type: "UNDO" });
+    expect(getBlock(editor.document, id)?.attrs.textAlign).toBeUndefined();
+    expect(positionsEqual(editor.selection.focus, before.selection.focus)).toBe(true);
   });
 
   it("null — or a change that leaves the document as it was — commits and records nothing", () => {
     const { editor, id } = seeded();
-    expect(applyEdit(editor, null)).toBe(editor);
+    const before = { ...editor };
+    applyEdit(editor, null);
+    expect({ ...editor }).toEqual(before);
+    expect(editor.document).toBe(before.document);
+    expect(editor.selection).toBe(before.selection);
 
     const after = createSpan(createPosition(id, 0), createPosition(id, 0));
-    const moved = applyEdit(editor, { change: { document: editor.document, dirtyIds: new Set() }, selection: after });
-    expect(moved.document).toBe(editor.document);
-    expect(moved.lastChange).toBe(editor.lastChange);
-    expect(moved.selection).toBe(after);
+    applyEdit(editor, { change: { document: editor.document, dirtyIds: new Set() }, selection: after });
+    expect(editor.document).toBe(before.document);
+    expect(editor.lastChange).toBe(before.lastChange);
+    expect(editor.selection).toBe(after);
   });
 
-  it("an EditorState is not an Edit (it would silently lose its change)", () => {
+  it("an Editor is not an Edit (it would silently lose its change)", () => {
     const { editor } = seeded();
     const asEdit = (edit: Edit): Edit => edit;
-    // @ts-expect-error — `Edit.document?: never` rejects a whole EditorState
+    // @ts-expect-error — `Edit.document?: never` rejects a whole Editor
     expect(() => asEdit(editor)).not.toThrow();
   });
 });

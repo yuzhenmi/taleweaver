@@ -110,7 +110,7 @@ const UNSEEN = Symbol("unseen");
  * toggles `false`, values `null`, and `blockType` the focus block's type
  * (falling back to `"paragraph"`).
  *
- * `storedAttrs` — the editor's pending typing attrs (`EditorState.storedAttrs`,
+ * `storedAttrs` — the editor's pending typing attrs (`Editor.storedAttrs`,
  * set by a format command at a collapsed caret). When given at a collapsed caret
  * they ARE the inline formatting (they are what the next keystroke types), so the
  * toolbar reflects a collapsed Bold toggle immediately.

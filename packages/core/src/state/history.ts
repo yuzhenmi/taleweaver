@@ -169,7 +169,7 @@ function readSelectionEntry(item: YStackItem): StoredEntry | null {
 
 /**
  * Yjs-backed history wrapper. Mutable internal state — instances live
- * alongside an `EditorState`-like container and produce fresh Document
+ * alongside an `Editor`-like container and produce fresh Document
  * references on undo/redo (so consumers can use `oldState !== newState`
  * to detect changes).
  *

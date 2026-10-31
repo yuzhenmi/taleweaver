@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { resolveTableContext, mergeCells, resolveCellRange, buildTableGrid, getBlock, createPosition, createSpan } from "../../state";
 
@@ -16,7 +16,7 @@ import { resolveTableContext, mergeCells, resolveCellRange, buildTableGrid, getB
  * survivor is the cell originating at `(minRow, minCol)`; its id survives the merge,
  * so its first paragraph is read from the POST-op state. One undo (`"command"`).
  */
-export function handleMergeCells(editor: EditorState): Edit | null {
+export function handleMergeCells(editor: Editor): Edit | null {
   const ctx = resolveTableContext(editor.document, editor.selection.focus.blockId);
   if (ctx === null || ctx.ragged) return null;
 

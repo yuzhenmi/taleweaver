@@ -16,7 +16,7 @@
  *  - suggestion highlight paints UNDER the comment highlight when both present.
  *  - incremental clear erases the OLD band (addSuggestionHighlightDirty).
  */
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import {
   paintCanvas,
   paintPage,
@@ -83,7 +83,7 @@ const suggestingConfig: core.EditorConfig = {
 };
 
 /** The first body paragraph id under the document root. */
-function bodyParaId(editor: core.EditorState): core.BlockId {
+function bodyParaId(editor: core.Editor): core.BlockId {
   const root = finalSection(editor.document);
   const id = root?.firstChildId;
   if (id === undefined || id === null) throw new Error("no paragraph block");
@@ -91,7 +91,7 @@ function bodyParaId(editor: core.EditorState): core.BlockId {
 }
 
 /** The number of inline offsets in `paraId` (its content length). */
-function paraLength(editor: core.EditorState, paraId: core.BlockId): number {
+function paraLength(editor: core.Editor, paraId: core.BlockId): number {
   const content = core.getBlock(editor.document, paraId)?.inlineContent ?? null;
   return content === null ? 0 : core.inlineContentLength(content);
 }
@@ -101,9 +101,9 @@ function paraLength(editor: core.EditorState, paraId: core.BlockId): number {
  * ONE insertion suggestion that tags the whole inserted run. Returns the editor and
  * the minted suggestion's (branded) id (a live, non-empty range).
  */
-function seededSuggestion(text: string): { editor: core.EditorState; suggestionId: core.SuggestionId } {
-  let editor = core.createInitialEditorState(suggestingConfig);
-  editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text });
+function seededSuggestion(text: string): { editor: core.Editor; suggestionId: core.SuggestionId } {
+  let editor = core.createEditor(suggestingConfig);
+  editor.dispatch({ type: "INSERT_TEXT", text });
   const suggestions = core.getSuggestions(editor.document);
   const live = suggestions[0];
   if (live === undefined) throw new Error("no live suggestion minted");
@@ -163,8 +163,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     expect(core.resolveSuggestionRange(editor.document, suggestionId)).not.toBeNull();
 
     const { container, lastCtx } = mount();
-    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
-    controller.update(editor);
+    const controller = createEditorController(container, { measurer, editor });
 
     controller.setSuggestionHighlights([{ suggestionId, active: false }]);
     const { inactive, active } = suggestionOps(lastCtx());
@@ -179,30 +178,25 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     // suggesting-mode insertions breaks run-adjacency so they don't coalesce into a
     // single tracked change → two distinct ids, each with its own live range.
     const directConfig = { ...suggestingConfig, suggestingAuthor: null };
-    let editor = core.createInitialEditorState(suggestingConfig);
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "hello" });
+    let editor = core.createEditor(suggestingConfig);
+    editor.dispatch({ type: "INSERT_TEXT", text: "hello" });
     const paraId = bodyParaId(editor);
     const sep = paraLength(editor, paraId);
-    editor = core.reduceEditor(
-      { ...editor, config: directConfig },
-      { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(paraId, sep), core.createPosition(paraId, sep)) },
-    );
+    editor.config = directConfig;
+    editor.dispatch({ type: "SET_SELECTION", selection: core.createSpan(core.createPosition(paraId, sep), core.createPosition(paraId, sep)) });
     // Direct (untracked) separator splits the two suggestion runs.
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: " sep " });
+    editor.dispatch({ type: "INSERT_TEXT", text: " sep " });
     const end = paraLength(editor, paraId);
-    editor = core.reduceEditor(
-      { ...editor, config: suggestingConfig },
-      { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(paraId, end), core.createPosition(paraId, end)) },
-    );
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "world" });
+    editor.config = suggestingConfig;
+    editor.dispatch({ type: "SET_SELECTION", selection: core.createSpan(core.createPosition(paraId, end), core.createPosition(paraId, end)) });
+    editor.dispatch({ type: "INSERT_TEXT", text: "world" });
     const suggestions = core.getSuggestions(editor.document);
     expect(suggestions.length).toBeGreaterThanOrEqual(2);
     const [s1, s2] = suggestions;
     if (s1 === undefined || s2 === undefined) throw new Error("expected two suggestions");
 
     const { container, lastCtx } = mount();
-    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
-    controller.update(editor);
+    const controller = createEditorController(container, { measurer, editor });
 
     controller.setSuggestionHighlights([
       { suggestionId: s1.id, active: false },
@@ -219,27 +213,30 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     const base = { ...suggestingConfig, suggestingAuthor: null };
     const alice = { ...suggestingConfig, suggestingAuthor: "alice", now: () => 1 };
     const bob = { ...suggestingConfig, suggestingAuthor: "bob", now: () => 2 };
-    let editor = core.reduceEditor(core.createInitialEditorState(base), { type: "INSERT_TEXT", text: "abcdefgh" });
+    let editor = core.createEditor(base);
+    editor.dispatch({ type: "INSERT_TEXT", text: "abcdefgh" });
     const paraId = bodyParaId(editor);
     const select = (a: number, b: number): core.EditorAction => ({
       type: "SET_SELECTION",
       selection: core.createSpan(core.createPosition(paraId, a), core.createPosition(paraId, b)),
     });
-    editor = core.reduceEditor(core.reduceEditor({ ...editor, config: alice }, select(0, 4)), { type: "TOGGLE_STYLE", style: "bold" });
-    editor = core.reduceEditor(core.reduceEditor({ ...editor, config: bob }, select(2, 6)), { type: "TOGGLE_STYLE", style: "italic" });
+    editor.config = alice;
+    editor.dispatch(select(0, 4));
+    editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
+    editor.config = bob;
+    editor.dispatch(select(2, 6));
+    editor.dispatch({ type: "TOGGLE_STYLE", style: "italic" });
     const ids = core.getSuggestions(editor.document).map((x) => x.id);
     const [a, b] = ids;
     if (a === undefined || b === undefined) throw new Error("expected two suggestions");
 
     const { container, lastCtx } = mount();
-    let current = editor;
-    let controller: ReturnType<typeof createEditorController> | null = null;
+    const current = editor;
     const dispatch = (action: core.EditorAction): void => {
-      current = core.reduceEditor({ ...current, config: base }, action);
-      controller?.update(current);
+      current.config = base;
+      current.dispatch(action);
     };
-    controller = createEditorController(container, { measurer, dispatch });
-    controller.update(current);
+    const controller = createEditorController(container, { measurer, editor: current });
     const glyphLook = (ch: string): [boolean, boolean, string] => {
       const op = [...(lastCtx()?._ops ?? [])].reverse().find((o) => o.kind === "fillText" && o.text.includes(ch));
       if (op === undefined || op.kind !== "fillText") throw new Error(`no glyph ${ch}`);
@@ -271,20 +268,21 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
 
   it("an embed-only formatting suggestion (a tab) is banded", () => {
     const base = { ...suggestingConfig, suggestingAuthor: null };
-    let editor = core.reduceEditor(core.createInitialEditorState(base), { type: "INSERT_TEXT", text: "ab" });
-    editor = core.reduceEditor(editor, { type: "INSERT_TAB" });
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "cd" });
+    let editor = core.createEditor(base);
+    editor.dispatch({ type: "INSERT_TEXT", text: "ab" });
+    editor.dispatch({ type: "INSERT_TAB" });
+    editor.dispatch({ type: "INSERT_TEXT", text: "cd" });
     const paraId = bodyParaId(editor);
     const tabOnly = core.createSpan(core.createPosition(paraId, 2), core.createPosition(paraId, 3));
-    editor = core.reduceEditor({ ...editor, config: suggestingConfig }, { type: "SET_SELECTION", selection: tabOnly });
-    editor = core.reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
+    editor.config = suggestingConfig;
+    editor.dispatch({ type: "SET_SELECTION", selection: tabOnly });
+    editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
     const [only] = core.getSuggestions(editor.document);
     if (only === undefined) throw new Error("expected a suggestion");
     expect(only.range?.start.offset).toBe(2);
 
     const { container, lastCtx } = mount();
-    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
-    controller.update(editor);
+    const controller = createEditorController(container, { measurer, editor });
     controller.setSuggestionHighlights([{ suggestionId: only.id, active: false }]);
     const bands = suggestionOps(lastCtx()).inactive;
     expect(bands.length).toBe(1);
@@ -297,22 +295,20 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     // Delete the whole inserted (suggestion-tagged) run, leaving no tagged item →
     // the range index omits the id → resolveSuggestionRange returns null.
     const paraId = bodyParaId(editor);
-    let e = core.reduceEditor(
-      { ...editor, config: { ...suggestingConfig, suggestingAuthor: null } },
-      {
+    editor.config = { ...suggestingConfig, suggestingAuthor: null };
+    editor.dispatch({
         type: "SET_SELECTION",
         selection: core.createSpan(
           core.createPosition(paraId, 0),
           core.createPosition(paraId, paraLength(editor, paraId)),
         ),
-      },
-    );
-    e = core.reduceEditor(e, { type: "DELETE_FORWARD" });
+      });
+    let e = editor;
+    e.dispatch({ type: "DELETE_FORWARD" });
     expect(core.resolveSuggestionRange(e.document, suggestionId)).toBeNull();
 
     const { container, lastCtx } = mount();
-    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
-    controller.update(e);
+    const controller = createEditorController(container, { measurer, editor: e });
 
     controller.setSuggestionHighlights([{ suggestionId, active: false }]);
     const { inactive, active } = suggestionOps(lastCtx());
@@ -326,8 +322,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     const { editor, suggestionId } = seededSuggestion("hello world foo");
 
     const { container, lastCtx } = mount();
-    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
-    controller.update(editor);
+    const controller = createEditorController(container, { measurer, editor });
 
     controller.setSuggestionHighlights([{ suggestionId, active: false }]);
     expect(suggestionOps(lastCtx()).inactive.length).toBeGreaterThan(0);
@@ -357,8 +352,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     expect(core.resolveSuggestionRange(editor.document, suggestionId)).not.toBeNull();
 
     const { container, lastCtx } = mount();
-    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
-    controller.update(editor);
+    const controller = createEditorController(container, { measurer, editor });
 
     controller.setSuggestionHighlights([{ suggestionId, active: false }]);
     expect(suggestionOps(lastCtx()).inactive.length).toBeGreaterThanOrEqual(2);

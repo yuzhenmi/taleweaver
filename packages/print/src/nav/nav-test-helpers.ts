@@ -9,23 +9,23 @@
  *
  * These tests therefore can't use core's internal test-utils (they don't cross the
  * package boundary). Instead they author documents through the PUBLIC editor API
- * (`createInitialEditorState` + `reduceEditor` with `INSERT_TEXT` / `SPLIT_NODE` /
+ * (`createEditor` + `editor.dispatch` with `INSERT_TEXT` / `SPLIT_NODE` /
  * `SET_SELECTION` / …), rebuild the layout via `createLayoutDriver`, and drive one
- * nav keystroke through `resolveNavIntent` → `reduceEditor`.
+ * nav keystroke through `resolveNavIntent` → `editor.dispatch`.
  *
  * `nav(ctx, intent)` is the central primitive: rebuild the driver layout for the
  * current state, resolve the intent against it, and apply the resulting action (or
  * leave the state untouched when the intent is a no-op `null`). This is exactly the
  * controller's per-keystroke loop, distilled for tests.
  */
-import { createInitialEditorState, createEditorStateFromDocument, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, firstLeafBlock, createPosition, createSpan, initialSelectionForDocument, type EditorState, type EditorConfig, type EditorAction, type Selection, type Position, type Document, type BlockId, type PageConfig, type Hyphenator, type TextShaper, type ComponentRegistry, type AttrRegistry } from "@taleweaver/core";
+import { createEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, firstLeafBlock, createPosition, createSpan, type Editor, type EditorConfig, type EditorAction, type Selection, type Position, type Document, type BlockId, type PageConfig, type Hyphenator, type TextShaper, type ComponentRegistry, type AttrRegistry } from "@taleweaver/core";
 import { type LayoutBox, type VirtualLayoutTree } from "../index";
 import { createLayoutDriver, type LayoutDriver } from "../layout-driver/layout-driver";
 import { resolveNavIntent, type NavIntent } from "./nav-intent";
 
 /** The full nav-test context: the editor state + everything `nav` needs to step it. */
 export interface NavCtx {
-  readonly editor: EditorState;
+  readonly editor: Editor;
   readonly config: EditorConfig;
   readonly driver: LayoutDriver;
   readonly measurer: TextShaper;
@@ -74,7 +74,7 @@ export function makeNavEditor(opts: MakeNavEditorOptions = {}): NavCtx {
   const driver = createLayoutDriver({ measurer, hyphenator: opts.hyphenator });
 
   return {
-    editor: createInitialEditorState(config),
+    editor: createEditor(config),
     config,
     driver,
     measurer,
@@ -106,7 +106,7 @@ export function makeNavEditorFromDocument(document: Document, opts: MakeNavEdito
   const driver = createLayoutDriver({ measurer, hyphenator: opts.hyphenator });
 
   return {
-    editor: createEditorStateFromDocument(document, initialSelectionForDocument(document), config),
+    editor: createEditor(config, { document }),
     config,
     driver,
     measurer,
@@ -130,13 +130,15 @@ export function layoutOf(ctx: NavCtx): LayoutBox | VirtualLayoutTree {
 export function nav(ctx: NavCtx, intent: NavIntent): NavCtx {
   const lt = layoutOf(ctx);
   const action = resolveNavIntent(intent, ctx.editor, lt, ctx.measurer, ctx.componentRegistry);
-  if (action === null) return ctx;
-  return { ...ctx, editor: reduceEditor(ctx.editor, action) };
+  if (action !== null) ctx.editor.dispatch(action);
+  return ctx;
 }
 
 /** Apply a non-nav `EditorAction` (INSERT_TEXT, SPLIT_NODE, TOGGLE_STYLE, …). */
 export function dispatch(ctx: NavCtx, action: EditorAction): NavCtx {
-  return { ...ctx, editor: reduceEditor({ ...ctx.editor, config: ctx.config }, action) };
+  ctx.editor.config = ctx.config;
+  ctx.editor.dispatch(action);
+  return ctx;
 }
 
 /** Type a literal string one INSERT_TEXT per character (matches keystroke coalescing). */
@@ -166,7 +168,7 @@ export function caretAt(ctx: NavCtx, blockId: BlockId, offset: number): NavCtx {
 
 /**
  * The first content block id of a fresh editor (the only paragraph after
- * `createInitialEditorState`). Throws on a malformed seed.
+ * `createEditor`). Throws on a malformed seed.
  */
 export function firstBlockId(ctx: NavCtx): BlockId {
   // The root holds sections only — descend to the first paragraph.

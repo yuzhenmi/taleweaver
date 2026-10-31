@@ -6,18 +6,24 @@ import { compileKeymap, type ActiveTrigger } from "./extensions";
 import type { Document, Selection, BlockId, Position, ReadonlyAttrs } from "../state";
 import type { CaretAffinity } from "../cursor/selection";
 import type { EditorConfig } from "./editor-config";
+import type { EditorAction } from "./editor-action";
+import { reduceEditor } from "./reduce-editor";
 import type { DocumentChange } from "./document-change";
 import { initialSelectionForDocument } from "./actions/helpers/initial-selection-for-document";
 
-// --- EditorState ---
+// --- Editor ---
 
-export interface EditorState {
+/**
+ * The editor's fields at one moment: what `Editor` holds, as a plain read-only value. An
+ * `Editor` is one (it implements this); `{ ...editor }` takes a copy. A listener receives
+ * the copy taken before the action (`EditorChange.before`).
+ */
+export interface EditorSnapshot {
   /**
-   * The editor's environment (registries, clock, suggesting author, extensions), carried
-   * by reference through every state the reducer produces. The registries are fixed for
-   * the editor's lifetime — the attr registry is bound to the document once, at
-   * construction. Other fields may be swapped with `{ ...editor, config: { ...editor.config, … } }`
-   * (e.g. entering suggesting mode).
+   * The editor's environment (registries, clock, suggesting author, extensions). The
+   * registries are fixed for the editor's lifetime — the attr registry is bound to the
+   * document once, at construction. The rest may be replaced by assigning
+   * `editor.config` (e.g. entering suggesting mode).
    */
   readonly config: EditorConfig;
   readonly document: Document;
@@ -35,19 +41,15 @@ export interface EditorState {
    * inert action (no document mutation), the initial build, or a container-width
    * resize. Within the reducer dispatch cycle a non-null (possibly empty) set is
    * written ONLY by `applyEdit`, so a mutating action's dirty ids never leak
-   * forward onto a later selection-only action's state (the reducer's entry-clear
-   * enforces this). The ONE writer OUTSIDE the reducer is
-   * `reconcileForeignChange` (a collab peer's edit): it sets a non-null set
-   * directly, which is sound because it produces a whole new `EditorState` the
-   * host swaps in atomically (no in-flight dispatch can observe a stale value).
-   * NON-undoable, transient view/hand-off state — never in `History`, never part
+   * forward onto a later selection-only action (the reducer's entry-clear
+   * enforces this). NON-undoable, transient view/hand-off state — never in `History`, never part
    * of `Position` / `Selection`.
    */
   readonly lastDirtyIds: ReadonlySet<BlockId> | null;
   /**
    * The most recent DOCUMENT change that produced `document`: the Document it was made from and
    * its raw dirty set. Unlike `lastDirtyIds` it survives later selection-only / inert
-   * actions, so a consumer holding an older EditorState can still map positions across
+   * actions, so a consumer holding an older snapshot can still map positions across
    * "edit, then move the caret". `null` when the last change's extent is unknown (initial
    * state, a wholesale replacement). Read by `transitionMapping` (decorations, anchors).
    * NON-undoable transient state, like `lastDirtyIds`.
@@ -66,7 +68,7 @@ export interface EditorState {
    *
    * Lifecycle (the OPPOSITE model from `targetX`, which is centrally cleared in
    * `reduceEditor`): set by `SET_SELECTION` (the controller passes the clicked
-   * page), PRESERVED through other handlers by their `{...editor}` spread, and
+   * page), PRESERVED through other handlers, and
    * cleared EXPLICITLY only by undo/redo (post-restore page is ambiguous) and a
    * body `SET_SELECTION` (which passes no hint). It is view state — never stored
    * in `History`, never part of `Position` / `Selection`.
@@ -132,58 +134,100 @@ export interface EditorState {
   /**
    * The reducer's verdict on the most recent `PROPOSE` (applied / stale / rejected, with
    * the problem). A host that dispatches proposals asynchronously (print) reads the
-   * outcome here on the next state. View state, never in history.
+   * outcome here after the dispatch. View state, never in history.
    */
   readonly lastProposal?: ProposalOutcome;
 }
 
-
-export function createInitialEditorState(config: EditorConfig): EditorState {
-  const document = createEmptyDocument({ resolver: config.componentRegistry });
-  const selection = initialSelectionForDocument(document);
-  return createEditorStateFromDocument(document, selection, config);
+/** One dispatch, as a listener sees it: the action and the editor's fields before it. */
+export interface EditorChange {
+  readonly action: EditorAction;
+  readonly before: EditorSnapshot;
 }
 
+export type EditorListener = (change: EditorChange) => void;
+
 /**
- * Build a fresh `EditorState` from an arbitrary `Document` + initial `Selection`
- * (a fresh `History` bound to that state). `createInitialEditorState` delegates
- * here with the empty document. Primarily for tests that need a non-default seed
- * document (e.g. a table-only body) without an editor-from-state injection seam.
+ * The editor: one long-lived, mutable object per editing session — the document, the
+ * selection, the undo history and the view state (see `EditorSnapshot` for each field).
+ * `dispatch` runs an action, which changes the editor in place, then tells every
+ * subscriber. Change the fields only through `dispatch`, except `config` (assignable).
  *
- * Core is geometry-free. This builds NO render/cascade/layout trees —
- * the print backend's layout-driver owns that pipeline and rebuilds it from
- * `document` after each dispatch. `lastDirtyIds: null` signals the driver to do a
- * FULL initial build.
- *
- * `historyOrigin` is the transaction origin the editor's `History` tracks for
- * undo (default `null` = the single-editor origin). A collaborating peer passes
- * its own origin token so its `UndoManager` tracks ONLY its own edits (undo
- * isolation) — building the right History up front instead of replacing a
- * default one (which would leak the default's UndoManager listener).
+ * The `document` is still a new `Document` handle after every change: it names that
+ * version of the document (anchors, `PROPOSE.basedOn` and the mapping log key on it).
  */
-export function createEditorStateFromDocument(
-  document: Document,
-  selection: Selection,
-  config: EditorConfig,
-  historyOrigin: unknown = null,
-): EditorState {
-  // Every state writer judging an attr (¶ markAttrs, one-shot attrs) reads it from the doc.
-  bindAttrRegistry(document[DOCUMENT_INTERNAL].doc, config.attrRegistry);
-  // Parse the host keymap now: a malformed binding name fails at configuration time.
-  if (config.extensions?.keymap !== undefined) compileKeymap(config.extensions.keymap);
-  return {
-    config,
-    document,
-    selection,
-    history: createHistory(document, undefined, historyOrigin),
-    lastDirtyIds: null,
-    lastChange: null,
-    containerWidth: config.containerWidth,
-    targetX: null,
-    caretPageHint: undefined,
-    caretAffinity: undefined,
-    anchorAffinity: undefined,
-  };
+export class Editor implements EditorSnapshot {
+  config: EditorConfig;
+  document: Document;
+  selection: Selection;
+  readonly history: History;
+  lastDirtyIds: ReadonlySet<BlockId> | null = null;
+  lastChange: DocumentChange | null = null;
+  containerWidth: number;
+  targetX: number | null = null;
+  caretPageHint?: number;
+  caretAffinity?: CaretAffinity;
+  anchorAffinity?: CaretAffinity;
+  anchorBeforeLift?: Position;
+  storedAttrs?: ReadonlyAttrs;
+  activeTrigger?: ActiveTrigger;
+  lastProposal?: ProposalOutcome;
+  readonly #listeners = new Set<EditorListener>();
+
+  constructor(config: EditorConfig, document: Document, selection: Selection, historyOrigin: unknown) {
+    // Every document writer judging an attr (¶ markAttrs, one-shot attrs) reads it from the doc.
+    bindAttrRegistry(document[DOCUMENT_INTERNAL].doc, config.attrRegistry);
+    // Parse the host keymap now: a malformed binding name fails at configuration time.
+    if (config.extensions?.keymap !== undefined) compileKeymap(config.extensions.keymap);
+    this.config = config;
+    this.document = document;
+    this.selection = selection;
+    this.history = createHistory(document, undefined, historyOrigin);
+    this.containerWidth = config.containerWidth;
+  }
+
+  /**
+   * Run `action`, changing the editor in place, then call every subscriber. An action
+   * that throws leaves the editor as it was (the error escapes; subscribers are not called).
+   */
+  dispatch(action: EditorAction): void {
+    const before: EditorSnapshot = { ...this };
+    reduceEditor(this, action);
+    for (const listener of [...this.#listeners]) listener({ action, before });
+  }
+
+  /** Call `listener` after every dispatch. Returns the unsubscribe function. */
+  subscribe(listener: EditorListener): () => void {
+    this.#listeners.add(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
+  }
+}
+
+/** What an editor starts from: the document (default: an empty one), the selection
+ *  (default: its start) and the transaction origin its `History` tracks for undo. */
+export interface CreateEditorOptions {
+  readonly document?: Document;
+  readonly selection?: Selection;
+  /**
+   * The transaction origin the editor's `History` tracks (default `null`, the
+   * single-editor origin). A collaborating peer passes its own token so its undo covers
+   * only its own edits.
+   */
+  readonly historyOrigin?: unknown;
+}
+
+
+/**
+ * A new editor over `options.document` (default: an empty document). Core builds no
+ * render / cascade / layout trees: a backend's layout driver builds them from `document`
+ * (`lastDirtyIds: null` asks it for a full first build).
+ */
+export function createEditor(config: EditorConfig, options: CreateEditorOptions = {}): Editor {
+  const document = options.document ?? createEmptyDocument({ resolver: config.componentRegistry });
+  const selection = options.selection ?? initialSelectionForDocument(document);
+  return new Editor(config, document, selection, options.historyOrigin ?? null);
 }
 
 
@@ -191,28 +235,17 @@ export function createEditorStateFromDocument(
  * Reset the transient VIEW fields that go stale on any document mutation:
  * `targetX` (line-nav sticky goal column) and `caretAffinity` / `anchorAffinity`
  * (bidi-boundary seeds). Each is resolved against a specific document/layout
- * shape, so any edit invalidates it. Allocation-guarded — returns `editor`
- * unchanged when all three are already cleared.
+ * shape, so any edit invalidates it.
  *
  * The SINGLE home for "what counts as stale-on-mutation view state". Every
- * producer of a post-mutation `EditorState` routes through here — the reducer
+ * document change routes through here — the reducer
  * (after every non-`SET_SELECTION` action) and `reconcileForeignChange` (after a
  * peer's foreign edit) — so a new producer can't silently forget a field.
  */
-export function clearTransientViewState(editor: EditorState): EditorState {
-  if (
-    editor.targetX === null &&
-    editor.caretAffinity === undefined &&
-    editor.anchorAffinity === undefined
-  ) {
-    return editor;
-  }
-  return {
-    ...editor,
-    targetX: null,
-    caretAffinity: undefined,
-    anchorAffinity: undefined,
-  };
+export function clearTransientViewState(editor: Editor): void {
+  editor.targetX = null;
+  editor.caretAffinity = undefined;
+  editor.anchorAffinity = undefined;
 }
 
 /**
@@ -240,7 +273,7 @@ export function clearTransientViewState(editor: EditorState): EditorState {
  * always has `anchorAffinity === undefined`, so a NEW selection seeds correctly.
  * Living here keeps the rule in ONE place across the three extenders.
  */
-export function seedAnchorAffinity(editor: EditorState): CaretAffinity | undefined {
+export function seedAnchorAffinity(editor: EditorSnapshot): CaretAffinity | undefined {
   const isCollapsed = positionsEqual(editor.selection.anchor, editor.selection.focus);
   return isCollapsed && editor.anchorAffinity === undefined
     ? editor.caretAffinity // seed from the caret's boundary side on first extend

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Anchor, Decoration, EditorState, Position } from "@taleweaver/core";
+import type { Anchor, Decoration, Editor, Position } from "@taleweaver/core";
 
 /**
  * Generic "async check" demo for anchors (shared by the print and digital tabs): the
@@ -20,13 +20,13 @@ export interface AsyncCheck {
 }
 
 export function useAsyncCheck(
-  editorState: EditorState,
+  editor: Editor,
   createAnchor: (from: Position, to: Position) => Anchor | null,
 ): AsyncCheck {
   const [status, setStatus] = useState("Select some text, then run an async check.");
   const [busy, setBusy] = useState(false);
   const [landed, setLanded] = useState<Anchor | null>(null);
-  const selection = editorState.selection;
+  const selection = editor.selection;
   const timers = useRef<number[]>([]);
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), []);
 

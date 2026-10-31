@@ -1,15 +1,15 @@
 import type { BlockId } from "../state";
 import { freshDocument } from "../state";
-import { clearTransientViewState, type EditorState } from "./editor-state";
+import { clearTransientViewState, type Editor } from "./editor";
 import { applyEdit } from "./edit";
 
 /**
- * Apply a PEER's edit to the local `EditorState` (live collab).
+ * Apply a PEER's edit to the local `Editor` (live collab).
  *
  * When a remote peer mutates the shared `Y.Doc`, the local
  * `subscribeForeignChanges` observer fires with the set of block ids that
  * changed. This function consumes that set to produce the next local
- * `EditorState`:
+ * `Editor`:
  *
  * - **`freshDocument(state, dirtyIds)`** mints a new `Document` over the same Y.Doc
  *   whose snapshot cache is invalidated for `dirtyIds` only. Reads of those
@@ -34,16 +34,15 @@ import { applyEdit } from "./edit";
  * `config`/geometry.
  */
 export function reconcileForeignChange(
-  editor: EditorState,
+  editor: Editor,
   dirtyIds: ReadonlySet<BlockId>,
-): EditorState {
+): void {
   // A foreign edit is a document mutation, so the transient view fields that go
   // stale on any edit must be reset — `clearTransientViewState` is the single home
   // the reducer also routes through (targetX + bidi affinities, all resolved
   // against the pre-edit structure). `caretPageHint` is deliberately NOT in that
   // set: its lifecycle preserves it through non-undo/redo handlers, and a foreign
   // edit is not undo/redo.
-  return clearTransientViewState(
-    applyEdit(editor, { change: { document: freshDocument(editor.document, dirtyIds), dirtyIds }, undoable: false }),
-  );
+  applyEdit(editor, { change: { document: freshDocument(editor.document, dirtyIds), dirtyIds }, undoable: false });
+  clearTransientViewState(editor);
 }

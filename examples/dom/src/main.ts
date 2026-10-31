@@ -1,11 +1,8 @@
 import {
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
-  createInitialEditorState,
-  reduceEditor,
+  createEditor,
   type EditorConfig,
-  type EditorAction,
-  type EditorState,
 } from "@taleweaver/core";
 import {
   createCanvasShaper,
@@ -43,27 +40,20 @@ async function init() {
     htmlParser: browserHtmlParser,
   };
 
-  let editorState: EditorState = createInitialEditorState(config);
-
-  const dispatch = (action: EditorAction) => {
-    editorState = reduceEditor(editorState, action);
-    ctrl.update(editorState);
-  };
-
-  const ctrl = createEditorController(container, {
+  // The controller subscribes to the editor and re-renders after every dispatch.
+  const editor = createEditor(config);
+  createEditorController(container, {
     measurer: shaper,
-    dispatch,
+    editor,
     pageHeight: PAGE_HEIGHT,
     pageGap: PAGE_GAP,
   });
-
-  ctrl.update(editorState);
 
   const observer = new ResizeObserver((entries) => {
     for (const entry of entries) {
       const width = entry.contentRect.width;
       if (width > 0) {
-        dispatch({ type: "SET_CONTAINER_WIDTH", width });
+        editor.dispatch({ type: "SET_CONTAINER_WIDTH", width });
       }
     }
   });

@@ -2,9 +2,7 @@ import { finalSectionOf } from "../test-utils/document-builders";
 import { TEST_RESOLVER } from "../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
-  createInitialEditorState,
-  createEditorStateFromDocument,
-  reduceEditor,
+  createEditor,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   registerMark,
@@ -29,7 +27,7 @@ import {
   INSERTION_SUGGESTION_ATTR,
   type EditorAction,
   type EditorConfig,
-  type EditorState,
+  type Editor,
   type BlockId,
   type InlineItem,
   type Document,
@@ -58,22 +56,23 @@ function makeConfig(extra?: Partial<EditorConfig>): EditorConfig {
   };
 }
 
-function run(editor: EditorState, config: EditorConfig, ...actions: EditorAction[]): EditorState {
-  let s = editor;
-  for (const a of actions) s = reduceEditor({ ...s, config: config }, a);
+function run(editor: Editor, config: EditorConfig, ...actions: EditorAction[]): Editor {
+  const s = editor;
+  s.config = config;
+  for (const a of actions) s.dispatch(a);
   return s;
 }
 
-function blockId(editor: EditorState): BlockId {
+function blockId(editor: Editor): BlockId {
   return editor.selection.focus.blockId;
 }
 
-function items(editor: EditorState, id: BlockId = blockId(editor)): readonly InlineItem[] {
+function items(editor: Editor, id: BlockId = blockId(editor)): readonly InlineItem[] {
   return getBlock(editor.document, id)?.inlineContent?.items ?? [];
 }
 
 /** Text + attrs of every run, for compact assertions. */
-function runs(editor: EditorState, id: BlockId = blockId(editor)): Array<[string, Record<string, unknown>]> {
+function runs(editor: Editor, id: BlockId = blockId(editor)): Array<[string, Record<string, unknown>]> {
   return items(editor, id).map((it) => [it.kind === "text" ? it.text : "￼", { ...it.attrs }]);
 }
 
@@ -86,8 +85,8 @@ function select(id: BlockId, from: number, to: number): EditorAction {
 }
 
 /** "Hi Anna and Bob" with "Anna" (3..7) a mention {ref:"a"}; caret at the end. */
-function withMention(config: EditorConfig): EditorState {
-  let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "Hi Anna and Bob" });
+function withMention(config: EditorConfig): Editor {
+  let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "Hi Anna and Bob" });
   const id = blockId(s);
   s = run(s, config, select(id, 3, 7), { type: "SET_MARK", key: "mention", value: { ref: "a" } }, caret(id, 15));
   return s;
@@ -96,7 +95,7 @@ function withMention(config: EditorConfig): EditorState {
 describe("typing attributes", () => {
   it("text typed inside a bold link word takes bold + link (was plain before F3)", () => {
     const config = makeConfig();
-    let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "word" });
+    let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "word" });
     const id = blockId(s);
     s = run(s, config, select(id, 0, 4), { type: "TOGGLE_STYLE", style: "bold" }, { type: "SET_LINK", url: "https://example.com" });
     s = run(s, config, caret(id, 2), { type: "INSERT_TEXT", text: "X" });
@@ -108,7 +107,7 @@ describe("typing attributes", () => {
 
   it("at a link's END typing keeps bold but not the link; at its START too (non-inclusive)", () => {
     const config = makeConfig();
-    let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "link" });
+    let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "link" });
     const id = blockId(s);
     s = run(s, config, select(id, 0, 4), { type: "TOGGLE_STYLE", style: "bold" }, { type: "SET_LINK", url: "u" });
     s = run(s, config, caret(id, 4), { type: "INSERT_TEXT", text: "!" }, caret(id, 0), { type: "INSERT_TEXT", text: "<" });
@@ -121,7 +120,7 @@ describe("typing attributes", () => {
 
   it("an inclusive custom mark extends at its end; a non-inclusive one does not", () => {
     const config = makeConfig();
-    let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "ab" });
+    let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "ab" });
     const id = blockId(s);
     s = run(s, config, select(id, 0, 2), { type: "SET_MARK", key: "tag", value: "t" }, caret(id, 2), { type: "INSERT_TEXT", text: "c" });
     expect(getMarkRanges(s.document, "tag").map((r) => [r.from.offset, r.to.offset])).toEqual([[0, 3]]);
@@ -132,7 +131,7 @@ describe("typing attributes", () => {
   it("never inherits change-tracking provenance (direct typing inside a suggested insertion / formatting suggestion)", () => {
     const suggest = makeConfig({ suggestingAuthor: "A" });
     const direct = makeConfig();
-    let s = run(createInitialEditorState(suggest), suggest, { type: "INSERT_TEXT", text: "abc" });
+    let s = run(createEditor(suggest), suggest, { type: "INSERT_TEXT", text: "abc" });
     expect(runs(s)[0]?.[1][INSERTION_SUGGESTION_ATTR]).toBeDefined();
     s = run(s, direct, caret(blockId(s), 1), { type: "INSERT_TEXT", text: "X" });
     expect(runs(s).find(([t]) => t === "X")?.[1]).toEqual({});
@@ -144,7 +143,7 @@ describe("typing attributes", () => {
 
   it("collapsed TOGGLE_STYLE stores typing attrs: toolbar shows it, next keystroke uses it, a caret move drops it", () => {
     const config = makeConfig();
-    let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "ab" });
+    let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "ab" });
     const id = blockId(s);
     const docBefore = s.document;
     s = run(s, config, { type: "TOGGLE_STYLE", style: "bold" });
@@ -167,7 +166,7 @@ describe("typing attributes", () => {
 
   it("collapsed color / size / family / transform / clear-formatting / unlink apply to the next typed text", () => {
     const config = makeConfig();
-    let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "go" });
+    let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "go" });
     const id = blockId(s);
     s = run(s, config, select(id, 0, 2), { type: "SET_LINK", url: "u" }, { type: "TOGGLE_STYLE", style: "italic" }, caret(id, 1));
     s = run(
@@ -199,7 +198,7 @@ describe("typing attributes", () => {
 
   it("plain-text paste (single and multi-line) takes the typing attrs", () => {
     const config = makeConfig();
-    let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "ab" });
+    let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "ab" });
     const id = blockId(s);
     s = run(s, config, select(id, 0, 2), { type: "TOGGLE_STYLE", style: "bold" }, caret(id, 1));
     s = run(s, config, { type: "PASTE", text: "x\ny\nz" });
@@ -215,7 +214,7 @@ describe("typing attributes", () => {
 
   it("composition commit (INSERT_TEXT of the composed string) inherits like typing", () => {
     const config = makeConfig();
-    let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "ab" });
+    let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "ab" });
     const id = blockId(s);
     s = run(s, config, select(id, 0, 2), { type: "TOGGLE_STYLE", style: "underline" }, caret(id, 1), { type: "INSERT_TEXT", text: "日本" });
     expect(runs(s)).toEqual([["a日本b", { underline: true }]]);
@@ -223,8 +222,8 @@ describe("typing attributes", () => {
 
   it("deleting / splitting over a whole selected link carries bold but never the link", () => {
     const config = makeConfig();
-    const linked = (): EditorState => {
-      let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "link" });
+    const linked = (): Editor => {
+      let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "link" });
       const id = blockId(s);
       return run(s, config, select(id, 0, 4), { type: "SET_LINK", url: "u" }, { type: "TOGGLE_STYLE", style: "bold" });
     };
@@ -236,7 +235,7 @@ describe("typing attributes", () => {
 
   it("Enter at the end of bold text, or deleting a block's last bold char, keeps bold for the empty block", () => {
     const config = makeConfig();
-    let s = run(createInitialEditorState(config), config, { type: "TOGGLE_STYLE", style: "bold" }, { type: "INSERT_TEXT", text: "B" });
+    let s = run(createEditor(config), config, { type: "TOGGLE_STYLE", style: "bold" }, { type: "INSERT_TEXT", text: "B" });
     s = run(s, config, { type: "SPLIT_NODE" });
     expect(getActiveFormatting(s.document, s.selection, s.storedAttrs).bold).toBe(true);
     s = run(s, config, { type: "INSERT_TEXT", text: "c" }, { type: "DELETE_BACKWARD" });
@@ -253,7 +252,7 @@ describe("mark semantics", () => {
       atomic: true,
       equals: (a, b) => (a as { ref?: unknown }).ref === (b as { ref?: unknown }).ref,
     });
-    let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "abcdef" });
+    let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "abcdef" });
     const id = blockId(s);
     s = run(
       s,
@@ -270,8 +269,8 @@ describe("mark semantics", () => {
   it("overlapping atomic marks form one unit: a snapped caret never lands inside the other", () => {
     const config = makeConfig();
     registerMark(config.attrRegistry, "chip", { atomic: true, exclusive: false });
-    const make = (): EditorState => {
-      let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "0123456789" });
+    const make = (): Editor => {
+      let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "0123456789" });
       const id = blockId(s);
       return run(
         s,
@@ -280,19 +279,22 @@ describe("mark semantics", () => {
         { type: "SET_MARK", key: "chip", value: "B", span: createSpan(createPosition(id, 4), createPosition(id, 9)) },
       );
     };
-    const s = make();
-    const id = blockId(s);
-    expect(run(s, config, caret(id, 2)).selection.focus.offset).toBe(0);
-    expect(run(s, config, caret(id, 6)).selection.focus.offset).toBe(9);
-    expect(run(s, config, caret(id, 0), caret(id, 1)).selection.focus.offset).toBe(9);
+    // Each probe from a fresh editor (a dispatch changes the editor in place).
+    const probe = (...offsets: number[]): number => {
+      const s = make();
+      return run(s, config, ...offsets.map((o) => caret(blockId(s), o))).selection.focus.offset;
+    };
+    expect(probe(2)).toBe(0);
+    expect(probe(6)).toBe(9);
+    expect(probe(0, 1)).toBe(9);
     const s2 = make();
     expect(runs(run(s2, config, caret(blockId(s2), 9), { type: "DELETE_BACKWARD" }))).toEqual([["9", {}]]);
   });
 
   it("SET_MARK replace swaps a non-exclusive instance in one undo step / one suggestion", () => {
     const config = makeConfig();
-    const make = (): EditorState => {
-      let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "abcd" });
+    const make = (): Editor => {
+      let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "abcd" });
       const id = blockId(s);
       return run(s, config, { type: "SET_MARK", key: "note", value: { id: 1 }, span: createSpan(createPosition(id, 0), createPosition(id, 4)) });
     };
@@ -316,21 +318,24 @@ describe("mark semantics", () => {
 
   it("a range endpoint inside an atomic mark covers it; only a focus arriving from an edge jumps", () => {
     const config = makeConfig();
-    const s = withMention(config); // mention 3..7
-    const id = blockId(s);
-    const sel = (a: number, f: number) => run(s, config, caret(id, 4), select(id, a, f)).selection;
+    // Each probe from a fresh editor (a dispatch changes the editor in place).
+    const fresh = (...actions: ((id: BlockId) => EditorAction)[]) => {
+      const s = withMention(config); // mention 3..7
+      return run(s, config, ...actions.map((a) => a(blockId(s)))).selection;
+    };
+    const sel = (a: number, f: number) => fresh((id) => caret(id, 4), (id) => select(id, a, f));
     // Drag starting inside (raw anchor 4 or 6), in both directions → whole mention included.
     expect([sel(4, 10).anchor.offset, sel(4, 10).focus.offset]).toEqual([3, 10]);
     expect([sel(6, 1).anchor.offset, sel(6, 1).focus.offset]).toEqual([7, 1]);
     expect([sel(6, 10).anchor.offset, sel(6, 10).focus.offset]).toEqual([3, 10]);
     // Shift+Left from the end edge back into it deselects to the start edge.
-    const back = run(s, config, select(id, 1, 7), select(id, 1, 6)).selection;
+    const back = fresh((id) => select(id, 1, 7), (id) => select(id, 1, 6));
     expect([back.anchor.offset, back.focus.offset]).toEqual([1, 3]);
   });
 
   it("TOGGLE_STYLE / SET_MARK over a span covering ¶P write ¶P's inclusive markAttrs", () => {
     const config = makeConfig();
-    let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "ab" });
+    let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "ab" });
     s = run(s, config, { type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "cd" });
     const n = blockId(s);
     const p = getBlock(s.document, n)?.prevSiblingId;
@@ -370,24 +375,27 @@ describe("mark semantics", () => {
 
   it("atomic: the caret never rests inside — clicks snap to the nearest edge, steps from an edge jump over", () => {
     const config = makeConfig();
-    let s = withMention(config);
-    const id = blockId(s);
-    expect(run(s, config, caret(id, 4)).selection.focus.offset).toBe(3);
-    expect(run(s, config, caret(id, 6)).selection.focus.offset).toBe(7);
+    // Each probe from a fresh editor (a dispatch changes the editor in place).
+    const fresh = (...actions: ((id: BlockId) => EditorAction)[]) => {
+      const s = withMention(config);
+      return run(s, config, ...actions.map((a) => a(blockId(s)))).selection;
+    };
+    expect(fresh((id) => caret(id, 4)).focus.offset).toBe(3);
+    expect(fresh((id) => caret(id, 6)).focus.offset).toBe(7);
     // ArrowRight from the start edge (3 → 4) lands after it; ArrowLeft from the end (7 → 6) before it.
-    expect(run(s, config, caret(id, 3), caret(id, 4)).selection.focus.offset).toBe(7);
-    expect(run(s, config, caret(id, 7), caret(id, 6)).selection.focus.offset).toBe(3);
+    expect(fresh((id) => caret(id, 3), (id) => caret(id, 4)).focus.offset).toBe(7);
+    expect(fresh((id) => caret(id, 7), (id) => caret(id, 6)).focus.offset).toBe(3);
     // A range selection covers it whole: Shift+Right from before it extends past it.
-    const ext = run(s, config, caret(id, 3), select(id, 3, 4)).selection;
+    const ext = fresh((id) => caret(id, 3), (id) => select(id, 3, 4));
     expect([ext.anchor.offset, ext.focus.offset]).toEqual([3, 7]);
-    const drag = run(s, config, select(id, 5, 1)).selection;
+    const drag = fresh((id) => select(id, 5, 1));
     expect([drag.anchor.offset, drag.focus.offset]).toEqual([7, 1]);
   });
 
   it("atomic: backspace / delete / a partial range delete remove the whole mention; typing at its edge does not extend it", () => {
     const config = makeConfig();
     // Each branch starts from a fresh document (a Document's Y.Doc is not forkable).
-    const from = (offset: number, ...actions: EditorAction[]): EditorState => {
+    const from = (offset: number, ...actions: EditorAction[]): Editor => {
       const base = withMention(config);
       return run(base, config, caret(blockId(base), offset), ...actions);
     };
@@ -415,7 +423,7 @@ describe("mark semantics", () => {
 
   it("non-exclusive marks overlap as separate instances; REMOVE_MARK by value removes one", () => {
     const config = makeConfig();
-    let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "abcdef" });
+    let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "abcdef" });
     const id = blockId(s);
     s = run(
       s,
@@ -455,7 +463,7 @@ describe("mark semantics", () => {
 
   it("survives block split and join (a non-atomic mark split mid-range, then re-joined)", () => {
     const config = makeConfig();
-    let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "abcd" });
+    let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "abcd" });
     const id = blockId(s);
     s = run(s, config, select(id, 0, 4), { type: "SET_MARK", key: "tag", value: "t" }, caret(id, 2), { type: "SPLIT_NODE" });
     expect(getMarkRanges(s.document, "tag").map((r) => [r.from.offset, r.to.offset])).toEqual([[0, 2], [0, 2]]);
@@ -491,7 +499,7 @@ describe("mark semantics", () => {
     const frag = extractFragment(s.document, s.selection);
     expect(getMarkRanges(frag, "secret")).toEqual([]);
     expect(getMarkRanges(frag, "mention").map((r) => r.value)).toEqual([{ ref: "a" }]);
-    const fresh = createInitialEditorState(config);
+    const fresh = createEditor(config);
     const pasted = run(fresh, config, { type: "PASTE", text: "x", clip: encodeFragmentClip(frag) });
     expect(getMarkRanges(pasted.document, "mention").map((r) => [r.from.offset, r.to.offset, r.value])).toEqual([[3, 7, { ref: "a" }]]);
     expect(getMarkRanges(pasted.document, "secret")).toEqual([]);
@@ -499,7 +507,7 @@ describe("mark semantics", () => {
 
   it("SET_MARK in suggesting mode is a formatting suggestion; accepting applies it", () => {
     const config = makeConfig();
-    let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "Hi Anna" });
+    let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "Hi Anna" });
     const id = blockId(s);
     const sug = makeConfig({ suggestingAuthor: "A" });
     s = run(s, sug, select(id, 3, 7), { type: "SET_MARK", key: "mention", value: { ref: "a" } });
@@ -533,10 +541,10 @@ describe("mark semantics", () => {
     expect(hi?.type === "text" ? hi.marks : "x").toBeUndefined();
   });
 
-  it("a state built from a document keeps marks editable (createEditorStateFromDocument)", () => {
+  it("a state built from a document keeps marks editable (createEditor)", () => {
     const config = makeConfig();
     const s = withMention(config);
-    const fresh = createEditorStateFromDocument(s.document, initialSelectionForDocument(s.document), config);
+    const fresh = createEditor(config, { document: s.document, selection: initialSelectionForDocument(s.document) });
     expect(run(fresh, config, caret(blockId(s), 4)).selection.focus.offset).toBe(3);
   });
 });

@@ -273,7 +273,7 @@ class UnknownBlock extends Error {}
 
 /**
  * Build the position mapping for the transition `prev → next`, where `dirtyIds` is the
- * transition's raw dirty set (`EditorState.lastDirtyIds`, `applyOperation`'s
+ * transition's raw dirty set (`Editor.lastDirtyIds`, `applyOperation`'s
  * `dirtyIds`, or a foreign change's dirty set).
  *
  * The mapping is a TEXT DIFF over the dirty leaf blocks — read in document order from

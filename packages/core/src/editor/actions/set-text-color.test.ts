@@ -1,8 +1,7 @@
 import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
-  createInitialEditorState,
-  reduceEditor,
+  createEditor,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   getBlock,
@@ -21,7 +20,7 @@ function makeConfig(): EditorConfig {
 }
 
 /** First text item from the doc's first (and only) paragraph. */
-function firstTextItem(editor: ReturnType<typeof createInitialEditorState>): TextItem | null {
+function firstTextItem(editor: ReturnType<typeof createEditor>): TextItem | null {
   const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
   if (root === null) return null;
   const pId = root.firstChildId;
@@ -34,41 +33,40 @@ function firstTextItem(editor: ReturnType<typeof createInitialEditorState>): Tex
 }
 
 function selectAll(
-  editor: ReturnType<typeof createInitialEditorState>,
+  editor: ReturnType<typeof createEditor>,
   length: number,
-): ReturnType<typeof createInitialEditorState> {
+): ReturnType<typeof createEditor> {
   const pId = (() => {
     const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
     if (root === null || root.firstChildId === null) throw new Error("no para");
     return root.firstChildId;
   })();
-  return reduceEditor(
-    editor,
-    {
+  editor.dispatch({
       type: "SET_SELECTION",
       selection: createSpan(createPosition(pId, 0), createPosition(pId, length)),
-    },
-  );
+    });
+    return editor;
 }
 
 describe("handleSetTextColor", () => {
   it("no-op on collapsed selection (no color can target a single cursor)", () => {
     const config = makeConfig();
-    const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello" });
-    const before = editor;
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "hello" });
+    let editor = initial;
+    const before = { ...editor };
     // Collapsed at end.
-    editor = reduceEditor(editor, { type: "SET_TEXT_COLOR", color: "#ff0000" });
+    editor.dispatch({ type: "SET_TEXT_COLOR", color: "#ff0000" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(editor.document).toBe(before.document);
   });
 
   it("sets color attr on every text item in the selection", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "color me" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "color me" });
     editor = selectAll(editor, 8);
-    editor = reduceEditor(editor, { type: "SET_TEXT_COLOR", color: "#ff0000" });
+    editor.dispatch({ type: "SET_TEXT_COLOR", color: "#ff0000" });
 
     const item = firstTextItem(editor);
     expect(item).not.toBeNull();
@@ -79,38 +77,38 @@ describe("handleSetTextColor", () => {
 
   it("clears color attr when given null (color removed)", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "color me" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "color me" });
     editor = selectAll(editor, 8);
-    editor = reduceEditor(editor, { type: "SET_TEXT_COLOR", color: "#ff0000" });
+    editor.dispatch({ type: "SET_TEXT_COLOR", color: "#ff0000" });
     expect(firstTextItem(editor)?.attrs.color).toBe("#ff0000");
-    editor = reduceEditor(editor, { type: "SET_TEXT_COLOR", color: null });
+    editor.dispatch({ type: "SET_TEXT_COLOR", color: null });
     expect(firstTextItem(editor)?.attrs.color).toBeUndefined();
   });
 
   it("clears color attr when given empty string (empty isn't a meaningful color)", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "color me" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "color me" });
     editor = selectAll(editor, 8);
-    editor = reduceEditor(editor, { type: "SET_TEXT_COLOR", color: "#ff0000" });
+    editor.dispatch({ type: "SET_TEXT_COLOR", color: "#ff0000" });
     expect(firstTextItem(editor)?.attrs.color).toBe("#ff0000");
-    editor = reduceEditor(editor, { type: "SET_TEXT_COLOR", color: "" });
+    editor.dispatch({ type: "SET_TEXT_COLOR", color: "" });
     expect(firstTextItem(editor)?.attrs.color).toBeUndefined();
   });
 
   it("undo restores the pre-color state", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "color me" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "color me" });
     editor = selectAll(editor, 8);
-    editor = reduceEditor(editor, { type: "SET_TEXT_COLOR", color: "#ff0000" });
+    editor.dispatch({ type: "SET_TEXT_COLOR", color: "#ff0000" });
     expect(firstTextItem(editor)?.attrs.color).toBe("#ff0000");
 
-    editor = reduceEditor(editor, { type: "UNDO" });
+    editor.dispatch({ type: "UNDO" });
     expect(firstTextItem(editor)?.attrs.color).toBeUndefined();
 
-    editor = reduceEditor(editor, { type: "REDO" });
+    editor.dispatch({ type: "REDO" });
     expect(firstTextItem(editor)?.attrs.color).toBe("#ff0000");
   });
 });
@@ -118,20 +116,21 @@ describe("handleSetTextColor", () => {
 describe("handleSetTextTransform", () => {
   it("no-op on collapsed selection (no transform can target a single cursor)", () => {
     const config = makeConfig();
-    const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello" });
-    const before = editor;
-    editor = reduceEditor(editor, { type: "SET_TEXT_TRANSFORM", value: "uppercase" });
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "hello" });
+    let editor = initial;
+    const before = { ...editor };
+    editor.dispatch({ type: "SET_TEXT_TRANSFORM", value: "uppercase" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(editor.document).toBe(before.document);
   });
 
   it("sets textTransform attr on every text item in the selection", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "shout me" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "shout me" });
     editor = selectAll(editor, 8);
-    editor = reduceEditor(editor, { type: "SET_TEXT_TRANSFORM", value: "uppercase" });
+    editor.dispatch({ type: "SET_TEXT_TRANSFORM", value: "uppercase" });
 
     const item = firstTextItem(editor);
     expect(item).not.toBeNull();
@@ -142,12 +141,12 @@ describe("handleSetTextTransform", () => {
 
   it("sets textTransform 'none' by REMOVING the attr (none is the initial value; removal lets runs re-merge)", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "shout me" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "shout me" });
     editor = selectAll(editor, 8);
-    editor = reduceEditor(editor, { type: "SET_TEXT_TRANSFORM", value: "uppercase" });
+    editor.dispatch({ type: "SET_TEXT_TRANSFORM", value: "uppercase" });
     expect(firstTextItem(editor)?.attrs.textTransform).toBe("uppercase");
-    editor = reduceEditor(editor, { type: "SET_TEXT_TRANSFORM", value: "none" });
+    editor.dispatch({ type: "SET_TEXT_TRANSFORM", value: "none" });
     // "none" removes the attr entirely (mirrors how color clears to default) so
     // the run carries no textTransform key and can re-merge with untransformed
     // neighbours — it does NOT persist an explicit { textTransform: "none" }.
@@ -156,27 +155,27 @@ describe("handleSetTextTransform", () => {
 
   it("CLEAR_FORMATTING removes textTransform (it is in INLINE_FORMAT_ATTR_KEYS)", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "shout me" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "shout me" });
     editor = selectAll(editor, 8);
-    editor = reduceEditor(editor, { type: "SET_TEXT_TRANSFORM", value: "uppercase" });
+    editor.dispatch({ type: "SET_TEXT_TRANSFORM", value: "uppercase" });
     expect(firstTextItem(editor)?.attrs.textTransform).toBe("uppercase");
-    editor = reduceEditor(editor, { type: "CLEAR_FORMATTING" });
+    editor.dispatch({ type: "CLEAR_FORMATTING" });
     expect(firstTextItem(editor)?.attrs.textTransform).toBeUndefined();
   });
 
   it("undo restores the pre-transform state", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "shout me" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "shout me" });
     editor = selectAll(editor, 8);
-    editor = reduceEditor(editor, { type: "SET_TEXT_TRANSFORM", value: "uppercase" });
+    editor.dispatch({ type: "SET_TEXT_TRANSFORM", value: "uppercase" });
     expect(firstTextItem(editor)?.attrs.textTransform).toBe("uppercase");
 
-    editor = reduceEditor(editor, { type: "UNDO" });
+    editor.dispatch({ type: "UNDO" });
     expect(firstTextItem(editor)?.attrs.textTransform).toBeUndefined();
 
-    editor = reduceEditor(editor, { type: "REDO" });
+    editor.dispatch({ type: "REDO" });
     expect(firstTextItem(editor)?.attrs.textTransform).toBe("uppercase");
   });
 });

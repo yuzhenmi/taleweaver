@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import type { Edit } from "../../edit";
 import { getBlock, removeBlock, createSpan } from "../../../state";
 import type { Block, Position } from "../../../state";
@@ -25,7 +25,7 @@ import type { Block, Position } from "../../../state";
  * context gate), so a header/footer-body caret never triggers this path.
  */
 export function deleteAdjacentAtomicLeaf(
-  editor: EditorState,
+  editor: Editor,
   currentBlock: Block,
   side: "backward" | "forward",
   caret: Position,

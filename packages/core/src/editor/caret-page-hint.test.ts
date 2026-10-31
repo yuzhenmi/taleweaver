@@ -1,20 +1,20 @@
 // packages/core/src/editor/caret-page-hint.test.ts
 //
 // #323 Cycle A: lifecycle of the NON-undoable `caretPageHint` view state on
-// `EditorState` (mirrors `targetX`). The hint records which page's header/footer
+// `Editor` (mirrors `targetX`). The hint records which page's header/footer
 // slot instance the caret is visually on. It is set by `SET_SELECTION`,
 // PRESERVED by other handlers' `{...editor}` spread (NOT centrally cleared like
 // `targetX`), and explicitly cleared by undo/redo + a body `SET_SELECTION`
 // (which passes no hint).
 
 import { describe, it, expect } from "vitest";
-import { config, reduceEditor } from "./actions/test-helpers";
-import { createInitialEditorState } from "./editor-state";
+import { config } from "./actions/test-helpers";
+import { createEditor } from "./editor";
 import { createSpan, createPosition } from "../state";
 
 describe("#323 Cycle A — caretPageHint lifecycle", () => {
-  it("createInitialEditorState seeds caretPageHint undefined", () => {
-    const editor = createInitialEditorState(config);
+  it("createEditor seeds caretPageHint undefined", () => {
+    const editor = createEditor(config);
     expect(editor.caretPageHint).toBeUndefined();
     // P4-C.2 §D: the sibling non-undoable view field `caretAffinity` also
     // defaults to undefined on a fresh state.
@@ -22,90 +22,74 @@ describe("#323 Cycle A — caretPageHint lifecycle", () => {
   });
 
   it("SET_SELECTION with caretPageHint sets it", () => {
-    const editor = createInitialEditorState(config);
+    const editor = createEditor(config);
     const first = editor.selection.focus;
     const sel = createSpan(first, first);
-    const next = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: sel, caretPageHint: 1 },
-    );
-    expect(next.caretPageHint).toBe(1);
+    editor.dispatch({ type: "SET_SELECTION", selection: sel, caretPageHint: 1 });
+    expect(editor.caretPageHint).toBe(1);
   });
 
   it("SET_SELECTION without caretPageHint clears it (body click → undefined)", () => {
-    const editor = createInitialEditorState(config);
+    const editor = createEditor(config);
     const first = editor.selection.focus;
     const sel = createSpan(first, first);
     // First set a hint.
-    const withHint = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: sel, caretPageHint: 2 },
-    );
-    expect(withHint.caretPageHint).toBe(2);
+    editor.dispatch({ type: "SET_SELECTION", selection: sel, caretPageHint: 2 });
+    expect(editor.caretPageHint).toBe(2);
     // A body SET_SELECTION (no hint) clears it.
-    const cleared = reduceEditor(
-      withHint,
-      { type: "SET_SELECTION", selection: sel },
-    );
-    expect(cleared.caretPageHint).toBeUndefined();
+    editor.dispatch({ type: "SET_SELECTION", selection: sel });
+    expect(editor.caretPageHint).toBeUndefined();
   });
 
   it("INSERT_TEXT preserves caretPageHint (per-handler spread, NOT centrally cleared)", () => {
-    let editor = createInitialEditorState(config);
+    let editor = createEditor(config);
     const first = editor.selection.focus;
     const sel = createSpan(first, first);
-    editor = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: sel, caretPageHint: 1 },
-    );
+    editor.dispatch({ type: "SET_SELECTION", selection: sel, caretPageHint: 1 });
     expect(editor.caretPageHint).toBe(1);
-    const typed = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
-    expect(typed.caretPageHint).toBe(1);
+    editor.dispatch({ type: "INSERT_TEXT", text: "x" });
+    expect(editor.caretPageHint).toBe(1);
   });
 
   it("a caret-only Backspace (over a struck character, suggesting mode) preserves caretPageHint", () => {
-    let editor = reduceEditor(createInitialEditorState(config), { type: "INSERT_TEXT", text: "abc" });
-    editor = { ...editor, config: { ...config, suggestingAuthor: "alice" } };
-    editor = reduceEditor(editor, { type: "DELETE_BACKWARD" }); // strikes "c"; the caret goes before it
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "abc" });
+    editor.config = { ...config, suggestingAuthor: "alice" };
+    editor.dispatch({ type: "DELETE_BACKWARD" }); // strikes "c"; the caret goes before it
     const { blockId, offset } = editor.selection.focus;
     const afterStruck = createSpan(createPosition(blockId, offset + 1), createPosition(blockId, offset + 1));
-    editor = reduceEditor(editor, { type: "SET_SELECTION", selection: afterStruck, caretPageHint: 1 });
-    const moved = reduceEditor(editor, { type: "DELETE_BACKWARD" });
-    expect(moved.document).toBe(editor.document); // nothing written: the caret only moves across the struck "c"
-    expect(moved.selection.focus.offset).toBe(offset);
-    expect(moved.caretPageHint).toBe(1);
+    editor.dispatch({ type: "SET_SELECTION", selection: afterStruck, caretPageHint: 1 });
+    const before = { ...editor };
+    editor.dispatch({ type: "DELETE_BACKWARD" });
+    expect(editor.document).toBe(before.document); // nothing written: the caret only moves across the struck "c"
+    expect(editor.selection.focus.offset).toBe(offset);
+    expect(editor.caretPageHint).toBe(1);
   });
 
   it("UNDO clears caretPageHint (post-undo page is ambiguous)", () => {
-    let editor = createInitialEditorState(config);
+    let editor = createEditor(config);
     // Make a real edit so UNDO has something to revert.
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "hello" });
+    editor.dispatch({ type: "INSERT_TEXT", text: "hello" });
     // Set a hint, then undo.
     const first = editor.selection.focus;
     const sel = createSpan(first, first);
-    editor = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: sel, caretPageHint: 1 },
-    );
+    editor.dispatch({ type: "SET_SELECTION", selection: sel, caretPageHint: 1 });
     expect(editor.caretPageHint).toBe(1);
-    const undone = reduceEditor(editor, { type: "UNDO" });
-    expect(undone.caretPageHint).toBeUndefined();
+    editor.dispatch({ type: "UNDO" });
+    expect(editor.caretPageHint).toBeUndefined();
   });
 
   it("REDO clears caretPageHint", () => {
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "hello" });
-    editor = reduceEditor(editor, { type: "UNDO" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "hello" });
+    editor.dispatch({ type: "UNDO" });
     // Re-set a hint, then redo.
     const first = editor.selection.focus;
     const sel = createSpan(first, first);
-    editor = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: sel, caretPageHint: 1 },
-    );
+    editor.dispatch({ type: "SET_SELECTION", selection: sel, caretPageHint: 1 });
     expect(editor.caretPageHint).toBe(1);
-    const redone = reduceEditor(editor, { type: "REDO" });
-    expect(redone.caretPageHint).toBeUndefined();
+    editor.dispatch({ type: "REDO" });
+    expect(editor.caretPageHint).toBeUndefined();
   });
 });
 
@@ -117,45 +101,33 @@ describe("P4-C.2.2b — caretAffinity lifecycle (central-reset model)", () => {
   // goes stale after an edit.
 
   it("SET_SELECTION with caretAffinity:'before' sets editor.caretAffinity", () => {
-    const editor = createInitialEditorState(config);
+    const editor = createEditor(config);
     const first = editor.selection.focus;
     const sel = createSpan(first, first);
-    const next = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: sel, caretAffinity: "before" },
-    );
-    expect(next.caretAffinity).toBe("before");
+    editor.dispatch({ type: "SET_SELECTION", selection: sel, caretAffinity: "before" });
+    expect(editor.caretAffinity).toBe("before");
   });
 
   it("a programmatic SET_SELECTION WITHOUT caretAffinity clears it to undefined", () => {
-    let editor = createInitialEditorState(config);
+    let editor = createEditor(config);
     const first = editor.selection.focus;
     const sel = createSpan(first, first);
-    editor = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: sel, caretAffinity: "before" },
-    );
+    editor.dispatch({ type: "SET_SELECTION", selection: sel, caretAffinity: "before" });
     expect(editor.caretAffinity).toBe("before");
     // A SET_SELECTION with no affinity explicitly clears it (no boundary context).
-    const cleared = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: sel },
-    );
-    expect(cleared.caretAffinity).toBeUndefined();
+    editor.dispatch({ type: "SET_SELECTION", selection: sel });
+    expect(editor.caretAffinity).toBeUndefined();
   });
 
   it("INSERT_TEXT (a non-managing action) RESETS caretAffinity — the central reset", () => {
-    let editor = createInitialEditorState(config);
+    let editor = createEditor(config);
     const first = editor.selection.focus;
     const sel = createSpan(first, first);
-    editor = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: sel, caretAffinity: "before" },
-    );
+    editor.dispatch({ type: "SET_SELECTION", selection: sel, caretAffinity: "before" });
     expect(editor.caretAffinity).toBe("before");
     // An edit does NOT manage affinity → the central reset clears it (whereas
     // caretPageHint would survive the same INSERT_TEXT).
-    const typed = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
-    expect(typed.caretAffinity).toBeUndefined();
+    editor.dispatch({ type: "INSERT_TEXT", text: "x" });
+    expect(editor.caretAffinity).toBeUndefined();
   });
 });

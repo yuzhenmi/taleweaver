@@ -1,8 +1,7 @@
 import { finalSectionOf } from "../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
-  createInitialEditorState,
-  reduceEditor,
+  createEditor,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   registerMark,
@@ -20,7 +19,7 @@ import {
   type EditorAction,
   type EditorConfig,
   type EditorExtensions,
-  type EditorState,
+  type Editor,
   type BlockId,
   type KeyEventLike,
   type Command,
@@ -43,20 +42,21 @@ function makeConfig(extra?: Partial<EditorConfig>): EditorConfig {
   return { componentRegistry: createDefaultComponentRegistry(), attrRegistry, containerWidth: 800, extensions, ...extra };
 }
 
-function run(editor: EditorState, config: EditorConfig, ...actions: EditorAction[]): EditorState {
-  let s = editor;
-  for (const a of actions) s = reduceEditor({ ...s, config: config }, a);
+function run(editor: Editor, config: EditorConfig, ...actions: EditorAction[]): Editor {
+  const s = editor;
+  s.config = config;
+  for (const a of actions) s.dispatch(a);
   return s;
 }
 
 /** Type `text` one user keystroke at a time. */
-function type(editor: EditorState, text: string): EditorState {
-  let s = editor;
-  for (const ch of text) s = reduceEditor(s, { type: "INSERT_TEXT", text: ch, userInput: true });
+function type(editor: Editor, text: string): Editor {
+  const s = editor;
+  for (const ch of text) s.dispatch({ type: "INSERT_TEXT", text: ch, userInput: true });
   return s;
 }
 
-const textOf = (s: EditorState, id: BlockId = s.selection.focus.blockId): string =>
+const textOf = (s: Editor, id: BlockId = s.selection.focus.blockId): string =>
   (getBlock(s.document, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "￼")).join("");
 
 const caret = (id: BlockId, o: number): EditorAction => ({ type: "SET_SELECTION", selection: createSpan(createPosition(id, o), createPosition(id, o)) });
@@ -64,7 +64,7 @@ const caret = (id: BlockId, o: number): EditorAction => ({ type: "SET_SELECTION"
 describe("TRANSACTION", () => {
   it("several steps are ONE undo entry; redo reapplies all; dirty ids are the union", () => {
     const config = makeConfig();
-    let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "ab" }, { type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "cd" });
+    let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "ab" }, { type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "cd" });
     const second = s.selection.focus.blockId;
     const first = getBlock(s.document, second)?.prevSiblingId ?? null;
     if (first === null) throw new Error("setup");
@@ -93,7 +93,7 @@ describe("TRANSACTION", () => {
 
   it("in suggesting mode each step is tracked like the user edit", () => {
     const config = makeConfig({ suggestingAuthor: "A" });
-    const s = run(createInitialEditorState(config), config, {
+    const s = run(createEditor(config), config, {
       type: "TRANSACTION",
       run: (tx) => {
         tx.dispatch({ type: "INSERT_TEXT", text: "hi" });
@@ -109,7 +109,7 @@ describe("TRANSACTION", () => {
 describe("input rules", () => {
   it("user-typed '--' becomes an em dash; one Undo restores the typed text", () => {
     const config = makeConfig();
-    let s = type(createInitialEditorState(config), "a--");
+    let s = type(createEditor(config), "a--");
     expect(textOf(s)).toBe("a—");
     expect(s.selection.focus.offset).toBe(2);
     s = run(s, config, { type: "UNDO" });
@@ -119,13 +119,13 @@ describe("input rules", () => {
 
   it("a function rule runs its actions; programmatic inserts never fire rules", () => {
     const config = makeConfig();
-    expect(textOf(type(createInitialEditorState(config), "x(c)"))).toBe("x©");
-    expect(textOf(run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "a--" }))).toBe("a--");
+    expect(textOf(type(createEditor(config), "x(c)"))).toBe("x©");
+    expect(textOf(run(createEditor(config), config, { type: "INSERT_TEXT", text: "a--" }))).toBe("a--");
   });
 
   it("an autoformat keeps the matched text's formatting", () => {
     const config = makeConfig();
-    const s = type(run(createInitialEditorState(config), config, { type: "TOGGLE_STYLE", style: "bold" }), "a--");
+    const s = type(run(createEditor(config), config, { type: "TOGGLE_STYLE", style: "bold" }), "a--");
     const items = getBlock(s.document, s.selection.focus.blockId)?.inlineContent?.items ?? [];
     expect(items.map((i) => (i.kind === "text" ? [i.text, i.attrs] : null))).toEqual([["a—", { bold: true }]]);
   });
@@ -134,35 +134,40 @@ describe("input rules", () => {
 describe("triggers", () => {
   it("typing @ starts a trigger; the query follows typing; space / Escape / caret-away end it", () => {
     const config = makeConfig();
-    let s = type(createInitialEditorState(config), "hi @");
+    const s = type(createEditor(config), "hi @");
     const id = s.selection.focus.blockId;
     expect(s.activeTrigger).toEqual({ id: "mention", from: createPosition(id, 3), to: createPosition(id, 4), query: "" });
-    const started = s;
-    s = type(s, "an");
+    const started = { ...s };
+    type(s, "an");
     expect(s.activeTrigger?.query).toBe("an");
     expect(triggerChange(started, s)).toEqual({ type: "update", trigger: s.activeTrigger });
-    expect(triggerChange(createInitialEditorState(config), started)?.type).toBe("start");
-    expect(type(s, " ").activeTrigger).toBeUndefined();
-    const esc = run(s, config, { type: "ESCAPE" });
+    expect(triggerChange(createEditor(config), started)?.type).toBe("start");
+    // Each continuation from "hi @an" on a fresh editor (a dispatch changes the editor in place).
+    const typedAn = (): Editor => type(createEditor(config), "hi @an");
+    expect(type(typedAn(), " ").activeTrigger).toBeUndefined();
+    const esc = typedAn();
+    const beforeEsc = { ...esc };
+    run(esc, config, { type: "ESCAPE" });
     expect(esc.activeTrigger).toBeUndefined();
-    expect(triggerChange(s, esc)?.type).toBe("exit");
+    expect(triggerChange(beforeEsc, esc)?.type).toBe("exit");
     expect(type(esc, "n").activeTrigger).toBeUndefined(); // dismissed: not restarted by more typing
-    expect(run(s, config, caret(id, 1)).activeTrigger).toBeUndefined();
-    expect(run(s, config, { type: "DELETE_BACKWARD" }, { type: "DELETE_BACKWARD" }).activeTrigger?.query).toBe("");
-    expect(run(s, config, { type: "DELETE_BACKWARD" }, { type: "DELETE_BACKWARD" }, { type: "DELETE_BACKWARD" }).activeTrigger).toBeUndefined();
+    const away = typedAn();
+    expect(run(away, config, caret(away.selection.focus.blockId, 1)).activeTrigger).toBeUndefined();
+    expect(run(typedAn(), config, { type: "DELETE_BACKWARD" }, { type: "DELETE_BACKWARD" }).activeTrigger?.query).toBe("");
+    expect(run(typedAn(), config, { type: "DELETE_BACKWARD" }, { type: "DELETE_BACKWARD" }, { type: "DELETE_BACKWARD" }).activeTrigger).toBeUndefined();
   });
 
   it("only at a word start; multi-char triggers; programmatic text never starts one", () => {
     const config = makeConfig();
-    expect(type(createInitialEditorState(config), "a@").activeTrigger).toBeUndefined();
-    const link = type(createInitialEditorState(config), "see [[my page");
+    expect(type(createEditor(config), "a@").activeTrigger).toBeUndefined();
+    const link = type(createEditor(config), "see [[my page");
     expect(link.activeTrigger).toMatchObject({ id: "link", query: "my page" });
-    expect(run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "@" }).activeTrigger).toBeUndefined();
+    expect(run(createEditor(config), config, { type: "INSERT_TEXT", text: "@" }).activeTrigger).toBeUndefined();
   });
 
   it("the trigger start is mapped through edits elsewhere in the block", () => {
     const config = makeConfig();
-    let s = type(createInitialEditorState(config), "x @b");
+    let s = type(createEditor(config), "x @b");
     const id = s.selection.focus.blockId;
     s = run(s, config, {
       type: "TRANSACTION",
@@ -177,7 +182,7 @@ describe("triggers", () => {
 
   it("replaceRangeWithMarkedText swaps trigger + query for a mention in one undo step", () => {
     const config = makeConfig();
-    let s = type(createInitialEditorState(config), "hi @an");
+    let s = type(createEditor(config), "hi @an");
     const t = s.activeTrigger;
     if (t === undefined) throw new Error("no trigger");
     s = run(s, config, replaceRangeWithMarkedText(t, "Anna", { key: "mention", value: { ref: "p1" } }, " "));
@@ -216,7 +221,7 @@ describe("keymap", () => {
 
   it("runKeyBinding: a command that runs → handled; null → blocked; false / none → default", () => {
     const config = makeConfig();
-    const editor = createInitialEditorState(config);
+    const editor = createEditor(config);
     const dispatched: EditorAction[] = [];
     const yes: Command = (_e, dispatch) => {
       dispatch?.({ type: "INSERT_TEXT", text: "!" });
@@ -236,8 +241,8 @@ describe("keymap", () => {
 describe("TRANSACTION rollback", () => {
   it("a throwing transaction rolls back every applied step and leaves history intact", () => {
     const config = makeConfig();
-    let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "abc" });
-    const before = s;
+    let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "abc" });
+    const before = { ...s };
     expect(() =>
       run(s, config, {
         type: "TRANSACTION",
@@ -248,7 +253,9 @@ describe("TRANSACTION rollback", () => {
         },
       }),
     ).toThrow("boom");
-    s = before; // the caller keeps its pre-transaction state
+    // The throw restored the editor in place to its pre-transaction fields.
+    expect(s.document).toBe(before.document);
+    expect(s.selection).toBe(before.selection);
     expect(textOf(s)).toBe("abc");
     s = run(s, config, { type: "INSERT_TEXT", text: "!" });
     expect(textOf(s)).toBe("abc!");
@@ -264,7 +271,7 @@ describe("TRANSACTION rollback", () => {
 describe("review round 1", () => {
   it("a picked mention whose label spells the trigger never re-activates it (allowSpaces + suffix)", () => {
     const config = makeConfig({ extensions: { triggers: [{ id: "mention", text: "@", allowSpaces: true }] } });
-    let s = type(createInitialEditorState(config), "hi @an");
+    let s = type(createEditor(config), "hi @an");
     const t = s.activeTrigger;
     if (t === undefined) throw new Error("no trigger");
     s = run(s, config, replaceRangeWithMarkedText(t, "@Anna Lee", { key: "mention", value: { ref: "p1" } }, " "));
@@ -277,7 +284,7 @@ describe("review round 1", () => {
 
   it("a trigger never re-validates over text carrying an atomic mark (even without the explicit end)", () => {
     const config = makeConfig({ extensions: { triggers: [{ id: "mention", text: "@", allowSpaces: true }] } });
-    let s = type(createInitialEditorState(config), "@an");
+    let s = type(createEditor(config), "@an");
     const id = s.selection.focus.blockId;
     s = run(s, config, {
       type: "TRANSACTION",
@@ -294,9 +301,9 @@ describe("review round 1", () => {
 
   it("startOfWord accepts opening punctuation before the trigger", () => {
     const config = makeConfig();
-    expect(type(createInitialEditorState(config), "(@a").activeTrigger?.query).toBe("a");
-    expect(type(createInitialEditorState(config), "“@a").activeTrigger?.query).toBe("a");
-    expect(type(createInitialEditorState(config), "x@a").activeTrigger).toBeUndefined();
+    expect(type(createEditor(config), "(@a").activeTrigger?.query).toBe("a");
+    expect(type(createEditor(config), "“@a").activeTrigger?.query).toBe("a");
+    expect(type(createEditor(config), "x@a").activeTrigger).toBeUndefined();
   });
 
   it("non-Latin layouts match the physical key; a malformed keymap fails when compiled — at editor creation", () => {
@@ -304,7 +311,7 @@ describe("review round 1", () => {
     expect(matchKeyBinding({ "Mod-b": null }, e, "ctrl")?.name).toBe("Mod-b");
     expect(matchKeyBinding({ "Mod-1": null }, { ...e, key: "&", code: "Digit1" }, "ctrl")).toBeUndefined(); // ASCII key wins
     expect(() => compileKeymap({ "Hyper-x": null })).toThrow(/unknown modifier/);
-    expect(() => createInitialEditorState(makeConfig({ extensions: { keymap: { "Hyper-x": null } } }))).toThrow(/unknown modifier/);
+    expect(() => createEditor(makeConfig({ extensions: { keymap: { "Hyper-x": null } } }))).toThrow(/unknown modifier/);
     const km = { "Mod-b": null };
     expect(compileKeymap(km)).toBe(compileKeymap(km)); // parsed once per keymap object
   });
@@ -314,7 +321,7 @@ describe("TRANSACTION steps must be undoable", () => {
   it("dispatching UNDO / REDO / PROPOSE (not undoable here) throws before applying and rolls back earlier steps", () => {
     const suggest = makeConfig({ suggestingAuthor: "A" });
     const config = makeConfig();
-    let s = run(createInitialEditorState(suggest), suggest, { type: "INSERT_TEXT", text: "abc" });
+    let s = run(createEditor(suggest), suggest, { type: "INSERT_TEXT", text: "abc" });
     const proposal = { type: "PROPOSE", proposal: { groupId: "g", author: "B", edits: [] } } as const;
     for (const bad of [{ type: "UNDO" }, { type: "REDO" }, proposal] as const) {
       expect(() =>
@@ -339,7 +346,7 @@ describe("TRANSACTION steps must be undoable", () => {
   it("suggestion accept / reject are ordinary undoable steps inside a transaction (one undo step for all)", () => {
     const suggest = makeConfig({ suggestingAuthor: "A" });
     const config = makeConfig();
-    let s = run(createInitialEditorState(suggest), suggest, { type: "INSERT_TEXT", text: "abc" });
+    let s = run(createEditor(suggest), suggest, { type: "INSERT_TEXT", text: "abc" });
     const [suggestion] = getSuggestions(s.document);
     if (suggestion === undefined) throw new Error("setup");
     s = run(s, config, {
@@ -361,8 +368,8 @@ describe("TRANSACTION steps must be undoable", () => {
 describe("round 2", () => {
   it("a swallowed nested-transaction failure rolls back the whole outer transaction and throws", () => {
     const config = makeConfig();
-    let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "abc" });
-    const before = s;
+    let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "abc" });
+    const before = { ...s };
     expect(() =>
       run(s, config, {
         type: "TRANSACTION",
@@ -382,7 +389,8 @@ describe("round 2", () => {
         },
       }),
     ).toThrow(/nested transaction failed/);
-    s = before;
+    expect(s.document).toBe(before.document);
+    expect(s.selection).toBe(before.selection);
     expect(textOf(s)).toBe("abc");
     s = run(s, config, { type: "INSERT_TEXT", text: "!" });
     expect(textOf(s)).toBe("abc!");

@@ -15,14 +15,14 @@
  * Part A wires the three entry points, the producer walks the nested target's ancestor
  * chain to the indexed top-level TABLE and resolves to the table's 1-based page number.
  *
- * Harness mirrors `section-pagination.test.ts`: the real `createInitialEditorState` /
+ * Harness mirrors `section-pagination.test.ts`: the real `createEditor` /
  * `reduceEditor` pipeline, a small page so a handful of one-line paragraphs paginate, and
  * a `VirtualLayoutTree` read per-page via `getPage(i)`. The cross-ref atom is located on
  * the materialized host page by its inline render-key suffix (`${hostId}/inline/…`) and its
  * resolved display text is collected from the laid-out subtree.
  */
 import { describe, it, expect } from "vitest";
-import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, getBlock, createPosition, createSpan, render, cascadePass, makeBlockParentLookup, type EditorConfig, type PageConfig, type EditorState, type BlockId } from "../../index";
+import { createEditor, type EditorConfig, type PageConfig, type Editor, type BlockId, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, getBlock, createPosition, createSpan, render, cascadePass, makeBlockParentLookup } from "../../index";
 import { layoutTree } from "@taleweaver/print";
 import type { LayoutBox } from "@taleweaver/print";
 import type { PageBox } from "@taleweaver/print";
@@ -59,7 +59,7 @@ const measurer = createMockShaper(8, 16);
  * as the driver does — REQUIRED for nested cross-ref-page resolution, which walks
  * a nested target's ancestor chain to its indexed top-level block.
  */
-function layoutOf(editor: EditorState, config: EditorConfig): LayoutBox | VirtualLayoutTree {
+function layoutOf(editor: Editor, config: EditorConfig): LayoutBox | VirtualLayoutTree {
   const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   const parentOf = makeBlockParentLookup(editor.document);
@@ -76,12 +76,12 @@ function layoutOf(editor: EditorState, config: EditorConfig): LayoutBox | Virtua
 }
 
 /** The document's top-level blocks, in order (root → sections → blocks). */
-function rootChildIds(editor: EditorState): BlockId[] {
+function rootChildIds(editor: Editor): BlockId[] {
   return topLevelBlockIds(editor.document);
 }
 
 /** Caret at the end of `blockId` (its inline-content length). */
-function caretAtEnd(editor: EditorState, blockId: BlockId): EditorState {
+function caretAtEnd(editor: Editor, blockId: BlockId): Editor {
   const block = getBlock(editor.document, blockId);
   const len =
     block?.inlineContent === null || block?.inlineContent === undefined
@@ -91,7 +91,8 @@ function caretAtEnd(editor: EditorState, blockId: BlockId): EditorState {
           0,
         );
   const pos = createPosition(blockId, len);
-  return reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(pos, pos) });
+  editor.dispatch({ type: "SET_SELECTION", selection: createSpan(pos, pos) });
+  return editor;
 }
 
 /** Concatenate all text in a laid-out box subtree (block + column children). */
@@ -125,14 +126,14 @@ function findCrossRefAtom(box: LayoutBox, hostId: BlockId, embedIndex: number): 
 }
 
 /** The materialized layout tree as a VirtualLayoutTree (paginated mode). */
-function virtualTree(editor: EditorState, config: EditorConfig): VirtualLayoutTree {
+function virtualTree(editor: Editor, config: EditorConfig): VirtualLayoutTree {
   const tree = layoutOf(editor, config);
   if (tree.type !== "virtual-root") throw new Error("expected a paginated VirtualLayoutTree");
   return tree;
 }
 
 /** Find which 0-based page a top-level block id is on (via the plan span). */
-function pageOf(editor: EditorState, blockId: BlockId, config: EditorConfig): number {
+function pageOf(editor: Editor, blockId: BlockId, config: EditorConfig): number {
   const span = virtualTree(editor, config).plan.pageSpanOfBlock(blockId);
   if (span === null) throw new Error(`block ${blockId} has no page span`);
   return span.first;
@@ -150,20 +151,20 @@ function findCrossRefTextOnPage(page: PageBox, hostId: BlockId, embedIndex: numb
 describe("cross-ref-page to a NESTED (table-cell) target resolves end-to-end (Task 2.5)", () => {
   it("a body cross-ref targeting a paragraph inside a table cell shows the table's page number, not broken-ref", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
+    let editor = createEditor(config);
 
     // The host paragraph (page 0, holds the cross-ref) is the seed empty paragraph; give
     // it a short label so it stays on page 0.
     const seedId = rootChildIds(editor)[0];
     if (seedId === undefined) throw new Error("no seed paragraph");
     editor = caretAtEnd(editor, seedId);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "see " });
+    editor.dispatch({ type: "INSERT_TEXT", text: "see " });
 
     // Append several one-line filler paragraphs AFTER the host so the table lands on a
     // later page (page index >= 1). Each SPLIT_NODE + INSERT_TEXT is a fresh paragraph.
     for (let i = 0; i < 9; i++) {
-      editor = reduceEditor(editor, { type: "SPLIT_NODE" });
-      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `fill ${i}` });
+      editor.dispatch({ type: "SPLIT_NODE" });
+      editor.dispatch({ type: "INSERT_TEXT", text: `fill ${i}` });
     }
     // Enter at the end gives the TEXT the new id: "see " now lives
     // in the first top-level paragraph, not in the seed id.
@@ -172,11 +173,11 @@ describe("cross-ref-page to a NESTED (table-cell) target resolves end-to-end (Ta
 
     // After the last filler, split once more and insert a table at the fresh paragraph's
     // start. INSERT_TABLE lands the caret in cell (0,0)'s paragraph — the NESTED target.
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
-    editor = reduceEditor(editor, { type: "INSERT_TABLE", rows: 1, cols: 1 });
+    editor.dispatch({ type: "SPLIT_NODE" });
+    editor.dispatch({ type: "INSERT_TABLE", rows: 1, cols: 1 });
     const nestedTargetId = editor.selection.focus.blockId; // the cell (0,0) paragraph
     // Type something into the cell so the target is genuinely inline-bearing content.
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "target" });
+    editor.dispatch({ type: "INSERT_TEXT", text: "target" });
 
     // Sanity: the target is genuinely NESTED — its parent is a table-cell (NOT the root),
     // so the page plan does NOT index it directly; only its top-level TABLE ancestor is.
@@ -197,10 +198,7 @@ describe("cross-ref-page to a NESTED (table-cell) target resolves end-to-end (Ta
     // cross-reference to the NESTED target.
     editor = caretAtEnd(editor, hostId);
     const offsetBefore = editor.selection.focus.offset;
-    editor = reduceEditor(
-      editor,
-      { type: "INSERT_CROSS_REFERENCE", targetId: nestedTargetId, refMode: "page" },
-    );
+    editor.dispatch({ type: "INSERT_CROSS_REFERENCE", targetId: nestedTargetId, refMode: "page" });
     // The ref was actually inserted (page mode accepts an inline-bearing nested target).
     expect(editor.selection.focus.offset).toBe(offsetBefore + 1);
 

@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./helpers/apply-attrs-or-suggest";
 import { storeTypingAttrs } from "../typing-attrs";
@@ -31,7 +31,7 @@ import type { ActionOf } from "../editor-action";
  * dirtyIds threaded through to the incremental render pipeline.
  */
 export function handleSetFontFamily(
-  editor: EditorState,
+  editor: Editor,
   { family }: ActionOf<"SET_FONT_FAMILY">,
 ): Edit | null {
   const { selection } = editor;

@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { insertInlineImage, createPosition, createSpan, type BlockId } from "../../state";
 import { prepareEmbedInsertPoint } from "./helpers/prepare-embed-insert-point";
@@ -28,7 +28,7 @@ import type { ActionOf } from "../editor-action";
  * splices into `inlineContent` the same way the sibling field inserts do.
  */
 export function handleInsertInlineImage(
-  editor: EditorState,
+  editor: Editor,
   { src, width, height, alt }: ActionOf<"INSERT_INLINE_IMAGE">,
 ): Edit | null {
   // Delete a non-collapsed selection first (Google Docs replaces the selection),

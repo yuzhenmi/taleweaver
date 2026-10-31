@@ -11,7 +11,7 @@
  * the value arrives at every site that consumes it.
  */
 import { describe, it, expect } from "vitest";
-import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, createMockHyphenator, render, cascadePass, type EditorConfig, type PageConfig, type EditorState, type Hyphenator } from "../index";
+import { createEditor, type EditorConfig, type PageConfig, type Editor, type Hyphenator, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, createMockHyphenator, render, cascadePass } from "../index";
 import { layoutTreeIncremental } from "@taleweaver/print";
 import type { VirtualLayoutTree } from "@taleweaver/print";
 import type { PageBox } from "@taleweaver/print";
@@ -43,7 +43,7 @@ function makeConfig(): EditorConfig {
 
 /** Build the layout tree the backend driver would, threading the hyphenator. */
 function layoutOf(
-  editor: EditorState,
+  editor: Editor,
   config: EditorConfig,
   hyphenator?: Hyphenator,
 ): VirtualLayoutTree {
@@ -67,11 +67,11 @@ function layoutOf(
 }
 
 /** Type N paragraphs of text, splitting between each, to span several pages. */
-function buildMultiPageDoc(config: EditorConfig, paragraphs: number): EditorState {
-  let s = createInitialEditorState(config);
+function buildMultiPageDoc(config: EditorConfig, paragraphs: number): Editor {
+  let s = createEditor(config);
   for (let i = 0; i < paragraphs; i++) {
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: `paragraph ${i}` });
-    if (i < paragraphs - 1) s = reduceEditor(s, { type: "SPLIT_NODE" });
+    s.dispatch({ type: "INSERT_TEXT", text: `paragraph ${i}` });
+    if (i < paragraphs - 1) s.dispatch({ type: "SPLIT_NODE" });
   }
   return s;
 }

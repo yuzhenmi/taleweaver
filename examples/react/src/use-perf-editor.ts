@@ -1,6 +1,6 @@
 /**
  * A local variant of `useEditor` (from @taleweaver/react) that accepts an
- * overriding initial EditorState. Used by the perf-fixture path so the 10K-
+ * overriding initial Editor. Used by the perf-fixture path so the 10K-
  * paragraph document is built in a single layout pass instead of N INSERT_NODE
  * dispatches.
  *
@@ -8,7 +8,7 @@
  * promoted to packages/react — it duplicates config creation from use-editor.ts
  * deliberately so that packages/react remains unchanged.
  */
-import { useReducer, useRef, useEffect, useCallback } from "react";
+import { useReducer, useRef, useEffect, useCallback, useState } from "react";
 
 // Dev-only window-level instrumentation hook for perf measurement
 // from Playwright / the browser console. Exposed only when running in
@@ -20,10 +20,10 @@ import { useReducer, useRef, useEffect, useCallback } from "react";
 //   __twPerf.timeKeystrokes(N, "x")
 //     → dispatches N INSERT_TEXT actions, returns
 //       { totalMs, avgMs, medianMs, maxMs, samples }.
-//   __twPerf.document            → the current EditorState.
+//   __twPerf.document            → the current Editor.
 //   __twPerf.dispatch(action) → fire any EditorAction.
 interface PerfHandle {
-  state: EditorState;
+  state: Editor;
   dispatch: React.Dispatch<EditorAction>;
   timeKeystrokes(
     count: number,
@@ -40,8 +40,8 @@ interface PerfHandle {
   /** Snapshot the accumulated breakdown, sorted by totalMs desc. */
   reportPerf(): import("@taleweaver/core").PerfReport;
   /**
-   * One-shot: reset, enable, dispatch SPLIT_NODE through React (real edit
-   * cycle including update() → paint()), wait one frame, then disable +
+   * One-shot: reset, enable, dispatch SPLIT_NODE (real edit cycle: the
+   * controller's render → paint, then React's), wait one frame, then disable +
    * report. Returns the breakdown.
    */
   traceEnter(): Promise<import("@taleweaver/core").PerfReport>;
@@ -52,14 +52,12 @@ declare global {
 }
 import {
   createDefaultComponentRegistry,
-  reduceEditor,
-  createEditorStateFromDocument,
-  initialSelectionForDocument,
+  createEditor,
   setPerfTraceEnabled,
   resetPerfTrace,
   report as perfReport,
   type EditorAction,
-  type EditorState,
+  type Editor,
   type EditorConfig,
   type EditorExtensions,
   type PageConfig,
@@ -118,7 +116,7 @@ function createGeometry(): { measurer: TextShaper; hyphenator: Hyphenator } {
 }
 
 export interface UsePerfEditorResult {
-  editorState: EditorState;
+  editor: Editor;
   dispatch: React.Dispatch<EditorAction>;
   containerRef: React.RefObject<HTMLDivElement | null>;
   measurer: TextShaper;
@@ -150,29 +148,25 @@ export function usePerfEditor(initialDocument?: Document, extensions?: EditorExt
   const geometry = geometryRef.current;
 
   // Check URL once (outside render — it's synchronous and stable).
-  const fixtureRef = useRef<EditorState | null | undefined>(undefined);
+  const fixtureRef = useRef<Editor | null | undefined>(undefined);
   if (fixtureRef.current === undefined) {
     fixtureRef.current = tryLoadPerfFixtureFromUrl(config);
   }
   const fixtureState = fixtureRef.current;
 
-  // Use the lazy-initializer form of useReducer so the initial state is only
-  // computed once. Priority: an explicit hand-off `seed` (tab-bar switch carries
-  // the live document over) → a perf fixture (`?perfFixture=N`) → the fairytale.
-  const initialArg: { config: EditorConfig; fixture: EditorState | null; seed: Document | null } =
-    useRef({ config, fixture: fixtureState, seed: initialDocument ?? null }).current;
-
-  const [editorState, dispatch] = useReducer(
-    (state: EditorState, action: EditorAction) =>
-      reduceEditor(state, action),
-    initialArg,
-    ({ config: cfg, fixture, seed }) =>
-      seed !== null
-        ? createEditorStateFromDocument(seed, initialSelectionForDocument(seed), cfg)
-        : fixture !== null
-          ? fixture
-          : loadFairytale(cfg),
+  // The ONE editor, built once. Priority: an explicit hand-off `seed` (tab-bar switch
+  // carries the live document over) → a perf fixture (`?perfFixture=N`) → the fairytale.
+  const [editor] = useState(() =>
+    initialDocument !== undefined
+      ? createEditor(config, { document: initialDocument })
+      : fixtureState !== null
+        ? fixtureState
+        : loadFairytale(config),
   );
+  // It changes in place: re-render after every dispatch (the controller subscribes too).
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => editor.subscribe(rerender), [editor]);
+  const dispatch = useCallback<React.Dispatch<EditorAction>>((action) => editor.dispatch(action), [editor]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -200,8 +194,8 @@ export function usePerfEditor(initialDocument?: Document, extensions?: EditorExt
 
   // Latest state/dispatch refs so the window-level perf hook always
   // sees up-to-date values without us re-installing it every render.
-  const latestState = useRef(editorState);
-  latestState.current = editorState;
+  const latestState = useRef(editor);
+  latestState.current = editor;
   const latestDispatch = useRef(dispatch);
   latestDispatch.current = dispatch;
   useEffect(() => {
@@ -213,22 +207,20 @@ export function usePerfEditor(initialDocument?: Document, extensions?: EditorExt
         return latestDispatch.current;
       },
       timePaste(lineCount: number) {
-        // Synchronous PASTE benchmark — feeds the full text through
-        // reduceEditor once. Mirrors what a real Cmd+V keystroke does
-        // (handlePaste splits the text, chains splitBlock + insertText
-        // per line). Run AFTER seeding the doc to whatever state you
-        // want — the latestState ref is consumed read-only here, the
-        // result is discarded.
+        // Synchronous PASTE benchmark — dispatches the full text once (the
+        // reducer + the controller's synchronous render). Mirrors what a real
+        // Cmd+V keystroke does (handlePaste splits the text, chains splitBlock +
+        // insertText per line). It edits the live document.
         const lines = Array(lineCount).fill(0).map((_, i) => `paste-line-${i}`).join("\n");
         const t0 = performance.now();
-        reduceEditor(latestState.current, { type: "PASTE", text: lines });
+        latestState.current.dispatch({ type: "PASTE", text: lines });
         const totalMs = performance.now() - t0;
         return { totalMs, msPerLine: totalMs / lineCount };
       },
       timeEnter() {
-        // Synchronous SPLIT_NODE benchmark at the current cursor.
+        // Synchronous SPLIT_NODE benchmark at the current cursor (edits the live document).
         const t0 = performance.now();
-        reduceEditor(latestState.current, { type: "SPLIT_NODE" });
+        latestState.current.dispatch({ type: "SPLIT_NODE" });
         return { totalMs: performance.now() - t0 };
       },
       enablePerf() {
@@ -244,14 +236,14 @@ export function usePerfEditor(initialDocument?: Document, extensions?: EditorExt
         return perfReport();
       },
       traceEnter() {
-        // Full real-edit cycle: state mutation + React re-render +
-        // controller update() + paint(). Captures both model and DOM costs.
+        // Full real-edit cycle: the reducer + the controller's render + paint +
+        // React re-render. Captures both model and DOM costs.
         resetPerfTrace();
         setPerfTraceEnabled(true);
         const t0 = performance.now();
         latestDispatch.current({ type: "SPLIT_NODE" });
         return new Promise<import("@taleweaver/core").PerfReport>((resolve) => {
-          // Two rAFs: first lets React flush + controller.update() run,
+          // Two rAFs: first lets React flush,
           // second lets the resulting paint settle so all marks are in.
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
@@ -272,23 +264,15 @@ export function usePerfEditor(initialDocument?: Document, extensions?: EditorExt
         });
       },
       timeKeystrokes(count: number, char = "x") {
-        // Measure the SYNCHRONOUS reduceEditor cost in isolation.
-        // React's dispatch is async (queues a re-render); measuring it
-        // would capture only the enqueue time, not the actual model +
-        // render + cascade + layout work. We run reduceEditor in a
-        // tight loop over a local editor reference and DO NOT push
-        // the result back through dispatch — this hook is a perf
-        // probe, not an editing surface. The doc visible in the
-        // browser is unchanged; type a real character afterward to
-        // confirm the doc is still healthy.
-        let editor = latestState.current;
+        // Measure the SYNCHRONOUS dispatch cost: the reducer plus the
+        // controller's render (cascade + layout + paint), which runs inside the
+        // dispatch; React's re-render is queued and not measured. The typed
+        // characters land in the live document.
+        const editor = latestState.current;
         const samples: number[] = [];
         for (let i = 0; i < count; i++) {
           const t0 = performance.now();
-          editor = reduceEditor(
-            editor,
-            { type: "INSERT_TEXT", text: char },
-          );
+          editor.dispatch({ type: "INSERT_TEXT", text: char });
           samples.push(performance.now() - t0);
         }
         // No samples → no meaningful median/avg/max (avoids NaN avg and
@@ -323,7 +307,7 @@ export function usePerfEditor(initialDocument?: Document, extensions?: EditorExt
   const getDocument = useCallback(() => latestState.current.document, []);
 
   return {
-    editorState,
+    editor,
     dispatch,
     containerRef,
     measurer: geometry.measurer,

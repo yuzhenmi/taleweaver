@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { mergeBlockAttrs } from "../../state";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../../footnotes";
@@ -34,7 +34,7 @@ import type { ActionOf } from "../editor-action";
  *
  * Selection is UNCHANGED: a policy change does not move the caret.
  */
-export function handleSetFootnotePolicy(editor: EditorState, action: ActionOf<"SET_FOOTNOTE_POLICY">): Edit | null {
+export function handleSetFootnotePolicy(editor: Editor, action: ActionOf<"SET_FOOTNOTE_POLICY">): Edit | null {
   // Build the incoming attr patch from ONLY the valid, provided fields. An
   // invalid value is silently dropped; an omitted field is never written, so
   // the other field's existing attr is preserved.

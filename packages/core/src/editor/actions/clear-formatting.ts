@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import { isCollapsed } from "../../cursor/selection";
 import { INLINE_FORMAT_ATTR_KEYS } from "../inline-format-keys";
 import { applyAttrsOrSuggest } from "./helpers/apply-attrs-or-suggest";
@@ -26,7 +26,7 @@ import type { Edit } from "../edit";
  * entry). The selection is preserved unchanged; dirtyIds threaded
  * through to the incremental render pipeline.
  */
-export function handleClearFormatting(editor: EditorState): Edit | null {
+export function handleClearFormatting(editor: Editor): Edit | null {
   const { selection } = editor;
   // One object mapping every inline-format key to `undefined` — a single
   // applyAttrsOrSuggest call removes them all atomically (one undo step) in

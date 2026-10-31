@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { markInstanceKey } from "../../cascade/attr-registry";
 import type { ActionOf } from "../editor-action";
@@ -15,7 +15,7 @@ import { isNonExclusive } from "./helpers/is-non-exclusive";
  * suggestion. Formatting attrs on the runs are untouched (merge semantics).
  */
 export function handleSetMark(
-  editor: EditorState,
+  editor: Editor,
   { key, value, replace, span }: ActionOf<"SET_MARK">,
 ): Edit | null {
   const target = usableSpan(editor, span);

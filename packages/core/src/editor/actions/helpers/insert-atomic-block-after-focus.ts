@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import type { Edit } from "../../edit";
 import { getBlock, insertBlocksAfter, productionAllocator, createPosition, createSpan } from "../../../state";
 import type { SiblingBlockInit } from "../../../state";
@@ -17,7 +17,7 @@ import type { SiblingBlockInit } from "../../../state";
  * body is out of scope.
  */
 export function insertAtomicBlockAfterFocus(
-  editor: EditorState,
+  editor: Editor,
   atomicInit: SiblingBlockInit,
 ): Edit | null {
   const focus = getBlock(editor.document, editor.selection.focus.blockId);

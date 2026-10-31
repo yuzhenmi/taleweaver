@@ -127,14 +127,13 @@ function run(withDecorations: boolean, keystrokes: number, paragraphs = 400): Ru
   for (let id = finalSection(document)?.firstChildId ?? null; id !== null; id = core.getBlock(document, id)?.nextSiblingId ?? null) ids.push(id);
   const container = globalThis.document.createElement("div");
   globalThis.document.body.replaceChildren(container);
+  const editor = core.createEditor(config, { document });
   const controller = createEditorController(container, {
     measurer: core.createMockMeasurer(8, 16),
-    dispatch: noop,
+    editor,
     pageHeight: LETTER.pageBlockSize,
     pageGap: LETTER.pageGap,
   });
-  let editor = core.createEditorStateFromDocument(document, core.initialSelectionForDocument(document), config);
-  controller.update(editor);
 
   const decorations: core.Decoration[] = [];
   ids.forEach((id, p) => {
@@ -153,16 +152,14 @@ function run(withDecorations: boolean, keystrokes: number, paragraphs = 400): Ru
   const target = ids[10];
   if (target === undefined) throw new Error("setup");
   const caret = core.createPosition(target, 10);
-  editor = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(caret, caret) });
-  controller.update(editor);
+  editor.dispatch({ type: "SET_SELECTION", selection: core.createSpan(caret, caret) });
 
   const typing: number[] = [];
   core.resetPerfTrace();
   core.setPerfTraceEnabled(true);
   for (let i = 0; i < keystrokes; i++) {
     const t = performance.now();
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
-    controller.update(editor);
+    editor.dispatch({ type: "INSERT_TEXT", text: "x" }); // the controller re-renders inside
     typing.push(performance.now() - t);
   }
   core.setPerfTraceEnabled(false);

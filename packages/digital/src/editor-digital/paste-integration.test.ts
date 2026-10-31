@@ -3,6 +3,8 @@
 // mock @taleweaver/core) cannot cover: it proves an HTML paste actually decodes and
 // inserts rich content through the live createDigitalController path. Guards against
 // regressions where the wiring "calls the right functions" but the integration breaks.
+import { createEditor } from "@taleweaver/core";
+import { browserHtmlParser } from "./html-parser";
 import { describe, it, expect } from "vitest";
 import { createDigitalController } from "./digital-controller";
 import {
@@ -52,8 +54,7 @@ function mountController(): { ctrl: ReturnType<typeof createDigitalController>; 
   document.body.appendChild(container);
   const ctrl = createDigitalController({
     container,
-    componentRegistry: createDefaultComponentRegistry(),
-    attrRegistry: createDefaultAttrRegistry(),
+    editor: createEditor({ componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, htmlParser: browserHtmlParser }),
   });
   ctrl.focus();
   return { ctrl, container };
@@ -63,7 +64,7 @@ describe("digital HTML paste — end-to-end through real core", () => {
   it("decodes and inserts a single rich paragraph (marks preserved)", () => {
     const { ctrl, container } = mountController();
     container.dispatchEvent(makePasteEvent({ html: "<p>world <strong>bold</strong></p>", text: "world bold" }));
-    expect(blockTexts(ctrl.editorState.document).join("")).toContain("world bold");
+    expect(blockTexts(ctrl.editor.document).join("")).toContain("world bold");
     // The reconciler rendered it into the live contentEditable DOM.
     expect(container.textContent).toContain("world bold");
     ctrl.destroy();
@@ -75,7 +76,7 @@ describe("digital HTML paste — end-to-end through real core", () => {
     const html =
       "<h1>Title</h1><p>First para with <em>italic</em>.</p><p>Second.</p><ul><li>one</li><li>two</li></ul>";
     container.dispatchEvent(makePasteEvent({ html, text: "Title\nFirst para with italic.\nSecond.\none\ntwo" }));
-    const joined = blockTexts(ctrl.editorState.document).join("|");
+    const joined = blockTexts(ctrl.editor.document).join("|");
     expect(joined).toContain("Title");
     expect(joined).toContain("First para with italic.");
     expect(joined).toContain("Second.");

@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { isObjectSelection } from "../../cursor/object-selection";
 import { moveOffObject } from "./helpers/move-off-object";
@@ -10,7 +10,7 @@ import { moveOffObject } from "./helpers/move-off-object";
  * DOM/React UI layer handles Escape for overlays such as the find bar; this
  * core action only deselects an object).
  */
-export function handleEscape(editor: EditorState): Edit | null {
+export function handleEscape(editor: Editor): Edit | null {
   const { config } = editor;
   const objId = isObjectSelection(editor.document, editor.selection, config.componentRegistry);
   if (objId !== null) return moveOffObject(editor, objId, "forward");

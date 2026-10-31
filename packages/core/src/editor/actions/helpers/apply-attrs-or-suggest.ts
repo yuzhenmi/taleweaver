@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import { applyAttrsToRange, markFormatting, spanStart, type Span, type ReadonlyAttrs, type OperationResult } from "../../../state";
 import { suggestionInputForBlock } from "./suggestion-input-for-block";
 
@@ -25,7 +25,7 @@ import { suggestionInputForBlock } from "./suggestion-input-for-block";
  * start block resolves to no editing context (see `suggestionInputForBlock`).
  */
 export function applyAttrsOrSuggest(
-  editor: EditorState,
+  editor: Editor,
   span: Span,
   incoming: ReadonlyAttrs,
 ): OperationResult {

@@ -13,7 +13,7 @@ const attrRegistry = createDefaultAttrRegistry();
 /**
  * Phase 0b: `cascadeTemplateContents` is core's pure header/footer-body cascade
  * pass (barrel-exported; the print backend's layout-driver calls it). Core's
- * editor reducer no longer cascades template bodies into `EditorState`, so these
+ * editor reducer no longer cascades template bodies into `Editor`, so these
  * tests exercise the function DIRECTLY over a `RenderOutput` — the same call the
  * driver makes — asserting the full + incremental (reuse-by-reference) contract.
  */

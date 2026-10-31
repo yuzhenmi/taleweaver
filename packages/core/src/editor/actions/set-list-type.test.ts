@@ -12,11 +12,10 @@
 import { describe, it, expect } from "vitest";
 import {
   config,
-  reduceEditor,
   createPosition,
   createSpan,
 } from "./test-helpers";
-import { createEditorStateFromDocument, type EditorState } from "../editor-state";
+import { createEditor, type Editor } from "../editor";
 import {
   getBlock,
   setListType,
@@ -28,10 +27,10 @@ import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils
 import { collectListEvents } from "../../numbering/list-collector";
 import { computeCounters } from "../../numbering/compute-counters";
 
-// Phase 0b: core's `EditorState` is geometry-free — these state-level action
+// Phase 0b: core's `Editor` is geometry-free — these state-level action
 // tests build only the geometry-free fields (the handler reads no layout).
-function makeEditor(document: Document, selection: EditorState["selection"]): EditorState {
-  return createEditorStateFromDocument(document, selection, config);
+function makeEditor(document: Document, selection: Editor["selection"]): Editor {
+  return createEditor(config, { document, selection: selection });
 }
 
 /** A list's classified type (ordered/unordered), or undefined if it has no def. */
@@ -92,10 +91,10 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
       anchor: createPosition("i1" as BlockId, 0),
       focus: createPosition("i1" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "unordered" });
+    editor.dispatch({ type: "SET_LIST_TYPE", listType: "unordered" });
 
     // The single shared def flipped — affects ALL items, not just the focus item.
-    expect(listKind(next.document, "L1")).toBe("unordered");
+    expect(listKind(editor.document, "L1")).toBe("unordered");
   });
 
   it("no-op when the list is already the requested type (same editor reference)", () => {
@@ -104,8 +103,10 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
       anchor: createPosition("i0" as BlockId, 0),
       focus: createPosition("i0" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "ordered" });
-    expect(next).toBe(editor);
+    const before = { ...editor };
+    editor.dispatch({ type: "SET_LIST_TYPE", listType: "ordered" });
+    expect(editor.document).toBe(before.document);
+    expect(editor.selection).toBe(before.selection);
   });
 
   it("no-op when the caret is not in a list-item", () => {
@@ -125,8 +126,10 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
       anchor: createPosition("p" as BlockId, 0),
       focus: createPosition("p" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "ordered" });
-    expect(next).toBe(editor);
+    const before = { ...editor };
+    editor.dispatch({ type: "SET_LIST_TYPE", listType: "ordered" });
+    expect(editor.document).toBe(before.document);
+    expect(editor.selection).toBe(before.selection);
   });
 
   it("undo restores the prior list type", () => {
@@ -135,11 +138,11 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
       anchor: createPosition("i1" as BlockId, 0),
       focus: createPosition("i1" as BlockId, 0),
     });
-    const changed = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "unordered" });
-    expect(listKind(changed.document, "L1")).toBe("unordered");
+    editor.dispatch({ type: "SET_LIST_TYPE", listType: "unordered" });
+    expect(listKind(editor.document, "L1")).toBe("unordered");
 
-    const undone = reduceEditor(changed, { type: "UNDO" });
-    expect(listKind(undone.document, "L1")).toBe("ordered");
+    editor.dispatch({ type: "UNDO" });
+    expect(listKind(editor.document, "L1")).toBe("ordered");
   });
 
   it("range selection spanning two lists changes BOTH lists' types", () => {
@@ -182,10 +185,10 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
       document,
       createSpan(createPosition("i0" as BlockId, 0), createPosition("j0" as BlockId, 1)),
     );
-    const next = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "unordered" });
+    editor.dispatch({ type: "SET_LIST_TYPE", listType: "unordered" });
 
-    expect(listKind(next.document, "L1")).toBe("unordered");
-    expect(listKind(next.document, "L2")).toBe("unordered");
+    expect(listKind(editor.document, "L1")).toBe("unordered");
+    expect(listKind(editor.document, "L2")).toBe("unordered");
   });
 });
 
@@ -200,36 +203,35 @@ describe("handleSetListRestart — SET_LIST_RESTART (#L15)", () => {
       anchor: createPosition("i1" as BlockId, 0),
       focus: createPosition("i1" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "SET_LIST_RESTART", value: 5 });
+    editor.dispatch({ type: "SET_LIST_RESTART", value: 5 });
 
     // The attr is written on the focus item.
-    expect(getBlock(next.document, "i1" as BlockId)?.attrs.listCounterOverride).toBe(5);
+    expect(getBlock(editor.document, "i1" as BlockId)?.attrs.listCounterOverride).toBe(5);
     // i1 restarts at 5 and i2 (the following item) renumbers to 6.
-    expect(counterValue(next.document, "i1")).toBe(5);
-    expect(counterValue(next.document, "i2")).toBe(6);
+    expect(counterValue(editor.document, "i1")).toBe(5);
+    expect(counterValue(editor.document, "i2")).toBe(6);
   });
 
   it("value null clears the override (item resumes the natural sequence)", () => {
     let document = buildOrderedList();
-    document = reduceEditor(
-      makeEditor(document, {
-        anchor: createPosition("i1" as BlockId, 0),
-        focus: createPosition("i1" as BlockId, 0),
-      }),
-      { type: "SET_LIST_RESTART", value: 5 },
-    ).document;
+    const seed = makeEditor(document, {
+      anchor: createPosition("i1" as BlockId, 0),
+      focus: createPosition("i1" as BlockId, 0),
+    });
+    seed.dispatch({ type: "SET_LIST_RESTART", value: 5 });
+    document = seed.document;
     expect(counterValue(document, "i1")).toBe(5);
 
     const editor = makeEditor(document, {
       anchor: createPosition("i1" as BlockId, 0),
       focus: createPosition("i1" as BlockId, 0),
     });
-    const cleared = reduceEditor(editor, { type: "SET_LIST_RESTART", value: null });
+    editor.dispatch({ type: "SET_LIST_RESTART", value: null });
 
-    expect(getBlock(cleared.document, "i1" as BlockId)?.attrs.listCounterOverride).toBeUndefined();
+    expect(getBlock(editor.document, "i1" as BlockId)?.attrs.listCounterOverride).toBeUndefined();
     // Back to the natural sequence: i1=2, i2=3.
-    expect(counterValue(cleared.document, "i1")).toBe(2);
-    expect(counterValue(cleared.document, "i2")).toBe(3);
+    expect(counterValue(editor.document, "i1")).toBe(2);
+    expect(counterValue(editor.document, "i2")).toBe(3);
   });
 
   it("no-op when the caret is not in a list-item", () => {
@@ -249,25 +251,28 @@ describe("handleSetListRestart — SET_LIST_RESTART (#L15)", () => {
       anchor: createPosition("p" as BlockId, 0),
       focus: createPosition("p" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "SET_LIST_RESTART", value: 3 });
-    expect(next).toBe(editor);
+    const before = { ...editor };
+    editor.dispatch({ type: "SET_LIST_RESTART", value: 3 });
+    expect(editor.document).toBe(before.document);
+    expect(editor.selection).toBe(before.selection);
   });
 
   it("no-op when the override is already the requested value (same editor reference)", () => {
     let document = buildOrderedList();
-    document = reduceEditor(
-      makeEditor(document, {
-        anchor: createPosition("i1" as BlockId, 0),
-        focus: createPosition("i1" as BlockId, 0),
-      }),
-      { type: "SET_LIST_RESTART", value: 5 },
-    ).document;
+    const seed = makeEditor(document, {
+      anchor: createPosition("i1" as BlockId, 0),
+      focus: createPosition("i1" as BlockId, 0),
+    });
+    seed.dispatch({ type: "SET_LIST_RESTART", value: 5 });
+    document = seed.document;
 
     const editor = makeEditor(document, {
       anchor: createPosition("i1" as BlockId, 0),
       focus: createPosition("i1" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "SET_LIST_RESTART", value: 5 });
-    expect(next).toBe(editor);
+    const before = { ...editor };
+    editor.dispatch({ type: "SET_LIST_RESTART", value: 5 });
+    expect(editor.document).toBe(before.document);
+    expect(editor.selection).toBe(before.selection);
   });
 });

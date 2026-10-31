@@ -85,17 +85,13 @@ function run(paragraphs: number): Result {
   if (first === null) throw new Error("setup");
   const container = globalThis.document.createElement("div");
   globalThis.document.body.replaceChildren(container);
-  let editor = core.createEditorStateFromDocument(document, core.createSpan(core.createPosition(first, 0), core.createPosition(first, 0)), config);
+  const editor = core.createEditor(config, { document, selection: core.createSpan(core.createPosition(first, 0), core.createPosition(first, 0)) });
   const controller = createEditorController(container, {
     measurer: core.createMockMeasurer(8, 16),
-    dispatch: (a) => {
-      editor = core.reduceEditor(editor, a);
-      controller.update(editor);
-    },
+    editor,
     pageHeight: LETTER.pageBlockSize,
     pageGap: LETTER.pageGap,
   });
-  controller.update(editor);
   const textarea = container.querySelector("textarea");
   if (!(textarea instanceof HTMLTextAreaElement)) throw new Error("no textarea");
   const press = (key: string, shiftKey: boolean): number => {

@@ -1,7 +1,7 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 
-export function handleUndo(editor: EditorState): Edit | null {
+export function handleUndo(editor: Editor): Edit | null {
   const result = editor.history.undo();
   // `undo()` returns null in TWO cases, both handled the same way (no-op): (a)
   // nothing to undo (`canUndo()` was false); (b) `canUndo()` was true but every

@@ -12,7 +12,7 @@ import {
   JSON_FORMAT,
   productionAllocator,
   HARD_BREAK_EMBED_TYPE,
-  type EditorState,
+  type Editor,
   type EditorConfig,
 } from "@taleweaver/core";
 
@@ -241,11 +241,11 @@ export const FAIRYTALE_JSON = {
   },
 } as const;
 
-/** Build the initial EditorState for the example from FAIRYTALE_JSON, using the
+/** Build the initial Editor for the example from FAIRYTALE_JSON, using the
  *  hook's own config (so the measurer/registries match the live editor). The
  *  JSON serializer is host-registered with the SAME component registry the
  *  editor uses (`config.componentRegistry`), so block kinds match. */
-export function loadFairytale(config: EditorConfig): EditorState {
+export function loadFairytale(config: EditorConfig): Editor {
   const registry = createDefaultSerializerRegistry({ blockKindResolver: config.componentRegistry });
   registry.register(
     createJsonDocumentSerializer({

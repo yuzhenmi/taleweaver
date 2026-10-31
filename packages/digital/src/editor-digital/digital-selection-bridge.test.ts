@@ -1,3 +1,5 @@
+import { createEditor } from "@taleweaver/core";
+import { browserHtmlParser } from "./html-parser";
 import { describe, it, expect } from "vitest";
 import { asBlockId, createPosition, createSpan, createDefaultComponentRegistry, createDefaultAttrRegistry, firstLeafBlock, getBlock, type BlockId, type EditorAction } from "@taleweaver/core";
 import { createDigitalSelectionBridge } from "./digital-selection-bridge";
@@ -291,11 +293,13 @@ describe("DigitalSelectionBridge — range endpoints on object blocks", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const controller = createDigitalController({
-      container, componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, doc: document,
+      container,
+      doc: document,
+      editor: createEditor({ componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, htmlParser: browserHtmlParser }),
     });
     controller.dispatch({ type: "INSERT_TEXT", text: "abcd" });
     controller.dispatch(object);
-    const st = controller.editorState.document;
+    const st = controller.editor.document;
     const first = firstLeafBlock(st, st.rootId);
     const section = first === null ? null : getBlock(st, first)?.parentId ?? null;
     const ids: BlockId[] = [];
@@ -327,7 +331,7 @@ describe("DigitalSelectionBridge — range endpoints on object blocks", () => {
       expect(domSel()).toEqual([m.afterEl, 0, m.parent, m.index]);
       // The DOM selection reads back as the same model selection (no re-dispatch loop).
       document.dispatchEvent(new Event("selectionchange"));
-      expect(m.controller.editorState.selection).toEqual(createSpan(p(m.after, 0), p(m.obj, 0)));
+      expect(m.controller.editor.selection).toEqual(createSpan(p(m.after, 0), p(m.obj, 0)));
       m.controller.destroy();
       m.container.remove();
     });
@@ -339,7 +343,7 @@ describe("DigitalSelectionBridge — range endpoints on object blocks", () => {
     if (cellBlock === null) throw new Error("no cell paragraph");
     window.getSelection()?.setBaseAndExtent(m.textNode, 1, cellBlock, 0);
     document.dispatchEvent(new Event("selectionchange"));
-    expect(m.controller.editorState.selection).toEqual(createSpan(createPosition(m.text, 1), createPosition(m.obj, 0)));
+    expect(m.controller.editor.selection).toEqual(createSpan(createPosition(m.text, 1), createPosition(m.obj, 0)));
     // …and the DOM selection is re-projected to cover the table.
     expect(domSel()).toEqual([m.textNode, 1, m.parent, m.index + 1]);
     m.controller.destroy();
@@ -354,20 +358,20 @@ describe("DigitalSelectionBridge — range endpoints on object blocks", () => {
     // Text → just after the image (the parent boundary the browser reports on an image).
     sel.setBaseAndExtent(m.textNode, 1, m.parent, m.index + 1);
     document.dispatchEvent(new Event("selectionchange"));
-    expect(m.controller.editorState.selection).toEqual(createSpan(p(m.text, 1), p(m.obj, 0)));
+    expect(m.controller.editor.selection).toEqual(createSpan(p(m.text, 1), p(m.obj, 0)));
     // Backward (anchor after the image = the range's end): anchored on the image.
     m.controller.dispatch({ type: "SET_SELECTION", selection: createSpan(p(m.text, 0), p(m.text, 0)) });
     sel.setBaseAndExtent(m.parent, m.index + 1, m.textNode, 1);
     document.dispatchEvent(new Event("selectionchange"));
-    expect(m.controller.editorState.selection).toEqual(createSpan(p(m.obj, 0), p(m.text, 1)));
+    expect(m.controller.editor.selection).toEqual(createSpan(p(m.obj, 0), p(m.text, 1)));
     // The gap after the image as a START: the next block's start.
     sel.setBaseAndExtent(m.parent, m.index + 1, m.afterEl ?? m.parent, 0);
     document.dispatchEvent(new Event("selectionchange"));
-    expect(m.controller.editorState.selection).toEqual(createSpan(p(m.after, 0), p(m.after, 0)));
+    expect(m.controller.editor.selection).toEqual(createSpan(p(m.after, 0), p(m.after, 0)));
     // A container boundary before the image as an end: the text block's end.
     sel.setBaseAndExtent(m.textNode, 1, m.parent, m.index);
     document.dispatchEvent(new Event("selectionchange"));
-    expect(m.controller.editorState.selection).toEqual(createSpan(p(m.text, 1), p(m.text, 4)));
+    expect(m.controller.editor.selection).toEqual(createSpan(p(m.text, 1), p(m.text, 4)));
     m.controller.destroy();
     m.container.remove();
   });

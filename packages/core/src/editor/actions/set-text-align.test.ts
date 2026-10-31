@@ -16,12 +16,8 @@ import { describe, it, expect } from "vitest";
 import {
   config,
   measurer,
-  createInitialEditorState,
-  reduceEditor,
-  firstChildId,
-  createPosition,
-} from "./test-helpers";
-import { createEditorStateFromDocument, type EditorState } from "../editor-state";
+  createEditor, firstChildId, createPosition } from "./test-helpers";
+import { type Editor } from "../editor";
 import { getBlock } from "../../state";
 import type { Document, BlockId } from "../../state";
 import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
@@ -32,7 +28,7 @@ import type { LayoutBox } from "@taleweaver/print";
 import { getLineIndex } from "@taleweaver/print";
 
 /**
- * Phase 0b: core's `EditorState` is geometry-free — the layout tree lives in the
+ * Phase 0b: core's `Editor` is geometry-free — the layout tree lives in the
  * backend driver, not on the state. These editor-action tests assert the
  * alignment GEOMETRY by running core's `render → cascadePass → layoutTree`
  * pipeline directly over `editor.document` (all barrel-exported from core), exactly
@@ -71,36 +67,38 @@ function firstLineX(tree: LayoutBox, blockId: BlockId): number {
 
 describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
   it("collapsed selection: aligns the focus block + centers the laid-out line", () => {
-    const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.document) as BlockId;
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "hi" });
+    const paraId = firstChildId(initial.document) as BlockId;
 
     // Baseline: default alignment (start) → line begins at x === 0.
-    expect(getBlock(editor.document, paraId)?.attrs.textAlign).toBeUndefined();
-    const startX = firstLineX(layoutOf(editor.document), paraId);
+    expect(getBlock(initial.document, paraId)?.attrs.textAlign).toBeUndefined();
+    const startX = firstLineX(layoutOf(initial.document), paraId);
     expect(startX).toBe(0);
 
-    const next = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
+    const before = { ...initial };
+    initial.dispatch({ type: "SET_TEXT_ALIGN", align: "center" });
 
     // Attr set on the focus block.
-    expect(getBlock(next.document, paraId)?.attrs.textAlign).toBe("center");
+    expect(getBlock(initial.document, paraId)?.attrs.textAlign).toBe("center");
     // A real change → new state reference.
-    expect(next.document).not.toBe(editor.document);
+    expect(initial.document).not.toBe(before.document);
 
     // GEOMETRY: the line is now centered — its absolute X moved RIGHT of 0.
     // "hi" = 2 chars × 8px = 16px content; containerWidth 200 ⇒ x = (200-16)/2 = 92.
-    const centeredX = firstLineX(layoutOf(next.document), paraId);
+    const centeredX = firstLineX(layoutOf(initial.document), paraId);
     expect(centeredX).toBeGreaterThan(startX);
     expect(centeredX).toBe((200 - 16) / 2);
   });
 
   it("preserves the selection (alignment does not move the caret)", () => {
-    const initial = createInitialEditorState(config);
-    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "hi" });
 
-    const next = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
+    const before = { ...initial };
+    initial.dispatch({ type: "SET_TEXT_ALIGN", align: "center" });
 
-    expect(next.selection).toEqual(editor.selection);
+    expect(initial.selection).toEqual(before.selection);
   });
 
   it("multi-block selection: aligns every covered LEAF, NOT the section/list containers (C-3)", () => {
@@ -144,23 +142,23 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
         }),
       ],
     });
-    const editor: EditorState = createEditorStateFromDocument(initialDocument, {
+    const editor: Editor = createEditor(config, { document: initialDocument, selection: {
         anchor: createPosition("p0" as BlockId, 0),
         focus: createPosition("p2" as BlockId, 2),
-      }, config);
+      } });
 
-    const next = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
+    editor.dispatch({ type: "SET_TEXT_ALIGN", align: "center" });
 
     // Every LEAF in the span is aligned.
-    expect(getBlock(next.document, "p0" as BlockId)?.attrs.textAlign).toBe("center");
-    expect(getBlock(next.document, "li" as BlockId)?.attrs.textAlign).toBe("center");
-    expect(getBlock(next.document, "p2" as BlockId)?.attrs.textAlign).toBe("center");
+    expect(getBlock(editor.document, "p0" as BlockId)?.attrs.textAlign).toBe("center");
+    expect(getBlock(editor.document, "li" as BlockId)?.attrs.textAlign).toBe("center");
+    expect(getBlock(editor.document, "p2" as BlockId)?.attrs.textAlign).toBe("center");
 
     // Containers are NOT aligned (C-3): their attrs are untouched.
-    expect(getBlock(next.document, "sec" as BlockId)?.attrs.textAlign).toBeUndefined();
+    expect(getBlock(editor.document, "sec" as BlockId)?.attrs.textAlign).toBeUndefined();
     // The flat list-item keeps exactly its original attrs (no textAlign smuggled
     // in beyond the one applied above — but it IS a leaf, so it gets aligned).
-    expect(getBlock(next.document, "li" as BlockId)?.attrs).toEqual({
+    expect(getBlock(editor.document, "li" as BlockId)?.attrs).toEqual({
       listId: "L1",
       listLevel: 0,
       textAlign: "center",
@@ -168,35 +166,38 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
   });
 
   it("undo restores the prior alignment", () => {
-    const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "hi" });
+    let editor = initial;
     const paraId = firstChildId(editor.document) as BlockId;
 
     // First set to "end" so the prior alignment is a concrete value.
-    editor = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "end" });
+    editor.dispatch({ type: "SET_TEXT_ALIGN", align: "end" });
     expect(getBlock(editor.document, paraId)?.attrs.textAlign).toBe("end");
 
-    const centered = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
-    expect(getBlock(centered.document, paraId)?.attrs.textAlign).toBe("center");
+    editor.dispatch({ type: "SET_TEXT_ALIGN", align: "center" });
+    expect(getBlock(editor.document, paraId)?.attrs.textAlign).toBe("center");
 
-    const undone = reduceEditor(centered, { type: "UNDO" });
-    expect(getBlock(undone.document, paraId)?.attrs.textAlign).toBe("end");
+    editor.dispatch({ type: "UNDO" });
+    expect(getBlock(editor.document, paraId)?.attrs.textAlign).toBe("end");
   });
 
   it("no-op: setting the alignment a block already has returns the same editor", () => {
-    const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    editor = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "hi" });
+    let editor = initial;
+    editor.dispatch({ type: "SET_TEXT_ALIGN", align: "center" });
 
-    const again = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
+    const before = { ...editor };
+    editor.dispatch({ type: "SET_TEXT_ALIGN", align: "center" });
 
     // No commit, no state change (the identity-no-op contract): the `document` is the SAME
     // reference. Phase 0b: the reducer entry-clears `lastDirtyIds` to null at the
     // start of every dispatch, so a no-op AFTER a mutating action returns a new
     // top-level object (lastDirtyIds null) — but the underlying `document` is
     // untouched, which is the actual no-op contract the driver keys off.
-    expect(again.document).toBe(editor.document);
-    expect(again.lastDirtyIds).toBeNull();
+    expect(editor.document).toBe(before.document);
+    expect(editor.lastDirtyIds).toBeNull();
   });
 
   it("no-op in dev mode: dispatching a no-op SET_TEXT_ALIGN does not throw (relaxed commit contract)", () => {
@@ -207,24 +208,26 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
     // identity contract; commit is also no-op-safe). This guards against a
     // regression where some path could ever invoke commit on a no-op and
     // surface a hard error to end users.
-    const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    editor = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "hi" });
+    let editor = initial;
+    editor.dispatch({ type: "SET_TEXT_ALIGN", align: "center" });
 
     expect(() =>
-      reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" }),
+      { editor.dispatch({ type: "SET_TEXT_ALIGN", align: "center" }); return editor; },
     ).not.toThrow();
   });
 
   it("all four keywords dispatch and set the attr", () => {
-    const initial = createInitialEditorState(config);
-    const base = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(base.document) as BlockId;
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "hi" });
+    const paraId = firstChildId(initial.document) as BlockId;
 
     for (const align of ["start", "center", "end", "justify"] as const) {
       // Start from a different alignment each time so the merge is never a no-op.
-      let editor = reduceEditor(base, { type: "SET_TEXT_ALIGN", align: align === "start" ? "center" : "start" });
-      editor = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align });
+      initial.dispatch({ type: "SET_TEXT_ALIGN", align: align === "start" ? "center" : "start" });
+        let editor = initial;
+      editor.dispatch({ type: "SET_TEXT_ALIGN", align });
       expect(getBlock(editor.document, paraId)?.attrs.textAlign).toBe(align);
     }
   });

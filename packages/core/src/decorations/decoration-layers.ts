@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor/editor-state";
+import type { EditorSnapshot } from "../editor/editor";
 import type { DocumentChange } from "../editor/document-change";
 import type { Block, BlockId, Position, Document, TextMatch, SuggestionGroup } from "../state";
 import { mappingAcross, IDENTITY_MAPPING, UNKNOWN_MAPPING, type PositionMapping } from "../state/position-mapping";
@@ -36,7 +36,7 @@ import {
  * actions). Selection-only transitions are identity; a state change of unknown extent
  * (document replaced) or spanning several document changes is unknown.
  */
-export function transitionMapping(prev: EditorState, next: EditorState): PositionMapping {
+export function transitionMapping(prev: Pick<EditorSnapshot, "document" | "selection">, next: Pick<EditorSnapshot, "document" | "selection" | "lastChange">): PositionMapping {
   if (prev.document === next.document) return IDENTITY_MAPPING;
   // `lastChange` links the recent document changes. Walk back to the one made from
   // `prev.document` (a host may batch several dispatches before handing the controller a
@@ -57,7 +57,7 @@ export function transitionMapping(prev: EditorState, next: EditorState): Positio
  * block, else the focus. Computed from the selection alone — ordering a cross-block span
  * would read the superseded `prev.document`, whose Y.Doc has already been mutated.
  */
-function editStart(editor: EditorState): Position {
+function editStart(editor: Pick<EditorSnapshot, "selection">): Position {
   const { anchor, focus } = editor.selection;
   return anchor.blockId === focus.blockId && anchor.offset < focus.offset ? anchor : focus;
 }
@@ -135,7 +135,7 @@ export interface DecorationLayers {
    */
   setSuggestionStyles(document: Document, styleOf: SuggestionGroupStyle | null): void;
   /** Carry every layer through the transition `prev → next`. */
-  advance(prev: EditorState, next: EditorState, mapping?: PositionMapping): void;
+  advance(prev: EditorSnapshot, next: EditorSnapshot, mapping?: PositionMapping): void;
 }
 
 /** How the host styles a suggestion group (null = leave it to the built-in visuals). */

@@ -114,9 +114,9 @@ function buildTaggedInput(): {
   // dropped from the structure tree). Done through the REAL editor so the header
   // materializes into each page's `headerSlot`.
   const selection = core.initialSelectionForDocument(document);
-  let editor = core.createEditorStateFromDocument(document, selection, config);
-  editor = core.reduceEditor(editor, { type: "INSERT_HEADER" });
-  editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "Header" });
+  let editor = core.createEditor(config, { document, selection: selection });
+  editor.dispatch({ type: "INSERT_HEADER" });
+  editor.dispatch({ type: "INSERT_TEXT", text: "Header" });
 
   // Run the print backend's render → cascade → layout pipeline (the geometric
   // half that left core in the dual-mode split) to get the paginated tree.

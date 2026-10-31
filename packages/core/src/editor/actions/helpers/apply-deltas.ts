@@ -1,11 +1,11 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import type { Edit } from "../../edit";
 import type { Span, BlockId, ReadonlyAttrs } from "../../../state";
 import { applyAttrsOrSuggest } from "./apply-attrs-or-suggest";
 
 /** Apply each `[span, attrs]` delta in turn, as one edit (one undo step). */
 export function applyDeltas(
-  editor: EditorState,
+  editor: Editor,
   deltas: ReadonlyArray<readonly [Span, ReadonlyAttrs]>,
 ): Edit | null {
   let document = editor.document;

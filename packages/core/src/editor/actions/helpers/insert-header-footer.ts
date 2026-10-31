@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import type { Edit } from "../../edit";
 import { getBlock, getTemplateContent, insertTemplateBody, productionAllocator, createPosition, createSpan } from "../../../state";
 import type { BlockId, TemplateRegion } from "../../../state";
@@ -30,7 +30,7 @@ import { resolveActiveSection } from "./resolve-active-section";
  * Selection-after on the CREATE path: a collapsed caret at the paragraph child,
  * `{ firstParagraphId, 0 }`.
  */
-export function insertHeaderFooter(editor: EditorState, region: TemplateRegion): Edit | null {
+export function insertHeaderFooter(editor: Editor, region: TemplateRegion): Edit | null {
   // The header/footer links onto the cursor's ACTIVE SECTION — the `section`
   // block enclosing the focus — so section 2 gets its own header (mirrors
   // `TOGGLE_SECTION_LANDSCAPE` / `SET_SECTION_COLUMNS`). A caret outside the main

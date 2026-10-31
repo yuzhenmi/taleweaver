@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import type { Edit } from "../../edit";
 import { inheritedAttrsAt } from "../../typing-attrs";
 import { getBlock, createPosition, createSpan, replaceBlockWithText } from "../../../state";
@@ -22,7 +22,7 @@ import { contentLengthForDocument } from "./content-length-for-document";
  * typing attrs at the landing position (`inheritedAttrsAt`).
  */
 export function replaceObjectWithText(
-  editor: EditorState,
+  editor: Editor,
   objId: BlockId,
   text: string,
 ): Edit | null {
@@ -57,7 +57,7 @@ export function replaceObjectWithText(
  * when neither neighbour qualifies.
  */
 function textTargetSibling(
-  editor: EditorState,
+  editor: Editor,
   nextSiblingId: BlockId | null,
   prevSiblingId: BlockId | null,
 ): { readonly blockId: BlockId; readonly offset: number } | null {
@@ -70,7 +70,7 @@ function textTargetSibling(
   return null;
 }
 
-function isTextLeaf(editor: EditorState, blockId: BlockId): boolean {
+function isTextLeaf(editor: Editor, blockId: BlockId): boolean {
   const block = getBlock(editor.document, blockId);
   return block !== null && block.inlineContent !== null;
 }

@@ -10,22 +10,18 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  config,
-  reduceEditor,
-  createPosition,
-  createSpan,
-} from "./test-helpers";
-import { createEditorStateFromDocument, type EditorState } from "../editor-state";
+  config, createPosition, createSpan } from "./test-helpers";
+import { createEditor, type Editor } from "../editor";
 import { getBlock } from "../../state";
 import type { BlockId, Document } from "../../state";
 import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 import { coalesceKeyOf } from "../reduce-editor";
 import type { EditorAction } from "../editor-action";
 
-// Phase 0b: core's `EditorState` is geometry-free — these state-level action
+// Phase 0b: core's `Editor` is geometry-free — these state-level action
 // tests build only the geometry-free fields (the handlers read no layout).
-function makeEditor(document: Document, selection: EditorState["selection"]): EditorState {
-  return createEditorStateFromDocument(document, selection, config);
+function makeEditor(document: Document, selection: Editor["selection"]): Editor {
+  return createEditor(config, { document, selection: selection });
 }
 
 /** A doc with one paragraph "p" carrying inline content [text("ab")]. */
@@ -50,10 +46,10 @@ describe("INSERT_TAB action", () => {
     const document = paragraphDoc();
     const at = createPosition("p" as BlockId, 1);
     const ed = makeEditor(document, createSpan(at, at));
-    const next = reduceEditor(ed, { type: "INSERT_TAB" });
+    ed.dispatch({ type: "INSERT_TAB" });
 
     // "ab" + tab at offset 1 → [text "a", embed "tab", text "b"].
-    const items = getBlock(next.document, "p" as BlockId)?.inlineContent?.items ?? [];
+    const items = getBlock(ed.document, "p" as BlockId)?.inlineContent?.items ?? [];
     expect(items.some((it) => it.kind === "embed" && it.embedType === "tab")).toBe(true);
     expect(items.filter((it) => it.kind === "text").map((it) => it.text).join("")).toBe("ab");
   });
@@ -62,11 +58,11 @@ describe("INSERT_TAB action", () => {
     const document = paragraphDoc();
     const at = createPosition("p" as BlockId, 1);
     const ed = makeEditor(document, createSpan(at, at));
-    const next = reduceEditor(ed, { type: "INSERT_TAB" });
+    ed.dispatch({ type: "INSERT_TAB" });
 
     // The tab occupies one position-offset unit; caret lands at offset 2.
-    expect(next.selection.anchor).toEqual(createPosition("p" as BlockId, 2));
-    expect(next.selection.focus).toEqual(createPosition("p" as BlockId, 2));
+    expect(ed.selection.anchor).toEqual(createPosition("p" as BlockId, 2));
+    expect(ed.selection.focus).toEqual(createPosition("p" as BlockId, 2));
   });
 
   it("INSERT_TAB coalesces as 'command' (discrete undo)", () => {
@@ -79,16 +75,13 @@ describe("SET_TAB_STOPS action", () => {
     const document = paragraphDoc({ textAlign: "center" });
     const at = createPosition("p" as BlockId, 0);
     const ed = makeEditor(document, createSpan(at, at));
-    const next = reduceEditor(
-      ed,
-      {
+    ed.dispatch({
         type: "SET_TAB_STOPS",
         blockId: "p" as BlockId,
         tabStops: [{ position: 72, alignment: "left", leader: "none" }],
-      },
-    );
+      });
 
-    const block = getBlock(next.document, "p" as BlockId);
+    const block = getBlock(ed.document, "p" as BlockId);
     expect(block?.attrs.tabStops).toEqual([{ position: 72, alignment: "left", leader: "none" }]);
     // mergeBlockAttrs preserved the other attr (setBlockAttrs would have wiped it).
     expect(block?.attrs.textAlign).toBe("center");

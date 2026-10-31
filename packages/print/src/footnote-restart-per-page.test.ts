@@ -19,7 +19,7 @@
  * the continuous "2" never materializes.
  */
 import { describe, it, expect } from "vitest";
-import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, type EditorConfig, type EditorState, type BlockId, type PageConfig } from "@taleweaver/core";
+import { createEditor, type EditorConfig, type Editor, type BlockId, type PageConfig, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper } from "@taleweaver/core";
 import { type LayoutBox, type VirtualLayoutTree, type PageBox } from "./index";
 import { createLayoutDriver } from "./layout-driver/layout-driver";
 
@@ -43,14 +43,12 @@ function makeEditorConfig(pageConfig?: PageConfig): EditorConfig {
 }
 
 /** Move the caret to (blockId, offset). */
-function caretTo(editor: EditorState, blockId: BlockId, offset: number): EditorState {
-  return reduceEditor(
-    editor,
-    {
+function caretTo(editor: Editor, blockId: BlockId, offset: number): Editor {
+  editor.dispatch({
       type: "SET_SELECTION",
       selection: { anchor: { blockId, offset }, focus: { blockId, offset } },
-    },
-  );
+    });
+    return editor;
 }
 
 /**
@@ -58,27 +56,27 @@ function caretTo(editor: EditorState, blockId: BlockId, offset: number): EditorS
  * `filler` empty paragraphs, then a second host paragraph with a footnote.
  * Returns the editor (its `document` is fed to the driver).
  */
-function twoFootnotes(config: EditorConfig, filler: number): EditorState {
-  let editor = createInitialEditorState(config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
+function twoFootnotes(config: EditorConfig, filler: number): Editor {
+  let editor = createEditor(config);
+  editor.dispatch({ type: "INSERT_TEXT", text: "a" });
   const firstHost = editor.selection.focus.blockId;
-  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
+  editor.dispatch({ type: "INSERT_FOOTNOTE" });
   // INSERT_FOOTNOTE drops the caret into the body; return to the main host
   // ("a" + anchor → offset 2) before splitting off the filler paragraphs.
   editor = caretTo(editor, firstHost, 2);
   for (let i = 0; i < filler; i++) {
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
+    editor.dispatch({ type: "SPLIT_NODE" });
+    editor.dispatch({ type: "INSERT_TEXT", text: "x" });
   }
   // One more split → the second host paragraph; type + add the second footnote.
-  editor = reduceEditor(editor, { type: "SPLIT_NODE" });
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
-  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
+  editor.dispatch({ type: "SPLIT_NODE" });
+  editor.dispatch({ type: "INSERT_TEXT", text: "b" });
+  editor.dispatch({ type: "INSERT_FOOTNOTE" });
   return editor;
 }
 
 /** Build the driver-produced layout tree for an editor (full rebuild). */
-function driverLayout(editor: EditorState): LayoutBox | VirtualLayoutTree {
+function driverLayout(editor: Editor): LayoutBox | VirtualLayoutTree {
   return createLayoutDriver({ measurer }).rebuild({ ...editor, containerWidth: 600, lastDirtyIds: null });
 }
 
@@ -125,10 +123,7 @@ describe("FN-6.4 — layout-driver restart-per-page second pass", () => {
     // numbering would render a "2"; restart-per-page renders "1" on each page.
     const editorConfig = makeEditorConfig(PAGE_CONFIG);
     let editor = twoFootnotes(editorConfig, 6);
-    editor = reduceEditor(
-      editor,
-      { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-page" },
-    );
+    editor.dispatch({ type: "SET_FOOTNOTE_POLICY", reset: "restart-per-page" });
 
     const layout = driverLayout(editor);
     if (layout.type !== "virtual-root") throw new Error("expected a paginated tree");
@@ -158,10 +153,7 @@ describe("FN-6.4 — layout-driver restart-per-page second pass", () => {
     const tall: PageConfig = { ...PAGE_CONFIG, pageBlockSize: 400 };
     const editorConfig = makeEditorConfig(tall);
     let editor = twoFootnotes(editorConfig, 0);
-    editor = reduceEditor(
-      editor,
-      { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-page" },
-    );
+    editor.dispatch({ type: "SET_FOOTNOTE_POLICY", reset: "restart-per-page" });
 
     const layout = driverLayout(editor);
     if (layout.type !== "virtual-root") throw new Error("expected a paginated tree");
@@ -175,10 +167,7 @@ describe("FN-6.4 — layout-driver restart-per-page second pass", () => {
   it("restart-per-page on a NON-virtual layout (no pageConfig) keeps the continuous fallback (1,2)", () => {
     const editorConfig = makeEditorConfig(undefined); // no pageConfig
     let editor = twoFootnotes(editorConfig, 0);
-    editor = reduceEditor(
-      editor,
-      { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-page" },
-    );
+    editor.dispatch({ type: "SET_FOOTNOTE_POLICY", reset: "restart-per-page" });
 
     const layout = driverLayout(editor);
     // Non-virtual layout: no footnoteAnchorPages ⇒ the driver keeps the

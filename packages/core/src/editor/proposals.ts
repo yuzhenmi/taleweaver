@@ -29,7 +29,7 @@ import { suggestionIdsOnItem } from "../state/ops/suggestion-ops";
 import { nextSuggestionOrder } from "../state/suggestions";
 import { mappingAcross, type ChangeLink, type PositionMapping } from "../state/position-mapping";
 import { recordSample } from "../perf/perf-trace";
-import { type EditorState } from "./editor-state";
+import { type Editor } from "./editor";
 import type { Edit } from "./edit";
 import { replacementAttrs } from "./typing-attrs";
 
@@ -227,7 +227,7 @@ function linesFor(document: Document, at: Position, text: string, attrs: Readonl
 }
 
 export function applyProposal(
-  editor: EditorState,
+  editor: Editor,
   proposal: Proposal,
   outcomeOf: (verdict: Verdict) => ProposalOutcome,
 ): Edit {
@@ -296,7 +296,7 @@ export function applyProposal(
   return { change: steps, selection: "rebase", undoable: false, proposal: outcomeOf({ groupId: proposal.groupId, outcome: "applied" }) };
 }
 
-/** What `controller.propose()` reports (see `EditorState.lastProposal` for print). */
+/** What `controller.propose()` reports (see `Editor.lastProposal` for print). */
 export type ProposeResult =
   | { readonly ok: true }
   /** Computed against a version whose edited ranges have since changed (or aged out). */
@@ -307,7 +307,7 @@ export type ProposeResult =
   | { readonly ok: false; readonly reason: "halted" };
 
 /**
- * The reducer's verdict on the last `PROPOSE` (`EditorState.lastProposal`). `proposal` is
+ * The reducer's verdict on the last `PROPOSE` (`Editor.lastProposal`). `proposal` is
  * the dispatched object; `seq` numbers the PROPOSEs of this editor (1, 2, …) — the
  * per-dispatch identity key, kept by every copy; `prior` links the verdicts of the earlier
  * PROPOSEs (newest first; `depth` = chain length, at least {@link MAX_PROPOSAL_CHAIN}
@@ -362,7 +362,7 @@ export function proposeResultOf(outcome: ProposalOutcome | undefined): ProposeRe
  * editor's change chain (`lastChange`) — null when `basedOn` is not on it (aged out of the
  * bounded chain, or the document was replaced).
  */
-export function mappingSince(editor: EditorState, basedOn: Document): PositionMapping | null {
+export function mappingSince(editor: Editor, basedOn: Document): PositionMapping | null {
   const links: ChangeLink[] = [];
   for (let c = editor.lastChange; c !== null; c = c.prior) {
     links.push(c);

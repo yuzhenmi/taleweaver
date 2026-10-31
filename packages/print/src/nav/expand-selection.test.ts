@@ -43,12 +43,14 @@ function snap(ctx: NavCtx): string {
 
 /** Overwrite the context's editor's anchorAffinity (slice-3 plumbing helper). */
 function withAnchorAffinity(ctx: NavCtx, value: "before" | "after"): NavCtx {
-  return { ...ctx, editor: { ...ctx.editor, anchorAffinity: value } };
+  ctx.editor.anchorAffinity = value;
+  return ctx;
 }
 
 /** Overwrite the context's editor's caretAffinity (collapse→extend seed setup). */
 function withCaretAffinity(ctx: NavCtx, value: "before" | "after"): NavCtx {
-  return { ...ctx, editor: { ...ctx.editor, caretAffinity: value } };
+  ctx.editor.caretAffinity = value;
+  return ctx;
 }
 
 describe("EXPAND_SELECTION — pure-LTR (byte-identical to logical focus motion)", () => {
@@ -167,7 +169,7 @@ describe("EXPAND_SELECTION — coherence with MOVE_CURSOR (C.2.3)", () => {
   });
 });
 
-describe("EditorState.anchorAffinity lifecycle (#503 slice 3)", () => {
+describe("Editor.anchorAffinity lifecycle (#503 slice 3)", () => {
   // Post-Phase-0b the affinity reset/preserve is keyed on the single
   // affinity-managing action SET_SELECTION (the resolver threads it). A nav intent
   // that COLLAPSES resolves to a SET_SELECTION with anchorAffinity:undefined
@@ -241,7 +243,7 @@ describe("EditorState.anchorAffinity lifecycle (#503 slice 3)", () => {
   });
 });
 
-describe("EditorState.anchorAffinity seeding (#503 slice 4)", () => {
+describe("Editor.anchorAffinity seeding (#503 slice 4)", () => {
   // The NavIntent resolver SEEDS anchorAffinity (via seedAnchorAffinity) on the
   // collapse→extend transition (anchor inherits the caret's affinity) and PERSISTS
   // it on continued extension, threading it through the SET_SELECTION it dispatches.

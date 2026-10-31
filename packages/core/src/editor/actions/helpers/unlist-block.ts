@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import type { Edit } from "../../edit";
 import { setBlockType, mergeBlockAttrs } from "../../../state";
 import type { Block, BlockId } from "../../../state";
@@ -14,7 +14,7 @@ import type { Block, BlockId } from "../../../state";
  * returns the same `editor` reference without committing.
  */
 export function unlistBlock(
-  editor: EditorState,
+  editor: Editor,
   block: Block,
 ): Edit | null {
   const typeResult = setBlockType(

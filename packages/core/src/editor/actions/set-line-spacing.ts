@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../state";
 import type { Document, BlockId } from "../../state";
@@ -34,7 +34,7 @@ import type { ActionOf } from "../editor-action";
  * move.
  */
 export function handleSetLineSpacing(
-  editor: EditorState,
+  editor: Editor,
   { spacing }: ActionOf<"SET_LINE_SPACING">,
 ): Edit | null {
   const targetIds = targetLeafBlockIds(editor);
@@ -69,7 +69,7 @@ export function handleSetLineSpacing(
  * lists, the document root — have `inlineContent === null` and route content
  * through `firstChildId`). Spacing a container is nonsensical: it owns no text.
  */
-function targetLeafBlockIds(editor: EditorState): BlockId[] {
+function targetLeafBlockIds(editor: Editor): BlockId[] {
   const { document, selection } = editor;
 
   if (positionsEqual(selection.anchor, selection.focus)) {

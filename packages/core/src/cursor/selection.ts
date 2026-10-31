@@ -25,7 +25,7 @@ export type { Selection } from "../state";
  * TWO visual positions where two leaves meet (`offset == leafA.logEnd ==
  * leafB.logStart`): `"before"` draws at the leaf ENDING at the offset, `"after"`
  * (the default) at the leaf STARTING at it. On a uniform line both pick the same
- * X, so the field is inert there. Threaded from `EditorState.caretAffinity`
+ * X, so the field is inert there. Threaded from `Editor.caretAffinity`
  * (view state — never stored in History).
  *
  * This is a pure selection-model type (a 2-value union, geometry-free) so it
@@ -48,7 +48,7 @@ export function isCollapsed(span: Selection): boolean {
  * Direction-INSENSITIVE is loop-safety-critical: `selectionchange` may report anchor/focus
  * swapped vs the model; an order-sensitive compare would never short-circuit, re-dispatching
  * `SET_SELECTION` forever. Affinity is excluded because a `Span` carries none (affinity is
- * EditorState view-state, never read back from the DOM) — folding it in would likewise never
+ * Editor view-state, never read back from the DOM) — folding it in would likewise never
  * match the affinity-less DOM span.
  */
 export function selectionsEqual(a: Selection, b: Selection): boolean {

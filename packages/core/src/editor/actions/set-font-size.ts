@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./helpers/apply-attrs-or-suggest";
 import { storeTypingAttrs } from "../typing-attrs";
@@ -31,7 +31,7 @@ import type { ActionOf } from "../editor-action";
  * state-equality short-circuit; the selection is preserved unchanged;
  * dirtyIds threaded through to the incremental render pipeline.
  */
-export function handleSetFontSize(editor: EditorState, { size }: ActionOf<"SET_FONT_SIZE">): Edit | null {
+export function handleSetFontSize(editor: Editor, { size }: ActionOf<"SET_FONT_SIZE">): Edit | null {
   const { selection } = editor;
   // Normalize a non-positive size to a removal — a font size of 0 or less
   // isn't a meaningful value, so this handler is where we reject it.

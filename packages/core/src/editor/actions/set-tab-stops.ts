@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs } from "../../state";
 import type { BlockId } from "../../state";
@@ -32,7 +32,7 @@ import type { ActionOf } from "../editor-action";
  * Selection is UNCHANGED: tab stops are a block-geometry change, not a caret move.
  */
 export function handleSetTabStops(
-  editor: EditorState,
+  editor: Editor,
   { blockId, tabStops }: ActionOf<"SET_TAB_STOPS">,
 ): Edit | null {
   if (getBlock(editor.document, blockId) === null) return null;

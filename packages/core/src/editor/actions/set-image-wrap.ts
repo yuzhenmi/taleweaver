@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs } from "../../state";
 import type { ActionOf, ImageWrap } from "../editor-action";
@@ -28,7 +28,7 @@ const VALID_WRAP: ReadonlySet<string> = new Set<ImageWrap>([
  * Selection is UNCHANGED. One undo entry.
  */
 export function handleSetImageWrap(
-  editor: EditorState,
+  editor: Editor,
   { blockId, wrap }: ActionOf<"SET_IMAGE_WRAP">,
 ): Edit | null {
   const block = getBlock(editor.document, blockId);

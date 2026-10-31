@@ -22,13 +22,12 @@ import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,
-  reduceEditor,
-  createInitialEditorState,
   createPosition,
   createSpan,
   getTextOf,
+  createEditor,
   type EditorConfig,
-  type EditorState,
+  type Editor,
 } from "./test-helpers";
 
 /** Throwing indexed access for tests: stronger than the old undefined-deref TypeError. */
@@ -40,7 +39,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 import { getBlock, getSuggestions, type BlockId } from "../../state";
 
 /** The first body paragraph id under the document root. */
-function bodyParaId(editor: EditorState): BlockId {
+function bodyParaId(editor: Editor): BlockId {
   const root = getBlock(editor.document, finalSectionOf(editor.document));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
@@ -53,36 +52,34 @@ function bodyParaId(editor: EditorState): BlockId {
 const suggestingConfig: EditorConfig = { ...directConfig, suggestingAuthor: "alice" };
 
 /** Place a collapsed caret at `offset` of `paraId` (suggesting config). */
-function caretAt(editor: EditorState, paraId: BlockId, offset: number): EditorState {
-  return reduceEditor(
-    { ...editor, config: suggestingConfig },
-    {
-      type: "SET_SELECTION",
-      selection: createSpan(createPosition(paraId, offset), createPosition(paraId, offset)),
-    },
-  );
+function caretAt(editor: Editor, paraId: BlockId, offset: number): Editor {
+  editor.config = suggestingConfig;
+  editor.dispatch({
+    type: "SET_SELECTION",
+    selection: createSpan(createPosition(paraId, offset), createPosition(paraId, offset)),
+  });
+  return editor;
 }
 
 /** Select `[start, end)` of `paraId` (suggesting config). */
 function select(
-  editor: EditorState,
+  editor: Editor,
   paraId: BlockId,
   start: number,
   end: number,
-): EditorState {
-  return reduceEditor(
-    { ...editor, config: suggestingConfig },
-    {
-      type: "SET_SELECTION",
-      selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
-    },
-  );
+): Editor {
+  editor.config = suggestingConfig;
+  editor.dispatch({
+    type: "SET_SELECTION",
+    selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
+  });
+  return editor;
 }
 
 /** The `deletionSuggestionId` carried by the run at character index `idx`, or
  *  `undefined` if no text run covers it / the run carries no deletion id. */
 function deletionIdAt(
-  editor: EditorState,
+  editor: Editor,
   paraId: BlockId,
   idx: number,
 ): unknown {
@@ -99,11 +96,10 @@ function deletionIdAt(
 }
 
 /** Seed a single paragraph with `text` typed in (direct mode), caret at end. */
-function seed(text: string): EditorState {
-  return reduceEditor(
-    createInitialEditorState(directConfig),
-    { type: "INSERT_TEXT", text },
-  );
+function seed(text: string): Editor {
+  const editor = createEditor(directConfig);
+  editor.dispatch({ type: "INSERT_TEXT", text });
+  return editor;
 }
 
 describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
@@ -113,25 +109,22 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
     const paraId = bodyParaId(seeded);
     const placed = caretAt(seeded, paraId, 11); // caret at end
 
-    const next = reduceEditor(
-      placed,
-      { type: "DELETE_WORD", direction: "backward" },
-    );
+    placed.dispatch({ type: "DELETE_WORD", direction: "backward" });
 
     // Text intact; "world" (indices 6..10) carries the deletion id.
-    expect(getTextOf(next.document, paraId)).toBe("hello world");
-    const suggestions = getSuggestions(next.document);
+    expect(getTextOf(placed.document, paraId)).toBe("hello world");
+    const suggestions = getSuggestions(placed.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
     expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
-    expect(deletionIdAt(next, paraId, 6)).toBe(nth(suggestions, 0, "suggestion").id);
-    expect(deletionIdAt(next, paraId, 10)).toBe(nth(suggestions, 0, "suggestion").id);
+    expect(deletionIdAt(placed, paraId, 6)).toBe(nth(suggestions, 0, "suggestion").id);
+    expect(deletionIdAt(placed, paraId, 10)).toBe(nth(suggestions, 0, "suggestion").id);
     // "hello " (indices 0..5) untouched.
-    expect(deletionIdAt(next, paraId, 5)).toBeUndefined();
+    expect(deletionIdAt(placed, paraId, 5)).toBeUndefined();
     // Caret collapses to the word START (offset 6 = `target`).
-    expect(next.selection.anchor).toEqual(next.selection.focus);
-    expect(next.selection.focus.blockId).toBe(paraId);
-    expect(next.selection.focus.offset).toBe(6);
+    expect(placed.selection.anchor).toEqual(placed.selection.focus);
+    expect(placed.selection.focus.blockId).toBe(paraId);
+    expect(placed.selection.focus.offset).toBe(6);
   });
 
   it("forward word-delete: strikes the word after the caret AND advances past it (repeated delete strikes the NEXT word)", () => {
@@ -140,53 +133,44 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
     const paraId = bodyParaId(seeded);
     const placed = caretAt(seeded, paraId, 0); // caret before "hello"
 
-    const once = reduceEditor(
-      placed,
-      { type: "DELETE_WORD", direction: "forward" },
-    );
+    placed.dispatch({ type: "DELETE_WORD", direction: "forward" });
 
     // "hello" (0..4) struck, text intact; caret advanced to the word END (5).
-    expect(getTextOf(once.document, paraId)).toBe("hello world");
-    expect(deletionIdAt(once, paraId, 0)).toBeDefined();
-    expect(deletionIdAt(once, paraId, 4)).toBeDefined();
-    expect(deletionIdAt(once, paraId, 5)).toBeUndefined();
-    expect(once.selection.focus.offset).toBe(5);
+    expect(getTextOf(placed.document, paraId)).toBe("hello world");
+    expect(deletionIdAt(placed, paraId, 0)).toBeDefined();
+    expect(deletionIdAt(placed, paraId, 4)).toBeDefined();
+    expect(deletionIdAt(placed, paraId, 5)).toBeUndefined();
+    expect(placed.selection.focus.offset).toBe(5);
 
     // A SECOND forward word-delete from offset 5 strikes the NEXT word (" world",
     // 5..10). If the caret had NOT advanced (stayed at 0), markDeletion would
     // re-target the already-struck "hello" and coalesce/no-op, leaving " world"
     // unstruck — so " world"-is-struck IS the proof the caret advanced.
-    const twice = reduceEditor(
-      once,
-      { type: "DELETE_WORD", direction: "forward" },
-    );
-    expect(getTextOf(twice.document, paraId)).toBe("hello world");
-    expect(deletionIdAt(twice, paraId, 6)).toBeDefined();
-    expect(deletionIdAt(twice, paraId, 10)).toBeDefined();
+    placed.dispatch({ type: "DELETE_WORD", direction: "forward" });
+    expect(getTextOf(placed.document, paraId)).toBe("hello world");
+    expect(deletionIdAt(placed, paraId, 6)).toBeDefined();
+    expect(deletionIdAt(placed, paraId, 10)).toBeDefined();
     // Two ADJACENT same-author deletions coalesce into ONE record (reused id).
-    expect(deletionIdAt(twice, paraId, 6)).toBe(deletionIdAt(twice, paraId, 0));
-    const suggestions = getSuggestions(twice.document);
+    expect(deletionIdAt(placed, paraId, 6)).toBe(deletionIdAt(placed, paraId, 0));
+    const suggestions = getSuggestions(placed.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
     // Caret advanced to the end of "world" (offset 11).
-    expect(twice.selection.focus.offset).toBe(11);
+    expect(placed.selection.focus.offset).toBe(11);
   });
 
   it("is undoable: UNDO reverts a suggesting word-delete (no deletion id, no record)", () => {
     const seeded = seed("hello world");
     const paraId = bodyParaId(seeded);
     const placed = caretAt(seeded, paraId, 11);
-    const struck = reduceEditor(
-      placed,
-      { type: "DELETE_WORD", direction: "backward" },
-    );
+    placed.dispatch({ type: "DELETE_WORD", direction: "backward" });
 
-    expect(struck.history.canUndo()).toBe(true);
+    expect(placed.history.canUndo()).toBe(true);
 
-    const undone = reduceEditor(struck, { type: "UNDO" });
-    expect(getTextOf(undone.document, paraId)).toBe("hello world");
-    expect(deletionIdAt(undone, paraId, 6)).toBeUndefined();
-    expect(getSuggestions(undone.document)).toHaveLength(0);
+    placed.dispatch({ type: "UNDO" });
+    expect(getTextOf(placed.document, paraId)).toBe("hello world");
+    expect(deletionIdAt(placed, paraId, 6)).toBeUndefined();
+    expect(getSuggestions(placed.document)).toHaveLength(0);
   });
 
   it("direct mode (regression): the SAME word-delete REMOVES the word, caret per the existing rule, no suggestion", () => {
@@ -194,40 +178,28 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
     {
       const seeded = seed("hello world");
       const paraId = bodyParaId(seeded);
-      const placed = reduceEditor(
-        seeded,
-        {
+      seeded.dispatch({
           type: "SET_SELECTION",
           selection: createSpan(createPosition(paraId, 11), createPosition(paraId, 11)),
-        },
-      );
-      const next = reduceEditor(
-        placed,
-        { type: "DELETE_WORD", direction: "backward" },
-      );
-      expect(getTextOf(next.document, paraId)).toBe("hello ");
-      expect(next.selection.focus.offset).toBe(6);
-      expect(getSuggestions(next.document)).toHaveLength(0);
+        });
+      seeded.dispatch({ type: "DELETE_WORD", direction: "backward" });
+      expect(getTextOf(seeded.document, paraId)).toBe("hello ");
+      expect(seeded.selection.focus.offset).toBe(6);
+      expect(getSuggestions(seeded.document)).toHaveLength(0);
     }
 
     // Forward direct delete: removes "hello", caret STAYS at pos (0).
     {
       const seeded = seed("hello world");
       const paraId = bodyParaId(seeded);
-      const placed = reduceEditor(
-        seeded,
-        {
+      seeded.dispatch({
           type: "SET_SELECTION",
           selection: createSpan(createPosition(paraId, 0), createPosition(paraId, 0)),
-        },
-      );
-      const next = reduceEditor(
-        placed,
-        { type: "DELETE_WORD", direction: "forward" },
-      );
-      expect(getTextOf(next.document, paraId)).toBe(" world");
-      expect(next.selection.focus.offset).toBe(0);
-      expect(getSuggestions(next.document)).toHaveLength(0);
+        });
+      seeded.dispatch({ type: "DELETE_WORD", direction: "forward" });
+      expect(getTextOf(seeded.document, paraId)).toBe(" world");
+      expect(seeded.selection.focus.offset).toBe(0);
+      expect(getSuggestions(seeded.document)).toHaveLength(0);
     }
   });
 
@@ -237,20 +209,17 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
       const seeded = seed("abcdef");
       const paraId = bodyParaId(seeded);
       const selected = select(seeded, paraId, 1, 4); // select "bcd"
-      const next = reduceEditor(
-        selected,
-        { type: "DELETE_WORD", direction: "forward" },
-      );
-      expect(getTextOf(next.document, paraId)).toBe("abcdef");
-      const suggestions = getSuggestions(next.document);
+      selected.dispatch({ type: "DELETE_WORD", direction: "forward" });
+      expect(getTextOf(selected.document, paraId)).toBe("abcdef");
+      const suggestions = getSuggestions(selected.document);
       expect(suggestions).toHaveLength(1);
       expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
-      expect(deletionIdAt(next, paraId, 1)).toBe(nth(suggestions, 0, "suggestion").id);
-      expect(deletionIdAt(next, paraId, 3)).toBe(nth(suggestions, 0, "suggestion").id);
-      expect(deletionIdAt(next, paraId, 0)).toBeUndefined();
-      expect(deletionIdAt(next, paraId, 4)).toBeUndefined();
+      expect(deletionIdAt(selected, paraId, 1)).toBe(nth(suggestions, 0, "suggestion").id);
+      expect(deletionIdAt(selected, paraId, 3)).toBe(nth(suggestions, 0, "suggestion").id);
+      expect(deletionIdAt(selected, paraId, 0)).toBeUndefined();
+      expect(deletionIdAt(selected, paraId, 4)).toBeUndefined();
       // Caret at the selection END (offset 4 = span END).
-      expect(next.selection.focus.offset).toBe(4);
+      expect(selected.selection.focus.offset).toBe(4);
     }
 
     // Backward over a selection.
@@ -258,24 +227,21 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
       const seeded = seed("abcdef");
       const paraId = bodyParaId(seeded);
       const selected = select(seeded, paraId, 1, 4); // select "bcd"
-      const next = reduceEditor(
-        selected,
-        { type: "DELETE_WORD", direction: "backward" },
-      );
-      expect(getTextOf(next.document, paraId)).toBe("abcdef");
-      expect(deletionIdAt(next, paraId, 1)).toBeDefined();
-      expect(deletionIdAt(next, paraId, 3)).toBeDefined();
+      selected.dispatch({ type: "DELETE_WORD", direction: "backward" });
+      expect(getTextOf(selected.document, paraId)).toBe("abcdef");
+      expect(deletionIdAt(selected, paraId, 1)).toBeDefined();
+      expect(deletionIdAt(selected, paraId, 3)).toBeDefined();
       // Caret at the selection START (offset 1 = span start).
-      expect(next.selection.focus.offset).toBe(1);
+      expect(selected.selection.focus.offset).toBe(1);
     }
   });
 
   it("cross-block word-delete is a NO-OP in BOTH modes (no suggestion in suggesting mode)", () => {
     // Two paragraphs "abc" / "def"; caret at the START of the 2nd (offset 0).
-    let s = createInitialEditorState(directConfig);
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" });
-    s = reduceEditor(s, { type: "SPLIT_NODE" });
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" });
+    let s = createEditor(directConfig);
+    s.dispatch({ type: "INSERT_TEXT", text: "abc" });
+    s.dispatch({ type: "SPLIT_NODE" });
+    s.dispatch({ type: "INSERT_TEXT", text: "def" });
 
     const root = getBlock(s.document, finalSectionOf(s.document));
     const secondId = root?.lastChildId ?? null;
@@ -284,26 +250,21 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
     }
 
     // Direct mode: backward word-delete at block start = NO-OP.
-    const placedDirect = reduceEditor(
-      s,
-      {
+    s.dispatch({
         type: "SET_SELECTION",
         selection: createSpan(createPosition(secondId, 0), createPosition(secondId, 0)),
-      },
-    );
-    const directNext = reduceEditor(
-      placedDirect,
-      { type: "DELETE_WORD", direction: "backward" },
-    );
-    expect(directNext).toBe(placedDirect);
+      });
+    const before = { ...s };
+    s.dispatch({ type: "DELETE_WORD", direction: "backward" });
+    expect(s.document).toBe(before.document);
+    expect(s.selection).toBe(before.selection);
 
     // Suggesting mode: same NO-OP, no suggestion record minted.
     const placedSuggest = caretAt(s, secondId, 0);
-    const suggestNext = reduceEditor(
-      placedSuggest,
-      { type: "DELETE_WORD", direction: "backward" },
-    );
-    expect(suggestNext).toBe(placedSuggest);
-    expect(getSuggestions(suggestNext.document)).toHaveLength(0);
+    const before2 = { ...placedSuggest };
+    placedSuggest.dispatch({ type: "DELETE_WORD", direction: "backward" });
+    expect(placedSuggest.document).toBe(before2.document);
+    expect(placedSuggest.selection).toBe(before2.selection);
+    expect(getSuggestions(placedSuggest.document)).toHaveLength(0);
   });
 });

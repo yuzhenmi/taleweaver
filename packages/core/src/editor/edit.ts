@@ -1,6 +1,6 @@
 import type { BlockId, OperationResult, ReadonlyAttrs, Selection } from "../state";
 import type { CaretAffinity } from "../cursor/selection";
-import type { EditorState } from "./editor-state";
+import type { Editor } from "./editor";
 import type { ProposalOutcome } from "./proposals";
 import { recordChange } from "./document-change";
 import { rebaseSelection } from "./foreign-change";
@@ -43,26 +43,28 @@ export interface Edit {
    * peer's change, another author's proposal. History follows it instead of recording it.
    */
   readonly undoable?: false;
-  /** A proposal's verdict (`EditorState.lastProposal`). */
+  /** A proposal's verdict (`Editor.lastProposal`). */
   readonly proposal?: ProposalOutcome;
   /** A new container width (`SET_CONTAINER_WIDTH`). */
   readonly containerWidth?: number;
   /**
-   * An `EditorState` shares `selection` / `storedAttrs`, so without this it would be
-   * assignable to `Edit` — a handler returning a whole state would silently lose its change.
+   * An `Editor` shares `selection` / `storedAttrs`, so without this it would be
+   * assignable to `Edit` — a handler returning the editor would silently lose its change.
    */
   readonly document?: never;
 }
 
 /**
- * Apply `edit` to `editor`: record the change (`lastDirtyIds` / `lastChange`), commit it
- * as one undo entry with the selection before → after — or, when not `undoable`, advance
- * history past it — then set the selection, its view hints and the other fields. `null`,
- * and a change that leaves the document as it was, record and commit nothing.
+ * Apply `edit` to `editor`, in place: record the change (`lastDirtyIds` / `lastChange`),
+ * commit it as one undo entry with the selection before → after — or, when not
+ * `undoable`, advance history past it — then set the selection, its view hints and the
+ * other fields. `null`, and a change that leaves the document as it was, record and
+ * commit nothing.
  */
-export function applyEdit(editor: EditorState, edit: Edit | null): EditorState {
-  if (edit === null) return editor;
+export function applyEdit(editor: Editor, edit: Edit | null): void {
+  if (edit === null) return;
   const steps = edit.change === undefined ? [] : "document" in edit.change ? [edit.change] : edit.change;
+  const before = { document: editor.document, selection: editor.selection };
   let document = editor.document;
   let lastChange = editor.lastChange;
   let dirtyIds: ReadonlySet<BlockId> | null = null;
@@ -72,21 +74,26 @@ export function applyEdit(editor: EditorState, edit: Edit | null): EditorState {
     dirtyIds = dirtyIds === null ? step.dirtyIds : new Set([...dirtyIds, ...step.dirtyIds]);
     document = step.document;
   }
-  let next = dirtyIds === null ? editor : { ...editor, document, lastDirtyIds: dirtyIds, lastChange };
-  const selection =
-    edit.selection === "rebase" ? rebaseSelection(editor, next) : (edit.selection ?? editor.selection);
+  if (dirtyIds !== null) {
+    editor.document = document;
+    editor.lastDirtyIds = dirtyIds;
+    editor.lastChange = lastChange;
+  }
+  // Rebased while `editor.selection` is still the old one (the mapping reads both).
+  const selection = edit.selection === "rebase" ? rebaseSelection(before, editor) : (edit.selection ?? before.selection);
   if (dirtyIds !== null) {
     if (edit.undoable === false) editor.history.advanceDocument(document);
-    else editor.history.commit({ document, dirtyIds }, { before: editor.selection, after: selection });
+    else editor.history.commit({ document, dirtyIds }, { before: before.selection, after: selection });
   }
-  if (selection !== next.selection) next = { ...next, selection };
+  editor.selection = selection;
   if (edit.view !== undefined) {
     const { caretPageHint, caretAffinity, anchorAffinity, targetX } = edit.view;
-    next = { ...next, caretPageHint, caretAffinity, anchorAffinity };
-    if (targetX !== undefined) next = { ...next, targetX };
+    editor.caretPageHint = caretPageHint;
+    editor.caretAffinity = caretAffinity;
+    editor.anchorAffinity = anchorAffinity;
+    if (targetX !== undefined) editor.targetX = targetX;
   }
-  if (edit.storedAttrs !== undefined) next = { ...next, storedAttrs: edit.storedAttrs };
-  if (edit.proposal !== undefined) next = { ...next, lastProposal: edit.proposal };
-  if (edit.containerWidth !== undefined) next = { ...next, containerWidth: edit.containerWidth };
-  return next;
+  if (edit.storedAttrs !== undefined) editor.storedAttrs = edit.storedAttrs;
+  if (edit.proposal !== undefined) editor.lastProposal = edit.proposal;
+  if (edit.containerWidth !== undefined) editor.containerWidth = edit.containerWidth;
 }

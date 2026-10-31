@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor, EditorSnapshot } from "../editor";
 import type { Edit } from "../edit";
 import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition, splitWithSuggestion, splitWithSuggestionOverSelection, markDeletion, spanStart, clipSpanToText, inlineContentLength } from "../../state";
 import type { BlockId } from "../../state";
@@ -12,7 +12,7 @@ import { unlistBlock } from "./helpers/unlist-block";
 import { suggestionInputForBlock } from "./helpers/suggestion-input-for-block";
 import { replaceSuggestionInputForBlock } from "./helpers/replace-suggestion-input-for-block";
 
-export function handleSplitNode(editor: EditorState): Edit | null {
+export function handleSplitNode(editor: Editor): Edit | null {
   const { config } = editor;
   // Object selection: Enter on a selected atomic-leaf (image) does
   // nothing — an atomic block has no text content to split. No-op (Google Docs).
@@ -20,7 +20,7 @@ export function handleSplitNode(editor: EditorState): Edit | null {
     return null;
   }
 
-  let current = editor;
+  let current: EditorSnapshot = editor;
   const { selection } = editor;
 
   // Accumulate dirtyIds across the optional delete + the required split.

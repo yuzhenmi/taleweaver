@@ -7,24 +7,18 @@
  * events and appears in `suggestionRects`. Every ¶ a selection covers is drawn selected
  *, incrementally. Suggestions are made through the real editor reducer.
  */
+import { browserHtmlParser } from "./html-parser";
 import { describe, it, expect } from "vitest";
 import {
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   createPosition,
   createSpan,
-  createInitialEditorState,
-  reduceEditor,
-  getBlock,
-  getSuggestions,
-  resetPerfTrace,
-  setPerfTraceEnabled,
-  report,
+  createEditor,
   type BlockId,
   type EditorAction,
-  type EditorState,
-  type Document,
-} from "@taleweaver/core";
+  type Editor,
+  type Document, getBlock, getSuggestions, resetPerfTrace, setPerfTraceEnabled, report } from "@taleweaver/core";
 import { createDigitalController, type DecorationPointerEvent } from "./digital-controller";
 import { createDigitalSelectionBridge } from "./digital-selection-bridge";
 
@@ -55,11 +49,11 @@ function leaves(s: Document): BlockId[] {
 }
 
 /** Direct-mode paragraphs `texts` (one per Enter). */
-function paras(texts: readonly string[]): EditorState {
-  let e = createInitialEditorState(base);
+function paras(texts: readonly string[]): Editor {
+  let e = createEditor(base);
   texts.forEach((t, i) => {
-    if (i > 0) e = reduceEditor(e, { type: "SPLIT_NODE" });
-    if (t !== "") e = reduceEditor(e, { type: "INSERT_TEXT", text: t });
+    if (i > 0) e.dispatch({ type: "SPLIT_NODE" });
+    if (t !== "") e.dispatch({ type: "INSERT_TEXT", text: t });
   });
   return e;
 }
@@ -69,14 +63,12 @@ function mount(document: Document, onDecorationPointer?: (e: DecorationPointerEv
   globalThis.document.body.replaceChildren(container);
   const controller = createDigitalController({
     container,
-    componentRegistry,
-    attrRegistry,
     doc: globalThis.document,
-    initialDocument: document,
     ...(onDecorationPointer !== undefined ? { onDecorationPointer } : {}),
+    editor: createEditor({ componentRegistry, attrRegistry, containerWidth: 800, htmlParser: browserHtmlParser }, { document }),
   });
   // A standalone bridge over the same DOM, reading the controller's state (caret affinity).
-  const bridge = createDigitalSelectionBridge(container, window, undefined, () => controller.editorState.document);
+  const bridge = createDigitalSelectionBridge(container, window, undefined, () => controller.editor.document);
   const el = (b: BlockId): HTMLElement => {
     const e = container.querySelector(`[data-block-id="${b}"]`);
     if (!(e instanceof HTMLElement)) throw new Error(`no element for ${b}`);
@@ -93,8 +85,10 @@ function joined(): { document: Document; l: BlockId; r: BlockId } {
   const e0 = paras(["Anna", "Rosa"]);
   const [l, r] = leaves(e0.document);
   if (l === undefined || r === undefined) throw new Error("setup");
-  const e = reduceEditor(reduceEditor({ ...e0, config: alice }, caret(r, 0)), { type: "DELETE_BACKWARD" });
-  return { document: e.document, l, r };
+  e0.config = alice;
+    e0.dispatch(caret(r, 0));
+    e0.dispatch({ type: "DELETE_BACKWARD" });
+  return { document: e0.document, l, r };
 }
 
 /** "Ax" | "B"; alice's section break at (B, 0) — an empty paragraph H ends the first section (Word). */
@@ -102,10 +96,12 @@ function sectioned(): { document: Document; h: BlockId; b: BlockId } {
   const e0 = paras(["Ax", "B"]);
   const [, b] = leaves(e0.document);
   if (b === undefined) throw new Error("setup");
-  const e = reduceEditor(reduceEditor({ ...e0, config: alice }, caret(b, 0)), { type: "SECTION_BREAK" });
-  const [, h, b2] = leaves(e.document);
+  e0.config = alice;
+    e0.dispatch(caret(b, 0));
+    e0.dispatch({ type: "SECTION_BREAK" });
+  const [, h, b2] = leaves(e0.document);
   if (h === undefined || b2 !== b) throw new Error("setup: expected Ax | H | B");
-  return { document: e.document, h, b };
+  return { document: e0.document, h, b };
 }
 
 describe("digital boundary ¶ marks", () => {
@@ -113,10 +109,12 @@ describe("digital boundary ¶ marks", () => {
     const e0 = paras(["Hello"]);
     const [h] = leaves(e0.document);
     if (h === undefined) throw new Error("setup");
-    const e = reduceEditor(reduceEditor({ ...e0, config: alice }, caret(h, 0)), { type: "SPLIT_NODE" }); // Enter at 0: the first block empties
-    const [n] = leaves(e.document);
+    e0.config = alice;
+    e0.dispatch(caret(h, 0));
+    e0.dispatch({ type: "SPLIT_NODE" }); // Enter at 0: the first block empties
+    const [n] = leaves(e0.document);
     if (n === undefined) throw new Error("setup");
-    const { controller, el, bridge } = mount(e.document);
+    const { controller, el, bridge } = mount(e0.document);
     const kids = (): string[] =>
       Array.from(el(n).childNodes).map((c) => (c instanceof HTMLElement ? (c.hasAttribute("data-tw-generated") ? "mark" : c.tagName) : "#text"));
     expect(kids()).toEqual(["mark", "BR"]);
@@ -189,7 +187,7 @@ describe("digital boundary ¶ marks", () => {
       expect(sel.anchorNode instanceof Text ? sel.anchorNode.data : null).toBe("Anna");
       expect(sel.anchorOffset).toBe(4);
       expect(sel.isCollapsed).toBe(true);
-      expect(controller.editorState.selection.focus).toEqual(createPosition(l, 4));
+      expect(controller.editor.selection.focus).toEqual(createPosition(l, 4));
     };
     sel.collapse(el(l), el(l).childNodes.length); // the after-slot: past the anchor
     globalThis.document.dispatchEvent(new Event("selectionchange"));
@@ -266,7 +264,7 @@ describe("digital section-kind ¶", () => {
     if (text === null) throw new Error("no label text");
     expect(bridge.domToPosition(text, 0)).toEqual(createPosition(h, 0));
     // Rejecting the break removes the label with its paragraph's re-render.
-    const id = getSuggestions(controller.editorState.document)[0]?.id;
+    const id = getSuggestions(controller.editor.document)[0]?.id;
     if (id === undefined) throw new Error("no suggestion");
     controller.dispatch({ type: "REJECT_SUGGESTION", id });
     expect(container.querySelector(".tw-break-mark")).toBeNull();
@@ -352,16 +350,17 @@ describe("digital caret affinity (markers are never caret stops)", () => {
     const e0 = paras(["Title", ""]);
     const [t, host] = leaves(e0.document);
     if (t === undefined || host === undefined) throw new Error("setup");
-    const e = reduceEditor(reduceEditor(e0, caret(host, 0)), { type: "INSERT_CROSS_REFERENCE", targetId: t, refMode: "text" });
+    e0.dispatch(caret(host, 0));
+    e0.dispatch({ type: "INSERT_CROSS_REFERENCE", targetId: t, refMode: "text" });
     // [start] "Title" [end]
-    expect(getBlock(e.document, t)?.inlineContent?.items.map((i) => i.kind)).toEqual(["embed", "text", "embed"]);
-    const { controller, el, bridge } = mount(e.document);
+    expect(getBlock(e0.document, t)?.inlineContent?.items.map((i) => i.kind)).toEqual(["embed", "text", "embed"]);
+    const { controller, el, bridge } = mount(e0.document);
     expect(bridge.domToPosition(el(t), 0)).toEqual(createPosition(t, 1));
     window.getSelection()?.collapse(el(t), 0);
     document.dispatchEvent(new Event("selectionchange"));
-    expect(controller.editorState.selection.focus).toEqual(createPosition(t, 1));
+    expect(controller.editor.selection.focus).toEqual(createPosition(t, 1));
     controller.dispatch({ type: "INSERT_TEXT", text: "X" });
-    const items = getBlock(controller.editorState.document, t)?.inlineContent?.items ?? [];
+    const items = getBlock(controller.editor.document, t)?.inlineContent?.items ?? [];
     expect(items.map((i) => (i.kind === "text" ? i.text : i.kind))).toEqual(["embed", "XTitle", "embed"]);
   });
 
@@ -369,8 +368,9 @@ describe("digital caret affinity (markers are never caret stops)", () => {
     const e0 = paras(["Title", "after"]);
     const [t, host] = leaves(e0.document);
     if (t === undefined || host === undefined) throw new Error("setup");
-    const e = reduceEditor(reduceEditor(e0, caret(host, 0)), { type: "INSERT_CROSS_REFERENCE", targetId: t, refMode: "text" });
-    const { controller, el, bridge, container } = mount(e.document);
+    e0.dispatch(caret(host, 0));
+    e0.dispatch({ type: "INSERT_CROSS_REFERENCE", targetId: t, refMode: "text" });
+    const { controller, el, bridge, container } = mount(e0.document);
     const sel = window.getSelection();
     if (sel === null) throw new Error("selection");
     const key = (k: string, shiftKey = false): void => {
@@ -388,7 +388,7 @@ describe("digital caret affinity (markers are never caret stops)", () => {
     // (T, 1) leaves it; the model stands after the marker and does not re-place it).
     controller.dispatch(caret(t, 1));
     domCaret(el(t), 0);
-    expect(controller.editorState.selection.focus).toEqual(createPosition(t, 1));
+    expect(controller.editor.selection.focus).toEqual(createPosition(t, 1));
     key("ArrowRight");
     focusAt(t, 1);
     // ArrowLeft / Shift+ArrowLeft after the start marker: the DOM caret goes before it.
@@ -408,7 +408,7 @@ describe("digital caret affinity (markers are never caret stops)", () => {
     if (!(text instanceof Text)) throw new Error("text");
     controller.dispatch(caret(t, 7));
     domCaret(text, text.length);
-    expect(controller.editorState.selection.focus).toEqual(createPosition(t, 7));
+    expect(controller.editor.selection.focus).toEqual(createPosition(t, 7));
     key("ArrowRight");
     focusAt(t, 7);
     // A block-axis key never hops (horizontal: Up / Down).

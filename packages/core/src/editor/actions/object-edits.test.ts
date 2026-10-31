@@ -7,7 +7,7 @@
  *   - `moveOffObject` — a pure selection move off the object (no edit, no undo).
  *
  * Fixtures are built at the STATE layer (`buildDocument`) and wrapped into a real
- * Y.Doc-backed `EditorState` (`createEditorStateFromDocument`) so ops + History +
+ * Y.Doc-backed `Editor` (`createEditor`) so ops + History +
  * undo run end-to-end. Three doc shapes:
  *   - standard:    [para "above"] [image] [trailing para]
  *   - image-last:  [para "above"] [image]
@@ -29,10 +29,10 @@ import {
   inlineContent,
   text,
 } from "../../test-utils/document-builders";
-import { createEditorStateFromDocument } from "../editor-state";
-import type { EditorState } from "../editor-state";
+import { createEditor } from "../editor";
+import type { Editor } from "../editor";
 import { applyEdit } from "../edit";
-import { config, componentRegistry, reduceEditor } from "./test-helpers";
+import { config, componentRegistry } from "./test-helpers";
 import { deleteObjectSelection } from "./helpers/delete-object-selection";
 import { replaceObjectWithText } from "./helpers/replace-object-with-text";
 import { moveOffObject } from "./helpers/move-off-object";
@@ -46,8 +46,8 @@ function objectSelection(): Selection {
   return createSpan(createPosition(IMAGE_ID, 0), createPosition(IMAGE_ID, 0));
 }
 
-function editorFrom(document: Document): EditorState {
-  const editor = createEditorStateFromDocument(document, objectSelection(), config);
+function editorFrom(document: Document): Editor {
+  const editor = createEditor(config, { document, selection: objectSelection() });
   expect(isObjectSelection(editor.document, editor.selection, componentRegistry)).toBe(IMAGE_ID);
   return editor;
 }
@@ -135,7 +135,8 @@ function textOf(document: Document, id: BlockId): string {
 describe("deleteObjectSelection (#525)", () => {
   it("removes the image and places the caret at the start of the following block", () => {
     const editor = editorFrom(standardDoc());
-    const next = applyEdit(editor, deleteObjectSelection(editor, IMAGE_ID));
+    applyEdit(editor, deleteObjectSelection(editor, IMAGE_ID));
+    const next = editor;
 
     expect(getBlock(next.document, IMAGE_ID)).toBeNull();
     expect(next.selection.focus.blockId).toBe(TRAILING_ID);
@@ -145,12 +146,13 @@ describe("deleteObjectSelection (#525)", () => {
 
   it("is one undo entry: undo restores the image AND the object selection", () => {
     const editor = editorFrom(standardDoc());
-    const next = applyEdit(editor, deleteObjectSelection(editor, IMAGE_ID));
+    applyEdit(editor, deleteObjectSelection(editor, IMAGE_ID));
+    const next = editor;
     expect(getBlock(next.document, IMAGE_ID)).toBeNull();
 
-    const undone = reduceEditor(next, { type: "UNDO" });
-    expect(getBlock(undone.document, IMAGE_ID)?.type).toBe("image");
-    expect(isObjectSelection(undone.document, undone.selection, componentRegistry)).toBe(IMAGE_ID);
+    next.dispatch({ type: "UNDO" });
+    expect(getBlock(next.document, IMAGE_ID)?.type).toBe("image");
+    expect(isObjectSelection(next.document, next.selection, componentRegistry)).toBe(IMAGE_ID);
   });
 
   it("an image authored LAST still has a paragraph after it (invariant I): the caret lands at its start", () => {
@@ -158,7 +160,8 @@ describe("deleteObjectSelection (#525)", () => {
     const after = getBlock(editor.document, IMAGE_ID)?.nextSiblingId ?? null;
     expect(after).not.toBeNull();
 
-    const next = applyEdit(editor, deleteObjectSelection(editor, IMAGE_ID));
+    applyEdit(editor, deleteObjectSelection(editor, IMAGE_ID));
+    const next = editor;
 
     expect(getBlock(next.document, IMAGE_ID)).toBeNull();
     expect(next.selection.focus).toEqual({ blockId: after, offset: 0 });
@@ -166,7 +169,8 @@ describe("deleteObjectSelection (#525)", () => {
 
   it("keeps the empty-doc invariant when the image is the only content block", () => {
     const editor = editorFrom(imageOnlyDoc());
-    const next = applyEdit(editor, deleteObjectSelection(editor, IMAGE_ID));
+    applyEdit(editor, deleteObjectSelection(editor, IMAGE_ID));
+    const next = editor;
 
     expect(getBlock(next.document, IMAGE_ID)).toBeNull();
     // The caret must land on a real content-bearing leaf (a freshly seeded
@@ -182,7 +186,8 @@ describe("deleteObjectSelection (#525)", () => {
 describe("replaceObjectWithText (#525)", () => {
   it("replaces the image with the typed text at the following block's start, caret after it", () => {
     const editor = editorFrom(standardDoc());
-    const next = applyEdit(editor, replaceObjectWithText(editor, IMAGE_ID, "x"));
+    applyEdit(editor, replaceObjectWithText(editor, IMAGE_ID, "x"));
+    const next = editor;
 
     expect(getBlock(next.document, IMAGE_ID)).toBeNull();
     expect(textOf(next.document, TRAILING_ID).startsWith("x")).toBe(true);
@@ -193,13 +198,14 @@ describe("replaceObjectWithText (#525)", () => {
 
   it("is one undo entry restoring the image", () => {
     const editor = editorFrom(standardDoc());
-    const next = applyEdit(editor, replaceObjectWithText(editor, IMAGE_ID, "x"));
+    applyEdit(editor, replaceObjectWithText(editor, IMAGE_ID, "x"));
+    const next = editor;
     expect(getBlock(next.document, IMAGE_ID)).toBeNull();
 
-    const undone = reduceEditor(next, { type: "UNDO" });
-    expect(getBlock(undone.document, IMAGE_ID)?.type).toBe("image");
+    next.dispatch({ type: "UNDO" });
+    expect(getBlock(next.document, IMAGE_ID)?.type).toBe("image");
     // After ONE undo the typed text is gone too (single entry).
-    expect(textOf(undone.document, TRAILING_ID)).toBe("");
+    expect(textOf(next.document, TRAILING_ID)).toBe("");
   });
 });
 
@@ -208,7 +214,9 @@ describe("moveOffObject (#525)", () => {
     const editor = editorFrom(standardDoc());
     const canUndoBefore = editor.history.canUndo();
 
-    const next = applyEdit(editor, moveOffObject(editor, IMAGE_ID, "forward"));
+    const doc0 = editor.document;
+    applyEdit(editor, moveOffObject(editor, IMAGE_ID, "forward"));
+    const next = editor;
 
     expect(getBlock(next.document, IMAGE_ID)?.type).toBe("image");
     expect(next.selection.focus.blockId).toBe(TRAILING_ID);
@@ -216,31 +224,37 @@ describe("moveOffObject (#525)", () => {
     expect(next.selection.anchor).toEqual(next.selection.focus);
     // Pure selection move: history + state reference untouched.
     expect(next.history.canUndo()).toBe(canUndoBefore);
-    expect(next.document).toBe(editor.document);
+    expect(next.document).toBe(doc0);
   });
 
   it("backward: caret at the previous content block's end", () => {
     const editor = editorFrom(standardDoc());
     const prevLen = blockLength(editor.document, PARA_ID);
 
-    const next = applyEdit(editor, moveOffObject(editor, IMAGE_ID, "backward"));
+    const doc0 = editor.document;
+    applyEdit(editor, moveOffObject(editor, IMAGE_ID, "backward"));
+    const next = editor;
 
     expect(getBlock(next.document, IMAGE_ID)?.type).toBe("image");
     expect(next.selection.focus.blockId).toBe(PARA_ID);
     expect(next.selection.focus.offset).toBe(prevLen);
-    expect(next.document).toBe(editor.document);
+    expect(next.document).toBe(doc0);
   });
 
   it("forward from an image authored last: the paragraph invariant I put after it takes the caret", () => {
     const editor = editorFrom(imageLastDoc());
     const after = getBlock(editor.document, IMAGE_ID)?.nextSiblingId ?? null;
-    const next = applyEdit(editor, moveOffObject(editor, IMAGE_ID, "forward"));
+    applyEdit(editor, moveOffObject(editor, IMAGE_ID, "forward"));
+    const next = editor;
     expect(next.selection.focus).toEqual({ blockId: after, offset: 0 });
   });
 
   it("backward with no preceding content block: keeps the caret on the object", () => {
     const editor = editorFrom(imageOnlyDoc());
-    const next = applyEdit(editor, moveOffObject(editor, IMAGE_ID, "backward"));
-    expect(next).toBe(editor);
+    const doc0 = editor.document;
+    const sel0 = editor.selection;
+    applyEdit(editor, moveOffObject(editor, IMAGE_ID, "backward"));
+    expect(editor.document).toBe(doc0);
+    expect(editor.selection).toBe(sel0);
   });
 });

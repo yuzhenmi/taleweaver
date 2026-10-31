@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../state";
 import type { Document, BlockId } from "../../state";
 import type { Edit } from "../edit";
@@ -30,7 +30,7 @@ import type { ActionOf } from "../editor-action";
  * Selection is UNCHANGED: alignment is a block-geometry change, not a caret
  * move.
  */
-export function handleSetTextAlign(editor: EditorState, { align }: ActionOf<"SET_TEXT_ALIGN">): Edit | null {
+export function handleSetTextAlign(editor: Editor, { align }: ActionOf<"SET_TEXT_ALIGN">): Edit | null {
   const targetIds = targetLeafBlockIds(editor);
 
   let document: Document = editor.document;
@@ -58,7 +58,7 @@ export function handleSetTextAlign(editor: EditorState, { align }: ActionOf<"SET
  * lists, the document root — have `inlineContent === null` and route content
  * through `firstChildId`). Aligning a container is nonsensical: it owns no text.
  */
-function targetLeafBlockIds(editor: EditorState): BlockId[] {
+function targetLeafBlockIds(editor: Editor): BlockId[] {
   const { document, selection } = editor;
 
   if (positionsEqual(selection.anchor, selection.focus)) {

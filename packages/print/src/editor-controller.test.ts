@@ -39,7 +39,7 @@ vi.mock("./key-handler", () => ({
 }));
 
 // Phase 0b: the controller builds its layout tree via the backend layout-driver
-// (`createLayoutDriver().rebuild(editorState)`) — `EditorState` no longer
+// (`createLayoutDriver().rebuild(editor)`) — `Editor` no longer
 // carries `layoutTree`. These tests inject SYNTHETIC layout trees (spy virtual
 // trees / paginated positioned boxes) to exercise the controller's slot-sizing,
 // getPage, per-section-geometry, scroll, and hit-test plumbing in isolation from
@@ -70,7 +70,7 @@ vi.mock("./layout-driver/layout-driver", async () => {
     ) => {
       const real = actual.createLayoutDriver(config);
       return {
-        rebuild: (editor: import("@taleweaver/core").EditorState) => {
+        rebuild: (editor: import("@taleweaver/core").Editor) => {
           const staged = driverState.pendingLayoutTree;
           if (staged !== null) return staged;
           return real.rebuild(editor);
@@ -195,37 +195,46 @@ function createMockCanvasCtx(): CanvasRenderingContext2D {
 
 let originalGetContext: PropertyDescriptor | undefined;
 
-// Real EditorState produced by the public-API factory. The empty document it
-// creates is geometry-free (Phase 0b: `EditorState` no longer carries
+// Real Editor produced by the public-API factory. The empty document it
+// creates is geometry-free (Phase 0b: `Editor` no longer carries
 // `layoutTree`); the controller builds the layout tree via its backend driver
 // from `state.document`. Tests only assert shape, not specific dimensions, so the
 // non-paginated tests let the (mocked) driver delegate to the real layout.
-const fakeEditorBase: core.EditorState = core.createInitialEditorState({
+const fakeEditorBase: core.Editor = core.createEditor({
   componentRegistry: core.createDefaultComponentRegistry(),
   attrRegistry: core.createDefaultAttrRegistry(),
   containerWidth: 600,
 });
 
-// A fixture-override shape that mirrors the pre-Phase-0b `Partial<EditorState>`
+// A fixture-override shape that mirrors the pre-Phase-0b `Partial<Editor>`
 // API: callers still pass `{ layoutTree }` to inject a synthetic tree. Geometry
-// (`layoutTree`) is no longer an `EditorState` field, so it is split out here and
+// (`layoutTree`) is no longer an `Editor` field, so it is split out here and
 // staged into the mocked driver instead (consumed in the next `update()`); the
 // remaining overrides spread onto the real geometry-free base.
-type FakeEditorOverrides = Partial<core.EditorState> & {
+type FakeEditorOverrides = Partial<core.EditorSnapshot> & {
   layoutTree?: printPkg.LayoutBox | printPkg.VirtualLayoutTree;
 };
 
+// The controller's input dispatches to its editor. These tests assert WHAT it dispatches
+// (the action is not applied): every fake editor's `dispatch` forwards to the current
+// test's `dispatch` (`makeOptions({ dispatch })`, a `vi.fn()` by default).
+let testDispatch: (action: core.EditorAction) => void = () => undefined;
+function stubDispatch(editor: core.Editor): core.Editor {
+  editor.dispatch = (action) => testDispatch(action);
+  return editor;
+}
+
+/** A new editor over `fakeEditorBase`'s document with `overrides` written onto its fields. */
 function makeFakeEditorState(
   overrides?: FakeEditorOverrides,
-): core.EditorState {
+): core.Editor {
   const { layoutTree, ...stateOverrides } = overrides ?? {};
   // Stage the injected tree for the mocked driver (null clears any prior stage,
   // so a plain `makeFakeEditorState()` resets to the real-driver delegation).
   driverState.pendingLayoutTree = layoutTree ?? null;
-  return {
-    ...fakeEditorBase,
-    ...stateOverrides,
-  };
+  const editor = core.createEditor(fakeEditorBase.config, { document: fakeEditorBase.document });
+  Object.assign(editor, stateOverrides);
+  return stubDispatch(editor);
 }
 
 // The same config `fakeEditorBase` was built from — needed to drive `reduceEditor`
@@ -236,7 +245,7 @@ const seedConfig: core.EditorConfig = {
   containerWidth: 600,
 };
 
-// An EditorState whose document contains the text "Hello" (typed into a FRESH
+// An Editor whose document contains the text "Hello" (typed into a FRESH
 // empty seed via the REAL reducer). After this single INSERT_TEXT the selection
 // is a collapsed caret at the end of "Hello". Used by the a11y-mirror tests,
 // which run the (unmocked) `buildAccessibilityTree` over the real state —
@@ -244,12 +253,10 @@ const seedConfig: core.EditorConfig = {
 // contains the real "Hello". A FRESH base (not the shared `fakeEditorBase`) is
 // built per call because the underlying Y.Doc mutates in place — reusing it
 // across calls would corrupt its History/undo state.
-function makeSeededEditorState(): core.EditorState {
-  const base = core.createInitialEditorState(seedConfig);
-  return core.reduceEditor(
-    base,
-    { type: "INSERT_TEXT", text: "Hello" },
-  );
+function makeSeededEditorState(): core.Editor {
+  const base = core.createEditor(seedConfig);
+  base.dispatch({ type: "INSERT_TEXT", text: "Hello" });
+  return stubDispatch(base);
 }
 
 /**
@@ -310,7 +317,7 @@ function buildPaginatedLayoutTree(
   );
 }
 
-function makePaginatedEditorState(): core.EditorState {
+function makePaginatedEditorState(): core.Editor {
   return makeFakeEditorState({
     layoutTree: buildPaginatedLayoutTree(2, 600, 100),
   });
@@ -479,13 +486,19 @@ function makeSpyVirtualTreeWithGeom(
 
 const measurer: core.TextMeasurer = core.createMockMeasurer(8, 16);
 
+/**
+ * Controller options over a fresh fake editor (the first one shown). `dispatch` receives
+ * every action the controller dispatches to the editors this test hands it.
+ */
 function makeOptions(
-  overrides?: Partial<EditorControllerOptions>,
+  overrides?: Partial<EditorControllerOptions> & { dispatch?: (action: core.EditorAction) => void },
 ): EditorControllerOptions {
+  const { dispatch = vi.fn(), ...rest } = overrides ?? {};
+  testDispatch = dispatch;
   return {
     measurer,
-    dispatch: vi.fn(),
-    ...overrides,
+    editor: makeFakeEditorState(),
+    ...rest,
   };
 }
 
@@ -567,7 +580,7 @@ describe("createEditorController", () => {
     it("creates canvas and textarea inside container", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       expect(container.querySelector("canvas")).not.toBeNull();
       expect(container.querySelector("textarea")).not.toBeNull();
@@ -578,7 +591,7 @@ describe("createEditorController", () => {
     it("sets container styles", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       expect(container.style.position).toBe("relative");
       expect(container.style.cursor).toBe("text");
@@ -590,7 +603,7 @@ describe("createEditorController", () => {
     it("textarea is hidden (opacity 0) and absolutely positioned", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       const textarea = container.querySelector("textarea")!;
       expect(textarea.style.opacity).toBe("0");
@@ -603,7 +616,7 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       const textarea = container.querySelector("textarea")!;
       expect(document.activeElement).toBe(textarea);
@@ -632,7 +645,7 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
       // Non-paginated (no slots) → caret y is container-relative; viewport =
       // container bounding-rect origin + the resolved page-local x/y.
       container.getBoundingClientRect = vi.fn(() => ({
@@ -645,9 +658,9 @@ describe("createEditorController", () => {
       document.body.removeChild(container);
     });
 
-    it("returns null before the first update() (no layout yet)", () => {
+    it("returns null before anything is rendered (started halted: no layout yet)", () => {
       const container = document.createElement("div");
-      const ctrl = createEditorController(container, makeOptions());
+      const ctrl = createEditorController(container, makeOptions({ startHalted: true }));
       const pos = core.createPosition("mock-block" as core.BlockId, 0);
       expect(ctrl.getCaretRect(pos)).toBeNull();
       ctrl.destroy();
@@ -657,7 +670,7 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
       vi.mocked(cursorPosition.resolvePixelPosition).mockReturnValueOnce(null);
       const pos = core.createPosition("mock-block" as core.BlockId, 0);
       expect(ctrl.getCaretRect(pos)).toBeNull();
@@ -674,7 +687,7 @@ describe("createEditorController", () => {
       );
       // 3 pages of height 100 + gap 24 → slot[1].top = 124.
       const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
-      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: tree }));
       container.getBoundingClientRect = vi.fn(() => ({
         left: 100, top: 50, right: 700, bottom: 850, width: 600, height: 800, x: 100, y: 50, toJSON: () => {},
       }));
@@ -694,7 +707,7 @@ describe("createEditorController", () => {
     it("calls paintCanvas on update()", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       expect(canvasRenderer.paintCanvas).toHaveBeenCalled();
 
@@ -704,7 +717,7 @@ describe("createEditorController", () => {
     it("creates spacer div for scroll height", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       const spacer = container.querySelector("div");
       expect(spacer).not.toBeNull();
@@ -716,7 +729,7 @@ describe("createEditorController", () => {
     it("uses setTransform for DPR scaling", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       const canvas = container.querySelector("canvas")!;
       const ctx = canvasContextMap.get(canvas)!;
@@ -733,7 +746,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ pageHeight: 100 }),
       );
-      ctrl.update(makePaginatedEditorState());
+      ctrl.setEditor(makePaginatedEditorState());
 
       const slots = container.querySelectorAll("div[data-page-index]");
       expect(slots.length).toBe(2);
@@ -752,7 +765,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ pageHeight: 100 }),
       );
-      ctrl.update(makePaginatedEditorState());
+      ctrl.setEditor(makePaginatedEditorState());
 
       // Mock IntersectionObserver marks all observed elements as visible,
       // so both slots should have canvases
@@ -768,7 +781,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ pageHeight: 100 }),
       );
-      ctrl.update(makePaginatedEditorState());
+      ctrl.setEditor(makePaginatedEditorState());
 
       expect(canvasRenderer.paintPage).toHaveBeenCalled();
 
@@ -781,7 +794,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ pageHeight: 100 }),
       );
-      ctrl.update(makePaginatedEditorState());
+      ctrl.setEditor(makePaginatedEditorState());
 
       const slot = container.querySelector(
         "div[data-page-index]",
@@ -797,7 +810,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ pageHeight: 100 }),
       );
-      ctrl.update(makePaginatedEditorState());
+      ctrl.setEditor(makePaginatedEditorState());
 
       const slot = container.querySelector(
         "div[data-page-index]",
@@ -816,13 +829,13 @@ describe("createEditorController", () => {
       );
 
       // Start with 2 pages
-      ctrl.update(makePaginatedEditorState());
+      ctrl.setEditor(makePaginatedEditorState());
       expect(
         container.querySelectorAll("div[data-page-index]").length,
       ).toBe(2);
 
       // Go to 1 page
-      ctrl.update(
+      ctrl.setEditor(
         makeFakeEditorState({
           layoutTree: buildPaginatedLayoutTree(1, 600, 100),
         }),
@@ -832,7 +845,7 @@ describe("createEditorController", () => {
       ).toBe(1);
 
       // Back to 2 pages
-      ctrl.update(makePaginatedEditorState());
+      ctrl.setEditor(makePaginatedEditorState());
       expect(
         container.querySelectorAll("div[data-page-index]").length,
       ).toBe(2);
@@ -867,7 +880,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ pageHeight: 100 }),
       );
-      ctrl.update(makePaginatedEditorState());
+      ctrl.setEditor(makePaginatedEditorState());
 
       // Both slots have canvases
       expect(container.querySelectorAll("canvas[data-page-index]").length).toBe(2);
@@ -915,7 +928,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ pageHeight: 100 }),
       );
-      ctrl.update(makePaginatedEditorState());
+      ctrl.setEditor(makePaginatedEditorState());
 
       // The last IntersectionObserver constructed should target the scroller.
       expect(ioMock).toHaveBeenCalled();
@@ -941,7 +954,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ pageHeight: 100 }),
       );
-      ctrl.update(makePaginatedEditorState());
+      ctrl.setEditor(makePaginatedEditorState());
 
       expect(ioMock).toHaveBeenCalled();
       const lastCall = ioMock.mock.calls[ioMock.mock.calls.length - 1];
@@ -960,7 +973,7 @@ describe("createEditorController", () => {
         makeOptions({ pageHeight: 100 }),
       );
       // layoutTree has no page children even though pageHeight is set
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       const paginatedSlots = container.querySelectorAll(
         "div[data-page-index]",
@@ -979,7 +992,7 @@ describe("createEditorController", () => {
       const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
       const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
 
-      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: tree }));
 
       // Slots created from the plan; never materialized the whole tree.
       const slots = container.querySelectorAll("div[data-page-index]");
@@ -997,7 +1010,7 @@ describe("createEditorController", () => {
 
       // fakeEditorBase's selection is collapsed (fresh empty doc), so this is
       // the typing/Enter hot path: no computeSelectionRects.
-      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: tree }));
 
       // The mock IntersectionObserver marks all slots visible → getPage per page.
       expect(getPage).toHaveBeenCalled();
@@ -1011,7 +1024,7 @@ describe("createEditorController", () => {
       const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
       const { tree } = makeSpyVirtualTree(4, 600, 100, 24);
 
-      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: tree }));
       // Paginated mode uses per-slot divs (no single spacer); the page slots are
       // sized from the plan, not from a materialized whole-document box.
       const slots = container.querySelectorAll("div[data-page-index]");
@@ -1029,7 +1042,7 @@ describe("createEditorController", () => {
       // (non-spanning), so the per-page selection-rect path is taken.
       const anchor = core.createPosition("doc" as core.BlockId, 0);
       const focus = core.createPosition("doc" as core.BlockId, 1);
-      ctrl.update(
+      ctrl.setEditor(
         makeFakeEditorState({
           layoutTree: tree,
           selection: core.createSpan(anchor, focus),
@@ -1048,7 +1061,7 @@ describe("createEditorController", () => {
 
       const anchor = core.createPosition("doc" as core.BlockId, 0);
       const focus = core.createPosition("doc" as core.BlockId, 1);
-      ctrl.update(
+      ctrl.setEditor(
         makeFakeEditorState({ layoutTree: tree, selection: core.createSpan(anchor, focus) }),
       );
 
@@ -1074,7 +1087,7 @@ describe("createEditorController", () => {
 
       const anchor = core.createPosition("doc" as core.BlockId, 0);
       const focus = core.createPosition("doc" as core.BlockId, 1);
-      ctrl.update(
+      ctrl.setEditor(
         makeFakeEditorState({ layoutTree: tree, selection: core.createSpan(anchor, focus) }),
       );
 
@@ -1095,7 +1108,7 @@ describe("createEditorController", () => {
         makeOptions({ dispatch, pageHeight: 100, pageGap: 24 }),
       );
       const { tree, getPage } = makeSpyVirtualTree(3, 600, 100, 24);
-      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: tree }));
 
       // Paint already called getPage for visible pages; isolate the mousedown.
       getPage.mockClear();
@@ -1135,7 +1148,7 @@ describe("createEditorController", () => {
         makeOptions({ pageHeight: 100, pageGap: 24 }),
       );
       const { tree } = makeTallSectionTree();
-      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: tree }));
 
       const slots = container.querySelectorAll("div[data-page-index]");
       expect(slots.length).toBe(3);
@@ -1174,7 +1187,7 @@ describe("createEditorController", () => {
         lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 2,
       });
 
-      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: tree }));
 
       const textarea = container.querySelector("textarea")!;
       // Running sum: offsets[2] = 100+24 + 200+40 = 364. + cursorPos.y(20) = 384.
@@ -1197,7 +1210,7 @@ describe("createEditorController", () => {
         makeOptions({ dispatch, pageHeight: 100, pageGap: 24 }),
       );
       const { tree, getPage } = makeTallSectionTree();
-      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: tree }));
       getPage.mockClear();
       vi.mocked(hitTest.resolvePositionFromPixel).mockClear();
 
@@ -1240,7 +1253,7 @@ describe("createEditorController", () => {
         makeOptions({ dispatch, pageHeight: 100, pageGap: 24 }),
       );
       const { tree } = makeTallSectionTree();
-      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: tree }));
       vi.mocked(hitTest.resolvePositionFromPixel).mockClear();
 
       container.getBoundingClientRect = vi.fn(() => ({
@@ -1271,7 +1284,7 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       vi.mocked(canvasRenderer.paintCanvas).mockClear();
 
@@ -1287,14 +1300,14 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       // Advance 400ms (cursor still visible)
       vi.advanceTimersByTime(400);
       vi.mocked(canvasRenderer.paintCanvas).mockClear();
 
       // Update resets blink timer
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
       expect(canvasRenderer.paintCanvas).toHaveBeenCalled();
 
       // After another 500ms from last update, blink should toggle
@@ -1315,7 +1328,7 @@ describe("createEditorController", () => {
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
       const focusBlockId = fakeEditorBase.selection.focus.blockId;
-      ctrl.update(
+      ctrl.setEditor(
         makeFakeEditorState({
           selection: core.createSpan(
             core.createPosition(focusBlockId, 0),
@@ -1339,7 +1352,7 @@ describe("createEditorController", () => {
 
       // Non-collapsed selection with virtual line break (like select-all in empty doc)
       const focusBlockId = fakeEditorBase.selection.focus.blockId;
-      ctrl.update(
+      ctrl.setEditor(
         makeFakeEditorState({
           selection: core.createSpan(
             core.createPosition(focusBlockId, 0),
@@ -1359,14 +1372,14 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       // Advance 500ms so cursor toggles to hidden
       vi.advanceTimersByTime(500);
       vi.mocked(canvasRenderer.paintCanvas).mockClear();
 
       // Update while cursor is in hidden phase of blink
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       // The paint from update() should show the cursor as "active", not "hidden"
       const lastCall = vi.mocked(canvasRenderer.paintCanvas).mock.calls.at(-1)!;
@@ -1382,7 +1395,7 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       const textarea = container.querySelector("textarea")!;
       vi.mocked(canvasRenderer.paintCanvas).mockClear();
@@ -1402,7 +1415,7 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       const textarea = container.querySelector("textarea")!;
       textarea.dispatchEvent(new Event("blur"));
@@ -1434,7 +1447,7 @@ describe("createEditorController", () => {
       const ctrl = createEditorController(container, makeOptions());
       // Non-collapsed selection
       const focusBlockId = fakeEditorBase.selection.focus.blockId;
-      ctrl.update(
+      ctrl.setEditor(
         makeFakeEditorState({
           selection: core.createSpan(
             core.createPosition(focusBlockId, 0),
@@ -1461,7 +1474,7 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       const textarea = container.querySelector("textarea")!;
       textarea.dispatchEvent(new Event("blur"));
@@ -1486,7 +1499,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ dispatch }),
       );
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       vi.mocked(keyHandler.mapKeyEvent).mockReturnValue({
         type: "SPLIT_NODE",
@@ -1512,7 +1525,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ dispatch }),
       );
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       const textarea = container.querySelector("textarea")!;
       textarea.value = "a";
@@ -1535,7 +1548,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ dispatch }),
       );
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       container.getBoundingClientRect = vi.fn(() => ({
         left: 0,
@@ -1575,7 +1588,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ dispatch }),
       );
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       container.getBoundingClientRect = vi.fn(() => ({
         left: 0,
@@ -1627,7 +1640,7 @@ describe("createEditorController", () => {
         hit(core.createPosition(realParagraphId, 0)),
       );
 
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       container.getBoundingClientRect = vi.fn(() => ({
         left: 0,
@@ -1666,7 +1679,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ dispatch }),
       );
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       container.getBoundingClientRect = vi.fn(() => ({
         left: 0,
@@ -1727,7 +1740,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ dispatch }),
       );
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       container.getBoundingClientRect = vi.fn(() => ({
         left: 0,
@@ -1801,7 +1814,7 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       container.getBoundingClientRect = vi.fn(() => ({
         left: 0,
@@ -1844,11 +1857,11 @@ describe("createEditorController", () => {
   // confines a pointer selection to the context it began in, so the controller
   // must skip the extension instead of dispatching the cross-context span.
   describe("cross-context pointer-selection guard (footnote slot)", () => {
-    // Build a real EditorState with a footnote so there are two selection
+    // Build a real Editor with a footnote so there are two selection
     // contexts. Returns the editor state plus a main-body position and a
     // footnote-body position that live in DIFFERENT contexts.
-    function makeFootnoteEditorState(): {
-      editorState: core.EditorState;
+    function makeFootnoteEditor(): {
+      editor: core.Editor;
       bodyPos: core.Position;
       footnotePos: core.Position;
     } {
@@ -1857,22 +1870,19 @@ describe("createEditorController", () => {
         attrRegistry: core.createDefaultAttrRegistry(),
         containerWidth: 600,
       };
-      const initial = core.createInitialEditorState(config);
+      const initial = core.createEditor(config);
       // Main-body paragraph (the seeded empty paragraph) — context A.
       const bodyBlockId = initial.selection.focus.blockId;
-      const typed = core.reduceEditor(
-        initial,
-        { type: "INSERT_TEXT", text: "hello" },
-      );
+      initial.dispatch({ type: "INSERT_TEXT", text: "hello" });
       // INSERT_FOOTNOTE drops the caret into the footnote body — context B.
-      const withFn = core.reduceEditor(typed, { type: "INSERT_FOOTNOTE" });
-      const footnoteBlockId = withFn.selection.focus.blockId;
+      initial.dispatch({ type: "INSERT_FOOTNOTE" });
+      const footnoteBlockId = initial.selection.focus.blockId;
       // Sanity: the two ends are genuinely in different selection contexts.
-      expect(core.selectionContextOf(withFn.document, bodyBlockId)).not.toBe(
-        core.selectionContextOf(withFn.document, footnoteBlockId),
+      expect(core.selectionContextOf(initial.document, bodyBlockId)).not.toBe(
+        core.selectionContextOf(initial.document, footnoteBlockId),
       );
       return {
-        editorState: withFn,
+        editor: stubDispatch(initial),
         bodyPos: core.createPosition(bodyBlockId, 0),
         footnotePos: core.createPosition(footnoteBlockId, 0),
       };
@@ -1889,10 +1899,10 @@ describe("createEditorController", () => {
     }
 
     it("drag from body into footnote slot does NOT dispatch a cross-context span", () => {
-      const { editorState, bodyPos, footnotePos } = makeFootnoteEditorState();
+      const { editor, bodyPos, footnotePos } = makeFootnoteEditor();
       const dispatch = vi.fn();
       const { container, ctrl } = makeContainer(dispatch);
-      ctrl.update(editorState);
+      ctrl.setEditor(editor);
 
       // mousedown resolves into the BODY (context A) → drag anchor in body.
       vi.mocked(hitTest.resolvePositionFromPixel).mockReturnValueOnce(hit(bodyPos));
@@ -1916,7 +1926,7 @@ describe("createEditorController", () => {
       // that is exactly the render-path crash this guard avoids storing.
       const crossContextSpan = core.createSpan(bodyPos, footnotePos);
       expect(() =>
-        core.getActiveFormatting(editorState.document, crossContextSpan),
+        core.getActiveFormatting(editor.document, crossContextSpan),
       ).toThrow(/different selection contexts/);
 
       document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
@@ -1925,14 +1935,12 @@ describe("createEditorController", () => {
     });
 
     it("shift-click from body into footnote slot does NOT dispatch a cross-context span", () => {
-      const { editorState, bodyPos, footnotePos } = makeFootnoteEditorState();
+      const { editor, bodyPos, footnotePos } = makeFootnoteEditor();
       const dispatch = vi.fn();
       const { container, ctrl } = makeContainer(dispatch);
       // Anchor the current selection in the BODY (context A).
-      ctrl.update({
-        ...editorState,
-        selection: core.createSpan(bodyPos, bodyPos),
-      });
+      editor.selection = core.createSpan(bodyPos, bodyPos);
+      ctrl.setEditor(editor);
 
       // shift-click resolves into the FOOTNOTE body (context B).
       vi.mocked(hitTest.resolvePositionFromPixel).mockReturnValueOnce(hit(footnotePos));
@@ -1949,10 +1957,10 @@ describe("createEditorController", () => {
     });
 
     it("drag WITHIN the footnote slot still extends (same-context span allowed)", () => {
-      const { editorState, footnotePos } = makeFootnoteEditorState();
+      const { editor, footnotePos } = makeFootnoteEditor();
       const dispatch = vi.fn();
       const { container, ctrl } = makeContainer(dispatch);
-      ctrl.update(editorState);
+      ctrl.setEditor(editor);
 
       // mousedown AND mousemove both resolve into the footnote body (context B).
       vi.mocked(hitTest.resolvePositionFromPixel).mockReturnValueOnce(hit(footnotePos));
@@ -1983,16 +1991,14 @@ describe("createEditorController", () => {
       // and two unknown contexts can never `null === null` false-pass into an
       // extension. Anchor is a real body block; the shift-click target is a
       // freshly-allocated id never inserted into the document.
-      const { editorState, bodyPos } = makeFootnoteEditorState();
+      const { editor, bodyPos } = makeFootnoteEditor();
       const dispatch = vi.fn();
       const { container, ctrl } = makeContainer(dispatch);
-      ctrl.update({
-        ...editorState,
-        selection: core.createSpan(bodyPos, bodyPos),
-      });
+      editor.selection = core.createSpan(bodyPos, bodyPos);
+      ctrl.setEditor(editor);
 
       const ghostId = core.createTestAllocator().allocate();
-      expect(core.selectionContextOf(editorState.document, ghostId)).toBeNull();
+      expect(core.selectionContextOf(editor.document, ghostId)).toBeNull();
       vi.mocked(hitTest.resolvePositionFromPixel).mockReturnValueOnce(
         hit(core.createPosition(ghostId, 0)),
       );
@@ -2013,7 +2019,7 @@ describe("createEditorController", () => {
   //
   // A click into a header/footer slot must (1) carry the clicked page index as
   // `caretPageHint` on the dispatched SET_SELECTION, and (2) thread the
-  // EditorState's `caretPageHint` into ALL THREE `resolvePixelPosition` calls
+  // Editor's `caretPageHint` into ALL THREE `resolvePixelPosition` calls
   // (caret + selection-rect endpoints), so the caret AND the highlight resolve
   // on the page the user clicked — not the template block's default first page.
   describe("per-page caret hint (#323 Cycle B)", () => {
@@ -2025,7 +2031,7 @@ describe("createEditorController", () => {
         makeOptions({ dispatch, pageHeight: 100, pageGap: 24 }),
       );
       const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
-      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: tree }));
       // Make container coords deterministic for resolveMouseToLayout.
       container.getBoundingClientRect = vi.fn(() => ({
         left: 0, top: 0, right: 600, bottom: 372, width: 600, height: 372, x: 0, y: 0, toJSON: () => {},
@@ -2086,7 +2092,7 @@ describe("createEditorController", () => {
       vi.mocked(hitTest.resolvePositionFromPixel).mockReturnValueOnce(
         hit(core.createPosition(realParagraphId, 0)),
       );
-      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: tree }));
       container.getBoundingClientRect = vi.fn(() => ({
         left: 0, top: 0, right: 600, bottom: 372, width: 600, height: 372, x: 0, y: 0, toJSON: () => {},
       }));
@@ -2106,11 +2112,11 @@ describe("createEditorController", () => {
       container.dispatchEvent(
         new MouseEvent("mousedown", { clientX: 10, clientY: 10, detail: 1, bubbles: true }),
       );
-      // The controller reads its anchor from the EditorState; feed back a
+      // The controller reads its anchor from the Editor; feed back a
       // collapsed selection at the real paragraph so the shift-click extends.
       const realParagraphId = fakeEditorBase.selection.focus.blockId;
       const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
-      ctrl.update(
+      ctrl.setEditor(
         makeFakeEditorState({
           layoutTree: tree,
           selection: core.createSpan(
@@ -2170,7 +2176,7 @@ describe("createEditorController", () => {
       const { container, ctrl, dispatch } = makePaginatedContainer();
       const realParagraphId = fakeEditorBase.selection.focus.blockId;
       const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
-      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: tree }));
       dispatch.mockClear();
       // The hit-test resolves to a boundary offset on the clicked side → "before".
       // The click handler must forward that seed onto SET_SELECTION so the
@@ -2198,7 +2204,7 @@ describe("createEditorController", () => {
       );
       const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
       vi.mocked(cursorPosition.resolvePixelPosition).mockClear();
-      ctrl.update(makeFakeEditorState({ layoutTree: tree, caretPageHint: 1 }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: tree, caretPageHint: 1 }));
       // The caret (focus) resolve is the first resolvePixelPosition call.
       const caretCall = vi.mocked(cursorPosition.resolvePixelPosition).mock.calls[0];
       if (caretCall === undefined) throw new Error("expected a resolvePixelPosition call");
@@ -2222,7 +2228,7 @@ describe("createEditorController", () => {
       );
       const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
       vi.mocked(cursorPosition.resolvePixelPosition).mockClear();
-      ctrl.update(makeFakeEditorState({ layoutTree: tree, caretAffinity: "before" }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: tree, caretAffinity: "before" }));
       // The caret (focus) resolve is the first resolvePixelPosition call; the 6th
       // arg is caretAffinity.
       const caretCall = vi.mocked(cursorPosition.resolvePixelPosition).mock.calls[0];
@@ -2244,7 +2250,7 @@ describe("createEditorController", () => {
       vi.mocked(cursorPosition.resolvePixelPosition).mockClear();
       // Non-collapsed, non-spanning selection (pageSpanOfBlock → null in the
       // spy tree) → controller resolves selStart + selEnd via resolvePixelPosition.
-      ctrl.update(
+      ctrl.setEditor(
         makeFakeEditorState({
           layoutTree: tree,
           caretPageHint: 1,
@@ -2273,7 +2279,7 @@ describe("createEditorController", () => {
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
       vi.mocked(cursorPosition.resolvePixelPosition).mockClear();
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
       const caretCall = vi.mocked(cursorPosition.resolvePixelPosition).mock.calls[0];
       if (caretCall === undefined) throw new Error("expected a resolvePixelPosition call");
       expect(caretCall[4]).toBeUndefined();
@@ -2296,7 +2302,7 @@ describe("createEditorController", () => {
           core.createPosition(focusBlockId, 5),
         ),
       });
-      ctrl.update(state);
+      ctrl.setEditor(state);
 
       const textarea = container.querySelector("textarea")!;
       const clipboardData = {
@@ -2334,7 +2340,7 @@ describe("createEditorController", () => {
           core.createPosition(focusBlockId, 5),
         ),
       });
-      ctrl.update(state);
+      ctrl.setEditor(state);
 
       const textarea = container.querySelector("textarea")!;
       const clipboardData = {
@@ -2364,7 +2370,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ dispatch }),
       );
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       const textarea = container.querySelector("textarea")!;
       const clipboardData = {
@@ -2398,7 +2404,7 @@ describe("createEditorController", () => {
           core.createPosition(focusBlockId, 5),
         ),
       });
-      ctrl.update(state);
+      ctrl.setEditor(state);
 
       const textarea = container.querySelector("textarea")!;
       const clipboardData = {
@@ -2432,7 +2438,7 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions({ dispatch }));
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       const textarea = container.querySelector("textarea")!;
       const clipboardData = {
@@ -2473,7 +2479,7 @@ describe("createEditorController", () => {
           core.createPosition(focusBlockId, 5),
         ),
       });
-      ctrl.update(state);
+      ctrl.setEditor(state);
 
       const textarea = container.querySelector("textarea")!;
       const clipboardData = {
@@ -2510,7 +2516,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ dispatch }),
       );
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       const textarea = container.querySelector("textarea")!;
 
@@ -2538,7 +2544,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ dispatch }),
       );
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       const textarea = container.querySelector("textarea")!;
 
@@ -2569,7 +2575,7 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       vi.mocked(canvasRenderer.paintCanvas).mockClear();
 
@@ -2661,7 +2667,7 @@ describe("createEditorController", () => {
         lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 2,
       });
 
-      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: tree }));
       // smoothScrollTo animates sp.scrollTop over SCROLL_DURATION (250ms);
       // advance past it so easing reaches the final value exactly.
       vi.advanceTimersByTime(400);
@@ -2695,7 +2701,7 @@ describe("createEditorController", () => {
         lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 2,
       });
 
-      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: tree }));
       vi.advanceTimersByTime(400);
 
       expect(offsets[2]).toBe(364);
@@ -2729,7 +2735,7 @@ describe("createEditorController", () => {
         pageIndex: 0,
       });
 
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       const textarea = container.querySelector("textarea")!;
       expect(textarea.style.left).toBe("42px");
@@ -2743,7 +2749,7 @@ describe("createEditorController", () => {
     it("removes created DOM elements", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       expect(container.querySelector("canvas")).not.toBeNull();
       expect(container.querySelector("textarea")).not.toBeNull();
@@ -2758,7 +2764,7 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       ctrl.destroy();
 
@@ -2779,7 +2785,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ dispatch }),
       );
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       ctrl.destroy();
 
@@ -2804,7 +2810,7 @@ describe("createEditorController", () => {
       document.body.appendChild(container);
       const dispatch = vi.fn();
       const ctrl = createEditorController(container, makeOptions({ dispatch }));
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
       const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
 
       // Compose, then blur BEFORE compositionend (the OS commits-and-blurs, or the
@@ -2833,7 +2839,7 @@ describe("createEditorController", () => {
       document.body.appendChild(container);
       const dispatch = vi.fn();
       const ctrl = createEditorController(container, makeOptions({ dispatch }));
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
       const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
 
       textarea.dispatchEvent(new Event("compositionstart"));
@@ -2856,7 +2862,7 @@ describe("createEditorController", () => {
       document.body.appendChild(container);
       const dispatch = vi.fn();
       const ctrl = createEditorController(container, makeOptions({ dispatch }));
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
       const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
 
       textarea.dispatchEvent(new Event("blur"));
@@ -2873,14 +2879,14 @@ describe("createEditorController", () => {
       document.body.removeChild(container);
     });
 
-    it("paste is a no-op before the first update() but STILL preventDefaults (#4)", () => {
+    it("paste is a no-op before anything is rendered but STILL preventDefaults (#4)", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const dispatch = vi.fn();
-      const ctrl = createEditorController(container, makeOptions({ dispatch }));
+      const ctrl = createEditorController(container, makeOptions({ dispatch, startHalted: true }));
       const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
 
-      // No `update()` yet ⇒ state === null. A paste must (a) NOT dispatch PASTE and
+      // Started halted ⇒ nothing rendered, state === null. A paste must (a) NOT dispatch PASTE and
       // (b) STILL preventDefault — otherwise the browser pastes into the hidden
       // textarea and the text leaks back in via handleInput as INSERT_TEXT.
       const e = new Event("paste", { cancelable: true }) as ClipboardEvent;
@@ -2905,7 +2911,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ accessibilityMirror: true }),
       );
-      controller.update(makeSeededEditorState());
+      controller.setEditor(makeSeededEditorState());
 
       const mirror = container.querySelector("[data-taleweaver-a11y-mirror]");
       expect(mirror).not.toBeNull();
@@ -2928,7 +2934,7 @@ describe("createEditorController", () => {
         container,
         makeOptions({ accessibilityMirror: false }),
       );
-      controller.update(makeSeededEditorState());
+      controller.setEditor(makeSeededEditorState());
 
       expect(
         container.querySelector("[data-taleweaver-a11y-mirror]"),
@@ -2957,7 +2963,7 @@ describe("createEditorController", () => {
       // syncSelection placed that selection into the mirror DOM; a subsequent
       // selectionchange reads back the SAME span, so the controller's idempotency
       // check must suppress the SET_SELECTION re-dispatch (the loop-break).
-      controller.update(makeSeededEditorState());
+      controller.setEditor(makeSeededEditorState());
       actions.length = 0;
 
       document.dispatchEvent(new Event("selectionchange"));
@@ -2984,7 +2990,7 @@ describe("createEditorController", () => {
       const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
       const fields = new Map<string, string>([["b/inline/1", "2"]]);
       const virtualTree = { ...tree, globalFieldValues: fields };
-      ctrl.update(makeFakeEditorState({ layoutTree: virtualTree }));
+      ctrl.setEditor(makeFakeEditorState({ layoutTree: virtualTree }));
 
       const lastVirtual = nth(
         mirrorSyncTreeCalls,
@@ -2995,7 +3001,7 @@ describe("createEditorController", () => {
 
       // Non-virtual `LayoutBox` path: the controller forwards an EMPTY map.
       mirrorSyncTreeCalls.length = 0;
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
       const lastNonVirtual = nth(
         mirrorSyncTreeCalls,
         mirrorSyncTreeCalls.length - 1,
@@ -3014,7 +3020,7 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions({ dispatch }));
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       const textarea = container.querySelector("textarea")!;
 
@@ -3054,7 +3060,7 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions({ dispatch }));
-      ctrl.update(makeFakeEditorState());
+      ctrl.setEditor(makeFakeEditorState());
 
       const textarea = container.querySelector("textarea")!;
 

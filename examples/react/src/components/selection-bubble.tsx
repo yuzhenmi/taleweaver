@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type Dispatch } from "react";
-import type { EditorAction, EditorState } from "@taleweaver/core";
+import type { EditorAction, Editor } from "@taleweaver/core";
 import { getActiveFormatting } from "@taleweaver/core";
 
 /** The four toggleable inline styles, derived from the TOGGLE_STYLE action so they track it. */
@@ -82,11 +82,11 @@ function clamp(v: number, lo: number, hi: number): number {
  */
 export function SelectionBubble({
   dispatch,
-  editorState,
+  editor,
   containerRef,
 }: {
   dispatch: Dispatch<EditorAction>;
-  editorState: EditorState;
+  editor: Editor;
   containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const [rect, setRect] = useState<DOMRect | null>(null);
@@ -151,7 +151,7 @@ export function SelectionBubble({
 
   if (rect === null) return null;
 
-  const fmt = getActiveFormatting(editorState.document, editorState.selection, editorState.storedAttrs);
+  const fmt = getActiveFormatting(editor.document, editor.selection, editor.storedAttrs);
   const styleBtn = (label: string, style: ToggleStyle, active: boolean, extraClass = "") => (
     <button
       type="button"

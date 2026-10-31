@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import { createPosition, createSpan, spanStart, clipSpanToText } from "../../state";
@@ -12,7 +12,7 @@ import { isSuggestingInBlock } from "./helpers/is-suggesting-in-block";
 import { deleteObjectSelection } from "./helpers/delete-object-selection";
 import type { ActionOf } from "../editor-action";
 
-export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"DELETE_WORD">): Edit | null {
+export function handleDeleteWord(editor: Editor, { direction }: ActionOf<"DELETE_WORD">): Edit | null {
   const { config } = editor;
   // Object selection: Ctrl+Delete on a selected atomic-leaf (image)
   // removes the object as a unit. Routes BEFORE the collapsed word-delete path,

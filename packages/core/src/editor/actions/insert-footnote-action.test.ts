@@ -14,10 +14,9 @@ import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
-  reduceEditor,
-  createInitialEditorState,
   getTextOf,
-  type EditorState,
+  createEditor,
+  type Editor,
 } from "./test-helpers";
 import {
   getBlock,
@@ -46,7 +45,7 @@ function joinText(
 }
 
 /** The id of the first body paragraph under the document root. */
-function bodyParaId(editor: EditorState): BlockId {
+function bodyParaId(editor: Editor): BlockId {
   const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
@@ -57,7 +56,7 @@ function bodyParaId(editor: EditorState): BlockId {
 
 /** All footnote-anchor embeds in a leaf block's inlineContent. */
 function anchorEmbedsOf(
-  editor: EditorState,
+  editor: Editor,
   blockId: BlockId,
 ): ReadonlyArray<{ contentBlockId: BlockId }> {
   const block = getBlock(editor.document, blockId);
@@ -74,55 +73,50 @@ function anchorEmbedsOf(
 
 describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
   it("replaces a non-collapsed selection (deletes it) before inserting the anchor, as one undo step", () => {
-    const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abcdef" });
-    const paraId = bodyParaId(typed);
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "abcdef" });
+    const paraId = bodyParaId(initial);
     // Select "cd" (offset 2..4).
-    const placed = reduceEditor(
-      typed,
-      { type: "SET_SELECTION", selection: createSpan(createPosition(paraId, 2), createPosition(paraId, 4)) },
-    );
+    initial.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(paraId, 2), createPosition(paraId, 4)) });
 
-    const next = reduceEditor(placed, { type: "INSERT_FOOTNOTE" });
+    initial.dispatch({ type: "INSERT_FOOTNOTE" });
     // "cd" deleted; the anchor sits between "ab" and "ef".
-    expect(getTextOf(next.document, paraId)).toBe("abef");
-    expect(anchorEmbedsOf(next, paraId).length).toBe(1);
+    expect(getTextOf(initial.document, paraId)).toBe("abef");
+    expect(anchorEmbedsOf(initial, paraId).length).toBe(1);
 
     // ONE undo step restores "abcdef" AND removes the anchor + body.
-    const undone = reduceEditor(next, { type: "UNDO" });
-    expect(getTextOf(undone.document, paraId)).toBe("abcdef");
-    expect(anchorEmbedsOf(undone, paraId).length).toBe(0);
+    initial.dispatch({ type: "UNDO" });
+    expect(getTextOf(initial.document, paraId)).toBe("abcdef");
+    expect(anchorEmbedsOf(initial, paraId).length).toBe(0);
   });
 
   it("splices a footnote-anchor at the caret, creates the body, and carets into the body paragraph", () => {
-    const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" });
-    const paraId = bodyParaId(typed);
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "abc" });
+    const paraId = bodyParaId(initial);
 
     // Caret at offset 1 (between "a" and "bc").
-    const placed = reduceEditor(
-      typed,
-      {
+    initial.dispatch({
         type: "SET_SELECTION",
         selection: {
           anchor: { blockId: paraId, offset: 1 },
           focus: { blockId: paraId, offset: 1 },
         },
-      },
-    );
+      });
 
-    const next = reduceEditor(placed, { type: "INSERT_FOOTNOTE" });
+    const before = { ...initial };
+    initial.dispatch({ type: "INSERT_FOOTNOTE" });
 
     // A new state (real change).
-    expect(next.document).not.toBe(placed.document);
+    expect(initial.document).not.toBe(before.document);
 
     // The leaf gained exactly one footnote-anchor embed.
-    const anchors = anchorEmbedsOf(next, paraId);
+    const anchors = anchorEmbedsOf(initial, paraId);
     expect(anchors.length).toBe(1);
     const bodyRootId = nth(anchors, 0, "anchor").contentBlockId;
 
     // The body root + its paragraph child exist in embedContents.
-    const bodyRoot = getEmbedContent(next.document, bodyRootId);
+    const bodyRoot = getEmbedContent(initial.document, bodyRootId);
     expect(bodyRoot).not.toBeNull();
     expect(bodyRoot?.type).toBe("footnote-body");
     expect(bodyRoot?.parentId).toBeNull();
@@ -131,91 +125,85 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     const firstParagraphId = bodyRoot?.firstChildId as BlockId | null;
     expect(firstParagraphId).not.toBeNull();
     if (firstParagraphId === null) return;
-    const bodyPara = resolveBlock(next.document, firstParagraphId)?.block;
+    const bodyPara = resolveBlock(initial.document, firstParagraphId)?.block;
     expect(bodyPara?.type).toBe("paragraph");
     expect(bodyPara?.parentId).toBe(bodyRootId);
 
     // The caret is collapsed at the start of the body paragraph.
-    expect(next.selection.anchor.blockId).toBe(firstParagraphId);
-    expect(next.selection.anchor.offset).toBe(0);
-    expect(next.selection.focus.blockId).toBe(firstParagraphId);
-    expect(next.selection.focus.offset).toBe(0);
+    expect(initial.selection.anchor.blockId).toBe(firstParagraphId);
+    expect(initial.selection.anchor.offset).toBe(0);
+    expect(initial.selection.focus.blockId).toBe(firstParagraphId);
+    expect(initial.selection.focus.offset).toBe(0);
   });
 
   it("typing a character after INSERT_FOOTNOTE lands in the footnote body (routes via resolveBlock)", () => {
-    const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "x" });
-    const withFn = reduceEditor(typed, { type: "INSERT_FOOTNOTE" });
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "x" });
+    initial.dispatch({ type: "INSERT_FOOTNOTE" });
 
-    const firstParagraphId = withFn.selection.focus.blockId;
-    const afterType = reduceEditor(withFn, { type: "INSERT_TEXT", text: "Hi" });
+    const firstParagraphId = initial.selection.focus.blockId;
+    initial.dispatch({ type: "INSERT_TEXT", text: "Hi" });
 
     // The body paragraph now reads "Hi".
-    const bodyPara = resolveBlock(afterType.document, firstParagraphId)?.block;
+    const bodyPara = resolveBlock(initial.document, firstParagraphId)?.block;
     expect(joinText(bodyPara?.inlineContent?.items)).toBe("Hi");
     // Caret advanced inside the body paragraph.
-    expect(afterType.selection.focus.blockId).toBe(firstParagraphId);
-    expect(afterType.selection.focus.offset).toBe(2);
+    expect(initial.selection.focus.blockId).toBe(firstParagraphId);
+    expect(initial.selection.focus.offset).toBe(2);
   });
 
   it("one undo reverts BOTH the anchor and the body (one history entry)", () => {
-    const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" });
-    const paraId = bodyParaId(typed);
-    const next = reduceEditor(typed, { type: "INSERT_FOOTNOTE" });
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "abc" });
+    const paraId = bodyParaId(initial);
+    initial.dispatch({ type: "INSERT_FOOTNOTE" });
 
-    const anchors = anchorEmbedsOf(next, paraId);
+    const anchors = anchorEmbedsOf(initial, paraId);
     expect(anchors.length).toBe(1);
     const bodyRootId = nth(anchors, 0, "anchor").contentBlockId;
-    expect(getEmbedContent(next.document, bodyRootId)).not.toBeNull();
+    expect(getEmbedContent(initial.document, bodyRootId)).not.toBeNull();
 
-    const undone = reduceEditor(next, { type: "UNDO" });
+    initial.dispatch({ type: "UNDO" });
 
     // Anchor gone from the leaf, body gone from embedContents.
-    expect(anchorEmbedsOf(undone, paraId).length).toBe(0);
-    expect(getEmbedContent(undone.document, bodyRootId)).toBeNull();
+    expect(anchorEmbedsOf(initial, paraId).length).toBe(0);
+    expect(getEmbedContent(initial.document, bodyRootId)).toBeNull();
     // Original text intact.
-    expect(joinText(getBlock(undone.document, paraId)?.inlineContent?.items)).toBe("abc");
+    expect(joinText(getBlock(initial.document, paraId)?.inlineContent?.items)).toBe("abc");
   });
 
   it("a SECOND INSERT_FOOTNOTE adds a 2nd anchor; markers renumber 1,2 (computeFootnoteNumbers)", () => {
-    const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" });
-    const paraId = bodyParaId(typed);
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "abc" });
+    const paraId = bodyParaId(initial);
 
     // Insert the FIRST footnote with the caret at the END (offset 3).
-    const atEnd = reduceEditor(
-      typed,
-      {
+    initial.dispatch({
         type: "SET_SELECTION",
         selection: {
           anchor: { blockId: paraId, offset: 3 },
           focus: { blockId: paraId, offset: 3 },
         },
-      },
-    );
-    const first = reduceEditor(atEnd, { type: "INSERT_FOOTNOTE" });
+      });
+    initial.dispatch({ type: "INSERT_FOOTNOTE" });
 
     // Insert the SECOND footnote BEFORE the first (caret back at offset 0).
-    const atStart = reduceEditor(
-      first,
-      {
+    initial.dispatch({
         type: "SET_SELECTION",
         selection: {
           anchor: { blockId: paraId, offset: 0 },
           focus: { blockId: paraId, offset: 0 },
         },
-      },
-    );
-    const second = reduceEditor(atStart, { type: "INSERT_FOOTNOTE" });
+      });
+    initial.dispatch({ type: "INSERT_FOOTNOTE" });
 
     // Two anchors in the leaf.
-    const anchors = anchorEmbedsOf(second, paraId);
+    const anchors = anchorEmbedsOf(initial, paraId);
     expect(anchors.length).toBe(2);
 
     // The numbering engine renumbers in DOCUMENT ORDER: the anchor inserted at
     // offset 0 is #1, the one at the end is #2 — regardless of insert order.
-    const ordered = collectFootnoteAnchors(second.document);
+    const ordered = collectFootnoteAnchors(initial.document);
     expect(ordered.length).toBe(2);
     const numbers = footnoteNumbers(ordered, {
       reset: "continuous",
@@ -234,43 +222,37 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     // at offset 4 — the position immediately AFTER that embed — and inserting a
     // second footnote splices the new anchor right after the first, with no
     // out-of-range / normalization failure on the embed-adjacent splice.
-    const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" });
-    const paraId = bodyParaId(typed);
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "abc" });
+    const paraId = bodyParaId(initial);
 
-    const atEnd = reduceEditor(
-      typed,
-      {
+    initial.dispatch({
         type: "SET_SELECTION",
         selection: {
           anchor: { blockId: paraId, offset: 3 },
           focus: { blockId: paraId, offset: 3 },
         },
-      },
-    );
-    const first = reduceEditor(atEnd, { type: "INSERT_FOOTNOTE" });
+      });
+    initial.dispatch({ type: "INSERT_FOOTNOTE" });
 
     // Caret to offset 4 = "abc" (3) + the 1-unit first anchor — JUST AFTER the
     // marker in the main body.
-    const afterMarker = reduceEditor(
-      first,
-      {
+    initial.dispatch({
         type: "SET_SELECTION",
         selection: {
           anchor: { blockId: paraId, offset: 4 },
           focus: { blockId: paraId, offset: 4 },
         },
-      },
-    );
-    const second = reduceEditor(afterMarker, { type: "INSERT_FOOTNOTE" });
+      });
+    initial.dispatch({ type: "INSERT_FOOTNOTE" });
 
     // Two anchors now live on the leaf (no crash on the embed-adjacent splice).
-    const anchors = anchorEmbedsOf(second, paraId);
+    const anchors = anchorEmbedsOf(initial, paraId);
     expect(anchors.length).toBe(2);
 
     // Both anchors sit back-to-back at the end of "abc": the two trailing items
     // are the embeds, in document order.
-    const items = getBlock(second.document, paraId)?.inlineContent?.items ?? [];
+    const items = getBlock(initial.document, paraId)?.inlineContent?.items ?? [];
     const embeds = items.filter(
       (it) =>
         it.kind === "embed" && it.embedType === FOOTNOTE_ANCHOR_EMBED_TYPE,
@@ -278,7 +260,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     expect(embeds.length).toBe(2);
 
     // Numbering renumbers in document order: 1, 2.
-    const ordered = collectFootnoteAnchors(second.document);
+    const ordered = collectFootnoteAnchors(initial.document);
     expect(ordered.length).toBe(2);
     const numbers = footnoteNumbers(ordered, {
       reset: "continuous",
@@ -289,80 +271,76 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
   });
 
   it("refuses a nested footnote: with the caret already in a footnote body, INSERT_FOOTNOTE returns the editor unchanged", () => {
-    const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" });
-    const withFn = reduceEditor(typed, { type: "INSERT_FOOTNOTE" });
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "abc" });
+    initial.dispatch({ type: "INSERT_FOOTNOTE" });
 
     // The caret is now in the footnote body (a non-main context).
-    const before = withFn;
-    const after = reduceEditor(before, { type: "INSERT_FOOTNOTE" });
+    const before = initial;
+    const before2 = { ...before };
+    before.dispatch({ type: "INSERT_FOOTNOTE" });
 
     // No-op: same STATE reference (the guard returns the editor with its state
     // unchanged). Phase 0b's reduceEditor entry-clear of `lastDirtyIds` rewraps
     // the editor object, so the no-op contract is state-identity, not editor-
     // object identity (mirrors the #141 `result.document === editor.document` rule).
-    expect(after.document).toBe(before.document);
+    expect(before.document).toBe(before2.document);
     // No second anchor on the main body leaf.
-    const paraId = bodyParaId(typed);
-    expect(anchorEmbedsOf(after, paraId).length).toBe(1);
+    const paraId = bodyParaId(initial);
+    expect(anchorEmbedsOf(before, paraId).length).toBe(1);
   });
 
   it("refuses a footnote with the caret in a header body (cross-context guard)", () => {
-    const initial = createInitialEditorState(config);
-    const withHeader = reduceEditor(initial, { type: "INSERT_HEADER" });
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_HEADER" });
     // The caret is now inside the header body (a templateContents non-main context).
-    const after = reduceEditor(withHeader, { type: "INSERT_FOOTNOTE" });
+    const before = { ...initial };
+    initial.dispatch({ type: "INSERT_FOOTNOTE" });
 
     // Document-identity no-op (Phase 0b entry-clear rewraps the editor object —
     // see the nested-footnote refuse test above).
-    expect(after.document).toBe(withHeader.document);
+    expect(initial.document).toBe(before.document);
     // No footnote anchors anywhere in the main document.
-    expect(collectFootnoteAnchors(after.document).length).toBe(0);
+    expect(collectFootnoteAnchors(initial.document).length).toBe(0);
   });
 
   it("DELETE_BACKWARD over the anchor removes BOTH the anchor and the body (FN-1 cascade through the editor)", () => {
-    const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" });
-    const paraId = bodyParaId(typed);
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "abc" });
+    const paraId = bodyParaId(initial);
 
     // Insert the footnote with the caret at the END of "abc" (offset 3) so the
     // anchor sits at index 3 in the leaf's inlineContent.
-    const atEnd = reduceEditor(
-      typed,
-      {
+    initial.dispatch({
         type: "SET_SELECTION",
         selection: {
           anchor: { blockId: paraId, offset: 3 },
           focus: { blockId: paraId, offset: 3 },
         },
-      },
-    );
-    const withFn = reduceEditor(atEnd, { type: "INSERT_FOOTNOTE" });
+      });
+    initial.dispatch({ type: "INSERT_FOOTNOTE" });
 
-    const anchors = anchorEmbedsOf(withFn, paraId);
+    const anchors = anchorEmbedsOf(initial, paraId);
     expect(anchors.length).toBe(1);
     const bodyRootId = nth(anchors, 0, "anchor").contentBlockId;
-    expect(getEmbedContent(withFn.document, bodyRootId)).not.toBeNull();
+    expect(getEmbedContent(initial.document, bodyRootId)).not.toBeNull();
 
     // Move the caret to just AFTER the anchor in the main body (offset 4 = 3
     // chars + 1-unit embed), then backspace over it.
-    const afterAnchor = reduceEditor(
-      withFn,
-      {
+    initial.dispatch({
         type: "SET_SELECTION",
         selection: {
           anchor: { blockId: paraId, offset: 4 },
           focus: { blockId: paraId, offset: 4 },
         },
-      },
-    );
-    const deleted = reduceEditor(afterAnchor, { type: "DELETE_BACKWARD" });
+      });
+    initial.dispatch({ type: "DELETE_BACKWARD" });
 
     // Anchor removed from the leaf AND body cascade-deleted.
-    expect(anchorEmbedsOf(deleted, paraId).length).toBe(0);
-    expect(getEmbedContent(deleted.document, bodyRootId)).toBeNull();
+    expect(anchorEmbedsOf(initial, paraId).length).toBe(0);
+    expect(getEmbedContent(initial.document, bodyRootId)).toBeNull();
     // "abc" survives (only the embed was deleted).
-    expect(joinText(getBlock(deleted.document, paraId)?.inlineContent?.items)).toBe("abc");
+    expect(joinText(getBlock(initial.document, paraId)?.inlineContent?.items)).toBe("abc");
   });
 });
 
@@ -389,39 +367,33 @@ describe("nav + selection across an inline-block footnote marker (Bug-A siblings
    * after marker (block end).
    */
   function markerFixture(caretOffset: number): {
-    editor: EditorState;
+    editor: Editor;
     paraId: BlockId;
   } {
-    const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" });
-    const paraId = bodyParaId(typed);
-    const atEnd = reduceEditor(
-      typed,
-      {
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "abc" });
+    const paraId = bodyParaId(initial);
+    initial.dispatch({
         type: "SET_SELECTION",
         selection: {
           anchor: { blockId: paraId, offset: 3 },
           focus: { blockId: paraId, offset: 3 },
         },
-      },
-    );
-    const withFn = reduceEditor(atEnd, { type: "INSERT_FOOTNOTE" });
+      });
+    initial.dispatch({ type: "INSERT_FOOTNOTE" });
     // The marker is now a 1-unit embed at index after "abc": block length is 4.
-    expect(anchorEmbedsOf(withFn, paraId).length).toBe(1);
+    expect(anchorEmbedsOf(initial, paraId).length).toBe(1);
     // Caret back into the main paragraph at the requested offset.
-    const editor = reduceEditor(
-      withFn,
-      {
+    initial.dispatch({
         type: "SET_SELECTION",
         selection: {
           anchor: { blockId: paraId, offset: caretOffset },
           focus: { blockId: paraId, offset: caretOffset },
         },
-      },
-    );
-    expect(editor.selection.focus.blockId).toBe(paraId);
-    expect(editor.selection.focus.offset).toBe(caretOffset);
-    return { editor, paraId };
+      });
+    expect(initial.selection.focus.blockId).toBe(paraId);
+    expect(initial.selection.focus.offset).toBe(caretOffset);
+    return { editor: initial, paraId };
   }
 
   // NB: MOVE_CURSOR / EXPAND_SELECTION / MOVE_LINE_BOUNDARY across the marker
@@ -435,20 +407,20 @@ describe("nav + selection across an inline-block footnote marker (Bug-A siblings
   // Backward from offset 4 (after marker) retreats over the 1-unit embed to 3.
   it("MOVE_WORD forward stops at the marker boundary (offset 3), then steps the embed to 4; never crashes/skips", () => {
     const { editor, paraId } = markerFixture(0);
-    const fwd1 = reduceEditor(editor, { type: "MOVE_WORD", direction: "forward" });
+    editor.dispatch({ type: "MOVE_WORD", direction: "forward" });
     // Word-forward over "abc" halts at the embed barrier = offset 3 (before marker).
-    expect(fwd1.selection.focus.blockId).toBe(paraId);
-    expect(fwd1.selection.focus.offset).toBe(3);
-    const fwd2 = reduceEditor(fwd1, { type: "MOVE_WORD", direction: "forward" });
+    expect(editor.selection.focus.blockId).toBe(paraId);
+    expect(editor.selection.focus.offset).toBe(3);
+    editor.dispatch({ type: "MOVE_WORD", direction: "forward" });
     // The next word-forward steps the single embed unit → after the marker (4).
-    expect(fwd2.selection.focus.offset).toBe(4);
+    expect(editor.selection.focus.offset).toBe(4);
   });
 
   it("MOVE_WORD backward from offset 4 (after marker) retreats over the 1-unit embed to offset 3", () => {
     const { editor, paraId } = markerFixture(4);
-    const back = reduceEditor(editor, { type: "MOVE_WORD", direction: "backward" });
-    expect(back.selection.focus.blockId).toBe(paraId);
-    expect(back.selection.focus.offset).toBe(3);
+    editor.dispatch({ type: "MOVE_WORD", direction: "backward" });
+    expect(editor.selection.focus.blockId).toBe(paraId);
+    expect(editor.selection.focus.offset).toBe(3);
   });
 
   // (5) DELETE_BACKWARD from offset 4 (caret just AFTER the marker) deletes the
@@ -462,13 +434,13 @@ describe("nav + selection across an inline-block footnote marker (Bug-A siblings
     const bodyRootId = nth(anchors, 0, "anchor").contentBlockId;
     expect(getEmbedContent(editor.document, bodyRootId)).not.toBeNull();
 
-    const deleted = reduceEditor(editor, { type: "DELETE_BACKWARD" });
-    expect(anchorEmbedsOf(deleted, paraId).length).toBe(0);
-    expect(getEmbedContent(deleted.document, bodyRootId)).toBeNull();
+    editor.dispatch({ type: "DELETE_BACKWARD" });
+    expect(anchorEmbedsOf(editor, paraId).length).toBe(0);
+    expect(getEmbedContent(editor.document, bodyRootId)).toBeNull();
     // "abc" survives — only the 1-unit embed was removed.
-    expect(joinText(getBlock(deleted.document, paraId)?.inlineContent?.items)).toBe("abc");
+    expect(joinText(getBlock(editor.document, paraId)?.inlineContent?.items)).toBe("abc");
     // Caret collapses to where the marker was (offset 3, the end of "abc").
-    expect(deleted.selection.focus.blockId).toBe(paraId);
-    expect(deleted.selection.focus.offset).toBe(3);
+    expect(editor.selection.focus.blockId).toBe(paraId);
+    expect(editor.selection.focus.offset).toBe(3);
   });
 });

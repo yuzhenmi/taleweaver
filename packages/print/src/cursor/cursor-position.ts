@@ -107,11 +107,11 @@ export function resolvePixelPosition(
   // which page's header/footer SLOT instance to resolve a template-block
   // caret on. `undefined` → the body's first carrying page (the deterministic
   // default). Ignored for a normal main-tree caret (the plan maps it to its own
-  // page). View state — see `EditorState.caretPageHint`.
+  // page). View state — see `Editor.caretPageHint`.
   caretPageHint?: number,
   // Which side a collapsed caret sticks to at a bidi run boundary.
   // `undefined` defaults to `"after"` (today's behavior). View state — see
-  // `EditorState.caretAffinity`. Inert on uniform (single-direction) lines.
+  // `Editor.caretAffinity`. Inert on uniform (single-direction) lines.
   caretAffinity?: CaretAffinity,
 ): PixelPosition | null {
   const t = markStart("cursor.cursor-position");

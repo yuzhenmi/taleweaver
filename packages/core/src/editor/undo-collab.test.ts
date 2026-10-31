@@ -11,27 +11,14 @@ import { TEST_RESOLVER } from "../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import {
-  createInitialEditorState,
-  createEditorStateFromDocument,
-  reduceEditor,
-  createDefaultComponentRegistry,
-  createDefaultAttrRegistry,
-  getYDoc,
-  subscribeRemoteChanges,
-  createDocument,
-  getBlock,
-  createPosition,
-  createSpan,
-  extractText,
-  initialSelectionForDocument,
+  createEditor,
   type EditorAction,
   type EditorConfig,
-  type EditorState,
+  type Editor,
   type BlockId,
   collectBookmarks,
   extractFragment,
-  encodeFragmentClip,
-} from "../index";
+  encodeFragmentClip, createDefaultComponentRegistry, createDefaultAttrRegistry, getYDoc, subscribeRemoteChanges, createDocument, getBlock, createPosition, createSpan, extractText } from "../index";
 
 const config: EditorConfig = {
   componentRegistry: createDefaultComponentRegistry(),
@@ -45,7 +32,7 @@ const caret = (id: BlockId, offset: number): EditorAction => ({
   selection: createSpan(at(id, offset), at(id, offset)),
 });
 
-function textOf(editor: EditorState, id: BlockId): string {
+function textOf(editor: Editor, id: BlockId): string {
   const block = getBlock(editor.document, id);
   const len = block?.inlineContent?.items.reduce((n, i) => n + (i.kind === "text" ? i.text.length : 1), 0) ?? 0;
   return extractText(editor.document, createSpan(at(id, 0), at(id, len)));
@@ -53,12 +40,13 @@ function textOf(editor: EditorState, id: BlockId): string {
 
 /** User B (the one under test) and peer A, over two Y.Docs synced both ways. */
 function peers(text: string) {
-  let a = reduceEditor(createInitialEditorState(config), { type: "INSERT_TEXT", text });
+  let a = createEditor(config);
+  a.dispatch({ type: "INSERT_TEXT", text });
   const docA = getYDoc(a.document);
   const docB = new Y.Doc();
   Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
   const documentB = createDocument({ resolver: TEST_RESOLVER, rootId: a.document.rootId, doc: docB });
-  let b = createEditorStateFromDocument(documentB, initialSelectionForDocument(documentB), config);
+  let b = createEditor(config, { document: documentB });
   docA.on("update", (u: Uint8Array, origin: unknown) => {
     if (origin !== "sync") Y.applyUpdate(docB, u, "sync");
   });
@@ -69,19 +57,19 @@ function peers(text: string) {
     throw new Error("unexpected legacy storage");
   };
   subscribeRemoteChanges(b.document, (dirtyIds) => {
-    b = reduceEditor(b, { type: "APPLY_FOREIGN_CHANGE", dirtyIds });
+    b.dispatch({ type: "APPLY_FOREIGN_CHANGE", dirtyIds });
   }, noLegacy);
   subscribeRemoteChanges(a.document, (dirtyIds) => {
-    a = reduceEditor(a, { type: "APPLY_FOREIGN_CHANGE", dirtyIds });
+    a.dispatch({ type: "APPLY_FOREIGN_CHANGE", dirtyIds });
   }, noLegacy);
   const id = a.selection.focus.blockId;
   return {
     id,
     a: (...actions: EditorAction[]) => {
-      for (const action of actions) a = reduceEditor(a, action);
+      for (const action of actions) a.dispatch(action);
     },
     b: (...actions: EditorAction[]) => {
-      for (const action of actions) b = reduceEditor(b, action);
+      for (const action of actions) b.dispatch(action);
     },
     get bEditor() {
       return b;

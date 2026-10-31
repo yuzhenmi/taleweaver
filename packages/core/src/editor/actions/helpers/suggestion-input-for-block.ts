@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { EditorSnapshot } from "../../editor";
 import { selectionContextOf, type SuggestionMintInput, type BlockId } from "../../../state";
 import { newSuggestionInput } from "./new-suggestion-input";
 
@@ -20,7 +20,7 @@ import { newSuggestionInput } from "./new-suggestion-input";
  * `newSuggestionInput` remains for the rare site where the context is already known.
  */
 export function suggestionInputForBlock(
-  editor: EditorState,
+  editor: EditorSnapshot,
   blockId: BlockId,
 ): SuggestionMintInput | null {
   if (selectionContextOf(editor.document, blockId) === null) return null;

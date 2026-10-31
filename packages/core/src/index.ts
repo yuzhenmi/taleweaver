@@ -502,30 +502,28 @@ export type {
 } from "./editor/extensions";
 // LineBox-canonical line traversal (`AbsoluteLineBox` / `collectLineBoxes` etc.)
 // is geometric and RELOCATED to `@taleweaver/print`.
-export type { EditorState } from "./editor/editor-state";
-export type { EditorConfig } from "./editor/editor-config";
 export {
-  createInitialEditorState,
-  // Build an `EditorState` from an arbitrary seed `Document` + initial `Selection`
-  // (the full render → cascade → layout build). The public seam for hosts/tests
-  // that need a non-default seed document (e.g. a TOC + headings doc) without an
-  // editor-from-state injection.
-  createEditorStateFromDocument,
-} from "./editor/editor-state";
-export { reduceEditor } from "./editor/reduce-editor";
+  Editor,
+  createEditor,
+  type EditorSnapshot,
+  type EditorChange,
+  type EditorListener,
+  type CreateEditorOptions,
+} from "./editor/editor";
+export type { EditorConfig } from "./editor/editor-config";
 export { findFirstContentBlock, findLastContentBlock } from "./editor/actions";
 // Live collab: apply a peer's edit (foreign dirty block ids from
-// `subscribeForeignChanges`) to the local `EditorState` — `freshDocument` cache
+// `subscribeForeignChanges`) to the local editor — `freshDocument` cache
 // invalidation + incremental `lastDirtyIds`, selection/history passthrough.
 export { reconcileForeignChange } from "./editor/reconcile-foreign-change";
 // Derive the default collapsed caret for a freshly-loaded `Document` (first
-// content block, offset 0). Pairs with `createEditorStateFromDocument`.
+// content block, offset 0). Pairs with `createEditor`.
 export { initialSelectionForDocument } from "./editor/actions";
 // Geometry-free editor helpers the print backend's NavIntent resolver imports:
 // the anchor-affinity seed (focus-only extenders), the object-nav
 // selection, and the line-delete span guards. `seedAnchorAffinity` lives on
 // `editor-state`; the rest in `editor/actions`.
-export { seedAnchorAffinity } from "./editor/editor-state";
+export { seedAnchorAffinity } from "./editor/editor";
 export { stepOffObject } from "./cursor/object-range";
 export {
   objectMoveSelection,

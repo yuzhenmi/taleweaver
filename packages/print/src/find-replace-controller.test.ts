@@ -30,10 +30,10 @@ function config(): core.EditorConfig {
   };
 }
 
-function seededEditorState(text: string): core.EditorState {
+function seededEditorState(text: string): core.Editor {
   const cfg = config();
-  let editor = core.createInitialEditorState(cfg);
-  editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text });
+  let editor = core.createEditor(cfg);
+  editor.dispatch({ type: "INSERT_TEXT", text });
   return editor;
 }
 
@@ -85,8 +85,7 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
 
   it("findStatus() reflects {total, activeIndex} across findStart / findNext", () => {
     const editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
-    const ctrl = createEditorController(mount(), { measurer, dispatch: vi.fn() });
-    ctrl.update(editor);
+    const ctrl = createEditorController(mount(), { measurer, editor });
 
     // No session yet → {0, -1}.
     expect(ctrl.findStatus()).toEqual({ total: 0, activeIndex: -1 });
@@ -109,9 +108,8 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
     const editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
     const blockId = finalSection(editor.document)?.firstChildId;
     if (blockId === null || blockId === undefined) throw new Error("no block");
-    const dispatch = vi.fn();
-    const ctrl = createEditorController(mount(), { measurer, dispatch });
-    ctrl.update(editor);
+    const ctrl = createEditorController(mount(), { measurer, editor });
+    const dispatch = vi.spyOn(editor, "dispatch");
 
     ctrl.findStart("foo"); // activeIndex 0 (cursor at end → wraps to first)
     expect(ctrl.findStatus()).toEqual({ total: 3, activeIndex: 0 });
@@ -138,20 +136,14 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
     // → it now points at what was the 2nd "foo" (Google Docs "advance after
     // replace"). The match COUNT drops 3 → 2.
     const cfg = config();
-    let editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
-    const ctrl = createEditorController(mount(), {
-      measurer,
-      dispatch: (action) => {
-        editor = core.reduceEditor({ ...editor, config: cfg }, action);
-      },
-    });
-    ctrl.update(editor);
+    const editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
+    editor.config = cfg;
+    const ctrl = createEditorController(mount(), { measurer, editor });
 
     ctrl.findStart("foo");
     expect(ctrl.findStatus()).toEqual({ total: 3, activeIndex: 0 });
 
-    ctrl.replaceActive("qux"); // dispatch mutates `editor` via reduceEditor
-    ctrl.update(editor); // EditorView's [editorState] effect → live recompute
+    ctrl.replaceActive("qux"); // dispatches to `editor`; the controller re-renders (live recompute)
 
     // 2 "foo" left; activeIndex stayed 0 (now the surviving first "foo"). No
     // manual ++ would have skipped to index 1.
@@ -181,14 +173,9 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
     // there is none after it, so the active match wraps to index 0 (never stuck
     // out of range, never -1).
     const cfg = config();
-    let editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
-    const ctrl = createEditorController(mount(), {
-      measurer,
-      dispatch: (action) => {
-        editor = core.reduceEditor({ ...editor, config: cfg }, action);
-      },
-    });
-    ctrl.update(editor);
+    const editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
+    editor.config = cfg;
+    const ctrl = createEditorController(mount(), { measurer, editor });
 
     ctrl.findStart("foo");
     ctrl.findNext(); // index 0 → 1
@@ -196,7 +183,6 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
     expect(ctrl.findStatus()).toEqual({ total: 3, activeIndex: 2 });
 
     ctrl.replaceActive("qux"); // replace the last "foo"; "qux" does not re-match
-    ctrl.update(editor); // live recompute against the new state
 
     // 2 "foo" left; nothing after the replacement → wraps to the first match.
     expect(ctrl.findStatus()).toEqual({ total: 2, activeIndex: 0 });
@@ -204,23 +190,22 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
     ctrl.destroy();
   });
 
-  it("replaceActive returns the (pre-refresh) current FindStatus", () => {
+  it("replaceActive returns the FindStatus after the replacement (rendered inside the dispatch)", () => {
     const editor = seededEditorState("foo bar foo baz foo");
-    const ctrl = createEditorController(mount(), { measurer, dispatch: vi.fn() });
-    ctrl.update(editor);
+    const ctrl = createEditorController(mount(), { measurer, editor });
 
     ctrl.findStart("foo");
-    // dispatch is a vi.fn that never feeds state back, so status is unchanged.
-    expect(ctrl.replaceActive("XYZ")).toEqual({ total: 3, activeIndex: 0 });
+    // The controller re-renders from its subscription during the dispatch: the session
+    // has already refreshed (one "foo" replaced, the active index stays 0).
+    expect(ctrl.replaceActive("XYZ")).toEqual({ total: 2, activeIndex: 0 });
 
     ctrl.destroy();
   });
 
   it("replaceActive is a no-op (no dispatch) when there is no session", () => {
     const editor = seededEditorState("foo bar foo");
-    const dispatch = vi.fn();
-    const ctrl = createEditorController(mount(), { measurer, dispatch });
-    ctrl.update(editor);
+    const ctrl = createEditorController(mount(), { measurer, editor });
+    const dispatch = vi.spyOn(editor, "dispatch");
 
     expect(ctrl.replaceActive("XYZ")).toEqual({ total: 0, activeIndex: -1 });
     expect(dispatch).not.toHaveBeenCalled();
@@ -230,9 +215,8 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
 
   it("replaceActive is a no-op (no dispatch) when the session has zero matches", () => {
     const editor = seededEditorState("foo bar foo");
-    const dispatch = vi.fn();
-    const ctrl = createEditorController(mount(), { measurer, dispatch });
-    ctrl.update(editor);
+    const ctrl = createEditorController(mount(), { measurer, editor });
+    const dispatch = vi.spyOn(editor, "dispatch");
 
     ctrl.findStart("zzz"); // no matches → activeIndex -1
     dispatch.mockClear();
@@ -248,9 +232,8 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
     const editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
     const blockId = finalSection(editor.document)?.firstChildId;
     if (blockId === null || blockId === undefined) throw new Error("no block");
-    const dispatch = vi.fn();
-    const ctrl = createEditorController(mount(), { measurer, dispatch });
-    ctrl.update(editor);
+    const ctrl = createEditorController(mount(), { measurer, editor });
+    const dispatch = vi.spyOn(editor, "dispatch");
 
     ctrl.findStart("foo");
     dispatch.mockClear();
@@ -272,20 +255,14 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
 
   it("replaceAll: after the dispatched state is fed back, the match count drops to 0", () => {
     const cfg = config();
-    let editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
-    const ctrl = createEditorController(mount(), {
-      measurer,
-      dispatch: (action) => {
-        editor = core.reduceEditor({ ...editor, config: cfg }, action);
-      },
-    });
-    ctrl.update(editor);
+    const editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
+    editor.config = cfg;
+    const ctrl = createEditorController(mount(), { measurer, editor });
 
     ctrl.findStart("foo");
     expect(ctrl.findStatus()).toEqual({ total: 3, activeIndex: 0 });
 
     ctrl.replaceAll("qux"); // every "foo" → "qux"
-    ctrl.update(editor); // live recompute against the new state
 
     // No "foo" left → total 0.
     expect(ctrl.findStatus()).toEqual({ total: 0, activeIndex: -1 });
@@ -295,9 +272,8 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
 
   it("replaceAll is a no-op (no dispatch) when there is no session", () => {
     const editor = seededEditorState("foo bar foo");
-    const dispatch = vi.fn();
-    const ctrl = createEditorController(mount(), { measurer, dispatch });
-    ctrl.update(editor);
+    const ctrl = createEditorController(mount(), { measurer, editor });
+    const dispatch = vi.spyOn(editor, "dispatch");
 
     expect(ctrl.replaceAll("XYZ")).toEqual({ total: 0, activeIndex: -1 });
     expect(dispatch).not.toHaveBeenCalled();
@@ -307,9 +283,8 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
 
   it("replaceAll is a no-op (no dispatch) when the session has zero matches", () => {
     const editor = seededEditorState("foo bar foo");
-    const dispatch = vi.fn();
-    const ctrl = createEditorController(mount(), { measurer, dispatch });
-    ctrl.update(editor);
+    const ctrl = createEditorController(mount(), { measurer, editor });
+    const dispatch = vi.spyOn(editor, "dispatch");
 
     ctrl.findStart("zzz");
     dispatch.mockClear();

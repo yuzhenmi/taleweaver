@@ -46,12 +46,12 @@ export function DigitalSurface({
   const [findMode, setFindMode] = useState<null | "find" | "replace">(null);
   useFindShortcut(setFindMode);
   // Async-check demo (anchors) — same as the print tab.
-  const check = useAsyncCheck(editor.editorState, editor.createAnchor);
+  const check = useAsyncCheck(editor.editor, editor.createAnchor);
   // Suggest-edit demo (host proposals) — same as the print tab.
-  const suggest = useSuggestEdit(editor.editorState, editor.propose);
+  const suggest = useSuggestEdit(editor.editor, editor.propose);
   const { setSuggestionStyles } = editor;
   useEffect(() => setSuggestionStyles(ASSISTANT_STYLE), [setSuggestionStyles]);
-  useWritingAids(aids, editor.editorState, editor.setDecorations, check.decorations);
+  useWritingAids(aids, editor.editor, editor.setDecorations, check.decorations);
 
   useEffect(() => {
     registerGetDocument(editor.getDocument);
@@ -59,19 +59,19 @@ export function DigitalSurface({
 
   return (
     <>
-      <EditorChrome dispatch={editor.dispatch} editorState={editor.editorState} focus={editor.focus} />
+      <EditorChrome dispatch={editor.dispatch} editor={editor.editor} focus={editor.focus} />
       {/* Blank canvas — no page sheet/shadow/backdrop. Content is centered and capped to a
           comfortable reading column (Notion-style), so the browser flows to that width. */}
       <WritingAidsToggle checked={aids} onChange={setAids} />
       <ExtensionsHint />
       <AsyncCheckBar check={check} />
-      <SuggestEditBar tool={suggest} editorState={editor.editorState} dispatch={editor.dispatch} />
+      <SuggestEditBar tool={suggest} editor={editor.editor} dispatch={editor.dispatch} />
       <div className="relative flex-1 overflow-y-auto bg-white">
         {findMode && (
           <FindBar
             handle={editor.findHandle}
             mode={findMode}
-            editorState={editor.editorState}
+            editor={editor.editor}
             onClose={() => {
               setFindMode(null);
               editor.focus();
@@ -84,11 +84,11 @@ export function DigitalSurface({
         />
       </div>
       <WritingAidPopover event={pointer} />
-      <MentionPicker editorState={editor.editorState} dispatch={editor.dispatch} bridge={bridge} caretRect={domCaretRect} />
-      <SelectionBubble dispatch={editor.dispatch} editorState={editor.editorState} containerRef={editor.containerRef} />
+      <MentionPicker editor={editor.editor} dispatch={editor.dispatch} bridge={bridge} caretRect={domCaretRect} />
+      <SelectionBubble dispatch={editor.dispatch} editor={editor.editor} containerRef={editor.containerRef} />
       <BlockHoverHandles
         dispatch={editor.dispatch}
-        editorState={editor.editorState}
+        editor={editor.editor}
         containerRef={editor.containerRef}
         focus={editor.focus}
       />

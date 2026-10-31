@@ -9,7 +9,7 @@
  * pass against the ORIGINAL handler AND the migrated handler.
  *
  * Harness mirrors the other `actions/*.test.ts` (insert-node, section-break):
- * drive via `reduceEditor`, inspect via `getBlock` walking the block tree.
+ * drive via `editor.dispatch`, inspect via `getBlock` walking the block tree.
  *
  * T10 additions: rich routing tests (clip→html→text priority, suggesting mode).
  */
@@ -18,11 +18,10 @@ import { TEST_RESOLVER } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
-  createInitialEditorState,
-  reduceEditor,
+  createEditor,
   getTextOf,
   firstChildId,
-  type EditorState,
+  type Editor,
   type EditorConfig,
 } from "./test-helpers";
 import {
@@ -45,7 +44,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 }
 
 /** Ordered list of the document root's direct children. */
-function rootChildren(editor: EditorState): BlockId[] {
+function rootChildren(editor: Editor): BlockId[] {
   const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
   if (root === null) return [];
   const ids: BlockId[] = [];
@@ -60,13 +59,14 @@ function rootChildren(editor: EditorState): BlockId[] {
   return ids;
 }
 
-function paste(editor: EditorState, text: string): EditorState {
-  return reduceEditor(editor, { type: "PASTE", text });
+function paste(editor: Editor, text: string): Editor {
+  editor.dispatch({ type: "PASTE", text });
+  return editor;
 }
 
 describe("handlePaste — multi-line plain-text paste (characterization + migration)", () => {
   it("(1) single line into empty paragraph: para = text, cursor at end, ONE block", () => {
-    const initial = createInitialEditorState(config);
+    const initial = createEditor(config);
     const paraId = firstChildId(initial.document) as BlockId;
 
     const next = paste(initial, "abc");
@@ -80,7 +80,7 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
   });
 
   it("(2) three lines into empty doc: 3 paragraphs a/b/c, cursor at end of c", () => {
-    const initial = createInitialEditorState(config);
+    const initial = createEditor(config);
 
     const next = paste(initial, "a\nb\nc");
 
@@ -95,12 +95,12 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
   });
 
   it("(3) two lines into the MIDDLE of helloworld at offset 5", () => {
-    let s = createInitialEditorState(config);
+    let s = createEditor(config);
     const paraId = firstChildId(s.document) as BlockId;
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "helloworld" });
+    s.dispatch({ type: "INSERT_TEXT", text: "helloworld" });
     // Place collapsed cursor at offset 5 (between "hello" and "world").
     const mid = { blockId: paraId, offset: 5 };
-    s = reduceEditor(s, { type: "SET_SELECTION", selection: { anchor: mid, focus: mid } });
+    s.dispatch({ type: "SET_SELECTION", selection: { anchor: mid, focus: mid } });
 
     const next = paste(s, "X\nY");
 
@@ -116,7 +116,7 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
   });
 
   it("(4) trailing empty line a\\n: 'a' then an empty paragraph, cursor in empty para at 0", () => {
-    const initial = createInitialEditorState(config);
+    const initial = createEditor(config);
 
     const next = paste(initial, "a\n");
 
@@ -130,7 +130,7 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
   });
 
   it("(5) empty MIDDLE line a\\n\\nb: 'a', empty para, 'b'", () => {
-    const initial = createInitialEditorState(config);
+    const initial = createEditor(config);
 
     const next = paste(initial, "a\n\nb");
 
@@ -144,15 +144,12 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
   });
 
   it("(5b) leading empty line \\nY into a non-empty block: empty para, then Y+suffix", () => {
-    let s = createInitialEditorState(config);
+    let s = createEditor(config);
     const paraId = firstChildId(s.document) as BlockId;
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "world" });
+    s.dispatch({ type: "INSERT_TEXT", text: "world" });
     // Cursor at offset 0 (start of "world").
     const startPos = { blockId: paraId, offset: 0 };
-    s = reduceEditor(
-      s,
-      { type: "SET_SELECTION", selection: { anchor: startPos, focus: startPos } },
-    );
+    s.dispatch({ type: "SET_SELECTION", selection: { anchor: startPos, focus: startPos } });
 
     const next = paste(s, "\nY");
 
@@ -168,15 +165,15 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
   });
 
   it("(6) paste into an EXPANDED selection replaces it then inserts", () => {
-    let s = createInitialEditorState(config);
+    let s = createEditor(config);
     const paraId = firstChildId(s.document) as BlockId;
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "helloworld" });
+    s.dispatch({ type: "INSERT_TEXT", text: "helloworld" });
     // Select "world" (offsets 5..10).
     const sel = {
       anchor: { blockId: paraId, offset: 5 },
       focus: { blockId: paraId, offset: 10 },
     };
-    s = reduceEditor(s, { type: "SET_SELECTION", selection: sel });
+    s.dispatch({ type: "SET_SELECTION", selection: sel });
 
     const next = paste(s, "X\nY");
 
@@ -190,12 +187,9 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
   });
 
   it("(7) new blocks inherit the target block's type (heading)", () => {
-    let s = createInitialEditorState(config);
+    let s = createEditor(config);
     const paraId = firstChildId(s.document) as BlockId;
-    s = reduceEditor(
-      s,
-      { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } },
-    );
+    s.dispatch({ type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } });
     expect(getBlock(s.document, paraId)?.type).toBe("heading");
 
     const next = paste(s, "a\nb");
@@ -210,14 +204,14 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
   });
 
   it("(8) k=4 lines into the middle of a non-empty block: content + cursor match, no throw", () => {
-    let s = createInitialEditorState(config);
+    let s = createEditor(config);
     const paraId = firstChildId(s.document) as BlockId;
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "PREsuf" });
+    s.dispatch({ type: "INSERT_TEXT", text: "PREsuf" });
     // Cursor at offset 3 (between "PRE" and "suf").
     const mid = { blockId: paraId, offset: 3 };
-    s = reduceEditor(s, { type: "SET_SELECTION", selection: { anchor: mid, focus: mid } });
+    s.dispatch({ type: "SET_SELECTION", selection: { anchor: mid, focus: mid } });
 
-    let next: EditorState | undefined;
+    let next: Editor | undefined;
     expect(() => {
       next = paste(s, "L0\nL1\nL2\nL3");
     }).not.toThrow();
@@ -237,13 +231,13 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
   });
 
   it("empty rawText is a no-op (returns the same editor reference)", () => {
-    const initial = createInitialEditorState(config);
+    const initial = createEditor(config);
     const next = paste(initial, "");
     expect(next).toBe(initial);
   });
 
   it("\\r\\n line endings normalize to \\n", () => {
-    const initial = createInitialEditorState(config);
+    const initial = createEditor(config);
 
     const next = paste(initial, "a\r\nb");
 
@@ -256,11 +250,14 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
 
 describe("handlePaste — plain text over a selection in a footnote body", () => {
   it("replaces the selection (the delete guard resolves body blocks, not only the main tree)", () => {
-    const typed = reduceEditor(createInitialEditorState(config), { type: "INSERT_TEXT", text: "abc" });
-    const body = reduceEditor(reduceEditor(typed, { type: "INSERT_FOOTNOTE" }), { type: "INSERT_TEXT", text: "hello" });
-    const bodyId = body.selection.focus.blockId;
+    const typed = createEditor(config);
+    typed.dispatch({ type: "INSERT_TEXT", text: "abc" });
+    typed.dispatch({ type: "INSERT_FOOTNOTE" });
+    typed.dispatch({ type: "INSERT_TEXT", text: "hello" });
+    const bodyId = typed.selection.focus.blockId;
     const range = { anchor: { blockId: bodyId, offset: 1 }, focus: { blockId: bodyId, offset: 4 } };
-    const next = paste(reduceEditor(body, { type: "SET_SELECTION", selection: range }), "X");
+    typed.dispatch({ type: "SET_SELECTION", selection: range });
+    const next = paste(typed, "X");
     const items = resolveBlock(next.document, bodyId)?.block.inlineContent?.items ?? [];
     expect(items.map((it) => (it.kind === "text" ? it.text : "")).join("")).toBe("hXo");
     expect(next.selection.focus).toEqual({ blockId: bodyId, offset: 2 });
@@ -284,25 +281,25 @@ describe("handlePaste — paste-then-select-all preserves content (regression)",
    * proves the core is safe.)
    */
   it("rapid sequential pastes then SELECT_ALL keeps all content + spans the whole doc", () => {
-    const initial = createInitialEditorState(config);
+    const initial = createEditor(config);
 
     // first paste: "one" / "two" (cursor ends at "two"|). second paste at that
     // caret: "two" becomes "twothree", then a new "four" block. → 3 blocks,
     // content from BOTH pastes intact.
     const first = paste(initial, "one\ntwo");
     const second = paste(first, "three\nfour");
-    const after = reduceEditor(second, { type: "SELECT_ALL" });
+    second.dispatch({ type: "SELECT_ALL" });
 
-    const blocks = rootChildren(after);
-    expect(blocks.map((id) => getTextOf(after.document, id))).toEqual([
+    const blocks = rootChildren(second);
+    expect(blocks.map((id) => getTextOf(second.document, id))).toEqual([
       "one",
       "twothree",
       "four",
     ]);
     // SELECT_ALL spans first-content-block start → last-content-block end
     // ("four", length 4) — and must not have touched the block tree.
-    expect(after.selection.anchor).toEqual({ blockId: blocks[0], offset: 0 });
-    expect(after.selection.focus).toEqual({ blockId: blocks[2], offset: 4 });
+    expect(second.selection.anchor).toEqual({ blockId: blocks[0], offset: 0 });
+    expect(second.selection.focus).toEqual({ blockId: blocks[2], offset: 4 });
   });
 });
 
@@ -471,81 +468,71 @@ function fragTopLevelBlocks(document: Document): BlockId[] {
 
 describe("handlePaste — T10 rich routing: priority clip→html→text", () => {
   it("prefers clip over html and text: clip fragment text lands, not html/text content", () => {
-    const initial = createInitialEditorState(richConfig);
+    const initial = createEditor(richConfig);
     const clipFragment = makeClipFragment("FROM_CLIP");
     const clip = encodeFragmentClip(clipFragment);
 
-    const next = reduceEditor(
-      initial,
-      { type: "PASTE", clip, html: "<p>FROM_HTML</p>", text: "FROM_TEXT" },
-    );
+    initial.dispatch({ type: "PASTE", clip, html: "<p>FROM_HTML</p>", text: "FROM_TEXT" });
 
-    const blocks = fragTopLevelBlocks(next.document);
+    const blocks = fragTopLevelBlocks(initial.document);
     // The clip fragment has exactly 1 paragraph with "FROM_CLIP".
-    expect(getTextOf(next.document, blocks[0]!)).toBe("FROM_CLIP");
+    expect(getTextOf(initial.document, blocks[0]!)).toBe("FROM_CLIP");
   });
 
   it("falls back to html when no clip present and parser is configured", () => {
-    const initial = createInitialEditorState(richConfig);
+    const initial = createEditor(richConfig);
 
-    const next = reduceEditor(
-      initial,
-      { type: "PASTE", html: "<p>FROM_HTML</p>", text: "FROM_TEXT" },
-    );
+    initial.dispatch({ type: "PASTE", html: "<p>FROM_HTML</p>", text: "FROM_TEXT" });
 
-    const blocks = fragTopLevelBlocks(next.document);
-    expect(getTextOf(next.document, blocks[0]!)).toBe("FROM_HTML");
+    const blocks = fragTopLevelBlocks(initial.document);
+    expect(getTextOf(initial.document, blocks[0]!)).toBe("FROM_HTML");
   });
 
   it("falls back to text when no parser is configured, even with html present", () => {
     // config has NO htmlParser — html present but no parser → plain-text path.
-    const initial = createInitialEditorState(config);
+    const initial = createEditor(config);
 
-    const next = reduceEditor(
-      initial,
-      { type: "PASTE", html: "<p>FROM_HTML</p>", text: "FROM_TEXT" },
-    );
+    initial.dispatch({ type: "PASTE", html: "<p>FROM_HTML</p>", text: "FROM_TEXT" });
 
-    const blocks = fragTopLevelBlocks(next.document);
+    const blocks = fragTopLevelBlocks(initial.document);
     // Plain text path: no <p> tags stripped, literal text "FROM_TEXT" inserted.
-    expect(getTextOf(next.document, blocks[0]!)).toBe("FROM_TEXT");
+    expect(getTextOf(initial.document, blocks[0]!)).toBe("FROM_TEXT");
   });
 
   it("malformed clip falls through to html (clip:'@@@' → invalid base64)", () => {
-    const initial = createInitialEditorState(richConfig);
+    const initial = createEditor(richConfig);
     // "@@@" is not valid base64 → decodeFragmentClip returns null → fall through to html.
     const badClip = "@@@";
     expect(decodeFragmentClip(badClip, TEST_RESOLVER, richConfig.attrRegistry)).toBeNull(); // pre-condition
 
-    const next = reduceEditor(
-      initial,
-      { type: "PASTE", clip: badClip, html: "<p>FROM_HTML</p>", text: "FROM_TEXT" },
-    );
+    initial.dispatch({ type: "PASTE", clip: badClip, html: "<p>FROM_HTML</p>", text: "FROM_TEXT" });
 
-    const blocks = fragTopLevelBlocks(next.document);
-    expect(getTextOf(next.document, blocks[0]!)).toBe("FROM_HTML");
+    const blocks = fragTopLevelBlocks(initial.document);
+    expect(getTextOf(initial.document, blocks[0]!)).toBe("FROM_HTML");
   });
 
   it("plain {text} path is byte-identical to today — no regression on multi-line", () => {
     // This mirrors test (2) from the existing suite but goes through the new routing code.
-    const initial = createInitialEditorState(richConfig);
+    const initial = createEditor(richConfig);
 
-    const next = reduceEditor(initial, { type: "PASTE", text: "a\nb\nc" });
+    initial.dispatch({ type: "PASTE", text: "a\nb\nc" });
 
-    const blocks = fragTopLevelBlocks(next.document);
+    const blocks = fragTopLevelBlocks(initial.document);
     expect(blocks).toHaveLength(3);
-    expect(getTextOf(next.document, blocks[0]!)).toBe("a");
-    expect(getTextOf(next.document, blocks[1]!)).toBe("b");
-    expect(getTextOf(next.document, blocks[2]!)).toBe("c");
+    expect(getTextOf(initial.document, blocks[0]!)).toBe("a");
+    expect(getTextOf(initial.document, blocks[1]!)).toBe("b");
+    expect(getTextOf(initial.document, blocks[2]!)).toBe("c");
     // Cursor at end of last line.
-    expect(next.selection.focus).toEqual({ blockId: blocks[2], offset: 1 });
+    expect(initial.selection.focus).toEqual({ blockId: blocks[2], offset: 1 });
   });
 
   it("no usable payload → no-op (returns same editor reference)", () => {
-    const initial = createInitialEditorState(richConfig);
+    const initial = createEditor(richConfig);
     // PASTE with nothing usable: empty text, no html, no clip.
-    const next = reduceEditor(initial, { type: "PASTE" });
-    expect(next).toBe(initial);
+    const before = { ...initial };
+    initial.dispatch({ type: "PASTE" });
+    expect(initial.document).toBe(before.document);
+    expect(initial.selection).toBe(before.selection);
   });
 });
 
@@ -585,21 +572,18 @@ describe("handlePaste — T10 suggesting mode with rich routing", () => {
 
   it("rich html paste in suggesting mode tracks ALL pasted text as ONE insertion id", () => {
     // Two paragraphs in the fragment: both runs should share the same insertionId.
-    const initial = createInitialEditorState(richSuggestingConfig);
+    const initial = createEditor(richSuggestingConfig);
 
-    const next = reduceEditor(
-      initial,
-      { type: "PASTE", html: "<p>Hello</p><p>World</p>", text: "Hello\nWorld" },
-    );
+    initial.dispatch({ type: "PASTE", html: "<p>Hello</p><p>World</p>", text: "Hello\nWorld" });
 
-    const blocks = fragTopLevelBlocks(next.document);
+    const blocks = fragTopLevelBlocks(initial.document);
     // At least 2 blocks in the result doc.
     expect(blocks.length).toBeGreaterThanOrEqual(2);
 
     // Collect all insertionIds across all blocks.
     const allIds = new Set<string>();
     for (const id of blocks) {
-      for (const insId of insertionIds(next.document, id)) allIds.add(insId);
+      for (const insId of insertionIds(initial.document, id)) allIds.add(insId);
     }
     // All tracked insertion runs share ONE suggestion id (the whole paste is ONE insertion).
     expect(allIds.size).toBe(1);
@@ -610,17 +594,14 @@ describe("handlePaste — T10 suggesting mode with rich routing", () => {
     const tableHtml =
       "<table><tbody><tr><td><p>Cell A</p></td><td><p>Cell B</p></td></tr></tbody></table>";
 
-    const initial = createInitialEditorState(richSuggestingConfig);
+    const initial = createEditor(richSuggestingConfig);
 
-    const next = reduceEditor(
-      initial,
-      { type: "PASTE", html: tableHtml, text: "Cell A\tCell B" },
-    );
+    initial.dispatch({ type: "PASTE", html: tableHtml, text: "Cell A\tCell B" });
 
     // In suggesting mode, the table MUST have been flattened. The resulting
     // document should contain text from both cells as tracked insertions.
-    const blocks = fragTopLevelBlocks(next.document);
-    const allText = blocks.map((id) => getTextOf(next.document, id)).join("|");
+    const blocks = fragTopLevelBlocks(initial.document);
+    const allText = blocks.map((id) => getTextOf(initial.document, id)).join("|");
     // Both cell texts must be present somewhere.
     expect(allText).toContain("Cell A");
     expect(allText).toContain("Cell B");
@@ -628,7 +609,7 @@ describe("handlePaste — T10 suggesting mode with rich routing", () => {
     // Every tracked text run should carry an insertionId (suggesting mode).
     const allIds = new Set<string>();
     for (const id of blocks) {
-      for (const insId of insertionIds(next.document, id)) allIds.add(insId);
+      for (const insId of insertionIds(initial.document, id)) allIds.add(insId);
     }
     expect(allIds.size).toBeGreaterThanOrEqual(1);
   });
@@ -644,18 +625,15 @@ describe("handlePaste — T10 suggesting mode with rich routing", () => {
     });
     const clip = encodeFragmentClip(clipFragment);
 
-    const freshSuggesting = createInitialEditorState(suggestingConfig);
-    const next = reduceEditor(
-      freshSuggesting,
-      { type: "PASTE", clip, text: "CLIP_TEXT" },
-    );
+    const freshSuggesting = createEditor(suggestingConfig);
+    freshSuggesting.dispatch({ type: "PASTE", clip, text: "CLIP_TEXT" });
 
-    const resultBlocks = fragTopLevelBlocks(next.document);
-    expect(getTextOf(next.document, resultBlocks[0]!)).toBe("CLIP_TEXT");
+    const resultBlocks = fragTopLevelBlocks(freshSuggesting.document);
+    expect(getTextOf(freshSuggesting.document, resultBlocks[0]!)).toBe("CLIP_TEXT");
 
     const allIns = new Set<string>();
     for (const id of resultBlocks) {
-      for (const insId of insertionIds(next.document, id)) allIns.add(insId);
+      for (const insId of insertionIds(freshSuggesting.document, id)) allIns.add(insId);
     }
     // Exactly one fresh insertion id, and it is NOT the carried (foreign) one.
     expect(allIns.size).toBe(1);
@@ -675,19 +653,16 @@ describe("handlePaste — T10 suggesting mode with rich routing", () => {
     });
     const clip = encodeFragmentClip(clipFragment);
 
-    const freshSuggesting = createInitialEditorState(suggestingConfig);
-    const next = reduceEditor(
-      freshSuggesting,
-      { type: "PASTE", clip, text: "CLIP_TEXT" },
-    );
+    const freshSuggesting = createEditor(suggestingConfig);
+    freshSuggesting.dispatch({ type: "PASTE", clip, text: "CLIP_TEXT" });
 
-    const resultBlocks = fragTopLevelBlocks(next.document);
-    expect(getTextOf(next.document, resultBlocks[0]!)).toBe("CLIP_TEXT");
+    const resultBlocks = fragTopLevelBlocks(freshSuggesting.document);
+    expect(getTextOf(freshSuggesting.document, resultBlocks[0]!)).toBe("CLIP_TEXT");
 
     // No deletion attr survives anywhere — the carried (foreign) id is gone.
     const allDel = new Set<string>();
     for (const id of resultBlocks) {
-      for (const delId of deletionIds(next.document, id)) allDel.add(delId);
+      for (const delId of deletionIds(freshSuggesting.document, id)) allDel.add(delId);
     }
     expect(allDel.size).toBe(0);
     expect(allDel.has(carriedDelId)).toBe(false);
@@ -695,11 +670,11 @@ describe("handlePaste — T10 suggesting mode with rich routing", () => {
     // The run IS tracked as a fresh insertion (suggesting mode re-tracks it).
     const allIns = new Set<string>();
     for (const id of resultBlocks) {
-      for (const insId of insertionIds(next.document, id)) allIns.add(insId);
+      for (const insId of insertionIds(freshSuggesting.document, id)) allIns.add(insId);
     }
     expect(allIns.size).toBe(1);
     for (const id of resultBlocks) {
-      for (const it of getBlock(next.document, id)?.inlineContent?.items ?? []) {
+      for (const it of getBlock(freshSuggesting.document, id)?.inlineContent?.items ?? []) {
         expect(Object.keys(it.attrs).filter((k) => k.startsWith("formattingSuggestionId"))).toEqual([]);
       }
     }
