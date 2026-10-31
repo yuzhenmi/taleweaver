@@ -1,4 +1,4 @@
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId } from "../block-id";
 import { planRemoveBlock, removeBlockInTx } from "./remove-block";
@@ -11,7 +11,7 @@ import { planRemoveBlock, removeBlockInTx } from "./remove-block";
  * replacement paragraph is needed. Span-agnostic (deleting a whole table is always
  * safe). MAIN-TREE ONLY (mirrors `removeBlock`).
  */
-export function deleteTable(state: State, tableId: BlockId): OperationResult {
+export function deleteTable(state: Document, tableId: BlockId): OperationResult {
   const table = getBlock(state, tableId);
   if (table === null) {
     throw new Error(`deleteTable: block "${tableId}" not found`);

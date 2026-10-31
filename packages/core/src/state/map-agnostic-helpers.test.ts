@@ -31,7 +31,7 @@ import { moveByCharacter } from "../cursor/cursor-ops";
 import { createPosition, createSpan } from "./block-position";
 import { buildBlock, buildState, inlineContent, text, finalSectionOf } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
-import type { State } from "./state";
+import type { Document } from "./state";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -49,7 +49,7 @@ const HDR_ROOT = "hdr-root" as BlockId;
 const HDR_C1 = "hdr-c1" as BlockId;
 const HDR_C2 = "hdr-c2" as BlockId;
 
-function buildWithHeaderBody(): State {
+function buildWithHeaderBody(): Document {
   return buildState({
     rootId: "doc",
     blocks: [

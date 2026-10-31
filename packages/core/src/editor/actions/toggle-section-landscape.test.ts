@@ -51,7 +51,7 @@ const measurer = createMockShaper(8, 16);
 
 /** Build the layout tree the backend driver would (render → cascade → layout). */
 function layoutOf(editor: EditorState, config: EditorConfig): LayoutBox | VirtualLayoutTree {
-  const rendered = render(editor.state, config.componentRegistry, config.attrRegistry);
+  const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   return layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
 }
@@ -99,20 +99,20 @@ function buildPasted(config: EditorConfig, n: number): EditorState {
 
 /** The document root's direct children, in order. */
 function rootChildIds(editor: EditorState): BlockId[] {
-  const root = getBlock(editor.state, editor.state.rootId); // the root holds sections
+  const root = getBlock(editor.document, editor.document.rootId); // the root holds sections
   if (root === null || root.firstChildId === null) return [];
   const ids: BlockId[] = [];
   let id: BlockId | null = root.firstChildId;
   while (id !== null) {
     ids.push(id);
-    id = getBlock(editor.state, id)?.nextSiblingId ?? null;
+    id = getBlock(editor.document, id)?.nextSiblingId ?? null;
   }
   return ids;
 }
 
 /** The nth top-level block id (paragraphs, pre-section-break). */
 function nthBlockId(editor: EditorState, n: number): BlockId {
-  const ids = topLevelBlockIds(editor.state);
+  const ids = topLevelBlockIds(editor.document);
   const id = ids[n];
   if (id === undefined) throw new Error(`no block ${n}`);
   return id;
@@ -155,7 +155,7 @@ function twoSectionEditor(config: EditorConfig, n = 4): {
   const sectionA = nth(sectionIds, 0, "section");
   const sectionB = nth(sectionIds, 1, "section");
   // Place the cursor inside section B's first paragraph.
-  const firstParaOfB = getBlock(editor.state, sectionB)?.firstChildId;
+  const firstParaOfB = getBlock(editor.document, sectionB)?.firstChildId;
   if (firstParaOfB == null) throw new Error("section B has no first child");
   editor = reduceEditor(
     editor,
@@ -176,14 +176,14 @@ function sectionPageGeometry(
 ): { inlineSize: number; blockSize: number } {
   const tree = layoutOf(editor, config);
   if (tree.type !== "virtual-root") throw new Error("expected a VirtualLayoutTree");
-  const section = getBlock(editor.state, sectionId);
+  const section = getBlock(editor.document, sectionId);
   if (section === null) throw new Error("section not found");
   // Collect the section's direct child paragraph ids.
   const childIds = new Set<string>();
   let c: BlockId | null = section.firstChildId;
   while (c !== null) {
     childIds.add(c);
-    c = getBlock(editor.state, c)?.nextSiblingId ?? null;
+    c = getBlock(editor.document, c)?.nextSiblingId ?? null;
   }
   let geom: { inlineSize: number; blockSize: number } | null = null;
   for (let i = 0; i < tree.plan.entries.length; i++) {
@@ -216,15 +216,15 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
     const next = reduceEditor(initial, { type: "TOGGLE_SECTION_LANDSCAPE" });
 
     // A real change produces a NEW state reference.
-    expect(next.state).not.toBe(initial.state);
+    expect(next.document).not.toBe(initial.document);
 
     // Section B's attrs: doc-wide dims SWAPPED.
-    const secBBlock = getBlock(next.state, sectionB);
+    const secBBlock = getBlock(next.document, sectionB);
     expect(secBBlock?.attrs.pageInlineSize).toBe(config.pageConfig.pageBlockSize);
     expect(secBBlock?.attrs.pageBlockSize).toBe(config.pageConfig.pageInlineSize);
 
     // Section A's attrs untouched (no override).
-    const secABlock = getBlock(next.state, sectionA);
+    const secABlock = getBlock(next.document, sectionA);
     expect(secABlock?.attrs.pageInlineSize).toBeUndefined();
     expect(secABlock?.attrs.pageBlockSize).toBeUndefined();
 
@@ -252,7 +252,7 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
     const restored = reduceEditor(landscape, { type: "TOGGLE_SECTION_LANDSCAPE" });
 
     // Override cleared (keys removed).
-    const secBBlock = getBlock(restored.state, sectionB);
+    const secBBlock = getBlock(restored.document, sectionB);
     expect(secBBlock?.attrs.pageInlineSize).toBeUndefined();
     expect(secBBlock?.attrs.pageBlockSize).toBeUndefined();
 
@@ -291,7 +291,7 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
     const editor: EditorState = createEditorStateFromState(initialState, { anchor: cursor, focus: cursor }, config);
 
     // Sanity: the cursor's block is NOT a direct child of the section.
-    const focusBlock = getBlock(editor.state, editor.selection.focus.blockId);
+    const focusBlock = getBlock(editor.document, editor.selection.focus.blockId);
     expect(focusBlock?.parentId).not.toBe("sec");
 
     const docWide = { inlineSize: config.pageConfig.pageInlineSize, blockSize: config.pageConfig.pageBlockSize };
@@ -302,7 +302,7 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
     const next = reduceEditor(editor, { type: "TOGGLE_SECTION_LANDSCAPE" });
 
     // The walk resolves the section ("sec", two hops up) and applies the override there.
-    const secBlock = getBlock(next.state, "sec" as BlockId);
+    const secBlock = getBlock(next.document, "sec" as BlockId);
     expect(secBlock?.attrs.pageInlineSize).toBe(config.pageConfig.pageBlockSize);
     expect(secBlock?.attrs.pageBlockSize).toBe(config.pageConfig.pageInlineSize);
 
@@ -326,12 +326,12 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
     const docWide = { inlineSize: config.pageConfig.pageInlineSize, blockSize: config.pageConfig.pageBlockSize };
 
     const toggled = reduceEditor(initial, { type: "TOGGLE_SECTION_LANDSCAPE" });
-    expect(getBlock(toggled.state, sectionB)?.attrs.pageInlineSize).toBe(config.pageConfig.pageBlockSize);
+    expect(getBlock(toggled.document, sectionB)?.attrs.pageInlineSize).toBe(config.pageConfig.pageBlockSize);
 
     const undone = reduceEditor(toggled, { type: "UNDO" });
 
     // Attrs cleared by undo.
-    expect(getBlock(undone.state, sectionB)?.attrs.pageInlineSize).toBeUndefined();
+    expect(getBlock(undone.document, sectionB)?.attrs.pageInlineSize).toBeUndefined();
     // Geometry restored to doc-wide.
     expect(sectionPageGeometry(undone, config, sectionB)).toEqual(docWide);
   });
@@ -339,14 +339,14 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
   it("a break-less doc toggles its FINAL section (there is always a section)", () => {
     const config = makeConfig();
     const editor = buildPasted(config, 3);
-    const finalSection = getBlock(editor.state, editor.state.rootId)?.lastChildId ?? null;
+    const finalSection = getBlock(editor.document, editor.document.rootId)?.lastChildId ?? null;
     if (finalSection === null) throw new Error("no final section");
 
     const next = reduceEditor(editor, { type: "TOGGLE_SECTION_LANDSCAPE" });
 
-    expect(next.state).not.toBe(editor.state);
-    expect(getBlock(next.state, finalSection)?.attrs.pageInlineSize).toBeDefined();
-    expect(getBlock(next.state, next.state.rootId)?.attrs.pageInlineSize).toBeUndefined();
+    expect(next.document).not.toBe(editor.document);
+    expect(getBlock(next.document, finalSection)?.attrs.pageInlineSize).toBeDefined();
+    expect(getBlock(next.document, next.document.rootId)?.attrs.pageInlineSize).toBeUndefined();
   });
 
   it("is a no-op when config.pageConfig is absent (unpaginated harness)", () => {

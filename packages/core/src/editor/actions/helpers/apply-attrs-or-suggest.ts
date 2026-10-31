@@ -29,7 +29,7 @@ export function applyAttrsOrSuggest(
   span: Span,
   incoming: ReadonlyAttrs,
 ): OperationResult {
-  const { state } = editor;
+  const { document: state } = editor;
   const input = suggestionInputForBlock(editor, spanStart(state, span).blockId);
   return input === null
     ? applyAttrsToRange(state, span, incoming)

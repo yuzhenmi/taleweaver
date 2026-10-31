@@ -37,10 +37,10 @@ export interface UseEditorOptions {
    * wrote into the frozen legacy root, a peer raised the schema past this engine's, a
    * second Yjs instance decoded updates, or a replacement's document is not upgraded yet.
    * The returned `halted` becomes true and `dispatch` ignores actions; the last good
-   * render stays. Exit: the host passes a fresh State to the returned `replaceDocument`
+   * render stays. Exit: the host passes a fresh Document to the returned `replaceDocument`
    * (a legacy write is surfaced in the report, not merged). A not-yet-upgraded document
    * ("legacy-schema") also resumes BY ITSELF once it is upgraded (`upgradeDocument`,
-   * single authority): the hook replaces it with a fresh State over the same Y.Doc. The halt
+   * single authority): the hook replaces it with a fresh Document over the same Y.Doc. The halt
    * reaches the hook from the `EditorView` it drives automatically — linked through the
    * hook's OWN `dispatch`, so pass the returned `dispatch` to the view unwrapped (a
    * wrapper breaks the link; dev builds warn). Called once per halt; the hook mirrors the
@@ -165,12 +165,12 @@ export function useEditor(options?: UseEditorOptions) {
     [config],
   );
   // Halted on a NOT-YET-UPGRADED document that is now upgraded: the hook owns the state,
-  // so it resumes by replacing it with a fresh State over it. A sticky halt (a legacy
+  // so it resumes by replacing it with a fresh Document over it. A sticky halt (a legacy
   // write, a newer schema, a second Yjs instance) never resumes on its own — even when a
   // view re-created while halted reports its (already current) document compatible.
   const onDocumentCompatible = useCallback(() => {
     if (!haltedRef.current || haltReasonRef.current !== "legacy-schema") return;
-    const halted = stateRef.current.state;
+    const halted = stateRef.current.document;
     replaceDocument(createState({ rootId: halted.rootId, doc: getYDoc(halted), resolver: config.componentRegistry }));
   }, [replaceDocument, config]);
   if (!haltLinks.has(dispatch)) {

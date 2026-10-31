@@ -214,7 +214,7 @@ describe("#340 — caret on-page for trailing spaces INSIDE an inline element", 
   // The editor's render path turns text marks into flat differently-styled runs,
   // not nested inline elements, so this exercises the IFC + cursor path directly:
   // build a layout whose paragraph contains a `display:inline` element wrapping a
-  // word + trailing spaces at the line edge, paired with a matching `State` (the
+  // word + trailing spaces at the line edge, paired with a matching `Document` (the
   // block id "p" matches the element-box key, so the stamped LineBoxes'
   // `ownerBlockId` resolves; the offset geometry is read off the layout, not the
   // state). Before #340, the inner trailing-space box escaped the content-edge

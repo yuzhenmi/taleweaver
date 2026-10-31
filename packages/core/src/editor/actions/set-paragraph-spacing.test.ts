@@ -32,41 +32,41 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
   it("edge 'after' value 40: sets marginBlockEnd on the focus block", () => {
     const initial = createInitialEditorState(config);
     const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.state) as BlockId;
+    const paraId = firstChildId(editor.document) as BlockId;
 
     // Baseline: no marginBlockEnd attr (the component default em margin applies).
-    expect(getBlock(editor.state, paraId)?.attrs.marginBlockEnd).toBeUndefined();
+    expect(getBlock(editor.document, paraId)?.attrs.marginBlockEnd).toBeUndefined();
 
     const next = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "after", value: 40 },
     );
 
-    expect(getBlock(next.state, paraId)?.attrs.marginBlockEnd).toBe(40);
+    expect(getBlock(next.document, paraId)?.attrs.marginBlockEnd).toBe(40);
     // The OTHER edge is untouched.
-    expect(getBlock(next.state, paraId)?.attrs.marginBlockStart).toBeUndefined();
+    expect(getBlock(next.document, paraId)?.attrs.marginBlockStart).toBeUndefined();
     // A real change → new state reference.
-    expect(next.state).not.toBe(editor.state);
+    expect(next.document).not.toBe(editor.document);
   });
 
   it("edge 'before' value 24: sets marginBlockStart on the focus block", () => {
     const initial = createInitialEditorState(config);
     const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.state) as BlockId;
+    const paraId = firstChildId(editor.document) as BlockId;
 
     const next = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "before", value: 24 },
     );
 
-    expect(getBlock(next.state, paraId)?.attrs.marginBlockStart).toBe(24);
-    expect(getBlock(next.state, paraId)?.attrs.marginBlockEnd).toBeUndefined();
+    expect(getBlock(next.document, paraId)?.attrs.marginBlockStart).toBe(24);
+    expect(getBlock(next.document, paraId)?.attrs.marginBlockEnd).toBeUndefined();
   });
 
   it("value 0 is a valid explicit override (NOT treated as clear)", () => {
     const initial = createInitialEditorState(config);
     const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.state) as BlockId;
+    const paraId = firstChildId(editor.document) as BlockId;
 
     const next = reduceEditor(
       editor,
@@ -75,26 +75,26 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
 
     // 0 is set explicitly — a user choosing "no space after" overrides the
     // component's default 0.5em margin.
-    expect(getBlock(next.state, paraId)?.attrs.marginBlockEnd).toBe(0);
+    expect(getBlock(next.document, paraId)?.attrs.marginBlockEnd).toBe(0);
   });
 
   it("value null clears the attr (reverts to the component default)", () => {
     const initial = createInitialEditorState(config);
     let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.state) as BlockId;
+    const paraId = firstChildId(editor.document) as BlockId;
 
     editor = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "after", value: 40 },
     );
-    expect(getBlock(editor.state, paraId)?.attrs.marginBlockEnd).toBe(40);
+    expect(getBlock(editor.document, paraId)?.attrs.marginBlockEnd).toBe(40);
 
     const cleared = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "after", value: null },
     );
     // Clearing removes the attr entirely → component default em margin applies.
-    expect(getBlock(cleared.state, paraId)?.attrs.marginBlockEnd).toBeUndefined();
+    expect(getBlock(cleared.document, paraId)?.attrs.marginBlockEnd).toBeUndefined();
   });
 
   it("preserves the selection (paragraph spacing does not move the caret)", () => {
@@ -162,14 +162,14 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
     );
 
     // Every LEAF in the span is spaced.
-    expect(getBlock(next.state, "p0" as BlockId)?.attrs.marginBlockEnd).toBe(32);
-    expect(getBlock(next.state, "li" as BlockId)?.attrs.marginBlockEnd).toBe(32);
-    expect(getBlock(next.state, "p2" as BlockId)?.attrs.marginBlockEnd).toBe(32);
+    expect(getBlock(next.document, "p0" as BlockId)?.attrs.marginBlockEnd).toBe(32);
+    expect(getBlock(next.document, "li" as BlockId)?.attrs.marginBlockEnd).toBe(32);
+    expect(getBlock(next.document, "p2" as BlockId)?.attrs.marginBlockEnd).toBe(32);
 
     // Containers are NOT spaced: their attrs are untouched.
-    expect(getBlock(next.state, "sec" as BlockId)?.attrs.marginBlockEnd).toBeUndefined();
+    expect(getBlock(next.document, "sec" as BlockId)?.attrs.marginBlockEnd).toBeUndefined();
     // The flat list-item is a leaf, so it gets spaced; its list attrs are kept.
-    expect(getBlock(next.state, "li" as BlockId)?.attrs).toEqual({
+    expect(getBlock(next.document, "li" as BlockId)?.attrs).toEqual({
       listId: "L1",
       listLevel: 0,
       marginBlockEnd: 32,
@@ -179,23 +179,23 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
   it("undo restores the prior spacing", () => {
     const initial = createInitialEditorState(config);
     let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.state) as BlockId;
+    const paraId = firstChildId(editor.document) as BlockId;
 
     // First set to 16 so the prior spacing is a concrete value.
     editor = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "after", value: 16 },
     );
-    expect(getBlock(editor.state, paraId)?.attrs.marginBlockEnd).toBe(16);
+    expect(getBlock(editor.document, paraId)?.attrs.marginBlockEnd).toBe(16);
 
     const bumped = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "after", value: 40 },
     );
-    expect(getBlock(bumped.state, paraId)?.attrs.marginBlockEnd).toBe(40);
+    expect(getBlock(bumped.document, paraId)?.attrs.marginBlockEnd).toBe(40);
 
     const undone = reduceEditor(bumped, { type: "UNDO" });
-    expect(getBlock(undone.state, paraId)?.attrs.marginBlockEnd).toBe(16);
+    expect(getBlock(undone.document, paraId)?.attrs.marginBlockEnd).toBe(16);
   });
 
   it("no-op: setting the spacing a block already has returns the same editor", () => {
@@ -215,7 +215,7 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
     // identity is `state` reference equality — the editor OBJECT differs because
     // the dispatch entry-clear strips the prior mutating action's stale
     // `lastDirtyIds` hint (the SET_PARAGRAPH_SPACING above set a non-null set).
-    expect(again.state).toBe(editor.state);
+    expect(again.document).toBe(editor.document);
     expect(again.lastDirtyIds).toBeNull();
   });
 });

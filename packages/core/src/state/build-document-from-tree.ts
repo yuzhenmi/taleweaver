@@ -5,7 +5,7 @@ import type { InlineContent } from "./inline-content";
 import type { ReadonlyAttrs } from "./attrs";
 import type { ListDef } from "./list-defs";
 import { buildStateWithListDefs } from "./build-state-from-blocks";
-import type { State } from "./state";
+import type { Document } from "./state";
 
 /** A declarative container node: children, NO inlineContent. */
 export interface ContainerBlockNode {
@@ -42,11 +42,11 @@ function isLeaf(node: BlockNode): node is LeafBlockNode {
 }
 
 /**
- * Lower a declarative `BlockNode` tree to a `State`: a depth-first walk minting a
+ * Lower a declarative `BlockNode` tree to a `Document`: a depth-first walk minting a
  * fresh `BlockId` per node (via `allocator`), deriving
  * parentId / prevSiblingId / nextSiblingId / firstChildId / lastChildId from
  * tree position, then `buildStateWithListDefs`. The root node's minted id
- * becomes the State's rootId.
+ * becomes the Document's rootId.
  *
  * `listDefs` keys are listIds referenced by `list-item` leaf nodes'
  * `attrs.listId` (the CALLER mints those, e.g. one per source list — block ids
@@ -69,7 +69,7 @@ export function buildDocumentFromTree(
   listDefs: Record<string, ListDef>,
   allocator: IdAllocator,
   resolver: BlockKindResolver,
-): State {
+): Document {
   const blocks: Block[] = [];
 
   // Each recursive call receives a PRE-MINTED id (and pre-minted sibling ids),

@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId } from "../block-id";
 import { requireInTransaction } from "../yjs-doc";
@@ -29,7 +29,7 @@ export interface ReparentPlan {
  * never lost).
  */
 export function reparentChildren(
-  state: State,
+  state: Document,
   blockIds: readonly BlockId[],
   newParentId: BlockId,
   beforeSiblingId: BlockId | null = null,
@@ -42,7 +42,7 @@ export function reparentChildren(
 }
 
 export function planReparentChildren(
-  state: State,
+  state: Document,
   blockIds: readonly BlockId[],
   newParentId: BlockId,
   beforeSiblingId: BlockId | null = null,
@@ -173,7 +173,7 @@ export function reparentChildrenInTx(doc: Y.Doc, plan: ReparentPlan): void {
   moveEntities(doc, plan.nodes, plan.prevSiblingId, plan.newParentId, tree);
 }
 
-function subtreeNode(state: State, id: BlockId): TreeNode {
+function subtreeNode(state: Document, id: BlockId): TreeNode {
   const b = getBlock(state, id);
   if (b === null) throw new Error(`reparentChildren: block "${id}" not found`);
   const children: TreeNode[] = [];

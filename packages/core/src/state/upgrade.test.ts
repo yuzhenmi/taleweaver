@@ -5,7 +5,7 @@
 import { attrRegistry } from "../cascade/attr-registry";
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import { createState, getBlock, type State } from "./state";
+import { createState, getBlock, type Document } from "./state";
 import { createYDoc, getMetaMap } from "./yjs-doc";
 import { upgradeDocument, inspectDocument, CURRENT_SCHEMA_VERSION, type IncompatibleDocumentReport } from "./upgrade";
 import { LegacyDocumentError } from "./y-inline";
@@ -178,7 +178,7 @@ describe("upgradeDocument", () => {
 });
 
 describe("a peer update carrying legacy storage", () => {
-  function current(): State {
+  function current(): Document {
     const doc = legacyDoc([text("hello")]);
     upgradeDocument(withTestAttrs(doc), { resolver: TEST_RESOLVER });
     return createState({ resolver: TEST_RESOLVER, rootId: LEGACY_ROOT, doc });

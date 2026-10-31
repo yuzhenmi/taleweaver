@@ -47,7 +47,7 @@ function layoutOf(
   config: EditorConfig,
   hyphenator?: Hyphenator,
 ): VirtualLayoutTree {
-  const rendered = render(editor.state, config.componentRegistry, config.attrRegistry);
+  const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   const tree = layoutTreeIncremental(
     cascaded,

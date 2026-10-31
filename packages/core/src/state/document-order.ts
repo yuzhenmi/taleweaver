@@ -7,11 +7,11 @@ import {
   getTemplateContentIds,
   blockCount,
   createWalkGuard,
-  type State,
+  type Document,
 } from "./state";
 
 /** A block resolver: main-tree-only (`getBlock`) or any-tree (`resolveBlock`). */
-type BlockResolver = (state: State, id: BlockId) => Block | null;
+type BlockResolver = (state: Document, id: BlockId) => Block | null;
 
 /** Resolve from ANY of the three trees (main → embedContents → templateContents). */
 const resolveAnyTree: BlockResolver = (state, id) => resolveBlock(state, id)?.block ?? null;
@@ -34,7 +34,7 @@ const resolveAnyTree: BlockResolver = (state, id) => resolveBlock(state, id)?.bl
  *     blocks a doc-order traversal can visit (it sums all three trees; see
  *     `nextBlockInDocOrder`). A sibling chain longer than this can only be a cycle.
  */
-export function* iterateBlocksInDocumentOrder(state: State): Iterable<Block> {
+export function* iterateBlocksInDocumentOrder(state: Document): Iterable<Block> {
   const root = getBlock(state, state.rootId);
   if (root === null) return;
   yield* walk(state, state.rootId, new Set<BlockId>(), getBlock);
@@ -64,7 +64,7 @@ export function* iterateBlocksInDocumentOrder(state: State): Iterable<Block> {
  * exactly the consumed set. (The old sweep additionally surfaced some
  * sibling-reached containers, which every consumer already filtered out.)
  */
-export function* iterateLeafBlocksInDocumentOrder(state: State): Iterable<Block> {
+export function* iterateLeafBlocksInDocumentOrder(state: Document): Iterable<Block> {
   for (const block of iterateBlocksInDocumentOrder(state)) {
     if (block.firstChildId === null) yield block;
   }
@@ -87,7 +87,7 @@ export function* iterateLeafBlocksInDocumentOrder(state: State): Iterable<Block>
  * it tags lives in one tree — so each id's tagged items are visited contiguously,
  * in document order, within that tree's segment of this walk.
  */
-export function* iterateAllBlocksInDocumentOrder(state: State): Iterable<Block> {
+export function* iterateAllBlocksInDocumentOrder(state: Document): Iterable<Block> {
   yield* iterateBlocksInDocumentOrder(state);
   for (const rootId of getEmbedContentIds(state)) {
     yield* walk(state, rootId, new Set<BlockId>(), resolveAnyTree);
@@ -110,7 +110,7 @@ export function* iterateAllBlocksInDocumentOrder(state: State): Iterable<Block> 
  * and a list-free doc pays one full walk (the same walk `collectListEvents`
  * would do, but allocation-free).
  */
-export function docHasLists(state: State): boolean {
+export function docHasLists(state: Document): boolean {
   for (const block of iterateBlocksInDocumentOrder(state)) {
     if (block.type === "list-item") return true;
   }
@@ -118,7 +118,7 @@ export function docHasLists(state: State): boolean {
 }
 
 function* walk(
-  state: State,
+  state: Document,
   id: BlockId,
   visited: Set<BlockId>,
   resolve: BlockResolver,

@@ -12,9 +12,9 @@ export function handleMoveWord(editor: EditorState, { direction }: ActionOf<"MOV
   // the caret immediately BESIDE the object (before/after it), not past it. A
   // raw `moveByWord` from offset 0 of the atomic block would skip the image and
   // land inside the adjacent paragraph.
-  const objId = isObjectSelection(editor.state, editor.selection, config.componentRegistry);
+  const objId = isObjectSelection(editor.document, editor.selection, config.componentRegistry);
   if (objId !== null) return moveOffObject(editor, objId, direction);
 
-  const newFocus = moveByWord(editor.state, editor.selection.focus, direction);
+  const newFocus = moveByWord(editor.document, editor.selection.focus, direction);
   return { selection: createSpan(newFocus, newFocus) };
 }

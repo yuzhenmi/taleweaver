@@ -44,7 +44,7 @@ function makeConfig(): EditorConfig {
 }
 
 function getPage0(editor: EditorState, config: EditorConfig): LayoutBox {
-  const rendered = render(editor.state, config.componentRegistry, config.attrRegistry);
+  const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   const lt = layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
   if (lt.type === "virtual-root") return lt.getPage(0);
@@ -56,7 +56,7 @@ function getPage0(editor: EditorState, config: EditorConfig): LayoutBox {
 }
 
 function firstChildId(editor: EditorState): BlockId {
-  const root = finalSection(editor.state);
+  const root = finalSection(editor.document);
   if (root === null || root.firstChildId === null) throw new Error("no first block");
   return root.firstChildId;
 }

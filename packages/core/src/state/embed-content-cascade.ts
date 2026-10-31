@@ -1,4 +1,4 @@
-import type { State } from "./state";
+import type { Document } from "./state";
 import {
   getBlock,
   getEmbedContent,
@@ -37,7 +37,7 @@ import type { InlineContent } from "./inline-content";
  * has already been processed in an earlier cascade pass.
  */
 export function collectEmbedContentSubtree(
-  state: State,
+  state: Document,
   rootId: BlockId,
   out: Set<BlockId>,
 ): void {
@@ -105,7 +105,7 @@ export function collectEmbedContentSubtree(
  * O(N_blocks) on ops that delete a block.
  */
 export function assertNoOrphanedEmbedContent(
-  state: State,
+  state: Document,
   opName: string,
   dirtyIds?: ReadonlySet<BlockId>,
 ): void {
@@ -152,7 +152,7 @@ export function assertNoOrphanedEmbedContent(
  * inline content for orphan EmbedItem references. Used by the direct entry-
  * point (no dirtyIds) and by the deletion-detected fallback path.
  */
-function fullScanForOrphans(state: State, opName: string): void {
+function fullScanForOrphans(state: Document, opName: string): void {
   // The read model of every tree (not registry keys): implicit paragraphs
   // (`${anchor}#i`) carry content but have no registry entry.
   for (const block of iterateAllBlocksInDocumentOrder(state)) {
@@ -169,7 +169,7 @@ function fullScanForOrphans(state: State, opName: string): void {
  * — the invariant only covers reference-typed embed properties.
  */
 function assertNoOrphansInInlineContent(
-  state: State,
+  state: Document,
   owningBlockId: BlockId,
   content: InlineContent,
   opName: string,
@@ -232,7 +232,7 @@ function assertNoOrphansInInlineContent(
  * production call site inside `applyOperation`.
  */
 export function assertNoSharedEmbedContent(
-  state: State,
+  state: Document,
   opName: string,
   dirtyIds?: ReadonlySet<BlockId>,
 ): void {
@@ -253,7 +253,7 @@ export function assertNoSharedEmbedContent(
  * deletion ops short-circuit here).
  */
 function anyDirtyBlockHasEmbedRef(
-  state: State,
+  state: Document,
   dirtyIds: ReadonlySet<BlockId>,
 ): boolean {
   for (const id of dirtyIds) {
@@ -288,7 +288,7 @@ function inlineContentHasEmbedRef(content: InlineContent): boolean {
  * `Map<contentBlockId, owningBlockId>`. Throws on the first contentBlockId
  * that is already a key (a second owning anchor).
  */
-function fullScanForSharing(state: State, opName: string): void {
+function fullScanForSharing(state: Document, opName: string): void {
   const seenRefs = new Map<BlockId, BlockId>();
   for (const block of iterateAllBlocksInDocumentOrder(state)) {
     if (block.inlineContent !== null) accumulateSharingInInlineContent(block.id, block.inlineContent, seenRefs, opName);
@@ -339,7 +339,7 @@ function accumulateSharingInInlineContent(
  * Cycle-defended via the shared `out` Set.
  */
 export function collectEmbedContentSubtreeFromInlineContent(
-  state: State,
+  state: Document,
   content: InlineContent,
   out: Set<BlockId>,
 ): void {

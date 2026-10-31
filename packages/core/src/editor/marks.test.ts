@@ -69,7 +69,7 @@ function blockId(editor: EditorState): BlockId {
 }
 
 function items(editor: EditorState, id: BlockId = blockId(editor)): readonly InlineItem[] {
-  return getBlock(editor.state, id)?.inlineContent?.items ?? [];
+  return getBlock(editor.document, id)?.inlineContent?.items ?? [];
 }
 
 /** Text + attrs of every run, for compact assertions. */
@@ -124,9 +124,9 @@ describe("typing attributes", () => {
     let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "ab" });
     const id = blockId(s);
     s = run(s, config, select(id, 0, 2), { type: "SET_MARK", key: "tag", value: "t" }, caret(id, 2), { type: "INSERT_TEXT", text: "c" });
-    expect(getMarkRanges(s.state, "tag").map((r) => [r.from.offset, r.to.offset])).toEqual([[0, 3]]);
+    expect(getMarkRanges(s.document, "tag").map((r) => [r.from.offset, r.to.offset])).toEqual([[0, 3]]);
     s = run(s, config, select(id, 0, 3), { type: "SET_MARK", key: "secret", value: 1 }, caret(id, 3), { type: "INSERT_TEXT", text: "d" });
-    expect(getMarkRanges(s.state, "secret").map((r) => [r.from.offset, r.to.offset])).toEqual([[0, 3]]);
+    expect(getMarkRanges(s.document, "secret").map((r) => [r.from.offset, r.to.offset])).toEqual([[0, 3]]);
   });
 
   it("never inherits change-tracking provenance (direct typing inside a suggested insertion / formatting suggestion)", () => {
@@ -146,10 +146,10 @@ describe("typing attributes", () => {
     const config = makeConfig();
     let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "ab" });
     const id = blockId(s);
-    const docBefore = s.state;
+    const docBefore = s.document;
     s = run(s, config, { type: "TOGGLE_STYLE", style: "bold" });
-    expect(s.state).toBe(docBefore); // no document change
-    expect(getActiveFormatting(s.state, s.selection, s.storedAttrs).bold).toBe(true);
+    expect(s.document).toBe(docBefore); // no document change
+    expect(getActiveFormatting(s.document, s.selection, s.storedAttrs).bold).toBe(true);
     // Re-setting the SAME selection (e.g. a DOM selectionchange echo) keeps it.
     s = run(s, config, caret(id, 2));
     expect(s.storedAttrs).toEqual({ bold: true });
@@ -158,7 +158,7 @@ describe("typing attributes", () => {
     expect(s.storedAttrs).toBeUndefined();
     // Toggle off at the caret (inside bold now) → typed text plain; a move clears it.
     s = run(s, config, { type: "TOGGLE_STYLE", style: "bold" });
-    expect(getActiveFormatting(s.state, s.selection, s.storedAttrs).bold).toBe(false);
+    expect(getActiveFormatting(s.document, s.selection, s.storedAttrs).bold).toBe(false);
     s = run(s, config, caret(id, 3));
     expect(s.storedAttrs).toBeUndefined();
     s = run(s, config, caret(id, 4), { type: "TOGGLE_STYLE", style: "bold" }, { type: "INSERT_TEXT", text: "e" });
@@ -203,9 +203,9 @@ describe("typing attributes", () => {
     const id = blockId(s);
     s = run(s, config, select(id, 0, 2), { type: "TOGGLE_STYLE", style: "bold" }, caret(id, 1));
     s = run(s, config, { type: "PASTE", text: "x\ny\nz" });
-    const root = getBlock(s.state, finalSectionOf(s.state)); // the root holds sections
+    const root = getBlock(s.document, finalSectionOf(s.document)); // the root holds sections
     const ids: BlockId[] = [];
-    for (let c = root?.firstChildId ?? null; c !== null; c = getBlock(s.state, c)?.nextSiblingId ?? null) ids.push(c);
+    for (let c = root?.firstChildId ?? null; c !== null; c = getBlock(s.document, c)?.nextSiblingId ?? null) ids.push(c);
     expect(ids.map((b) => runs(s, b))).toEqual([
       [["ax", { bold: true }]],
       [["y", { bold: true }]],
@@ -238,7 +238,7 @@ describe("typing attributes", () => {
     const config = makeConfig();
     let s = run(createInitialEditorState(config), config, { type: "TOGGLE_STYLE", style: "bold" }, { type: "INSERT_TEXT", text: "B" });
     s = run(s, config, { type: "SPLIT_NODE" });
-    expect(getActiveFormatting(s.state, s.selection, s.storedAttrs).bold).toBe(true);
+    expect(getActiveFormatting(s.document, s.selection, s.storedAttrs).bold).toBe(true);
     s = run(s, config, { type: "INSERT_TEXT", text: "c" }, { type: "DELETE_BACKWARD" });
     expect(s.storedAttrs).toEqual({ bold: true });
     s = run(s, config, { type: "INSERT_TEXT", text: "d" });
@@ -261,10 +261,10 @@ describe("mark semantics", () => {
       { type: "SET_MARK", key: "person", value: { ref: "p", seen: 1 }, span: createSpan(createPosition(id, 1), createPosition(id, 3)) },
       { type: "SET_MARK", key: "person", value: { ref: "p", seen: 2 }, span: createSpan(createPosition(id, 3), createPosition(id, 5)) },
     );
-    expect(getMarkRanges(s.state, "person").map((r) => [r.from.offset, r.to.offset])).toEqual([[1, 5]]);
+    expect(getMarkRanges(s.document, "person").map((r) => [r.from.offset, r.to.offset])).toEqual([[1, 5]]);
     expect(run(s, config, caret(id, 2)).selection.focus.offset).toBe(1); // one unit 1..5, not 1..3
     s = run(s, config, { type: "REMOVE_MARK", key: "person", value: { ref: "p" }, span: createSpan(createPosition(id, 0), createPosition(id, 6)) });
-    expect(getMarkRanges(s.state, "person")).toEqual([]);
+    expect(getMarkRanges(s.document, "person")).toEqual([]);
   });
 
   it("overlapping atomic marks form one unit: a snapped caret never lands inside the other", () => {
@@ -300,18 +300,18 @@ describe("mark semantics", () => {
     const id = blockId(s);
     const all = createSpan(createPosition(id, 0), createPosition(id, 4));
     s = run(s, config, { type: "SET_MARK", key: "note", value: { id: 2 }, replace: { id: 1 }, span: all });
-    expect(getMarkRanges(s.state, "note").map((r) => r.value)).toEqual([{ id: 2 }]);
+    expect(getMarkRanges(s.document, "note").map((r) => r.value)).toEqual([{ id: 2 }]);
     s = run(s, config, { type: "UNDO" });
-    expect(getMarkRanges(s.state, "note").map((r) => r.value)).toEqual([{ id: 1 }]);
+    expect(getMarkRanges(s.document, "note").map((r) => r.value)).toEqual([{ id: 1 }]);
 
     const sug = makeConfig({ suggestingAuthor: "A" });
     let t = make();
     const tid = blockId(t);
     t = run(t, sug, { type: "SET_MARK", key: "note", value: { id: 2 }, replace: { id: 1 }, span: createSpan(createPosition(tid, 0), createPosition(tid, 4)) });
-    const suggestions = getSuggestions(t.state);
+    const suggestions = getSuggestions(t.document);
     expect(suggestions).toHaveLength(1);
     t = run(t, config, { type: "ACCEPT_SUGGESTION", id: suggestions[0]?.id ?? ("" as never) });
-    expect(getMarkRanges(t.state, "note").map((r) => r.value)).toEqual([{ id: 2 }]);
+    expect(getMarkRanges(t.document, "note").map((r) => r.value)).toEqual([{ id: 2 }]);
   });
 
   it("a range endpoint inside an atomic mark covers it; only a focus arriving from an edge jumps", () => {
@@ -333,18 +333,18 @@ describe("mark semantics", () => {
     let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "ab" });
     s = run(s, config, { type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "cd" });
     const n = blockId(s);
-    const p = getBlock(s.state, n)?.prevSiblingId;
+    const p = getBlock(s.document, n)?.prevSiblingId;
     if (p === undefined || p === null) throw new Error("no paragraph before the caret's");
     const sel = (from: number): EditorAction => ({
       type: "SET_SELECTION",
       selection: createSpan(createPosition(p, from), createPosition(n, 0)),
     });
     s = run(s, config, sel(0), { type: "TOGGLE_STYLE", style: "bold" });
-    expect(getBlock(s.state, p)?.markAttrs).toEqual({ bold: true });
+    expect(getBlock(s.document, p)?.markAttrs).toEqual({ bold: true });
     // Only the ¶ selected — (P, len)–(N, 0); a non-inclusive mark never reaches the ¶.
     s = run(s, config, sel(2), { type: "SET_MARK", key: "tag", value: "t" }, { type: "SET_MARK", key: "secret", value: 1 });
-    expect(getBlock(s.state, p)?.markAttrs).toEqual({ bold: true, tag: "t" });
-    expect(getBlock(s.state, n)?.markAttrs).toBeUndefined();
+    expect(getBlock(s.document, p)?.markAttrs).toEqual({ bold: true, tag: "t" });
+    expect(getBlock(s.document, n)?.markAttrs).toBeUndefined();
   });
 
   it("SET_MARK + getMarkRanges; adjacent runs with different values stay distinct", () => {
@@ -352,7 +352,7 @@ describe("mark semantics", () => {
     let s = withMention(config);
     const id = blockId(s);
     s = run(s, config, select(id, 7, 8), { type: "SET_MARK", key: "mention", value: { ref: "b" } });
-    expect(getMarkRanges(s.state, "mention")).toEqual([
+    expect(getMarkRanges(s.document, "mention")).toEqual([
       { from: createPosition(id, 3), to: createPosition(id, 7), value: { ref: "a" } },
       { from: createPosition(id, 7), to: createPosition(id, 8), value: { ref: "b" } },
     ]);
@@ -363,7 +363,7 @@ describe("mark semantics", () => {
     let s = withMention(config);
     const id = blockId(s);
     s = run(s, config, select(id, 0, 5), { type: "TOGGLE_STYLE", style: "bold" });
-    expect(getMarkRanges(s.state, "mention").map((r) => [r.from.offset, r.to.offset])).toEqual([[3, 7]]);
+    expect(getMarkRanges(s.document, "mention").map((r) => [r.from.offset, r.to.offset])).toEqual([[3, 7]]);
     s = run(s, config, select(id, 0, 15), { type: "CLEAR_FORMATTING" });
     expect(runs(s)).toEqual([["Hi ", {}], ["Anna", { mention: { ref: "a" } }], [" and Bob", {}]]);
   });
@@ -386,7 +386,7 @@ describe("mark semantics", () => {
 
   it("atomic: backspace / delete / a partial range delete remove the whole mention; typing at its edge does not extend it", () => {
     const config = makeConfig();
-    // Each branch starts from a fresh document (a State's Y.Doc is not forkable).
+    // Each branch starts from a fresh document (a Document's Y.Doc is not forkable).
     const from = (offset: number, ...actions: EditorAction[]): EditorState => {
       const base = withMention(config);
       return run(base, config, caret(blockId(base), offset), ...actions);
@@ -402,7 +402,7 @@ describe("mark semantics", () => {
     expect(runs(range)).toEqual([["Hi nd Bob", {}]]);
     let typed = from(7, { type: "INSERT_TEXT", text: "!" });
     typed = run(typed, config, caret(blockId(typed), 3), { type: "INSERT_TEXT", text: "@" });
-    expect(getMarkRanges(typed.state, "mention").map((r) => [r.from.offset, r.to.offset])).toEqual([[4, 8]]);
+    expect(getMarkRanges(typed.document, "mention").map((r) => [r.from.offset, r.to.offset])).toEqual([[4, 8]]);
   });
 
   it("atomic delete in suggesting mode suggests deleting the whole mention", () => {
@@ -423,14 +423,14 @@ describe("mark semantics", () => {
       { type: "SET_MARK", key: "note", value: { id: 1 }, span: createSpan(createPosition(id, 0), createPosition(id, 4)) },
       { type: "SET_MARK", key: "note", value: { id: 2 }, span: createSpan(createPosition(id, 2), createPosition(id, 6)) },
     );
-    expect(getMarkRanges(s.state, "note").map((r) => [r.from.offset, r.to.offset, r.value])).toEqual([
+    expect(getMarkRanges(s.document, "note").map((r) => [r.from.offset, r.to.offset, r.value])).toEqual([
       [0, 4, { id: 1 }],
       [2, 6, { id: 2 }],
     ]);
     s = run(s, config, { type: "REMOVE_MARK", key: "note", value: { id: 1 }, span: createSpan(createPosition(id, 0), createPosition(id, 6)) });
-    expect(getMarkRanges(s.state, "note").map((r) => [r.from.offset, r.to.offset])).toEqual([[2, 6]]);
+    expect(getMarkRanges(s.document, "note").map((r) => [r.from.offset, r.to.offset])).toEqual([[2, 6]]);
     s = run(s, config, { type: "REMOVE_MARK", key: "note", span: createSpan(createPosition(id, 0), createPosition(id, 6)) });
-    expect(getMarkRanges(s.state, "note")).toEqual([]);
+    expect(getMarkRanges(s.document, "note")).toEqual([]);
   });
 
   it("REMOVE_MARK with a value removes only the matching exclusive ranges; without, all", () => {
@@ -439,18 +439,18 @@ describe("mark semantics", () => {
     const id = blockId(s);
     s = run(s, config, select(id, 12, 15), { type: "SET_MARK", key: "mention", value: { ref: "b" } }, select(id, 0, 15));
     s = run(s, config, { type: "REMOVE_MARK", key: "mention", value: { ref: "b" } });
-    expect(getMarkRanges(s.state, "mention").map((r) => r.value)).toEqual([{ ref: "a" }]);
+    expect(getMarkRanges(s.document, "mention").map((r) => r.value)).toEqual([{ ref: "a" }]);
     s = run(s, config, { type: "REMOVE_MARK", key: "mention" });
-    expect(getMarkRanges(s.state, "mention")).toEqual([]);
+    expect(getMarkRanges(s.document, "mention")).toEqual([]);
   });
 
   it("survives undo / redo", () => {
     const config = makeConfig();
     const s = withMention(config);
     const undone = run(s, config, { type: "UNDO" });
-    expect(getMarkRanges(undone.state, "mention")).toEqual([]);
+    expect(getMarkRanges(undone.document, "mention")).toEqual([]);
     const redone = run(undone, config, { type: "REDO" });
-    expect(getMarkRanges(redone.state, "mention").map((r) => [r.from.offset, r.to.offset])).toEqual([[3, 7]]);
+    expect(getMarkRanges(redone.document, "mention").map((r) => [r.from.offset, r.to.offset])).toEqual([[3, 7]]);
   });
 
   it("survives block split and join (a non-atomic mark split mid-range, then re-joined)", () => {
@@ -458,9 +458,9 @@ describe("mark semantics", () => {
     let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "abcd" });
     const id = blockId(s);
     s = run(s, config, select(id, 0, 4), { type: "SET_MARK", key: "tag", value: "t" }, caret(id, 2), { type: "SPLIT_NODE" });
-    expect(getMarkRanges(s.state, "tag").map((r) => [r.from.offset, r.to.offset])).toEqual([[0, 2], [0, 2]]);
+    expect(getMarkRanges(s.document, "tag").map((r) => [r.from.offset, r.to.offset])).toEqual([[0, 2], [0, 2]]);
     s = run(s, config, { type: "DELETE_BACKWARD" });
-    expect(getMarkRanges(s.state, "tag")).toEqual([
+    expect(getMarkRanges(s.document, "tag")).toEqual([
       { from: createPosition(id, 0), to: createPosition(id, 4), value: "t" },
     ]);
   });
@@ -477,7 +477,7 @@ describe("mark semantics", () => {
     const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
     reg.register(createJsonDocumentSerializer({ allocator: productionAllocator, blockKindResolver: config.componentRegistry }));
     for (const format of [JSON_FORMAT, BINARY_FORMAT]) {
-      const back: State = deserializeDocument(serializeDocument(s.state, format, reg), format, reg);
+      const back: State = deserializeDocument(serializeDocument(s.document, format, reg), format, reg);
       expect(getMarkRanges(back, "mention").map((r) => [r.from.offset, r.to.offset, r.value])).toEqual([[3, 7, { ref: "a" }]]);
       expect(getMarkRanges(back, "note").map((r) => [r.from.offset, r.to.offset, r.value])).toEqual([[0, 5, { id: 7 }]]);
     }
@@ -488,13 +488,13 @@ describe("mark semantics", () => {
     let s = withMention(config);
     const id = blockId(s);
     s = run(s, config, select(id, 0, 15), { type: "SET_MARK", key: "secret", value: true });
-    const frag = extractFragment(s.state, s.selection);
+    const frag = extractFragment(s.document, s.selection);
     expect(getMarkRanges(frag, "secret")).toEqual([]);
     expect(getMarkRanges(frag, "mention").map((r) => r.value)).toEqual([{ ref: "a" }]);
     const fresh = createInitialEditorState(config);
     const pasted = run(fresh, config, { type: "PASTE", text: "x", clip: encodeFragmentClip(frag) });
-    expect(getMarkRanges(pasted.state, "mention").map((r) => [r.from.offset, r.to.offset, r.value])).toEqual([[3, 7, { ref: "a" }]]);
-    expect(getMarkRanges(pasted.state, "secret")).toEqual([]);
+    expect(getMarkRanges(pasted.document, "mention").map((r) => [r.from.offset, r.to.offset, r.value])).toEqual([[3, 7, { ref: "a" }]]);
+    expect(getMarkRanges(pasted.document, "secret")).toEqual([]);
   });
 
   it("SET_MARK in suggesting mode is a formatting suggestion; accepting applies it", () => {
@@ -503,11 +503,11 @@ describe("mark semantics", () => {
     const id = blockId(s);
     const sug = makeConfig({ suggestingAuthor: "A" });
     s = run(s, sug, select(id, 3, 7), { type: "SET_MARK", key: "mention", value: { ref: "a" } });
-    expect(getMarkRanges(s.state, "mention")).toEqual([]);
-    const [suggestion] = getSuggestions(s.state);
+    expect(getMarkRanges(s.document, "mention")).toEqual([]);
+    const [suggestion] = getSuggestions(s.document);
     expect(suggestion?.kind).toBe("formatting");
     s = run(s, config, { type: "ACCEPT_SUGGESTION", id: suggestion?.id ?? ("" as never) });
-    expect(getMarkRanges(s.state, "mention").map((r) => [r.from.offset, r.to.offset])).toEqual([[3, 7]]);
+    expect(getMarkRanges(s.document, "mention").map((r) => [r.from.offset, r.to.offset])).toEqual([[3, 7]]);
   });
 
   it("getTypingAttrs is public and mirrors what INSERT_TEXT uses", () => {
@@ -519,7 +519,7 @@ describe("mark semantics", () => {
   it("render carries mark DOM hints on the run (toDom) and the mark's toStyle", () => {
     const config = makeConfig();
     const s = withMention(config);
-    const root = render(s.state, config.componentRegistry, config.attrRegistry).root;
+    const root = render(s.document, config.componentRegistry, config.attrRegistry).root;
     const texts: RenderNode[] = [];
     const walk = (n: RenderNode): void => {
       if (n.type === "text") texts.push(n);
@@ -536,7 +536,7 @@ describe("mark semantics", () => {
   it("a state built from a document keeps marks editable (createEditorStateFromState)", () => {
     const config = makeConfig();
     const s = withMention(config);
-    const fresh = createEditorStateFromState(s.state, initialSelectionForState(s.state), config);
+    const fresh = createEditorStateFromState(s.document, initialSelectionForState(s.document), config);
     expect(run(fresh, config, caret(blockId(s), 4)).selection.focus.offset).toBe(3);
   });
 });

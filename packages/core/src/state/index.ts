@@ -37,14 +37,14 @@
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 1 — types and access primitives
 //
-// Yjs-free value types plus the narrow O(1) snapshot accessors. `State`'s
+// Yjs-free value types plus the narrow O(1) snapshot accessors. `Document`'s
 // only public field is `rootId`; the underlying Y.Doc + snapshot cache live
 // behind the non-exported STATE_INTERNAL symbol (deliberately absent above).
 // ─────────────────────────────────────────────────────────────────────────
 
 // State container, transaction runner, snapshot accessors.
 export type {
-  State,
+  Document as State,
   OperationResult,
   ResolvedBlock,
   ResolvedBlockKind,
@@ -229,7 +229,7 @@ export { getMarkRanges, blockMarkRanges, markEqualityOf } from "./mark-ranges";
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 3 — state-mutating operations + history
 //
-// The audited write surface. Every op takes a State + args and returns an
+// The audited write surface. Every op takes a Document + args and returns an
 // OperationResult (new state + dirtyIds). Editor action handlers are the
 // sole external callers; each composes one or more ops then records a
 // single undo entry via History.
@@ -457,7 +457,7 @@ export {
   buildSuggestionRangeIndex,
   resolveSuggestionRange,
   getSuggestions,
-  // `State`-level record read used by the render pass (expandInlineItems) to
+  // `Document`-level record read used by the render pass (expandInlineItems) to
   // resolve suggestion visuals (author color + underline/lineThrough) without
   // piercing STATE_INTERNAL.
   readSuggestionRecordFromState,
@@ -506,7 +506,7 @@ export { History, createHistory, UNDO_COALESCE_PAUSE_MS } from "./history";
 // Fragment extraction (copy-side producer)
 // ─────────────────────────────────────────────────────────────────────────
 
-// `extractFragment(state, span)` produces a self-contained fragment `State`
+// `extractFragment(state, span)` produces a self-contained fragment `Document`
 // (a mini-document: fresh `document` root + selected content + referenced
 // listDefs + footnote embedContents + suggestion records). It is the
 // COPY-side producer; the backends' copy path feeds its output to `encodeHtml`
@@ -518,7 +518,7 @@ export { extractFragment } from "./ops/extract-fragment";
 // ─────────────────────────────────────────────────────────────────────────
 
 // `insertFragment(state, selection, fragment, allocator)` inserts a fragment
-// `State` into `state` at `selection` in DIRECT (non-suggesting) mode.
+// `Document` into `state` at `selection` in DIRECT (non-suggesting) mode.
 // Supports both leaf-only and container top-level blocks; container subtrees
 // are materialized as siblings (the split-merge algorithm handles all cases).
 export type { InsertFragmentResult } from "./ops/insert-fragment";
@@ -546,7 +546,7 @@ export { createEmptyDocument } from "./initial-state";
 
 // Declarative construction — the SAFE public counterpart to the internal
 // `buildStateFromBlocks`. `buildDocumentFromTree` lowers a nested `BlockNode`
-// tree (no ids, no manual sibling/parent pointers) to a `State`, minting ids
+// tree (no ids, no manual sibling/parent pointers) to a `Document`, minting ids
 // and DERIVING all structural links. It is the format-agnostic foundation any
 // importer (e.g. the HTML serializer) targets. (`buildStateFromBlocks` /
 // `buildStateWithListDefs` stay state-module-internal — barrel-excluded — since

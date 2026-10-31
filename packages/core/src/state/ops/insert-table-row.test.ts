@@ -5,10 +5,10 @@ import { getBlock } from "../state";
 import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
 import { createTestAllocator } from "../block-id";
 import type { BlockId } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../state";
 
 // doc > table[0.5/0.5] > row0(cA,cB) / row1(cC,cD); each cell > paragraph.
-function tableState(): State {
+function tableState(): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -28,7 +28,7 @@ function tableState(): State {
   });
 }
 
-const ctxAt = (state: State, blockId: string) => {
+const ctxAt = (state: Document, blockId: string) => {
   const ctx = resolveTableContext(state, blockId as BlockId);
   if (ctx === null) throw new Error("no ctx");
   return ctx;
@@ -113,7 +113,7 @@ describe("insertTableRow", () => {
 
   it("keeps headerRowCount naming the leading block across an insert (#487)", () => {
     // 4-row single-column table with headerRowCount=2 (rows 0–1 pinned).
-    const fourRowHeaderTable = (): State =>
+    const fourRowHeaderTable = (): Document =>
       buildState({
         rootId: "doc",
         blocks: [
@@ -133,7 +133,7 @@ describe("insertTableRow", () => {
           buildBlock({ id: "p3", type: "paragraph", parentId: "c3", inlineContent: inlineContent([]) }),
         ],
       });
-    const hrc = (s: State) => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
+    const hrc = (s: Document) => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
     // Insert INSIDE the header (above row 1 → destination index 1 < 2) → 3.
     const inside = insertTableRow(fourRowHeaderTable(), ctxAt(fourRowHeaderTable(), "p1"), "above", createTestAllocator("n"));
     expect(hrc(inside.state)).toBe(3);

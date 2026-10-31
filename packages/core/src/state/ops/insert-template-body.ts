@@ -1,4 +1,4 @@
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import { mergeAttrs } from "../attrs";
@@ -75,7 +75,7 @@ const REGION_ATTR_KEY: Record<TemplateRegion, "headerBlockId" | "footerBlockId">
  * rather than creating a duplicate.
  */
 export function insertTemplateBody(
-  state: State,
+  state: Document,
   args: InsertTemplateBodyArgs,
   allocator: IdAllocator,
 ): InsertTemplateBodyResult {

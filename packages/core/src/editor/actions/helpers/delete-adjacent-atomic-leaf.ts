@@ -33,14 +33,14 @@ export function deleteAdjacentAtomicLeaf(
   const neighbourId =
     side === "backward" ? currentBlock.prevSiblingId : currentBlock.nextSiblingId;
   if (neighbourId === null) return null;
-  const neighbour = getBlock(editor.state, neighbourId);
+  const neighbour = getBlock(editor.document, neighbourId);
   if (neighbour === null) return null;
   if (editor.config.componentRegistry.getBlockKind(neighbour.type) !== "atomic-leaf") {
     return null;
   }
 
-  const result = removeBlock(editor.state, neighbourId);
-  if (result.state === editor.state) return null;
+  const result = removeBlock(editor.document, neighbourId);
+  if (result.state === editor.document) return null;
 
   return { change: result, selection: createSpan(caret, caret) };
 }

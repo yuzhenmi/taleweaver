@@ -40,7 +40,7 @@ import { formattingSuggestionIds } from "../../state";
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, finalSectionOf(editor.state));
+  const root = getBlock(editor.document, finalSectionOf(editor.document));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -84,7 +84,7 @@ function seededSelection(config: EditorConfig): { editor: EditorState; paraId: B
 
 /** Every text item of `paraId`. */
 function textItems(editor: EditorState, paraId: BlockId) {
-  return (getBlock(editor.state, paraId)?.inlineContent?.items ?? []).filter(
+  return (getBlock(editor.document, paraId)?.inlineContent?.items ?? []).filter(
     (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",
   );
 }
@@ -108,7 +108,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     }
 
     // Exactly one formatting record, by "alice", proposing bold:true.
-    const suggestions = getSuggestions(next.state);
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("formatting");
     expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
@@ -128,9 +128,9 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
   it("accept: the proposal lands as live bold AND the formattingSuggestionId is stripped; the record is gone", () => {
     const { editor, paraId } = seededSelection(suggestingConfig);
     const suggested = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
-    const id = nth(getSuggestions(suggested.state), 0, "suggestion").id;
+    const id = nth(getSuggestions(suggested.document), 0, "suggestion").id;
 
-    const accepted = acceptSuggestion(suggested.state, id);
+    const accepted = acceptSuggestion(suggested.document, id);
 
     const runs = (getBlock(accepted.state, paraId)?.inlineContent?.items ?? []).filter(
       (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",
@@ -146,9 +146,9 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
   it("reject: the formattingSuggestionId is stripped, NO live bold lands; the record is gone", () => {
     const { editor, paraId } = seededSelection(suggestingConfig);
     const suggested = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
-    const id = nth(getSuggestions(suggested.state), 0, "suggestion").id;
+    const id = nth(getSuggestions(suggested.document), 0, "suggestion").id;
 
-    const rejected = rejectSuggestion(suggested.state, id);
+    const rejected = rejectSuggestion(suggested.document, id);
 
     const runs = (getBlock(rejected.state, paraId)?.inlineContent?.items ?? []).filter(
       (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",
@@ -182,7 +182,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     const selected = selectIn(bolded.editor, bolded.paraId, 0, 6, suggestingConfig);
     const next = reduceEditor(selected, { type: "TOGGLE_STYLE", style: "bold" });
 
-    const suggestions = getSuggestions(next.state);
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("formatting");
     // The proposal is to REMOVE bold — `{ bold: undefined }` is a valid delta.
@@ -201,7 +201,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     // Accept the removal proposal → live bold is actually REMOVED. This locks the
     // full removal round-trip: the undefined-valued `proposedAttrs` survives Yjs
     // AND `acceptSuggestion` applies it (strips the live attr), not just records it.
-    const accepted = acceptSuggestion(next.state, nth(suggestions, 0, "suggestion").id);
+    const accepted = acceptSuggestion(next.document, nth(suggestions, 0, "suggestion").id);
     const acceptedRuns = (getBlock(accepted.state, bolded.paraId)?.inlineContent?.items ?? []).filter(
       (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",
     );
@@ -216,11 +216,11 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
   it("is undoable: UNDO reverts the mark + record (zero suggestions, no formattingSuggestionId)", () => {
     const { editor, paraId } = seededSelection(suggestingConfig);
     const suggested = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
-    expect(getSuggestions(suggested.state)).toHaveLength(1);
+    expect(getSuggestions(suggested.document)).toHaveLength(1);
     expect(suggested.history.canUndo()).toBe(true);
 
     const undone = reduceEditor(suggested, { type: "UNDO" });
-    expect(getSuggestions(undone.state)).toHaveLength(0);
+    expect(getSuggestions(undone.document)).toHaveLength(0);
     for (const run of textItems(undone, paraId)) {
       expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
       expect(run.attrs.bold).toBeUndefined();
@@ -235,7 +235,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
       expect(run.attrs.bold).toBe(true);
       expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
     }
-    expect(getSuggestions(next.state)).toHaveLength(0);
+    expect(getSuggestions(next.document)).toHaveLength(0);
   });
 });
 
@@ -245,7 +245,7 @@ describe("handleToggleStyle — suggesting over another formatting suggestion", 
     const bob: EditorConfig = { ...directConfig, suggestingAuthor: "bob", now: () => 2000 };
     const bold = reduceEditor(selectIn(editor, paraId, 0, 4, suggestingConfig), { type: "TOGGLE_STYLE", style: "bold" });
     const both = reduceEditor(selectIn(bold, paraId, 2, 6, bob), { type: "TOGGLE_STYLE", style: "italic" });
-    const byAuthor = (e: EditorState, author: string) => getSuggestions(e.state).find((s) => s.author === author);
+    const byAuthor = (e: EditorState, author: string) => getSuggestions(e.document).find((s) => s.author === author);
     const range = (e: EditorState, author: string) => {
       const r = byAuthor(e, author)?.range;
       return r === undefined || r === null ? null : [r.start.offset, r.end.offset];
@@ -280,7 +280,7 @@ describe("handleToggleStyle — suggesting over another formatting suggestion", 
         const bob: EditorConfig = { ...directConfig, suggestingAuthor: "bob", now: () => 1000 };
         const red = reduceEditor(selectIn(editor, paraId, 0, 6, suggestingConfig), { type: "SET_TEXT_COLOR", color: "red" });
         const blue = reduceEditor(selectIn(red, paraId, 2, 4, bob), { type: "SET_TEXT_COLOR", color: "blue" });
-        expect(getSuggestions(blue.state).map((x) => x.id).sort()).toEqual([...ids].sort());
+        expect(getSuggestions(blue.document).map((x) => x.id).sort()).toEqual([...ids].sort());
         const accepted = reduceEditor({ ...blue, config: directConfig }, { type: "ACCEPT_ALL_SUGGESTIONS" });
         expect(textItems(accepted, paraId).find((r) => r.text.includes("c"))?.attrs.color).toBe("blue");
       } finally {

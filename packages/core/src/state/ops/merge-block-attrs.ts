@@ -1,5 +1,5 @@
 import { attrRegistryOf } from "../mark-attrs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -30,7 +30,7 @@ import { writeBlockAttrs } from "../flow-ops";
  * Throws if the block does not exist.
  */
 export function mergeBlockAttrs(
-  state: State,
+  state: Document,
   blockId: BlockId,
   incoming: ReadonlyAttrs,
 ): OperationResult {

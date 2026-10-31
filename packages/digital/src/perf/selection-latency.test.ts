@@ -61,7 +61,7 @@ function shiftDown(from: number): { touched: number[]; walked: number[]; rendere
     initialState: buildDocumentFromTree(chapter(1000), {}, createTestAllocator(), createDefaultComponentRegistry()),
     doc: document,
   });
-  const state = controller.editorState.state;
+  const state = controller.editorState.document;
   // The root's children are sections: the body is the final section.
   const body = getBlock(state, getBlock(state, state.rootId)?.lastChildId ?? state.rootId);
   const ids: BlockId[] = [];
@@ -184,7 +184,7 @@ describe("digital selected-¶ under a peer's edit", () => {
       setPerfTraceEnabled(false);
     }
     walks.push(countOf("digital.selectedParagraphWalk"));
-    expect(getBlock(controller.editorState.state, at(0))).toBeNull();
+    expect(getBlock(controller.editorState.document, at(0))).toBeNull();
     expect(controller.editorState.selection.anchor.blockId).toBe(at(1));
     console.log(`selected-¶ walk per remote change, 900-paragraph selection: ${walks.join(", ")}`);
     expect(container.textContent).toContain("x");

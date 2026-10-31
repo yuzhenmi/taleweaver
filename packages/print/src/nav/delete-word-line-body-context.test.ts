@@ -48,7 +48,7 @@ function withFootnoteBodyText(text: string): { ctx: NavCtx; bodyId: BlockId } {
   ctx = dispatch(ctx, { type: "INSERT_FOOTNOTE" });
   ctx = dispatch(ctx, { type: "INSERT_TEXT", text });
   const bodyId = ctx.editor.selection.focus.blockId;
-  const block = resolveBlock(ctx.editor.state, bodyId)?.block ?? null;
+  const block = resolveBlock(ctx.editor.document, bodyId)?.block ?? null;
   if (block === null || block.inlineContent === null) {
     throw new Error("test setup: footnote body block missing inline content");
   }
@@ -69,13 +69,13 @@ function selectInBlock(ctx: NavCtx, blockId: BlockId, start: number, end: number
 describe("#430 — DELETE_LINE deletes a non-collapsed range inside a footnote body", () => {
   it("DELETE_LINE with a selection inside the footnote body deletes the selected text", () => {
     let { ctx, bodyId } = withFootnoteBodyText("hello world");
-    expect(bodyTextOf(ctx.editor.state, bodyId)).toBe("hello world");
+    expect(bodyTextOf(ctx.editor.document, bodyId)).toBe("hello world");
 
     // Select "world" (offsets 6..11).
     ctx = selectInBlock(ctx, bodyId, 6, 11);
     ctx = nav(ctx, { type: "DELETE_LINE" });
 
-    expect(bodyTextOf(ctx.editor.state, bodyId)).toBe("hello ");
+    expect(bodyTextOf(ctx.editor.document, bodyId)).toBe("hello ");
     expect(ctx.editor.selection.anchor).toEqual(ctx.editor.selection.focus);
     expect(ctx.editor.selection.focus).toEqual({ blockId: bodyId, offset: 6 });
   });
@@ -88,7 +88,7 @@ describe("#430 — main-tree DELETE_LINE selection delete unchanged", () => {
     const blockId = ctx.editor.selection.focus.blockId;
     ctx = selectInBlock(ctx, blockId, 6, 11);
     ctx = nav(ctx, { type: "DELETE_LINE" });
-    expect(bodyTextOf(ctx.editor.state, blockId)).toBe("hello ");
+    expect(bodyTextOf(ctx.editor.document, blockId)).toBe("hello ");
     expect(ctx.editor.selection.anchor).toEqual(ctx.editor.selection.focus);
     expect(ctx.editor.selection.focus).toEqual({ blockId, offset: 6 });
   });

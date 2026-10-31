@@ -14,7 +14,7 @@ import {
 } from "./split-block";
 import { planInsertText, insertTextInTx } from "./insert-text";
 import { setBlockAttrs } from "./set-block-attrs";
-import { applyOperation, createState, getBlock, type State } from "../state";
+import { applyOperation, createState, getBlock, type Document } from "../state";
 import { STATE_INTERNAL } from "../state-internal";
 import { createHistory } from "../history";
 import type { Block } from "../block";
@@ -25,18 +25,18 @@ import { createTestAllocator, type BlockId } from "../block-id";
 
 const id = (s: string) => s as BlockId;
 /** doc > [blocks…] (a section-less document: its blocks sit in the final section). */
-function doc(...blocks: Block[]): State {
+function doc(...blocks: Block[]): Document {
   const ids = blocks.map((b) => b.id);
   const linked = blocks.map((b, i) => ({ ...b, parentId: id("doc"), prevSiblingId: ids[i - 1] ?? null, nextSiblingId: ids[i + 1] ?? null }));
   return buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document", firstChildId: ids[0] ?? null, lastChildId: ids[ids.length - 1] ?? null }), ...linked] });
 }
 const para = (pid: string, ...items: Parameters<typeof inlineContent>[0]) => buildBlock({ id: pid, type: "paragraph", inlineContent: inlineContent(items) });
-const fin = (s: State): BlockId => {
+const fin = (s: Document): BlockId => {
   const f = getBlock(s, id("doc"))?.lastChildId;
   if (f === null || f === undefined) throw new Error("no final section");
   return f;
 };
-const items = (s: State, b: string) => getBlock(s, id(b))?.inlineContent?.items;
+const items = (s: Document, b: string) => getBlock(s, id(b))?.inlineContent?.items;
 
 describe("splitBlockAtPosition — the head takes the new id, the tail keeps B", () => {
   it("mid-text: H = [0, k), B = [k, len); links and dirty ids", () => {
@@ -225,7 +225,7 @@ describe("splitBlockAtPosition — newBlockInit, one-shot attrs, ¶ character pr
 
   it("split × a concurrent attr edit on B: the tail has the peer's write, H keeps the split-time copy (y-quill)", () => {
     const base = doc(buildBlock({ id: "b", type: "paragraph", attrs: { align: "left" }, inlineContent: inlineContent([text("abcd")]) }));
-    const peer = (c: number): State => {
+    const peer = (c: number): Document => {
       const d = new Y.Doc();
       d.clientID = c;
       Y.applyUpdate(d, Y.encodeStateAsUpdate(base[STATE_INTERNAL].doc));

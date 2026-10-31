@@ -121,8 +121,8 @@ export function BlockHoverHandles({
   const clusterRef = useRef<HTMLDivElement>(null);
 
   // Live refs for the window/wrapper listeners (which close over a stale render).
-  const stateRef = useRef<State>(editorState.state);
-  stateRef.current = editorState.state;
+  const stateRef = useRef<State>(editorState.document);
+  stateRef.current = editorState.document;
   const hoveredRef = useRef<Hovered | null>(hovered);
   hoveredRef.current = hovered;
   const menuOpenRef = useRef<boolean>(menu !== null);

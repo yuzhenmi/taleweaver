@@ -484,7 +484,7 @@ describe("emitPageContent — suggested-boundary ¶ mark (change tracking)", () 
     e = reduceEditor({ ...e, config: alice }, { type: "SET_SELECTION", selection: createSpan(createPosition(second, 0), createPosition(second, 0)) });
     e = reduceEditor(e, { type: "DELETE_BACKWARD" }); // a pending join, drawn at the end of "Anna"
     const pageConfig = { pageInlineSize: 200, pageBlockSize: 100, pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 }, pageGap: 10 };
-    const tree = layoutTree(render(e.state, componentRegistry, attrRegistry).root, 200, createMockShaper(8, 16), pageConfig);
+    const tree = layoutTree(render(e.document, componentRegistry, attrRegistry).root, 200, createMockShaper(8, 16), pageConfig);
     if (tree.type !== "virtual-root") throw new Error("expected a paginated tree");
     const { contentBytes } = emitPageContent(tree.getPage(0), {
       provider: createStandard14FontProvider(),

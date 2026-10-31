@@ -34,7 +34,7 @@ export function handleInsertInlineImage(
   // Delete a non-collapsed selection first (Google Docs replaces the selection),
   // then splice the image at the collapse point. A cross-context / cross-parent
   // expanded selection is un-deletable → no-op.
-  const prep = prepareEmbedInsertPoint(editor.state, editor.selection);
+  const prep = prepareEmbedInsertPoint(editor.document, editor.selection);
   if (!prep.ok) return null;
 
   const result = insertInlineImage(prep.state, prep.position, { src, width, height, alt });

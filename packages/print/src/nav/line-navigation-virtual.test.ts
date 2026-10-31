@@ -99,11 +99,11 @@ function buildPasted(pageBlockSize: number, n: number): NavCtx {
 }
 
 function nthBlockId(ctx: NavCtx, n: number): BlockId {
-  const root = finalSection(ctx.editor.state);
+  const root = finalSection(ctx.editor.document);
   if (root === null || root.firstChildId === null) throw new Error("no blocks");
   let id: BlockId | null = root.firstChildId;
   for (let i = 0; i < n && id !== null; i++) {
-    id = getBlock(ctx.editor.state, id)?.nextSiblingId ?? null;
+    id = getBlock(ctx.editor.document, id)?.nextSiblingId ?? null;
   }
   if (id === null) throw new Error(`no block ${n}`);
   return id;
@@ -127,7 +127,7 @@ function buildSpanningEditor(
   const wordsNeeded = Math.ceil((pages * linesPerPage * charsPerLine) / 6) + 20;
   const text = Array.from({ length: wordsNeeded }, (_, i) => `w${i}`).join(" ");
   const ctx = dispatch(makeCtx(pageBlockSize), { type: "PASTE", text });
-  const root = finalSection(ctx.editor.state);
+  const root = finalSection(ctx.editor.document);
   if (root === null || root.firstChildId === null) throw new Error("no blocks");
   return { ctx, blockId: root.firstChildId };
 }
@@ -154,8 +154,8 @@ describe("line-navigation on a VirtualLayoutTree (Phase-4 per-page)", () => {
     for (const c of cases) {
       it(c.name, () => {
         const pos = createPosition(nthBlockId(ctx, c.blockIdx), 2);
-        const viaVirtual = moveToLine(ctx.editor.state, pos, tree, sharedMeasurer, c.dir, null);
-        const viaBridge = moveToLine(ctx.editor.state, pos, bridge, sharedMeasurer, c.dir, null);
+        const viaVirtual = moveToLine(ctx.editor.document, pos, tree, sharedMeasurer, c.dir, null);
+        const viaBridge = moveToLine(ctx.editor.document, pos, bridge, sharedMeasurer, c.dir, null);
         expect(viaVirtual).toEqual(viaBridge);
       });
     }
@@ -170,8 +170,8 @@ describe("line-navigation on a VirtualLayoutTree (Phase-4 per-page)", () => {
       for (const blockIdx of [0, 5, 9, 15]) {
         it(`${boundary} on block ${blockIdx}`, () => {
           const pos = createPosition(nthBlockId(ctx, blockIdx), 3);
-          const viaVirtual = moveToLineBoundary(ctx.editor.state, pos, tree, sharedMeasurer, boundary);
-          const viaBridge = moveToLineBoundary(ctx.editor.state, pos, bridge, sharedMeasurer, boundary);
+          const viaVirtual = moveToLineBoundary(ctx.editor.document, pos, tree, sharedMeasurer, boundary);
+          const viaBridge = moveToLineBoundary(ctx.editor.document, pos, bridge, sharedMeasurer, boundary);
           expect(viaVirtual).toEqual(viaBridge);
         });
       }
@@ -189,7 +189,7 @@ describe("line-navigation on a VirtualLayoutTree (Phase-4 per-page)", () => {
       // (well inside a page, not at a boundary) DOWN one line.
       const pos = createPosition(nthBlockId(ctx, 60), 2);
       __resetGetPageDriverCountForTest();
-      const result = moveToLine(ctx.editor.state, pos, tree, sharedMeasurer, "down", null);
+      const result = moveToLine(ctx.editor.document, pos, tree, sharedMeasurer, "down", null);
       expect(result).not.toBeNull();
       // The bridge would materialize all 30 pages. Per-page touches the caret
       // page (+ possibly one adjacent / the target page) — a small constant.
@@ -258,16 +258,16 @@ describe("line-navigation spanning block (Slice 2): equivalence vs the positione
         for (const dir of ["up", "down"] as const) {
           it(`moveToLine ${dir} — ${name}`, () => {
             const pos = createPosition(blockId, offset);
-            const viaVirtual = moveToLine(ctx.editor.state, pos, tree, sharedMeasurer, dir, null);
-            const viaOracle = moveToLine(ctx.editor.state, pos, oracle, sharedMeasurer, dir, null);
+            const viaVirtual = moveToLine(ctx.editor.document, pos, tree, sharedMeasurer, dir, null);
+            const viaOracle = moveToLine(ctx.editor.document, pos, oracle, sharedMeasurer, dir, null);
             expect(viaVirtual).toEqual(viaOracle);
           });
         }
         for (const boundary of ["start", "end"] as const) {
           it(`moveToLineBoundary ${boundary} — ${name}`, () => {
             const pos = createPosition(blockId, offset);
-            const viaVirtual = moveToLineBoundary(ctx.editor.state, pos, tree, sharedMeasurer, boundary);
-            const viaOracle = moveToLineBoundary(ctx.editor.state, pos, oracle, sharedMeasurer, boundary);
+            const viaVirtual = moveToLineBoundary(ctx.editor.document, pos, tree, sharedMeasurer, boundary);
+            const viaOracle = moveToLineBoundary(ctx.editor.document, pos, oracle, sharedMeasurer, boundary);
             expect(viaVirtual).toEqual(viaOracle);
           });
         }
@@ -279,7 +279,7 @@ describe("line-navigation spanning block (Slice 2): equivalence vs the positione
 describe("line-navigation spanning block (Slice 2): behavior through the real editor", () => {
   /** Resolve the caret's `(pageIndex, lineTop)` — its VISUAL line identity. */
   function caretLine(ctx: NavCtx): { pageIndex: number; lineY: number } {
-    const px = resolvePixelPosition(ctx.editor.state, ctx.editor.selection.focus, layoutOf(ctx), sharedMeasurer);
+    const px = resolvePixelPosition(ctx.editor.document, ctx.editor.selection.focus, layoutOf(ctx), sharedMeasurer);
     if (px === null) throw new Error("caret did not resolve");
     return { pageIndex: px.pageIndex, lineY: px.lineY };
   }

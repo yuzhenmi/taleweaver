@@ -134,7 +134,7 @@ export function runTransaction(
           );
         }
         const next = reduce(current, action);
-        if (next.state !== current.state) {
+        if (next.document !== current.document) {
           if (next.lastDirtyIds === null) unknown = true;
           else for (const id of next.lastDirtyIds) dirty.add(id);
         }
@@ -148,7 +148,7 @@ export function runTransaction(
     if (ok) editor.history.endBatch();
     else editor.history.abortBatch();
   }
-  if (current.state === editor.state) return { ...current, lastDirtyIds: null };
+  if (current.document === editor.document) return { ...current, lastDirtyIds: null };
   return { ...current, lastDirtyIds: unknown ? null : dirty };
 }
 
@@ -192,7 +192,7 @@ export function applyInputRules(editor: EditorState, reduce: Reduce): EditorStat
   if (rules === undefined || rules.length === 0 || !isCollapsed(editor.selection)) return editor;
   const caret = editor.selection.focus;
   const start = Math.max(0, caret.offset - INPUT_RULE_WINDOW);
-  const before = blockText(editor.state, caret.blockId, start, caret.offset);
+  const before = blockText(editor.document, caret.blockId, start, caret.offset);
   for (const rule of rules) {
     rule.pattern.lastIndex = 0;
     const match = rule.pattern.exec(before);
@@ -211,7 +211,7 @@ export function applyInputRules(editor: EditorState, reduce: Reduce): EditorStat
     if (actions.length === 0) continue;
     editor.history.breakCoalescing();
     const next = reduce(editor, { type: "TRANSACTION", run: (tx) => actions.forEach((a) => tx.dispatch(a)) });
-    if (next.state === editor.state && next.selection === editor.selection) continue;
+    if (next.document === editor.document && next.selection === editor.selection) continue;
     return { ...next, lastDirtyIds: unionDirty(editor.lastDirtyIds, next.lastDirtyIds) };
   }
   return editor;
@@ -239,7 +239,7 @@ function hasAtomicMark(state: State, blockId: BlockId, from: number, to: number,
 }
 
 function validTrigger(spec: TriggerSpec, editor: EditorState, from: Position, registry: AttrRegistry): ActiveTrigger | undefined {
-  const { selection, state } = editor;
+  const { selection, document: state } = editor;
   if (!isCollapsed(selection)) return undefined;
   const caret = selection.focus;
   if (caret.blockId !== from.blockId || caret.offset < from.offset + spec.text.length) return undefined;
@@ -291,7 +291,7 @@ export function updateActiveTrigger(
   if (prev !== undefined && action.type !== "ESCAPE") {
     const spec = specs.find((s) => s.id === prev.id);
     let from: Position | null = prev.from;
-    if (result.state !== before.state) {
+    if (result.document !== before.document) {
       const mapped = transitionMapping(before, result).map(prev.from, 1);
       from = mapped.position;
     }
@@ -304,12 +304,12 @@ export function updateActiveTrigger(
     const typedStart = caret.offset - action.text.length;
     for (const spec of specs) {
       const windowStart = Math.max(0, typedStart - spec.text.length);
-      const text = blockText(result.state, caret.blockId, windowStart, caret.offset);
+      const text = blockText(result.document, caret.blockId, windowStart, caret.offset);
       const idx = text.lastIndexOf(spec.text);
       if (idx < 0 || windowStart + idx + spec.text.length <= typedStart) continue;
       const start = windowStart + idx;
       if (spec.startOfWord !== false && start > 0) {
-        const prevChar = blockText(result.state, caret.blockId, start - 1, start);
+        const prevChar = blockText(result.document, caret.blockId, start - 1, start);
         if (!WORD_START_BEFORE.test(prevChar)) continue;
       }
       next = validTrigger(spec, result, createPosition(caret.blockId, start), config.attrRegistry);
@@ -530,5 +530,5 @@ export function runKeyBinding(
  * with nothing to dismiss still reaches the page (e.g. closes a containing dialog).
  */
 export function escapeWouldChange(editor: EditorState, componentRegistry: ComponentRegistry): boolean {
-  return editor.activeTrigger !== undefined || isObjectSelection(editor.state, editor.selection, componentRegistry) !== null;
+  return editor.activeTrigger !== undefined || isObjectSelection(editor.document, editor.selection, componentRegistry) !== null;
 }

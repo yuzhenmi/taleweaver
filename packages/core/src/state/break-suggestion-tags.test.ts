@@ -8,7 +8,7 @@
 import { attrRegistry } from "../cascade/attr-registry";
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import { createState, getBlock, applyOperation, type State } from "./state";
+import { createState, getBlock, applyOperation, type Document } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 import { splitWithSuggestion } from "./ops/split-block";
 import { markParagraphMarkDeletion } from "./ops/merge-blocks";
@@ -42,7 +42,7 @@ const A = (s: string, t = 1): { id: SuggestionId; author: string; createdAt: num
 const B = (s: string, t = 1): { id: SuggestionId; author: string; createdAt: number } => ({ id: sid(s), author: "bob", createdAt: t });
 
 /** doc > [blocks] (the read model parents them under the final section); `type: "image"` = an atomic object. */
-function docOf(blocks: ReadonlyArray<{ id: string; type?: string; text?: string }>): State {
+function docOf(blocks: ReadonlyArray<{ id: string; type?: string; text?: string }>): Document {
   const ids = blocks.map((b) => b.id);
   return buildState({
     rootId: "doc",
@@ -64,7 +64,7 @@ function docOf(blocks: ReadonlyArray<{ id: string; type?: string; text?: string 
 }
 
 /** doc > s1[a("A")] | s2[b("B")]: ¶a is the section-end item of s1. */
-function twoSections(): State {
+function twoSections(): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -77,11 +77,11 @@ function twoSections(): State {
   });
 }
 
-const textOf = (s: State, b: string): string =>
+const textOf = (s: Document, b: string): string =>
   (getBlock(s, id(b))?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "￼")).join("");
 
 /** Leaves in document order as `id:text` (objects as their id). */
-function read(s: State): string {
+function read(s: Document): string {
   const out: string[] = [];
   const walk = (start: BlockId | null): void => {
     for (let cur = start; cur !== null; ) {
@@ -96,27 +96,27 @@ function read(s: State): string {
   return out.join(" | ");
 }
 
-const keysOf = (s: State, b: string): Block["breakSuggestion"] => getBlock(s, id(b))?.breakSuggestion;
-const ids = (s: State): string[] => getSuggestions(s).map((x) => x.id).sort();
-const records = (s: State): string[] => [...getSuggestionsMap(s[STATE_INTERNAL].doc).keys()].sort();
+const keysOf = (s: Document, b: string): Block["breakSuggestion"] => getBlock(s, id(b))?.breakSuggestion;
+const ids = (s: Document): string[] => getSuggestions(s).map((x) => x.id).sort();
+const records = (s: Document): string[] => [...getSuggestionsMap(s[STATE_INTERNAL].doc).keys()].sort();
 const alloc = (prefix = "n"): ReturnType<typeof createTestAllocator> => createTestAllocator(prefix);
 
 /** Write a raw key + record (bypassing the writers — a concurrency-born shape). */
-function rawKey(s: State, block: string, key: string, k: string, kind: "insertion" | "deletion"): State {
+function rawKey(s: Document, block: string, key: string, k: string, kind: "insertion" | "deletion"): Document {
   return applyOperation(s, (d) => {
     getRegistry(d).get(block)?.set(key, k);
     writeSuggestionRecordInTx(d, { id: sid(k), kind, author: "alice", createdAt: 1 });
   }).state;
 }
 
-function peer(s: State, clientID: number): State {
+function peer(s: Document, clientID: number): Document {
   const doc = new Y.Doc();
   doc.clientID = clientID;
   Y.applyUpdate(doc, Y.encodeStateAsUpdate(s[STATE_INTERNAL].doc));
   return createState({ resolver: TEST_RESOLVER, rootId: s.rootId, doc });
 }
 
-function sync(a: State, b: State): [State, State] {
+function sync(a: Document, b: Document): [Document, Document] {
   const da = a[STATE_INTERNAL].doc;
   const db = b[STATE_INTERNAL].doc;
   Y.applyUpdate(db, Y.encodeStateAsUpdate(da), "remote");
@@ -137,7 +137,7 @@ describe("storage: which ¶ a writer keys", () => {
 
   it("a suggesting delete over a span keys exactly the ¶s inside it; a span ending at (Q, 0) covers ¶ of Q's predecessor", () => {
     // (Ops write the shared Y.Doc: each case gets a fresh document.)
-    const s0 = (): State => docOf([{ id: "a", text: "aa" }, { id: "b", text: "bb" }, { id: "c", text: "cc" }]);
+    const s0 = (): Document => docOf([{ id: "a", text: "aa" }, { id: "b", text: "bb" }, { id: "c", text: "cc" }]);
     const over = markDeletion(s0(), createSpan(createPosition(id("a"), 1), createPosition(id("c"), 1)), A("d")).state;
     expect([keysOf(over, "a"), keysOf(over, "b"), keysOf(over, "c")]).toEqual([{ deletionId: "d" }, { deletionId: "d" }, undefined]);
     const toStart = markDeletion(s0(), createSpan(createPosition(id("a"), 2), createPosition(id("b"), 0)), A("d")).state;
@@ -276,7 +276,7 @@ describe("resolve × undo", () => {
   });
 
   it("a combined insertion + deletion on one ¶: either resolve order ends with the ¶ gone and no records", () => {
-    const both = (): { s: State; h: BlockId } => {
+    const both = (): { s: Document; h: BlockId } => {
       const sp = splitWithSuggestion(docOf([{ id: "p", text: "abcd" }]), createPosition(id("p"), 2), alloc(), A("s"));
       return { s: markParagraphMarkDeletion(sp.state, sp.newBlockId, B("j")).state, h: sp.newBlockId };
     };
@@ -316,7 +316,7 @@ describe("own pending ¶ / two authors", () => {
 });
 
 describe("paste, upgrade", () => {
-  const noTags = (s: State): void => {
+  const noTags = (s: Document): void => {
     for (const [, e] of getRegistry(s[STATE_INTERNAL].doc).entries()) {
       for (const k of [INSERTION_TAG_KEY, DELETION_TAG_KEY]) expect(e.has(k)).toBe(false);
     }

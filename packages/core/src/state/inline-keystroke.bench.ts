@@ -19,7 +19,7 @@ import { buildState, buildBlock, inlineContent, text } from "../test-utils/state
 import { createHistory } from "./history";
 import { insertText } from "./ops/insert-text";
 import { createPosition, createSpan } from "./block-position";
-import type { State } from "./state";
+import type { Document } from "./state";
 import type { BlockId } from "./block-id";
 import type { TextItem } from "./inline-content";
 
@@ -29,7 +29,7 @@ const proc = (globalThis as { process?: { env?: Record<string, string | undefine
 if (proc?.env !== undefined) proc.env.NODE_ENV = "production";
 
 /** doc > [ p0 … p{n-1} ]; the edited block "p0" holds `runs` alternating-format runs. */
-function documentOf(blocks: number, runs: number): State {
+function documentOf(blocks: number, runs: number): Document {
   const edited: TextItem[] = Array.from({ length: runs }, (_, i) => text("word ", i % 2 === 0 ? { bold: true } : {}));
   const ids = Array.from({ length: blocks }, (_, i) => `p${i}`);
   return buildState({

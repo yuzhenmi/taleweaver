@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import { createState, getBlock, type State } from "./state";
+import { createState, getBlock, type Document } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 import { insertText } from "./ops/insert-text";
 import { deleteRange } from "./ops/delete-range";
@@ -24,7 +24,7 @@ import { TEST_RESOLVER, buildBlock, buildState, inlineContent, text } from "../t
 const id = (s: string) => s as BlockId;
 const pos = (b: string, o: number): Position => createPosition(id(b), o);
 
-function docOf(blocks: ReadonlyArray<{ id: string; type?: string; text?: string }>): State {
+function docOf(blocks: ReadonlyArray<{ id: string; type?: string; text?: string }>): Document {
   const ids = blocks.map((b) => b.id);
   return buildState({
     rootId: "doc",
@@ -44,7 +44,7 @@ function docOf(blocks: ReadonlyArray<{ id: string; type?: string; text?: string 
   });
 }
 
-function peer(s: State, clientID: number): State {
+function peer(s: Document, clientID: number): Document {
   const doc = new Y.Doc();
   doc.clientID = clientID;
   Y.applyUpdate(doc, Y.encodeStateAsUpdate(s[STATE_INTERNAL].doc));
@@ -52,7 +52,7 @@ function peer(s: State, clientID: number): State {
 }
 
 /** Map through a local op: `prev` is a FRESH State (nothing cached). */
-function local(prev: State, op: (s: State) => { state: State; dirtyIds: ReadonlySet<BlockId> }): { next: State; m: PositionMapping } {
+function local(prev: Document, op: (s: Document) => { state: Document; dirtyIds: ReadonlySet<BlockId> }): { next: Document; m: PositionMapping } {
   const r = op(prev);
   return { next: r.state, m: createPositionMapping(prev, r.state, r.dirtyIds) };
 }
@@ -113,7 +113,7 @@ describe("exact mapping — renames (materialization, collapse), local and remot
    * [img][P "abc"][Q "q"][img2][Z]: peer A removes P (¶Q then follows the image) while
    * peer B types in P and removes Q (¶P then follows it) → content with no ¶ before img2.
    */
-  function strayAfterImage(): State {
+  function strayAfterImage(): Document {
     const a0 = peer(docOf([{ id: "img", type: "image" }, { id: "P", text: "abc" }, { id: "Q", text: "q" }, { id: "img2", type: "image" }, { id: "Z", text: "z" }]), 1);
     const b0 = peer(a0, 2);
     const a = removeBlock(a0, id("P")).state;
@@ -172,7 +172,7 @@ describe("exact mapping — every kept character maps onto itself (fuzz)", () =>
     };
   }
   /** Every text block in document order: id → text. */
-  function texts(s: State): Map<string, string> {
+  function texts(s: Document): Map<string, string> {
     const fresh = createState({ resolver: TEST_RESOLVER, rootId: s.rootId, doc: s[STATE_INTERNAL].doc });
     const out = new Map<string, string>();
     for (let cur = getBlock(fresh, fresh.rootId)?.firstChildId ?? null; cur !== null; ) {
@@ -212,7 +212,7 @@ describe("exact mapping — every kept character maps onto itself (fuzz)", () =>
       const alloc = createTestAllocator(`x${seed}`);
       for (let step = 0; step < 80; step++) {
         const k = r() < 0.5 ? 0 : 1;
-        const s = createState({ resolver: TEST_RESOLVER, rootId: id("doc"), doc: (peers[k] as State)[STATE_INTERNAL].doc });
+        const s = createState({ resolver: TEST_RESOLVER, rootId: id("doc"), doc: (peers[k] as Document)[STATE_INTERNAL].doc });
         const before = texts(s);
         const ids = [...before.keys()];
         const target = ids[Math.floor(r() * ids.length)];
@@ -221,8 +221,8 @@ describe("exact mapping — every kept character maps onto itself (fuzz)", () =>
         const off = Math.floor(r() * (len + 1));
         const op = r();
         let dirty: ReadonlySet<BlockId> | null = null;
-        let next: State = s;
-        const run = (res: { state: State; dirtyIds: ReadonlySet<BlockId> }): void => {
+        let next: Document = s;
+        const run = (res: { state: Document; dirtyIds: ReadonlySet<BlockId> }): void => {
           next = res.state;
           dirty = res.dirtyIds;
         };
@@ -246,7 +246,7 @@ describe("exact mapping — every kept character maps onto itself (fuzz)", () =>
           next = createState({ resolver: TEST_RESOLVER, rootId: id("doc"), doc: s[STATE_INTERNAL].doc });
         } else {
           // A remote transaction on peer k.
-          const other = peers[1 - k] as State;
+          const other = peers[1 - k] as Document;
           last[k] = null;
           Y.applyUpdate(s[STATE_INTERNAL].doc, Y.encodeStateAsUpdate(other[STATE_INTERNAL].doc, Y.encodeStateVector(s[STATE_INTERNAL].doc)), "remote");
           dirty = last[k];

@@ -20,7 +20,7 @@ export interface EditorState {
    * (e.g. entering suggesting mode).
    */
   readonly config: EditorConfig;
-  readonly state: State;
+  readonly document: State;
   readonly selection: Selection;
   readonly history: History;
   /**
@@ -45,7 +45,7 @@ export interface EditorState {
    */
   readonly lastDirtyIds: ReadonlySet<BlockId> | null;
   /**
-   * The most recent DOCUMENT change that produced `state`: the State it was made from and
+   * The most recent DOCUMENT change that produced `state`: the Document it was made from and
    * its raw dirty set. Unlike `lastDirtyIds` it survives later selection-only / inert
    * actions, so a consumer holding an older EditorState can still map positions across
    * "edit, then move the caret". `null` when the last change's extent is unknown (initial
@@ -145,7 +145,7 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
 }
 
 /**
- * Build a fresh `EditorState` from an arbitrary `State` + initial `Selection`
+ * Build a fresh `EditorState` from an arbitrary `Document` + initial `Selection`
  * (a fresh `History` bound to that state). `createInitialEditorState` delegates
  * here with the empty document. Primarily for tests that need a non-default seed
  * document (e.g. a table-only body) without an editor-from-state injection seam.
@@ -173,7 +173,7 @@ export function createEditorStateFromState(
   if (config.extensions?.keymap !== undefined) compileKeymap(config.extensions.keymap);
   return {
     config,
-    state,
+    document: state,
     selection,
     history: createHistory(state, undefined, historyOrigin),
     lastDirtyIds: null,

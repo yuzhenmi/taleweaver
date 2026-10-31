@@ -1,4 +1,4 @@
-import type { State } from "./state";
+import type { Document } from "./state";
 import { getBlock, getEmbedContent } from "./state";
 import type { Block } from "./block";
 import type { BlockId, IdAllocator } from "./block-id";
@@ -58,14 +58,14 @@ export interface ClonedSubtree {
  * the appropriate source map (corrupted source state).
  */
 export function clonePastedSubtree(
-  sourceState: State,
+  sourceState: Document,
   sourceRootId: BlockId,
   allocator: IdAllocator,
   // The doc the clone will be inserted INTO — the namespace newly-allocated
   // ids must not collide with. Defaults to `sourceState` for same-document
   // paste (source === destination). For cross-document paste, pass the
   // destination state so the dev collision check guards the right namespace.
-  destinationState: State = sourceState,
+  destinationState: Document = sourceState,
   // false for extraction (a copy / cut, not a paste): every bookmark marker is kept —
   // `extractFragment` applies its own edge rule to the whole fragment.
   pasteRule = true,
@@ -214,7 +214,7 @@ export function clonePastedSubtree(
  * are outside the subtree.
  */
 function collectTreeSubtreeIds(
-  state: State,
+  state: Document,
   id: BlockId,
   treeIds: Set<BlockId>,
   embedContentIds: Set<BlockId>,
@@ -259,7 +259,7 @@ function collectTreeSubtreeIds(
  * matching `resolveBlock`'s main → embedContents precedence.
  */
 function collectEmbedContentSubtreeIds(
-  state: State,
+  state: Document,
   id: BlockId,
   treeIds: Set<BlockId>,
   embedContentIds: Set<BlockId>,

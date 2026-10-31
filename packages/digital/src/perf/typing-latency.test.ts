@@ -74,7 +74,7 @@ function chapter(paragraphs = 400): ContainerBlockNode {
 }
 
 function paragraphIds(controller: DigitalController): BlockId[] {
-  const state = controller.editorState.state;
+  const state = controller.editorState.document;
   const out: BlockId[] = [];
   // The root's children are sections: a break-less document's body is its final section.
   const body = getBlock(state, getBlock(state, state.rootId)?.lastChildId ?? state.rootId);

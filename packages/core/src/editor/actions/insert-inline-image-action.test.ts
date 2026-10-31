@@ -80,7 +80,7 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
     );
 
     // (a) an inline-image embed carrying the supplied properties is inserted at the caret offset
-    const images = bodyInlineImages(out.state, BODY_P);
+    const images = bodyInlineImages(out.document, BODY_P);
     expect(images.length).toBe(1);
     expect(images[0]?.properties).toEqual({
       src: IMG.src,
@@ -90,7 +90,7 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
     });
 
     // The embed lands at offset 1 (between "a" and "b"): items are ["a", <img>, "b"].
-    const items = getBlock(out.state, BODY_P)?.inlineContent?.items ?? [];
+    const items = getBlock(out.document, BODY_P)?.inlineContent?.items ?? [];
     expect(items.length).toBe(3);
     expect(items[0]).toMatchObject({ kind: "text", text: "a" });
     expect(items[1]?.kind).toBe("embed");
@@ -100,7 +100,7 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
     expect(out.selection.focus.blockId).toBe(BODY_P);
     expect(out.selection.focus.offset).toBe(2);
     expect(out.selection.anchor).toEqual(out.selection.focus); // collapsed
-    expect(out.state).not.toBe(editor.state);
+    expect(out.document).not.toBe(editor.document);
   });
 
   it("removes the whole embed in ONE DELETE_BACKWARD step (atomic, #407)", () => {
@@ -109,12 +109,12 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
       editor,
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
     );
-    expect(bodyInlineImages(inserted.state, BODY_P).length).toBe(1);
+    expect(bodyInlineImages(inserted.document, BODY_P).length).toBe(1);
     // caret is just after the embed (offset 2) — one DELETE_BACKWARD must remove the
     // entire embed in a single step, leaving the text "ab" intact.
     const deleted = reduceEditor(inserted, { type: "DELETE_BACKWARD" });
-    expect(bodyInlineImages(deleted.state, BODY_P).length).toBe(0);
-    const items = getBlock(deleted.state, BODY_P)?.inlineContent?.items ?? [];
+    expect(bodyInlineImages(deleted.document, BODY_P).length).toBe(0);
+    const items = getBlock(deleted.document, BODY_P)?.inlineContent?.items ?? [];
     expect(items.map((it) => (it.kind === "text" ? it.text : "<embed>")).join("")).toBe("ab");
     expect(deleted.selection.focus.offset).toBe(1); // caret collapses to where the embed was
   });
@@ -129,7 +129,7 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
       { ...editor, config: suggestingConfig },
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
     );
-    expect(bodyInlineImages(out.state, BODY_P).length).toBe(1);
+    expect(bodyInlineImages(out.document, BODY_P).length).toBe(1);
   });
 
   it("is its own undo unit — UNDO removes the inserted image", () => {
@@ -138,9 +138,9 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
       editor,
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
     );
-    expect(bodyInlineImages(inserted.state, BODY_P).length).toBe(1);
+    expect(bodyInlineImages(inserted.document, BODY_P).length).toBe(1);
     const undone = reduceEditor(inserted, { type: "UNDO" });
-    expect(bodyInlineImages(undone.state, BODY_P).length).toBe(0);
+    expect(bodyInlineImages(undone.document, BODY_P).length).toBe(0);
   });
 
   it("REPLACES an expanded selection (delete-then-insert, one undo step) — Google Docs field behavior", () => {
@@ -157,15 +157,15 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
     );
     // "ab" replaced by the single image embed; caret after it (offset 1).
-    expect(bodyInlineImages(out.state, BODY_P).length).toBe(1);
-    const items = getBlock(out.state, BODY_P)?.inlineContent?.items ?? [];
+    expect(bodyInlineImages(out.document, BODY_P).length).toBe(1);
+    const items = getBlock(out.document, BODY_P)?.inlineContent?.items ?? [];
     expect(items.length).toBe(1);
     expect(items[0]?.kind).toBe("embed");
     expect(out.selection.focus.offset).toBe(1);
 
     // delete+insert is ONE undo unit → a single UNDO restores "ab".
     const undone = reduceEditor(out, { type: "UNDO" });
-    const restored = getBlock(undone.state, BODY_P)?.inlineContent?.items ?? [];
+    const restored = getBlock(undone.document, BODY_P)?.inlineContent?.items ?? [];
     expect(restored.map((it) => (it.kind === "text" ? it.text : "<embed>")).join("")).toBe("ab");
   });
 });

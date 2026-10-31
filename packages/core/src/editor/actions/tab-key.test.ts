@@ -53,7 +53,7 @@ describe("INSERT_TAB action", () => {
     const next = reduceEditor(ed, { type: "INSERT_TAB" });
 
     // "ab" + tab at offset 1 → [text "a", embed "tab", text "b"].
-    const items = getBlock(next.state, "p" as BlockId)?.inlineContent?.items ?? [];
+    const items = getBlock(next.document, "p" as BlockId)?.inlineContent?.items ?? [];
     expect(items.some((it) => it.kind === "embed" && it.embedType === "tab")).toBe(true);
     expect(items.filter((it) => it.kind === "text").map((it) => it.text).join("")).toBe("ab");
   });
@@ -88,7 +88,7 @@ describe("SET_TAB_STOPS action", () => {
       },
     );
 
-    const block = getBlock(next.state, "p" as BlockId);
+    const block = getBlock(next.document, "p" as BlockId);
     expect(block?.attrs.tabStops).toEqual([{ position: 72, alignment: "left", leader: "none" }]);
     // mergeBlockAttrs preserved the other attr (setBlockAttrs would have wiped it).
     expect(block?.attrs.textAlign).toBe("center");

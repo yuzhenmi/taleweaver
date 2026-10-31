@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { getBlock, type State } from "./state";
+import { getBlock, type Document } from "./state";
 import type { BlockId } from "./block-id";
 import { setBlockAttrs } from "./ops/set-block-attrs";
 import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
 
 /** A flat N-paragraph document: root + empty paragraphs p-0 … p-(n-1). */
-function buildFlatDoc(n: number): State {
+function buildFlatDoc(n: number): Document {
   const ids = Array.from({ length: n }, (_, i) => `p-${i}`);
   return buildState({
     rootId: "root",

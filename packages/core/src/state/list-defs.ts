@@ -2,7 +2,7 @@ import * as Y from "yjs";
 import type { CounterStyle } from "../styles/format-counter";
 import type { CounterRestart } from "../numbering/types";
 import { getListDefsMap, requireInTransaction } from "./yjs-doc";
-import type { State } from "./state";
+import type { Document } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 
 /**
@@ -106,12 +106,12 @@ export function getListDefs(doc: Y.Doc): Map<string, ListDef> {
 }
 
 /**
- * All list defs as a plain Map, resolved from a `State` (the render-pass entry
+ * All list defs as a plain Map, resolved from a `Document` (the render-pass entry
  * point). Reaches the underlying Y.Doc through the STATE_INTERNAL seam — the
  * same encapsulated access the other state-module accessors use — then delegates
  * to `getListDefs`. The numbering engine (`computeCounters`) consumes the result
  * as its `CounterDefs`.
  */
-export function getListDefsForState(state: State): Map<string, ListDef> {
+export function getListDefsForState(state: Document): Map<string, ListDef> {
   return getListDefs(state[STATE_INTERNAL].doc);
 }

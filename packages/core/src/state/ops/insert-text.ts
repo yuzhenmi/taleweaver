@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 import { requireBlockText } from "../block-text";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { Position } from "../block-position";
@@ -48,7 +48,7 @@ export interface InsertTextPlan {
  * `replaceRange` to compose delete + insert in a single Y.Doc transaction.
  */
 export function insertText(
-  state: State,
+  state: Document,
   position: Position,
   text: string,
   attrs: ReadonlyAttrs,
@@ -87,7 +87,7 @@ export function insertTextInTx(doc: Y.Doc, plan: InsertTextPlan): void {
  * opened. Throws on every condition `insertText`'s docstring lists.
  */
 export function planInsertText(
-  state: State,
+  state: Document,
   position: Position,
   text: string,
   attrs: ReadonlyAttrs,

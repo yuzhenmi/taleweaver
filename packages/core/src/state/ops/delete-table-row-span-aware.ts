@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -54,7 +54,7 @@ export interface DeleteTableRowSpanAwarePlan {
  * can't be built or there is only one row. Caret-after is the handler's concern.
  * MAIN-TREE ONLY. Column count unchanged → `columnWidths` untouched.
  */
-export function deleteTableRowSpanAware(state: State, ctx: TableContext): OperationResult {
+export function deleteTableRowSpanAware(state: Document, ctx: TableContext): OperationResult {
   const plan = planDeleteTableRowSpanAware(state, ctx);
   if (plan === null) return { state, dirtyIds: new Set<BlockId>() };
   return applyOperation(state, (doc) => {
@@ -63,7 +63,7 @@ export function deleteTableRowSpanAware(state: State, ctx: TableContext): Operat
 }
 
 /** Build the plan, or null when the grid can't be built or the table has ≤1 grid row. */
-export function planDeleteTableRowSpanAware(state: State, ctx: TableContext): DeleteTableRowSpanAwarePlan | null {
+export function planDeleteTableRowSpanAware(state: Document, ctx: TableContext): DeleteTableRowSpanAwarePlan | null {
   const grid = buildTableGrid(state, ctx.tableId);
   if (grid === null) return null;
   const caret = grid.cells.find((c) => c.cellId === ctx.cellId);
@@ -135,7 +135,7 @@ export function planDeleteTableRowSpanAware(state: State, ctx: TableContext): De
 }
 
 /** `attrs` of `cellId` with `rowSpan` set to `n` (key dropped when n ≤ 1). */
-function withRowSpan(state: State, cellId: BlockId, n: number): ReadonlyAttrs {
+function withRowSpan(state: Document, cellId: BlockId, n: number): ReadonlyAttrs {
   const block = getBlock(state, cellId);
   const next: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(block?.attrs ?? {})) {

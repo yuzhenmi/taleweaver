@@ -18,7 +18,7 @@ import {
   getBlock,
   getEmbedContent,
   getTemplateContent,
-  type State,
+  type Document,
 } from "../state";
 import { getListDefsForState, type ListDef } from "../list-defs";
 import { addComment } from "../ops/comment-ops";
@@ -61,7 +61,7 @@ const ID = (s: string): BlockId => asBlockId(s);
  *   - one `templateContents` body (a header-like container + paragraph child);
  *   - one listDef.
  */
-function buildRichFixture(): State {
+function buildRichFixture(): Document {
   const rootId = ID("root");
   const p1 = ID("p1");
   const p2 = ID("p2");

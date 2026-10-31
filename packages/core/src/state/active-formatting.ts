@@ -1,4 +1,4 @@
-import type { State } from "./state";
+import type { Document } from "./state";
 import { getBlock } from "./state";
 import type { Selection } from "./block-position";
 import { positionsEqual } from "./block-position";
@@ -116,7 +116,7 @@ const UNSEEN = Symbol("unseen");
  * toolbar reflects a collapsed Bold toggle immediately.
  */
 export function getActiveFormatting(
-  state: State,
+  state: Document,
   selection: Selection,
   storedAttrs?: ReadonlyAttrs,
 ): ActiveFormatting {
@@ -184,7 +184,7 @@ export function getActiveFormatting(
  * cursor is read (typing inherits the style of the character to the left); for
  * a cursor at offset 0 the first item is read.
  */
-function cursorTextItem(state: State, selection: Selection): TextItem[] {
+function cursorTextItem(state: Document, selection: Selection): TextItem[] {
   const { blockId, offset } = selection.focus;
   const block = getBlock(state, blockId);
   if (!block || !block.inlineContent) return [];
@@ -207,7 +207,7 @@ function cursorTextItem(state: State, selection: Selection): TextItem[] {
  * Every text item that overlaps the span's per-block ranges, in document
  * order. Embed items do not contribute.
  */
-function spanTextItems(state: State, selection: Selection): TextItem[] {
+function spanTextItems(state: Document, selection: Selection): TextItem[] {
   const out: TextItem[] = [];
   for (const { block, rangeStart, rangeEnd } of iterateSpan(state, selection)) {
     if (!block.inlineContent) continue;
@@ -261,14 +261,14 @@ function inlineValueOf(items: ReadonlyArray<TextItem>, attrKey: string): unknown
 // ── Block gathering ───────────────────────────────────────────────────────
 
 /** The focus block as a single-element list when it's a leaf, else empty. */
-function collapsedLeafBlocks(state: State, selection: Selection): Block[] {
+function collapsedLeafBlocks(state: Document, selection: Selection): Block[] {
   const block = getBlock(state, selection.focus.blockId);
   if (!block || block.inlineContent === null) return [];
   return [block];
 }
 
 /** Every leaf block (inlineContent !== null) the range touches, in doc order. */
-function rangeLeafBlocks(state: State, selection: Selection): Block[] {
+function rangeLeafBlocks(state: Document, selection: Selection): Block[] {
   const out: Block[] = [];
   for (const block of iterateBlocksInSpan(state, selection)) {
     if (block.inlineContent !== null) out.push(block);
@@ -284,7 +284,7 @@ function rangeLeafBlocks(state: State, selection: Selection): Block[] {
  * `"paragraph"`.
  */
 function blockTypeOf(
-  state: State,
+  state: Document,
   selection: Selection,
   leafBlocks: ReadonlyArray<Block>,
 ): string | "mixed" {

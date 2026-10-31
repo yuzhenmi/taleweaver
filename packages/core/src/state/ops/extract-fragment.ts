@@ -1,4 +1,4 @@
-import type { State } from "../state";
+import type { Document } from "../state";
 import { getEmbedContent, resolveBlock, blockCount } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import { productionAllocator } from "../block-id";
@@ -26,7 +26,7 @@ import { getListDefsForState, type ListDef } from "../list-defs";
 
 /**
  * Extract the content covered by `span` from `state` into a self-contained
- * fragment `State`. The fragment's root is a fresh `document` block. The
+ * fragment `Document`. The fragment's root is a fresh `document` block. The
  * fragment is the interchange currency for copy-paste: it feeds `encodeHtml`
  * (HTML flavor) and the lossless binary serializer.
  *
@@ -61,7 +61,7 @@ import { getListDefsForState, type ListDef } from "../list-defs";
  *
  * @throws if the span crosses selection contexts (header→body etc.).
  */
-export function extractFragment(state: State, span: Span): State {
+export function extractFragment(state: Document, span: Span): Document {
   return extractFragmentWithAllocator(state, span, productionAllocator);
 }
 
@@ -105,10 +105,10 @@ function stripInlineAttrs(block: Block, drop: (key: string) => boolean): Block {
  * `state/` barrel (the plan specifies only `extractFragment` on the surface).
  */
 function extractFragmentWithAllocator(
-  state: State,
+  state: Document,
   span: Span,
   alloc: IdAllocator,
-): State {
+): Document {
   // 1. Normalize span to document order.
   const normalized = normalizeSpan(state, span);
   // 2. Assert single selection context, and capture the context root — the
@@ -254,7 +254,7 @@ type TopLevelEntry =
  * (endBlockId, endOffset). Results are appended to the collection arrays.
  */
 function collectFromAncestor(
-  state: State,
+  state: Document,
   ancestorId: BlockId,
   startBlockId: BlockId,
   startOffset: number,
@@ -473,7 +473,7 @@ function collectFromAncestor(
  * Used for fully-covered subtrees (containers or leaves).
  */
 function cloneSubtreeInto(
-  state: State,
+  state: Document,
   subtreeId: BlockId,
   alloc: IdAllocator,
   topLevelEntries: TopLevelEntry[],
@@ -506,7 +506,7 @@ function cloneSubtreeInto(
 
 // ─── Utility helpers ─────────────────────────────────────────────────────────
 
-function requireBlock(state: State, id: BlockId): Block {
+function requireBlock(state: Document, id: BlockId): Block {
   const block = resolveBlock(state, id)?.block ?? null;
   if (block === null) {
     throw new Error(`extractFragment: block "${id}" not found`);
@@ -518,7 +518,7 @@ function requireBlock(state: State, id: BlockId): Block {
  * Find the LCA of two blocks in any tree (main, embed, template). Returns the
  * block's own id if they are the same block. Returns null if no common ancestor.
  */
-function findLca(state: State, idA: BlockId, idB: BlockId): BlockId | null {
+function findLca(state: Document, idA: BlockId, idB: BlockId): BlockId | null {
   if (idA === idB) return idA;
   const chainA = ancestorChain(state, idA); // [idA, parent, ..., root]
   const chainB = ancestorChain(state, idB);
@@ -534,7 +534,7 @@ function findLca(state: State, idA: BlockId, idB: BlockId): BlockId | null {
  * True iff the subtree rooted at `subtreeId` contains `targetId` (i.e. `targetId`
  * is an ancestor-or-self of `subtreeId`'s subtree). Uses the ancestor chain.
  */
-function subtreeContainsBlock(state: State, subtreeId: BlockId, targetId: BlockId): boolean {
+function subtreeContainsBlock(state: Document, subtreeId: BlockId, targetId: BlockId): boolean {
   if (subtreeId === targetId) return true;
   const chain = ancestorChain(state, targetId);
   return chain.includes(subtreeId);
@@ -545,7 +545,7 @@ function subtreeContainsBlock(state: State, subtreeId: BlockId, targetId: BlockI
  * Returns null if targetId is not in ancestorId's subtree.
  */
 function findChildOfAncestor(
-  state: State,
+  state: Document,
   ancestorId: BlockId,
   targetId: BlockId,
   targetAncestors?: Set<BlockId>,
@@ -566,7 +566,7 @@ function findChildOfAncestor(
  * under `parentId`. Both must be direct children of `parentId`.
  */
 function isAfterInSiblingChain(
-  state: State,
+  state: Document,
   curId: BlockId,
   referenceId: BlockId,
   parentId: BlockId,
@@ -588,7 +588,7 @@ function isAfterInSiblingChain(
  * under `parentId`.
  */
 function isBeforeInSiblingChain(
-  state: State,
+  state: Document,
   curId: BlockId,
   referenceId: BlockId,
   parentId: BlockId,
@@ -611,7 +611,7 @@ function isBeforeInSiblingChain(
  * overflow, matching `selectionContextOf` / `nextBlockInDocOrder`. A silent
  * wrong-leaf return would corrupt the extracted fragment's range.
  */
-function findFirstLeaf(state: State, rootId: BlockId): BlockId | null {
+function findFirstLeaf(state: Document, rootId: BlockId): BlockId | null {
   const start = resolveBlock(state, rootId)?.block ?? null;
   if (start === null) return null;
   let cur: Block = start;
@@ -633,7 +633,7 @@ function findFirstLeaf(state: State, rootId: BlockId): BlockId | null {
  * Walk via lastChildId until we reach a leaf (no lastChildId → no children).
  * Same `blockCount`-bounded, throw-on-overflow cycle guard as `findFirstLeaf`.
  */
-function findLastLeaf(state: State, rootId: BlockId): BlockId | null {
+function findLastLeaf(state: Document, rootId: BlockId): BlockId | null {
   const start = resolveBlock(state, rootId)?.block ?? null;
   if (start === null) return null;
   let cur: Block = start;
@@ -717,7 +717,7 @@ function buildDocumentRoot(rootId: BlockId, entries: TopLevelEntry[]): Block {
  */
 function collectEmbedContentsFromItems(
   items: readonly InlineItem[],
-  state: State,
+  state: Document,
   out: Block[],
 ): void {
   const visited = new Set<BlockId>();
@@ -764,7 +764,7 @@ function collectEmbedContentsFromItems(
  */
 function collectSuggestionsFromItems(
   items: readonly InlineItem[],
-  state: State,
+  state: Document,
   seen: Set<string>,
   out: SuggestionRecord[],
 ): void {
@@ -781,7 +781,7 @@ function collectSuggestionsFromItems(
 /** Collect the listDef for a block if it has a `listId` attr. */
 function collectListDefsFromBlock(
   block: Block,
-  state: State,
+  state: Document,
   out: Record<string, ListDef>,
 ): void {
   const listId = block.attrs["listId"];
@@ -794,7 +794,7 @@ function collectListDefsFromBlock(
 /** Like collectListDefsFromBlock but takes a Block snapshot (already have it). */
 function collectListDefsFromBlockSnapshot(
   block: Block,
-  state: State,
+  state: Document,
   out: Record<string, ListDef>,
 ): void {
   collectListDefsFromBlock(block, state, out);

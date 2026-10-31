@@ -45,7 +45,7 @@ export const MIN_INDENT_CONTENT_WIDTH = 96;
  * ids only when a write actually occurred.
  *
  * No-op (return the input `editor` unchanged, never calling `history.commit`):
- *  - No target leaf changed (the running state is still `editor.state`) — the
+ *  - No target leaf changed (the running state is still `editor.document`) — the
  *    identity guard. (Notably: OUTDENT when every target is already at 0.)
  *
  * Selection is UNCHANGED: indent is a block-geometry change, not a caret move.
@@ -63,7 +63,7 @@ export function shiftIndent(editor: EditorState, delta: number): Edit | null {
       ? Math.max(0, availableWidth - MIN_INDENT_CONTENT_WIDTH)
       : Infinity;
 
-  let state: State = editor.state;
+  let state: State = editor.document;
   const dirtyIds = new Set<BlockId>();
   for (const blockId of targetIds) {
     const block = getBlock(state, blockId);
@@ -97,7 +97,7 @@ export function shiftIndent(editor: EditorState, delta: number): Edit | null {
 
   // the identity-no-op contract: nothing changed → return the input editor unchanged.
   // (`history.commit` is itself no-op-safe.)
-  if (state === editor.state) return null;
+  if (state === editor.document) return null;
 
   return { change: { state, dirtyIds } };
 }
@@ -119,7 +119,7 @@ export function shiftIndent(editor: EditorState, delta: number): Edit | null {
  * marginInlineStart). Mirrors `handleSetLineSpacing` otherwise.
  */
 function targetLeafBlockIds(editor: EditorState): BlockId[] {
-  const { state, selection } = editor;
+  const { document: state, selection } = editor;
 
   if (positionsEqual(selection.anchor, selection.focus)) {
     const focus = getBlock(state, selection.focus.blockId);

@@ -15,14 +15,14 @@ function withText(text: string): EditorState {
 }
 
 function firstParagraphId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
+  const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
   const id = root?.firstChildId;
   if (id === null || id === undefined) throw new Error("no first paragraph");
   return id;
 }
 
 function textOf(editor: EditorState, id: BlockId): string {
-  const block = getBlock(editor.state, id);
+  const block = getBlock(editor.document, id);
   return (block?.inlineContent?.items ?? [])
     .map((it) => (it.kind === "text" ? it.text : "￼"))
     .join("");
@@ -72,7 +72,7 @@ describe("REPLACE_ALL", () => {
     const typed = withText("ab cd ab ef ab"); // one INSERT_TEXT undo step.
     const p = firstParagraphId(typed);
 
-    const matches = findMatches(typed.state, "ab");
+    const matches = findMatches(typed.document, "ab");
     expect(matches).toHaveLength(3);
 
     let editor = reduceEditor(typed, { type: "REPLACE_ALL", matches, replacement: "ZZ" });
@@ -97,14 +97,14 @@ describe("REPLACE_ALL", () => {
     editor = reduceEditor(editor, { type: "SPLIT_NODE" });
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "bar baz" });
 
-    const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
+    const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
     const p1 = root?.firstChildId;
     const p2 = root?.lastChildId;
     if (p1 === null || p1 === undefined || p2 === null || p2 === undefined) {
       throw new Error("missing paragraphs");
     }
 
-    const matches = findMatches(editor.state, "bar");
+    const matches = findMatches(editor.document, "bar");
     expect(matches).toHaveLength(2); // one in each paragraph
 
     const afterReplace = reduceEditor(editor, { type: "REPLACE_ALL", matches, replacement: "QUX" });
@@ -129,7 +129,7 @@ describe("REPLACE_ALL", () => {
     const editor = withText("hello");
     const result = reduceEditor(editor, { type: "REPLACE_ALL", matches: [], replacement: "x" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(result.state).toBe(editor.state);
+    expect(result.document).toBe(editor.document);
   });
 });
 
@@ -157,7 +157,7 @@ describe("REPLACE_ALL — canonical storage through the editor's attr registry",
     });
     const p = "p" as BlockId;
     let editor = createEditorStateFromState(state, createSpan(createPosition(p, 0), createPosition(p, 0)), cfg);
-    editor = reduceEditor(editor, { type: "REPLACE_ALL", matches: findMatches(editor.state, "X"), replacement: "Y" });
-    expect(getBlock(editor.state, p)?.inlineContent?.items).toEqual([text("abY", { tag: { id: "t", v: 1 } })]);
+    editor = reduceEditor(editor, { type: "REPLACE_ALL", matches: findMatches(editor.document, "X"), replacement: "Y" });
+    expect(getBlock(editor.document, p)?.inlineContent?.items).toEqual([text("abY", { tag: { id: "t", v: 1 } })]);
   });
 });

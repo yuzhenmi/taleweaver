@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -46,7 +46,7 @@ export interface InsertTableRowSpanAwarePlan {
  * NO-OP (same `state`) when the grid can't be built. MAIN-TREE ONLY.
  */
 export function insertTableRowSpanAware(
-  state: State,
+  state: Document,
   ctx: TableContext,
   position: RowPosition,
   allocator: IdAllocator,
@@ -64,7 +64,7 @@ export function insertTableRowSpanAware(
  * caret cell: insert-above → its origin row; insert-below → just past its last row.
  */
 export function planInsertTableRowSpanAware(
-  state: State,
+  state: Document,
   ctx: TableContext,
   position: RowPosition,
   allocator: IdAllocator,

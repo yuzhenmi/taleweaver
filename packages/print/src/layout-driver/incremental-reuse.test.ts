@@ -89,7 +89,7 @@ function findBoxByKey(box: BoxLike, key: string): BoxLike | null {
 
 /** The first body block id of a fresh editor. */
 function firstBodyBlockId(editor: EditorState): BlockId {
-  const root = finalSection(editor.state);
+  const root = finalSection(editor.document);
   if (root === null || root.firstChildId === null) throw new Error("no body block");
   return root.firstChildId;
 }
@@ -108,7 +108,7 @@ describe("layout-driver incremental reuse (perf guard)", () => {
     // a split's head gets a NEW id while the focused tail keeps the old one,
     // so read the 24 paragraph ids back in document order.
     const blockIds: BlockId[] = [];
-    for (let id = finalSection(editor.state)?.firstChildId ?? null; id !== null; id = getBlock(editor.state, id)?.nextSiblingId ?? null) blockIds.push(id);
+    for (let id = finalSection(editor.document)?.firstChildId ?? null; id !== null; id = getBlock(editor.document, id)?.nextSiblingId ?? null) blockIds.push(id);
     expect(blockIds.length).toBe(24);
 
     const driver = createLayoutDriver(LAYOUT_CONFIG);

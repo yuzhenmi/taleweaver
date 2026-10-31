@@ -101,13 +101,13 @@ describe("handleDeleteLine — suggesting mode (slice 4c-iii)", () => {
     const next = nav(ctx, { type: "DELETE_LINE" });
 
     // Text intact; the whole line "hello" (0..4) carries the deletion id.
-    expect(getTextOf(next.editor.state, paraId)).toBe("hello");
-    const suggestions = getSuggestions(next.editor.state);
+    expect(getTextOf(next.editor.document, paraId)).toBe("hello");
+    const suggestions = getSuggestions(next.editor.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
     expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
-    expect(deletionIdAt(next.editor.state, paraId, 0)).toBe(nth(suggestions, 0, "suggestion").id);
-    expect(deletionIdAt(next.editor.state, paraId, 4)).toBe(nth(suggestions, 0, "suggestion").id);
+    expect(deletionIdAt(next.editor.document, paraId, 0)).toBe(nth(suggestions, 0, "suggestion").id);
+    expect(deletionIdAt(next.editor.document, paraId, 4)).toBe(nth(suggestions, 0, "suggestion").id);
     // Caret collapses to the line START (offset 0).
     expect(next.editor.selection.anchor).toEqual(next.editor.selection.focus);
     expect(next.editor.selection.focus.blockId).toBe(paraId);
@@ -124,9 +124,9 @@ describe("handleDeleteLine — suggesting mode (slice 4c-iii)", () => {
     expect(struck.editor.history.canUndo()).toBe(true);
 
     const undone = dispatch(struck, { type: "UNDO" });
-    expect(getTextOf(undone.editor.state, paraId)).toBe("hello");
-    expect(deletionIdAt(undone.editor.state, paraId, 0)).toBeUndefined();
-    expect(getSuggestions(undone.editor.state)).toHaveLength(0);
+    expect(getTextOf(undone.editor.document, paraId)).toBe("hello");
+    expect(deletionIdAt(undone.editor.document, paraId, 0)).toBeUndefined();
+    expect(getSuggestions(undone.editor.document)).toHaveLength(0);
   });
 
   it("direct mode (regression): the SAME line-delete REMOVES the line text, caret at line start, no suggestion", () => {
@@ -136,9 +136,9 @@ describe("handleDeleteLine — suggesting mode (slice 4c-iii)", () => {
 
     const next = nav(ctx, { type: "DELETE_LINE" });
 
-    expect(getTextOf(next.editor.state, paraId)).toBe("");
+    expect(getTextOf(next.editor.document, paraId)).toBe("");
     expect(next.editor.selection.focus.offset).toBe(0);
-    expect(getSuggestions(next.editor.state)).toHaveLength(0);
+    expect(getSuggestions(next.editor.document)).toHaveLength(0);
   });
 
   it("expanded-selection line-delete: SOFT-deletes the selection, caret at span start (text intact, struck)", () => {
@@ -149,14 +149,14 @@ describe("handleDeleteLine — suggesting mode (slice 4c-iii)", () => {
 
     const next = nav(ctx, { type: "DELETE_LINE" });
 
-    expect(getTextOf(next.editor.state, paraId)).toBe("abcdef");
-    const suggestions = getSuggestions(next.editor.state);
+    expect(getTextOf(next.editor.document, paraId)).toBe("abcdef");
+    const suggestions = getSuggestions(next.editor.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
-    expect(deletionIdAt(next.editor.state, paraId, 1)).toBe(nth(suggestions, 0, "suggestion").id);
-    expect(deletionIdAt(next.editor.state, paraId, 3)).toBe(nth(suggestions, 0, "suggestion").id);
-    expect(deletionIdAt(next.editor.state, paraId, 0)).toBeUndefined();
-    expect(deletionIdAt(next.editor.state, paraId, 4)).toBeUndefined();
+    expect(deletionIdAt(next.editor.document, paraId, 1)).toBe(nth(suggestions, 0, "suggestion").id);
+    expect(deletionIdAt(next.editor.document, paraId, 3)).toBe(nth(suggestions, 0, "suggestion").id);
+    expect(deletionIdAt(next.editor.document, paraId, 0)).toBeUndefined();
+    expect(deletionIdAt(next.editor.document, paraId, 4)).toBeUndefined();
     // Caret at the selection START (offset 1 = span start).
     expect(next.editor.selection.anchor).toEqual(next.editor.selection.focus);
     expect(next.editor.selection.focus.blockId).toBe(paraId);

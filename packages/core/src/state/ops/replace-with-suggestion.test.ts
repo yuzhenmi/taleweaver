@@ -45,7 +45,7 @@ import { TEST_RESOLVER,
   text,
   inlineContent,
 } from "../../test-utils/state-builders";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { InlineContent } from "../inline-content";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -65,7 +65,7 @@ const INPUT = {
 } as const;
 
 /** doc > [ p("abcdef") ] (one text run unless overridden). */
-function oneBlock(items = inlineContent([text("abcdef")])): State {
+function oneBlock(items = inlineContent([text("abcdef")])): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -76,7 +76,7 @@ function oneBlock(items = inlineContent([text("abcdef")])): State {
 }
 
 /** doc > [ p1(items1), p2(items2) ] — a two-leaf fixture for cross-block spans. */
-function twoBlocks(items1: InlineContent, items2: InlineContent): State {
+function twoBlocks(items1: InlineContent, items2: InlineContent): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -93,17 +93,17 @@ function span(start: number, end: number): Span {
 }
 
 /** The inline items of an arbitrary block by id. */
-function itemsOf(s: State, id: string) {
+function itemsOf(s: Document, id: string) {
   return getBlock(s, id as BlockId)?.inlineContent?.items ?? [];
 }
 
 /** The inline items of p. */
-function pItems(s: State) {
+function pItems(s: Document) {
   return itemsOf(s, "p");
 }
 
 /** Concatenated text of all text items of a block, in order. */
-function textOf(s: State, id: string): string {
+function textOf(s: Document, id: string): string {
   return itemsOf(s, id)
     .filter((it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text")
     .map((it) => it.text)
@@ -111,12 +111,12 @@ function textOf(s: State, id: string): string {
 }
 
 /** Concatenated text of all text items of p, in order. */
-function pText(s: State): string {
+function pText(s: Document): string {
   return textOf(s, "p");
 }
 
 /** The first text run of a block whose attrs carry `attrKey` (the suggestion-id attr). */
-function findTagged(s: State, id: string, attrKey: string) {
+function findTagged(s: Document, id: string, attrKey: string) {
   return itemsOf(s, id).find(
     (it) => it.kind === "text" && it.attrs[attrKey] !== undefined,
   );
@@ -127,7 +127,7 @@ function findTagged(s: State, id: string, attrKey: string) {
  * suggestions map. The run carrying the matching `insertionSuggestionId` attr is
  * built into the fixture separately.
  */
-function seedInsertionRecord(state: State, insId: string, author: string): State {
+function seedInsertionRecord(state: Document, insId: string, author: string): Document {
   const record: SuggestionRecord = {
     id: insId as SuggestionId,
     kind: "insertion",
@@ -145,7 +145,7 @@ function seedInsertionRecord(state: State, insId: string, author: string): State
  * suggestions map. The run carrying the matching `deletionSuggestionId` attr is
  * built into the fixture separately.
  */
-function seedDeletionRecord(state: State, delId: string, author: string): State {
+function seedDeletionRecord(state: Document, delId: string, author: string): Document {
   const record: SuggestionRecord = {
     id: delId as SuggestionId,
     kind: "deletion",

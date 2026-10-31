@@ -33,12 +33,12 @@ export function insertPageFieldAtCaret(
   const focus = editor.selection.focus;
 
   // Header/footer-only gate: the caret's selection context must be a template body.
-  const contextRoot = selectionContextOf(editor.state, focus.blockId);
+  const contextRoot = selectionContextOf(editor.document, focus.blockId);
   if (contextRoot === null) return null;
-  const resolvedContext = resolveBlock(editor.state, contextRoot);
+  const resolvedContext = resolveBlock(editor.document, contextRoot);
   if (resolvedContext === null || resolvedContext.kind !== "templateContent") return null;
 
-  const prep = prepareEmbedInsertPoint(editor.state, editor.selection);
+  const prep = prepareEmbedInsertPoint(editor.document, editor.selection);
   if (!prep.ok) return null;
 
   const result = insertPageField(prep.state, prep.position, fieldKind, numberStyle ?? "decimal");

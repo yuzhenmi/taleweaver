@@ -13,7 +13,7 @@ import type { State } from "../state";
 
 /** Build a base State (empty document) for policy reads. */
 function baseState(): State {
-  return createInitialEditorState(config).state;
+  return createInitialEditorState(config).document;
 }
 
 describe("documentFootnotePolicy", () => {

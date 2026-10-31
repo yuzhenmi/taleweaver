@@ -21,7 +21,7 @@ import { getSuggestions, type SuggestionId } from "../suggestions";
 import { acceptSuggestion } from "./suggestion-ops";
 import { createHistory } from "../history";
 import { getBlock } from "../state";
-import type { State } from "../state";
+import type { Document } from "../state";
 import { inlineContentLength } from "../inline-content";
 import { TEST_RESOLVER, testContainer,
   buildBlock,
@@ -45,7 +45,7 @@ const SID = "join-1" as SuggestionId;
 const INPUT = { id: SID, author: "alice", createdAt: 2000 } as const;
 
 /** doc > [ p1("abc"), p2("def") ] — two sibling paragraphs. */
-function twoBlocks(): State {
+function twoBlocks(): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -69,12 +69,12 @@ function twoBlocks(): State {
 }
 
 /** The inline items of a block, or []. */
-function itemsOf(s: State, id: string) {
+function itemsOf(s: Document, id: string) {
   return getBlock(s, id as BlockId)?.inlineContent?.items ?? [];
 }
 
 /** The concatenated text of a block's text runs (embeds contribute nothing). */
-function textOf(s: State, id: string): string {
+function textOf(s: Document, id: string): string {
   let out = "";
   for (const it of itemsOf(s, id)) {
     if (it.kind === "text") out += it.text;
@@ -83,12 +83,12 @@ function textOf(s: State, id: string): string {
 }
 
 /** The block's paragraph-break suggestion tags (read model), or undefined. */
-function breakOf(s: State, id: string) {
+function breakOf(s: Document, id: string) {
   return getBlock(s, id as BlockId)?.breakSuggestion;
 }
 
 /** Count of blocks present in the main tree (excluding the root). */
-function leafBlockIds(s: State, ids: readonly string[]): string[] {
+function leafBlockIds(s: Document, ids: readonly string[]): string[] {
   return ids.filter((id) => getBlock(s, id as BlockId) !== null);
 }
 
@@ -197,7 +197,7 @@ describe("markParagraphMarkDeletion — no-op on a ¶ accepting would keep", () 
   });
 
   /** doc → [p (text), container c, after]; ¶p is the unit before the container. */
-  function beforeContainer(pText: string): State {
+  function beforeContainer(pText: string): Document {
     return buildState({
       rootId: "doc",
       blocks: [

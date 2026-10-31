@@ -232,7 +232,7 @@ export function applyProposal(
   outcomeOf: (verdict: Verdict) => ProposalOutcome,
 ): Edit {
   const createdAt = (editor.config.now ?? Date.now)();
-  let state = editor.state;
+  let state = editor.document;
   // Each step is its own change, keeping its exact position mapping.
   const steps: OperationResult[] = [];
   const minted: SuggestionId[] = [];
@@ -358,7 +358,7 @@ export function proposeResultOf(outcome: ProposalOutcome | undefined): ProposeRe
 }
 
 /**
- * The mapping from an older document version `basedOn` to `editor.state`, walking the
+ * The mapping from an older document version `basedOn` to `editor.document`, walking the
  * editor's change chain (`lastChange`) — null when `basedOn` is not on it (aged out of the
  * bounded chain, or the document was replaced).
  */
@@ -366,7 +366,7 @@ export function mappingSince(editor: EditorState, basedOn: State): PositionMappi
   const links: ChangeLink[] = [];
   for (let c = editor.lastChange; c !== null; c = c.prior) {
     links.push(c);
-    if (c.from === basedOn) return mappingAcross(links.reverse(), editor.state);
+    if (c.from === basedOn) return mappingAcross(links.reverse(), editor.document);
   }
   return null;
 }

@@ -29,7 +29,7 @@ function emptySnapshots(): Record<BlockTreeKind, Map<BlockId, Block>> {
 
 /**
  * Per-State snapshot cache. Layered so `applyOperation` can produce a
- * new State whose cache reuses the input cache by reference instead of
+ * new Document whose cache reuses the input cache by reference instead of
  * copying every non-dirty entry — making per-mutation bookkeeping
  * O(dirtyIds.size) instead of O(N_cached).
  *
@@ -56,7 +56,7 @@ function emptySnapshots(): Record<BlockTreeKind, Map<BlockId, Block>> {
  *
  * **Write fall-through.** Writes only ever touch this layer; `base` is
  * never mutated. This preserves the per-State view-stability property:
- * a State holding the older cache continues to see its pre-mutation
+ * a Document holding the older cache continues to see its pre-mutation
  * snapshots regardless of activity on the newer State.
  *
  * **Chain depth.** Each `applyOperation` (when non-no-op) pushes a new

@@ -12,7 +12,7 @@ import { moveOffObject } from "./helpers/move-off-object";
  */
 export function handleEscape(editor: EditorState): Edit | null {
   const { config } = editor;
-  const objId = isObjectSelection(editor.state, editor.selection, config.componentRegistry);
+  const objId = isObjectSelection(editor.document, editor.selection, config.componentRegistry);
   if (objId !== null) return moveOffObject(editor, objId, "forward");
   return null;
 }

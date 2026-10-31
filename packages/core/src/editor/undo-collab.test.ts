@@ -46,18 +46,18 @@ const caret = (id: BlockId, offset: number): EditorAction => ({
 });
 
 function textOf(editor: EditorState, id: BlockId): string {
-  const block = getBlock(editor.state, id);
+  const block = getBlock(editor.document, id);
   const len = block?.inlineContent?.items.reduce((n, i) => n + (i.kind === "text" ? i.text.length : 1), 0) ?? 0;
-  return extractText(editor.state, createSpan(at(id, 0), at(id, len)));
+  return extractText(editor.document, createSpan(at(id, 0), at(id, len)));
 }
 
 /** User B (the one under test) and peer A, over two Y.Docs synced both ways. */
 function peers(text: string) {
   let a = reduceEditor(createInitialEditorState(config), { type: "INSERT_TEXT", text });
-  const docA = getYDoc(a.state);
+  const docA = getYDoc(a.document);
   const docB = new Y.Doc();
   Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
-  const stateB = createState({ resolver: TEST_RESOLVER, rootId: a.state.rootId, doc: docB });
+  const stateB = createState({ resolver: TEST_RESOLVER, rootId: a.document.rootId, doc: docB });
   let b = createEditorStateFromState(stateB, initialSelectionForState(stateB), config);
   docA.on("update", (u: Uint8Array, origin: unknown) => {
     if (origin !== "sync") Y.applyUpdate(docB, u, "sync");
@@ -68,10 +68,10 @@ function peers(text: string) {
   const noLegacy = (): void => {
     throw new Error("unexpected legacy storage");
   };
-  subscribeRemoteChanges(b.state, (dirtyIds) => {
+  subscribeRemoteChanges(b.document, (dirtyIds) => {
     b = reduceEditor(b, { type: "APPLY_FOREIGN_CHANGE", dirtyIds });
   }, noLegacy);
-  subscribeRemoteChanges(a.state, (dirtyIds) => {
+  subscribeRemoteChanges(a.document, (dirtyIds) => {
     a = reduceEditor(a, { type: "APPLY_FOREIGN_CHANGE", dirtyIds });
   }, noLegacy);
   const id = a.selection.focus.blockId;
@@ -97,7 +97,7 @@ describe("undo survives a peer's formatting (T6)", () => {
     const p = peers("");
     p.b(caret(p.id, 0), { type: "INSERT_TEXT", text: "hello" });
     p.a({ type: "SET_SELECTION", selection: createSpan(at(p.id, 1), at(p.id, 4)) }, { type: "TOGGLE_STYLE", style: "bold" });
-    expect(getBlock(p.bEditor.state, p.id)?.inlineContent?.items.some((i) => i.attrs.bold === true)).toBe(true);
+    expect(getBlock(p.bEditor.document, p.id)?.inlineContent?.items.some((i) => i.attrs.bold === true)).toBe(true);
     p.b({ type: "UNDO" });
     expect(textOf(p.bEditor, p.id)).toBe("");
   });
@@ -108,7 +108,7 @@ describe("undo after a peer's change elsewhere", () => {
     const p = peers("one");
     // A split keeps the caret's block as the TAIL: `p.id` becomes the second paragraph.
     p.a(caret(p.id, 3), { type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "two" });
-    const first = getBlock(p.aEditor.state, p.id)?.prevSiblingId ?? null;
+    const first = getBlock(p.aEditor.document, p.id)?.prevSiblingId ?? null;
     if (first === null) throw new Error("setup");
     // B reads the second paragraph (its caret visits it), then edits the first.
     p.b(caret(p.id, 1), caret(first, 3), { type: "INSERT_TEXT", text: "X" });
@@ -146,7 +146,7 @@ describe("undo selections are CRDT-anchored (T6)", () => {
     const q = peers("abcdef");
     q.b(caret(q.id, 2), { type: "INSERT_TEXT", text: "Z" }); // "abZcdef"; before anchors 'c'
     q.a(caret(q.id, 5), { type: "SPLIT_NODE" }); // "abZcd" | "ef" — the head is the new block
-    const head = getBlock(q.bEditor.state, q.id)?.prevSiblingId ?? null;
+    const head = getBlock(q.bEditor.document, q.id)?.prevSiblingId ?? null;
     if (head === null) throw new Error("setup");
     q.b({ type: "UNDO" });
     expect(textOf(q.bEditor, head)).toBe("abcd");
@@ -175,18 +175,18 @@ describe("undo selections are CRDT-anchored (T6)", () => {
     const p = peers("first");
     p.a({ type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "second" });
     // the split's head "first" is the new block; p.id keeps "second".
-    const first = getBlock(p.bEditor.state, p.id)?.prevSiblingId ?? null;
+    const first = getBlock(p.bEditor.document, p.id)?.prevSiblingId ?? null;
     if (first === null) throw new Error("setup");
     // B types in `first`: that entry's before-selection is in `first`.
     p.b(caret(first, 3), { type: "INSERT_TEXT", text: "Q" });
     // A deletes ¶first and the whole second paragraph: `first` leaves the read model.
     p.a({ type: "SET_SELECTION", selection: createSpan(at(first, 6), at(p.id, 6)) }, { type: "DELETE_BACKWARD" });
-    expect(getBlock(p.bEditor.state, first)).toBeNull();
+    expect(getBlock(p.bEditor.document, first)).toBeNull();
     p.b({ type: "UNDO" });
     // Undo re-creates nothing B can anchor to in `first` (A's delete is not B's to
     // undo); the caret is the undo's own, rebased: a valid position in a live block.
     const focus = p.bEditor.selection.focus;
-    expect(getBlock(p.bEditor.state, focus.blockId)).not.toBeNull();
+    expect(getBlock(p.bEditor.document, focus.blockId)).not.toBeNull();
     expect(focus.blockId).toBe(p.id);
   });
 });
@@ -205,24 +205,24 @@ describe("bookmarks: a selective undo of a cut after the paste", () => {
     const p = peers("Title");
     p.a({ type: "SPLIT_NODE" }); // Enter at the end: the TEXT "Title" takes the new id, the caret's ¶ keeps p.id
     const host = p.id;
-    const t = getBlock(p.aEditor.state, host)?.prevSiblingId ?? null;
+    const t = getBlock(p.aEditor.document, host)?.prevSiblingId ?? null;
     if (t === null) throw new Error("setup");
     p.a({ type: "INSERT_CROSS_REFERENCE", targetId: t, refMode: "text" });
-    const first = getBlock(p.bEditor.state, t)?.inlineContent?.items[0];
+    const first = getBlock(p.bEditor.document, t)?.inlineContent?.items[0];
     const bid = first?.kind === "embed" ? String(first.properties.bookmarkId) : "";
-    expect(collectBookmarks(p.bEditor.state).get(bid)?.start).toEqual(at(t, 1));
+    expect(collectBookmarks(p.bEditor.document).get(bid)?.start).toEqual(at(t, 1));
     // A: select exactly "Title" and cut it (copy the fragment, then delete).
     p.a({ type: "SET_SELECTION", selection: createSpan(at(t, 1), at(t, 6)) });
-    const clip = encodeFragmentClip(extractFragment(p.aEditor.state, p.aEditor.selection));
+    const clip = encodeFragmentClip(extractFragment(p.aEditor.document, p.aEditor.selection));
     p.a({ type: "DELETE_BACKWARD" });
-    expect(collectBookmarks(p.bEditor.state).has(bid)).toBe(false);
+    expect(collectBookmarks(p.bEditor.document).has(bid)).toBe(false);
     // B pastes it at the end of the host: B's document has no live pair, so it keeps it.
-    const hostEnd = getBlock(p.bEditor.state, host)?.inlineContent?.items.length ?? 0;
+    const hostEnd = getBlock(p.bEditor.document, host)?.inlineContent?.items.length ?? 0;
     p.b(caret(host, hostEnd), { type: "PASTE", clip, text: "Title" });
-    expect(collectBookmarks(p.bEditor.state).get(bid)?.start.blockId).toBe(host);
+    expect(collectBookmarks(p.bEditor.document).get(bid)?.start.blockId).toBe(host);
     // A undoes ONLY its cut: the original pair is back; it is earlier in document order, so it pairs.
     p.a({ type: "UNDO" });
-    for (const s of [p.aEditor.state, p.bEditor.state]) {
+    for (const s of [p.aEditor.document, p.bEditor.document]) {
       expect(collectBookmarks(s).get(bid)?.start).toEqual(at(t, 1));
       expect(collectBookmarks(s).get(bid)?.end).toEqual(at(t, 6));
     }

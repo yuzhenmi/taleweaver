@@ -60,7 +60,7 @@ plus a layout-tree-consuming export package and injected-capability packages:
   `core` for the `PatternSet` type only (type-only import).
 
 - **`@taleweaver/pdf`** — the PDF export emitter. A layout-tree consumer (peer
-  of `print`'s canvas renderer, not a serializer of `State`): it walks a
+  of `print`'s canvas renderer, not a serializer of `Document`): it walks a
   positioned `PageBox` tree and emits PDF content-stream operators. Phase (a)
   ships standard-14 text + page geometry; embedded fonts, graphics, and images
   are later whole-feature phases. Platform-agnostic and zero-dependency; the
@@ -177,7 +177,7 @@ dependency order so each layer's surface is grounded by the time you
 reach its consumer:
 
 1. [`1-core/overview.md`](./1-core/overview.md) — core's modules and the
-   rendering pipeline. Defines the geometry-free data structures (`State` /
+   rendering pipeline. Defines the geometry-free data structures (`Document` /
    `Block`, `RenderNode`, `EditorState`) and the contracts the host depends on.
 2. [`2-print/overview.md`](./2-print/overview.md) — print's modules: the geometric
    layout engine + cursor (`LayoutBox`/`PageBox`), controller, canvas renderer,

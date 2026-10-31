@@ -121,7 +121,7 @@ unit, with the boundary owned by `beginEntry` / `breakCoalescing` (the reducer
 classifies actions via `coalesceKeyOf`). Dirty tracking is write-time: `dirtyIds`
 captured from Yjs's `afterTransaction` change event (not tree diffing), consumed by
 the incremental render/cascade/layout passes. `applyOperation` returns the input
-`State` reference unchanged on a no-op, so `result.state === state` is an O(1)
+`Document` reference unchanged on a no-op, so `result.state === state` is an O(1)
 "did anything change?" guard. The old path-based `StateNode` immutable tree is
 fully removed.
 
@@ -267,7 +267,7 @@ The built-in is a LOSSLESS binary serializer (`createBinaryDocumentSerializer`,
 (`Y.encodeStateAsUpdate` / `Y.applyUpdate`): one round-trip over the WHOLE
 `Y.Doc` (the block registry with every flow + `listDefs` + `comments` + `suggestions`
 + `meta` rootId / schemaVersion). Decode reads `rootId` via the state-private `getMetaRootId`
-and rebuilds `State` with a fresh snapshot cache; a decoded doc with no rootId throws
+and rebuilds `Document` with a fresh snapshot cache; a decoded doc with no rootId throws
 `MalformedDocumentError`; an older schema throws `LegacyDocumentError` and a newer one
 `IncompatibleDocumentError` (the host runs `upgradeDocument` first; `inspectDocument`
 reports the effective schema).
@@ -278,7 +278,7 @@ FRESH `EditorState` (fresh History + a valid initial caret via
 `initialSelectionForState` + full render/cascade/layout).
 
 `buildDocumentFromTree` (`state/build-document-from-tree.ts`, on the state + core
-barrels) lowers a declarative nested `BlockNode` tree → `State`, minting ids and
+barrels) lowers a declarative nested `BlockNode` tree → `Document`, minting ids and
 deriving all structural links — the safe public counterpart to the internal
 `buildStateFromBlocks`, and the construction target a future HTML/JSON importer's
 `decode` builds.
@@ -287,7 +287,7 @@ The HTML serializer ships in `core`'s `state/serialize/` — the `taleweaver-htm
 `DocumentSerializer<string>` (`html-serializer.ts` + `html-encode.ts` +
 `html-decode.ts` + the DOM-free `html-node.ts` seam, on the core barrel as
 `HTML_FORMAT` / `createHtmlDocumentSerializer` / `encodeHtml` / `decodeHtml` /
-`HtmlNode` / `HtmlParser`). ENCODE is a pure `State` → HTML walk; DECODE parses via
+`HtmlNode` / `HtmlParser`). ENCODE is a pure `Document` → HTML walk; DECODE parses via
 an INJECTED `HtmlParser` over the DOM-free `HtmlNode` interface (a browser host
 supplies `browserHtmlParser` in `@taleweaver/print` — `DOMParser`-backed), keeping
 core headless. It round-trips a Google-Docs-complete prose + list + table subset
@@ -1308,7 +1308,7 @@ Paragraph-mark editing in print `[implemented]`: Shift+Enter → `INSERT_LINE_BR
 markers are never caret stops (hit-test, up / down, arrows, Home / End and selection
 extension go through core `caretAfterMarkers`; arrows through `stepPastMarkers`); the
 selection ¶ extension of every covered ¶ is clipped by the line's ancestor clip. The layout
-driver returns the prior tree for the same `State` + width + no dirty set, and the
+driver returns the prior tree for the same `Document` + width + no dirty set, and the
 controller syncs page slots / the intersection observer only for a NEW layout tree, so a
 caret move or selection extension does no per-page or per-document work (gated by
 deterministic op counters at 3 vs 84 pages, not wall-clock). Browser smoke `[pending]`:
@@ -1364,7 +1364,7 @@ it).
 ### Read-only DOM viewer `[implemented]`
 
 The **digital view** (`@taleweaver/digital` backend, `packages/digital/src/dom-view/`)
-renders a document `State` into real DOM the browser flows to any width:
+renders a document `Document` into real DOM the browser flows to any width:
 `renderDocumentToDom` runs core's `render()` → `cascadePass()` → a recursive
 node-walk that emits one DOM node per cascaded styled node (no engine geometry, no
 pages). Node→DOM maps by first-match on metadata flags (`headingLevel`→`<h1..6>`,

@@ -8,7 +8,7 @@ import { resolveGroup } from "./resolve-group";
  * host proposal), means its whole group: groups are reviewed as one unit.
  */
 export function resolveOne(editor: EditorState, id: SuggestionId, mode: "accept" | "reject"): Edit | null {
-  const record = readSuggestionRecordFromState(editor.state, id);
+  const record = readSuggestionRecordFromState(editor.document, id);
   if (record === null) return null;
   return resolveGroup(editor, suggestionGroupOf(record), mode);
 }

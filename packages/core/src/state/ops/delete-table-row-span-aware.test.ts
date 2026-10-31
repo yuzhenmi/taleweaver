@@ -4,7 +4,7 @@ import { getBlock } from "../state";
 import { resolveTableContext, getChildIds, buildTableGrid } from "../table-context";
 import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
 import type { BlockId } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { Block } from "../block";
 
 function cell(id: string, rowId: string, attrs: Record<string, unknown> | undefined, prev: string | null, next: string | null): Block[] {
@@ -14,17 +14,17 @@ function cell(id: string, rowId: string, attrs: Record<string, unknown> | undefi
   ];
 }
 
-function ctxAt(state: State, blockId: string) {
+function ctxAt(state: Document, blockId: string) {
   const ctx = resolveTableContext(state, blockId as BlockId);
   if (ctx === null) throw new Error("expected table context");
   return ctx;
 }
 
-const run = (state: State, caretBlock: string) =>
+const run = (state: Document, caretBlock: string) =>
   deleteTableRowSpanAware(state, ctxAt(state, caretBlock));
 
 /** row0=[A(rowSpan N), B], then single-cell rows r1..r{N-1}. occupancy: A carries down col0. */
-function buildVerticalSpan(n: number): State {
+function buildVerticalSpan(n: number): Document {
   const blocks: Block[] = [
     buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
     buildBlock({ id: "table", type: "table", parentId: "doc", firstChildId: "r0", lastChildId: `r${n - 1}` }),
@@ -167,7 +167,7 @@ describe("deleteTableRowSpanAware", () => {
     // rows 2–3) so headerRowCount=2 (rows 0–1) is clean-cut valid.
     // row0=[A,B] row1=[C,D] row2=[E(rowSpan2),F] row3=[G]. occupancy:
     // [[A,B],[C,D],[E,F],[E,G]].
-    const fourRowBodySpan = (headerRowCount: number): State => {
+    const fourRowBodySpan = (headerRowCount: number): Document => {
       const blocks: Block[] = [
         buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
         buildBlock({ id: "table", type: "table", parentId: "doc", attrs: { headerRowCount }, firstChildId: "r0", lastChildId: "r3" }),
@@ -185,7 +185,7 @@ describe("deleteTableRowSpanAware", () => {
       ];
       return buildState({ rootId: "doc", blocks });
     };
-    const hrc = (s: State) => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
+    const hrc = (s: Document) => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
     // Delete a header row (row 0, r < count=2) → 1.
     expect(hrc(run(fourRowBodySpan(2), "Ap").state)).toBe(1);
     // Delete a BODY row (row 2, r ≥ count=2) → header unchanged (2).

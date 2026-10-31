@@ -52,6 +52,6 @@ export function handleRemoveMark(
   if (target === null) return null;
   return applyDeltas(
     editor,
-    removalDeltas(editor.state, target, key, value, isNonExclusive(editor, key), editor.config.attrRegistry),
+    removalDeltas(editor.document, target, key, value, isNonExclusive(editor, key), editor.config.attrRegistry),
   );
 }

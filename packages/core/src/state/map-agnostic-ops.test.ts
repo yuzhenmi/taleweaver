@@ -30,7 +30,7 @@ import { createPosition, createSpan } from "./block-position";
 import type { BlockKind, BlockKindResolver } from "./block-kinds";
 import { TEST_RESOLVER, buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
-import type { State } from "./state";
+import type { Document } from "./state";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -67,7 +67,7 @@ const resolver: BlockKindResolver = {
 // A header template body: a ROOT container (parentId === null, in
 // templateContents) with two child paragraphs ("alpha", "beta"). Main document
 // is a single body paragraph. Same fixture shape as map-agnostic-helpers.test.ts.
-function buildWithHeaderBody(): State {
+function buildWithHeaderBody(): Document {
   return buildState({
     rootId: "doc",
     blocks: [

@@ -15,7 +15,7 @@
 // These tests build the fixture through the REAL footnote producer (render →
 // cascade root + cascade embed bodies → collectFootnoteAnchors →
 // buildVirtualPaginatedTree → assembled positioned tree), mirroring the FN-4.3
-// virtual-layout-tree.footnote-slot fixtures but driven from a real `State` so
+// virtual-layout-tree.footnote-slot fixtures but driven from a real `Document` so
 // `resolveBlock` / `selectionContextOf` line up with the line `ownerBlockId`s.
 
 import { describe, it, expect, beforeEach } from "vitest";

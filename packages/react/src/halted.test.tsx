@@ -78,7 +78,7 @@ function legacyBlock(type: string, parentId: string | null, inline: Y.Array<Y.Ma
 }
 
 /**
- * A NOT-YET-UPGRADED document: a State bound to an empty Y.Doc, then a schema-1
+ * A NOT-YET-UPGRADED document: a Document bound to an empty Y.Doc, then a schema-1
  * document (`doc > p1("legacy")`) synced in.
  */
 function notYetUpgraded(): { doc: Y.Doc; state: core.State } {
@@ -131,7 +131,7 @@ function mount(options: { readonly wrapDispatch?: boolean } = {}) {
   };
   act(() => api().dispatch({ type: "INSERT_TEXT", text: "hello" }));
   const id = api().editorState.selection.focus.blockId;
-  const doc = core.getYDoc(api().editorState.state);
+  const doc = core.getYDoc(api().editorState.document);
   // A peer replica, synced both ways (the peer is an engine-less Y.Doc here).
   const peer = new Y.Doc();
   Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
@@ -168,7 +168,7 @@ function mount(options: { readonly wrapDispatch?: boolean } = {}) {
 }
 
 const textOf = (e: core.EditorState, id: core.BlockId): string =>
-  (core.getBlock(e.state, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
+  (core.getBlock(e.document, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
 
 describe("useEditor — HALTED", () => {
   it("the view tells the hook automatically; dispatch is ignored; replaceDocument resumes and the view re-applies its decorations", () => {
@@ -186,9 +186,9 @@ describe("useEditor — HALTED", () => {
     act(() => m.api().dispatch({ type: "INSERT_TEXT", text: "x" }));
     expect(m.api().editorState).toBe(halted);
 
-    // Exit: the host replaces the document (a fresh State over the same Y.Doc).
+    // Exit: the host replaces the document (a fresh Document over the same Y.Doc).
     fills = [];
-    act(() => m.api().replaceDocument(core.createState({ resolver: RESOLVER, rootId: halted.state.rootId, doc: m.doc })));
+    act(() => m.api().replaceDocument(core.createState({ resolver: RESOLVER, rootId: halted.document.rootId, doc: m.doc })));
     expect(m.api().halted).toBe(false);
     // The replacement dropped every layer; the view set its `decorations` prop again.
     expect(fills).toContain(tint);
@@ -308,7 +308,7 @@ describe("useEditor — HALTED", () => {
     const copy = (): core.State => {
       const d = new Y.Doc();
       Y.applyUpdate(d, Y.encodeStateAsUpdate(m.doc));
-      return core.createState({ resolver: RESOLVER, rootId: m.api().editorState.state.rootId, doc: d });
+      return core.createState({ resolver: RESOLVER, rootId: m.api().editorState.document.rootId, doc: d });
     };
     act(() => {
       m.api().replaceDocument(copy());

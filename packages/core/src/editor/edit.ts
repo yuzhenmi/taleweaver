@@ -51,7 +51,7 @@ export interface Edit {
    * An `EditorState` shares `selection` / `storedAttrs`, so without this it would be
    * assignable to `Edit` — a handler returning a whole state would silently lose its change.
    */
-  readonly state?: never;
+  readonly document?: never;
 }
 
 /**
@@ -63,7 +63,7 @@ export interface Edit {
 export function applyEdit(editor: EditorState, edit: Edit | null): EditorState {
   if (edit === null) return editor;
   const steps = edit.change === undefined ? [] : "state" in edit.change ? [edit.change] : edit.change;
-  let state = editor.state;
+  let state = editor.document;
   let lastChange = editor.lastChange;
   let dirtyIds: ReadonlySet<BlockId> | null = null;
   for (const step of steps) {
@@ -72,7 +72,7 @@ export function applyEdit(editor: EditorState, edit: Edit | null): EditorState {
     dirtyIds = dirtyIds === null ? step.dirtyIds : new Set([...dirtyIds, ...step.dirtyIds]);
     state = step.state;
   }
-  let next = dirtyIds === null ? editor : { ...editor, state, lastDirtyIds: dirtyIds, lastChange };
+  let next = dirtyIds === null ? editor : { ...editor, document: state, lastDirtyIds: dirtyIds, lastChange };
   const selection =
     edit.selection === "rebase" ? rebaseSelection(editor, next) : (edit.selection ?? editor.selection);
   if (dirtyIds !== null) {

@@ -74,7 +74,7 @@ function twoSectionDocWithFootnotes() {
 describe("FN-6.3 — render threads documentFootnotePolicy", () => {
   it("defaults to continuous when the root has no policy attrs", () => {
     const { editor } = twoSectionDocWithFootnotes();
-    const out = fullRender(editor.state);
+    const out = fullRender(editor.document);
     const values = [...out.footnoteNumbers.values()]
       .map((n) => n.value)
       .sort((x, y) => x - y);
@@ -84,7 +84,7 @@ describe("FN-6.3 — render threads documentFootnotePolicy", () => {
 
   it("restart-per-section restarts numbering at the section boundary", () => {
     const { editor } = twoSectionDocWithFootnotes();
-    const { state } = setRootPolicy(editor.state, {
+    const { state } = setRootPolicy(editor.document, {
       footnoteNumberingReset: "restart-per-section",
     });
     const out = fullRender(state);
@@ -95,7 +95,7 @@ describe("FN-6.3 — render threads documentFootnotePolicy", () => {
 
   it("restart-per-page falls back to continuous in render WITHOUT throwing", () => {
     const { editor } = twoSectionDocWithFootnotes();
-    const { state } = setRootPolicy(editor.state, {
+    const { state } = setRootPolicy(editor.document, {
       footnoteNumberingReset: "restart-per-page",
     });
     let out: RenderOutput | undefined;
@@ -111,7 +111,7 @@ describe("FN-6.3 — render threads documentFootnotePolicy", () => {
 
   it("formats numbers using the document format attr", () => {
     const { editor } = twoSectionDocWithFootnotes();
-    const { state } = setRootPolicy(editor.state, {
+    const { state } = setRootPolicy(editor.document, {
       footnoteNumberingFormat: "lower-roman",
     });
     const out = fullRender(state);
@@ -126,7 +126,7 @@ describe("FN-6.3 — FN-8 cache invalidates on a policy change (root dirty)", ()
   it("recomputes numbers when the root policy changes through an incremental cycle", () => {
     const { editor } = twoSectionDocWithFootnotes();
     // Baseline full render under the default (continuous) policy: numbers 1, 2.
-    const prev = fullRender(editor.state);
+    const prev = fullRender(editor.document);
     const before = [...prev.footnoteNumbers.values()]
       .map((n) => n.value)
       .sort((x, y) => x - y);
@@ -136,12 +136,12 @@ describe("FN-6.3 — FN-8 cache invalidates on a policy change (root dirty)", ()
     // The root is the ONLY dirty block, and it carries NO footnote anchor and is
     // not a section — so without the `dirtyIds.has(rootId)` FN-8 fix, the
     // anchor/number cache would be (wrongly) reused and numbers would stay 1, 2.
-    const { state, dirtyIds } = setRootPolicy(editor.state, {
+    const { state, dirtyIds } = setRootPolicy(editor.document, {
       footnoteNumberingReset: "restart-per-section",
     });
     const out = render(state, componentRegistry, attrRegistry, {
       prev,
-      prevState: editor.state,
+      prevState: editor.document,
       dirtyIds,
     });
     const after = [...out.footnoteNumbers.values()].map((n) => n.value).sort();

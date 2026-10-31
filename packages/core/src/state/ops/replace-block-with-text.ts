@@ -1,4 +1,4 @@
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -34,7 +34,7 @@ import { planInsertText, insertTextInTx } from "./insert-text";
  * here: a removal always changes state.
  */
 export function replaceBlockWithText(
-  state: State,
+  state: Document,
   removeBlockId: BlockId,
   insertAt: { readonly blockId: BlockId; readonly offset: number },
   text: string,

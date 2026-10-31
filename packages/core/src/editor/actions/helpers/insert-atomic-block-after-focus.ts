@@ -20,16 +20,16 @@ export function insertAtomicBlockAfterFocus(
   editor: EditorState,
   atomicInit: SiblingBlockInit,
 ): Edit | null {
-  const focus = getBlock(editor.state, editor.selection.focus.blockId);
+  const focus = getBlock(editor.document, editor.selection.focus.blockId);
   if (focus === null || focus.parentId === null) return null;
 
   const result = insertBlocksAfter(
-    editor.state,
+    editor.document,
     focus.id,
     [atomicInit, { type: "paragraph", inlineContent: { items: [] } }],
     productionAllocator,
   );
-  if (result.state === editor.state) return null;
+  if (result.state === editor.document) return null;
 
   // newBlockIds = [atomic, paragraph]; caret lands in the paragraph.
   const paragraphId = result.newBlockIds[1];

@@ -2,7 +2,7 @@ import { registryWith, testContainer, TEST_RESOLVER } from "../test-utils/state-
 import { describe, it, expect } from "vitest";
 import { createTestAllocator, type BlockId } from "./block-id";
 import { getBlock } from "./state";
-import type { State } from "./state";
+import type { Document } from "./state";
 import type { Block } from "./block";
 import { getListDefsForState, type ListDef } from "./list-defs";
 import {
@@ -11,7 +11,7 @@ import {
 } from "./build-document-from-tree";
 
 /** Read a block that must exist (narrows `Block | null` to `Block` without `!`). */
-function requireBlock(state: State, id: BlockId): Block {
+function requireBlock(state: Document, id: BlockId): Block {
   const block = getBlock(state, id);
   if (block === null) {
     throw new Error(`expected block ${id} to exist`);
@@ -21,7 +21,7 @@ function requireBlock(state: State, id: BlockId): Block {
 
 /** Read a child-link id that must be set (narrows `BlockId | null` without `!`). */
 /** The final section: the root's child, holding a section-less document's top-level blocks. */
-function topOf(state: State): Block {
+function topOf(state: Document): Block {
   return requireBlock(state, requireId(requireBlock(state, state.rootId).lastChildId));
 }
 

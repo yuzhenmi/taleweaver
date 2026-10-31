@@ -87,10 +87,10 @@ specialized helpers it composes.
   runs render → cascade (main + template + embed bodies) → layout and returns
   the `LayoutBox | VirtualLayoutTree`. It RETAINS the prior cycle's five trees
   (render output, main/template/embed cascaded trees, layout tree) plus the prior
-  `State` (`prevState`) as closure
+  `Document` (`prevState`) as closure
   state, so a non-null `lastDirtyIds` drives an INCREMENTAL rebuild that reuses
   unchanged subtrees by reference (`null` = full rebuild: initial / resize); the same
-  `State` + width with no dirty set (a selection-only dispatch) returns the prior tree
+  `Document` + width with no dirty set (a selection-only dispatch) returns the prior tree
   untouched. It
   also runs the restart-per-page footnote-numbering second pass (re-render
   the changed markers from the layout's anchor→page map until the page assignment
@@ -267,7 +267,7 @@ The read-only DOM viewer (`renderDocumentToDom`) is documented under
 
 The `layout-driver` (`createLayoutDriver`, `LayoutDriver`, `LayoutConfig`) is
 exported on the package barrel — a host can build a layout tree from a core
-`State` directly without constructing an `EditorController`. The `nav` resolver
+`Document` directly without constructing an `EditorController`. The `nav` resolver
 (`resolveNavIntent`, `NavIntent`, `isNavIntent`, `KeyResult`) is INTERNAL to the
 controller — composed during construction, not on the barrel. See
 [`2.1-layout-driver.md`](./2.1-layout-driver.md).

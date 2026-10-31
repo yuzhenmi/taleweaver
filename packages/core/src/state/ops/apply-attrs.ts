@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 import { blockText } from "../block-text";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { Span } from "../block-position";
@@ -68,7 +68,7 @@ import { attrRegistryOf } from "../mark-attrs";
  * ops do NOT shift this span's offsets.
  */
 export function applyAttrsToRange(
-  state: State,
+  state: Document,
   span: Span,
   attrs: ReadonlyAttrs,
 ): OperationResult {
@@ -132,7 +132,7 @@ export interface ApplyAttrsToRangePlan {
  * cannot return null in correct code) that keeps the main-tree default.
  */
 export function planApplyAttrsToRange(
-  state: State,
+  state: Document,
   span: Span,
 ): ApplyAttrsToRangePlan | null {
   const segments = Array.from(iterateSpan(state, span));

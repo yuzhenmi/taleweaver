@@ -18,11 +18,11 @@ export function handleReplaceAll(
 ): Edit | null {
   if (matches.length === 0) return null;
 
-  const plan = planReplaceMatches(editor.state, matches, replacement);
-  const result = applyReplaceAllPlan(editor.state, plan);
+  const plan = planReplaceMatches(editor.document, matches, replacement);
+  const result = applyReplaceAllPlan(editor.document, plan);
 
   // No-op identity contract.
-  if (result.state === editor.state) return null;
+  if (result.state === editor.document) return null;
 
   // Cursor: collapse to the start of the FIRST affected block's first
   // replacement (the document-first block in `blockWrites`, which preserves

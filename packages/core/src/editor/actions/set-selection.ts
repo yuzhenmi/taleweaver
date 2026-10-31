@@ -53,8 +53,8 @@ export function handleSetSelection(
   // selection rather than corrupt state), matching the codebase invariant
   // pattern (assertChainIntegrity / requireInTransaction). Root ids are
   // globally unique, so same-context ⇔ equal non-null `selectionContextOf`.
-  const anchorCtx = selectionContextOf(editor.state, selection.anchor.blockId);
-  const focusCtx = selectionContextOf(editor.state, selection.focus.blockId);
+  const anchorCtx = selectionContextOf(editor.document, selection.anchor.blockId);
+  const focusCtx = selectionContextOf(editor.document, selection.focus.blockId);
   if (anchorCtx === null || focusCtx === null || anchorCtx !== focusCtx) {
     if (isDevMode()) {
       throw new Error(

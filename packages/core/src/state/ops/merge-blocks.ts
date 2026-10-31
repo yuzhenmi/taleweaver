@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import { requireInTransaction, type BlockTreeKind } from "../yjs-doc";
@@ -47,7 +47,7 @@ export interface MergeBlocksResult extends OperationResult {
  * Composition: `mergeAdjacentBlocksInTx` runs inside a caller's transaction.
  */
 export function mergeAdjacentBlocks(
-  state: State,
+  state: Document,
   leftId: BlockId,
   rightId: BlockId,
 ): MergeBlocksResult {
@@ -68,7 +68,7 @@ export function mergeAdjacentBlocks(
  * run the mutations without further reads from `state`.
  */
 export function planMergeAdjacentBlocks(
-  state: State,
+  state: Document,
   leftId: BlockId,
   rightId: BlockId,
 ): MergeBlocksPlan {
@@ -182,7 +182,7 @@ export interface JoinSuggestionResult extends OperationResult {
  *   - else `deletionSuggestionId` on ¶L's entry + a `deletion` record.
  */
 export function markParagraphMarkDeletion(
-  state: State,
+  state: Document,
   leftBlockId: BlockId,
   input: SuggestionMintInput,
 ): JoinSuggestionResult {

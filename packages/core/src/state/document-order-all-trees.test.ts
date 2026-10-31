@@ -17,11 +17,11 @@ import {
   inlineContent,
   text,
 } from "../test-utils/state-builders";
-import { getBlock, type State } from "./state";
+import { getBlock, type Document } from "./state";
 import type { Block } from "./block";
 
 /** doc>(p) main tree + one embedContent body (fn>fnp) + one templateContent body (hd>hdp). */
-function threeTreeState(): State {
+function threeTreeState(): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -41,7 +41,7 @@ function threeTreeState(): State {
 
 const ids = (it: Iterable<Block>): string[] => [...it].map((b) => b.id);
 /** The document's final section (the root always holds it; a section-less doc's blocks are in it). */
-const fin = (s: State): string => getBlock(s, s.rootId)?.firstChildId ?? "";
+const fin = (s: Document): string => getBlock(s, s.rootId)?.firstChildId ?? "";
 
 describe("iterateAllBlocksInDocumentOrder", () => {
   it("yields the main tree, then embed bodies, then template bodies (in document order)", () => {

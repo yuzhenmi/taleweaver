@@ -68,11 +68,11 @@ export function handleToggleStyle(editor: EditorState, { style }: ActionOf<"TOGG
     return storeTypingAttrs(editor, { [attrKey]: on ? undefined : true });
   }
 
-  const all = selectionAllHaveAttr(editor.state, selection, attrKey);
+  const all = selectionAllHaveAttr(editor.document, selection, attrKey);
   // When all items have the attr → toggle OFF (remove). Else toggle ON.
   const incoming = all ? { [attrKey]: undefined } : { [attrKey]: true };
   const result = applyAttrsOrSuggest(editor, selection, incoming);
-  if (result.state === editor.state) {
+  if (result.state === editor.document) {
     return null;
   }
 

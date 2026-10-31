@@ -6,7 +6,7 @@ import { resolveCellRange } from "../table-cell-range";
 import { createPosition, createSpan } from "../block-position";
 import { buildBlock, buildState, inlineContent, text } from "../../test-utils/state-builders";
 import type { BlockId } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { Block } from "../block";
 import type { CellRange } from "../table-cell-range";
 
@@ -19,7 +19,7 @@ function cell(id: string, rowId: string, content: string, prev: string | null, n
 }
 
 /** doc > table > row0[A,B], row1[C,D]; per-cell text supplied by `t`. */
-function build2x2(t: { A: string; B: string; C: string; D: string }): State {
+function build2x2(t: { A: string; B: string; C: string; D: string }): Document {
   const blocks: Block[] = [
     buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
     buildBlock({ id: "table", type: "table", parentId: "doc", attrs: { columnWidths: [0.5, 0.5] }, firstChildId: "r0", lastChildId: "r1" }),
@@ -34,7 +34,7 @@ function build2x2(t: { A: string; B: string; C: string; D: string }): State {
 }
 
 /** Resolve the cell range for a selection from cell `a`'s paragraph to cell `b`'s. */
-function rangeOf(state: State, aPara: string, bPara: string): CellRange {
+function rangeOf(state: Document, aPara: string, bPara: string): CellRange {
   const r = resolveCellRange(state, createSpan(createPosition(aPara as BlockId, 0), createPosition(bPara as BlockId, 0)));
   if (r === null) throw new Error("expected a cell range");
   return r;

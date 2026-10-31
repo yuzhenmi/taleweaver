@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import type { State } from "./state";
+import type { Document } from "./state";
 import { getBlock } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 import type { BlockId } from "./block-id";
@@ -99,7 +99,7 @@ interface MarkerTally {
  *
  * Mirrors the cross-reference index pass: one O(N inline-items) walk, no layout.
  */
-export function buildCommentRangeIndex(state: State): Map<CommentId, CommentRange> {
+export function buildCommentRangeIndex(state: Document): Map<CommentId, CommentRange> {
   const tallies = new Map<CommentId, MarkerTally>();
 
   for (const block of iterateBlocksInDocumentOrder(state)) {
@@ -148,7 +148,7 @@ export function buildCommentRangeIndex(state: State): Map<CommentId, CommentRang
  * one-sided or inverted marker pair resolves to a `CommentRange` with
  * `orphaned: true` (a concrete position survives, just not a well-formed pair).
  */
-export function resolveCommentRange(state: State, commentId: CommentId): CommentRange | null {
+export function resolveCommentRange(state: Document, commentId: CommentId): CommentRange | null {
   return buildCommentRangeIndex(state).get(commentId) ?? null;
 }
 
@@ -171,7 +171,7 @@ function getOrCreateTally(
  * side exists) so the read side always has concrete positions even for an
  * orphaned comment (it skips orphaned ranges anyway).
  */
-function deriveRange(state: State, tally: MarkerTally): CommentRange {
+function deriveRange(state: Document, tally: MarkerTally): CommentRange {
   const wellFormedCount = tally.startCount === 1 && tally.endCount === 1;
   if (wellFormedCount && tally.start !== null && tally.end !== null) {
     const orphaned = comparePositions(state, tally.start, tally.end) >= 0;
@@ -191,7 +191,7 @@ function deriveRange(state: State, tally: MarkerTally): CommentRange {
 }
 
 /** Defensive origin block id — the document root (always present). */
-function rootLeafId(state: State): BlockId {
+function rootLeafId(state: Document): BlockId {
   const root = getBlock(state, state.rootId);
   return root?.id ?? state.rootId;
 }
@@ -310,7 +310,7 @@ export function readCommentRecord(doc: Y.Doc, id: CommentId): CommentRecord | nu
  * One marker scan (`buildCommentRangeIndex`) feeds every record, so this is a
  * single O(N inline-items + N records) pass — no per-record re-scan.
  */
-export function getComments(state: State): readonly ResolvedComment[] {
+export function getComments(state: Document): readonly ResolvedComment[] {
   const doc = state[STATE_INTERNAL].doc;
   const rangeIndex = buildCommentRangeIndex(state);
   const out: ResolvedComment[] = [];
@@ -330,7 +330,7 @@ export function getComments(state: State): readonly ResolvedComment[] {
  * document origin with `orphaned: true`; the host skips it. Positions are
  * concrete so the type stays total.
  */
-function orphanOriginRange(state: State): CommentRange {
+function orphanOriginRange(state: Document): CommentRange {
   const origin = createPosition(rootLeafId(state), 0);
   return Object.freeze({ start: origin, end: origin, orphaned: true });
 }

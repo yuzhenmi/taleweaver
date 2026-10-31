@@ -43,13 +43,13 @@ export function handleInsertTable(
   // Refuse a table inside a footnote / header / footer body — only main document
   // body text (which resolves to `state.rootId`) may host a table. Read
   // `focus` (the active end), matching INSERT_FOOTNOTE.
-  if (selectionContextOf(editor.state, editor.selection.focus.blockId) !== editor.state.rootId) {
+  if (selectionContextOf(editor.document, editor.selection.focus.blockId) !== editor.document.rootId) {
     return null;
   }
 
   // Delete a non-collapsed selection first, then create the table at the collapse
   // point. A cross-context / cross-parent expanded selection is un-deletable → no-op.
-  const prep = prepareEmbedInsertPoint(editor.state, editor.selection);
+  const prep = prepareEmbedInsertPoint(editor.document, editor.selection);
   if (!prep.ok) return null;
 
   // `createTable` always inserts (never a no-op), so the commit always fires.

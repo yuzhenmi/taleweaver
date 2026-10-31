@@ -49,7 +49,7 @@ import {
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, finalSectionOf(editor.state));
+  const root = getBlock(editor.document, finalSectionOf(editor.document));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -94,7 +94,7 @@ function deletionIdAt(
   paraId: BlockId,
   idx: number,
 ): unknown {
-  const items = getBlock(editor.state, paraId)?.inlineContent?.items ?? [];
+  const items = getBlock(editor.document, paraId)?.inlineContent?.items ?? [];
   let offset = 0;
   for (const it of items) {
     if (it.kind !== "text") continue;
@@ -108,7 +108,7 @@ function deletionIdAt(
 
 /** True if `blockId` carries a paragraph-join tag (the boundary at its start). */
 function joinTagged(editor: EditorState, blockId: BlockId): boolean {
-  return getBlock(editor.state, blockId)?.breakSuggestion?.deletionId !== undefined;
+  return getBlock(editor.document, blockId)?.breakSuggestion?.deletionId !== undefined;
 }
 
 /** Seed a single paragraph with `text` typed in (direct mode), caret at end. */
@@ -130,7 +130,7 @@ function twoParagraphs(): {
   s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" });
   s = reduceEditor(s, { type: "SPLIT_NODE" });
   s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" });
-  const root = getBlock(s.state, finalSectionOf(s.state));
+  const root = getBlock(s.document, finalSectionOf(s.document));
   const firstId = root?.firstChildId ?? null;
   const secondId = root?.lastChildId ?? null;
   if (firstId === null || secondId === null || firstId === secondId) {
@@ -148,9 +148,9 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     const next = reduceEditor(placed, { type: "DELETE_FORWARD" });
 
     // Text is UNCHANGED — soft delete keeps the struck char.
-    expect(getTextOf(next.state, paraId)).toBe("abc");
+    expect(getTextOf(next.document, paraId)).toBe("abc");
     // The char at the caret ("a", index 0) carries the deletion id.
-    const suggestions = getSuggestions(next.state);
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
     expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
@@ -175,7 +175,7 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     // If the caret had NOT advanced, the 2nd Delete would re-target the already-
     // struck char 0 (markDeletion coalesces → no-op) and char 1 would stay
     // UNSTRUCK — so char-1-is-struck IS the proof the caret advanced.
-    expect(getTextOf(twice.state, paraId)).toBe("abc");
+    expect(getTextOf(twice.document, paraId)).toBe("abc");
     const id0 = deletionIdAt(twice, paraId, 0);
     const id1 = deletionIdAt(twice, paraId, 1);
     expect(id0).toBeDefined();
@@ -184,7 +184,7 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     // Two ADJACENT same-author deletions coalesce into ONE record (reused id), so
     // both struck chars carry the SAME deletion id.
     expect(id1).toBe(id0);
-    const suggestions = getSuggestions(twice.state);
+    const suggestions = getSuggestions(twice.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
     // Caret advanced to offset 2 (past both strikes).
@@ -200,9 +200,9 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     expect(struck.history.canUndo()).toBe(true);
 
     const undone = reduceEditor(struck, { type: "UNDO" });
-    expect(getTextOf(undone.state, paraId)).toBe("abc");
+    expect(getTextOf(undone.document, paraId)).toBe("abc");
     expect(deletionIdAt(undone, paraId, 0)).toBeUndefined();
-    expect(getSuggestions(undone.state)).toHaveLength(0);
+    expect(getSuggestions(undone.document)).toHaveLength(0);
   });
 
   it("expanded selection: SOFT-deletes every run in the span (tagged, text intact, caret at span END)", () => {
@@ -213,8 +213,8 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     const next = reduceEditor(selected, { type: "DELETE_FORWARD" });
 
     // Text intact; "bcd" (indices 1..3) carry the deletion id; "a"/"e"/"f" do not.
-    expect(getTextOf(next.state, paraId)).toBe("abcdef");
-    const suggestions = getSuggestions(next.state);
+    expect(getTextOf(next.document, paraId)).toBe("abcdef");
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
     expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
@@ -243,9 +243,9 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     const next = reduceEditor(placed, { type: "DELETE_FORWARD" });
 
     // Direct delete: the char is REALLY removed (text shrinks), caret stays at pos.
-    expect(getTextOf(next.state, paraId)).toBe("bc");
+    expect(getTextOf(next.document, paraId)).toBe("bc");
     expect(next.selection.focus.offset).toBe(0);
-    expect(getSuggestions(next.state)).toHaveLength(0);
+    expect(getSuggestions(next.document)).toHaveLength(0);
   });
 
   it("block-end Delete at a PLAIN paragraph boundary marks a suggested JOIN (blocks stay separate, join tag on the next block, deletion record, caret unchanged, undoable)", () => {
@@ -255,10 +255,10 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     const next = reduceEditor(placed, { type: "DELETE_FORWARD" });
 
     // Blocks stay SEPARATE — NO real merge happened.
-    expect(getBlock(next.state, firstId)?.id).toBe(firstId);
-    expect(getBlock(next.state, secondId)?.id).toBe(secondId);
-    expect(getTextOf(next.state, firstId)).toBe("abc");
-    expect(getTextOf(next.state, secondId)).toBe("def");
+    expect(getBlock(next.document, firstId)?.id).toBe(firstId);
+    expect(getBlock(next.document, secondId)?.id).toBe(secondId);
+    expect(getTextOf(next.document, firstId)).toBe("abc");
+    expect(getTextOf(next.document, secondId)).toBe("def");
 
     // The NEXT block ("def") carries the join tag (the break AFTER currentBlock =
     // the boundary at nextBlock's start); the current block does not.
@@ -267,7 +267,7 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     expect(joinTagged(next, secondId)).toBe(false);
 
     // A `deletion` SuggestionRecord exists (attributed to alice).
-    const suggestions = getSuggestions(next.state);
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
     expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
@@ -280,9 +280,9 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     expect(next.history.canUndo()).toBe(true);
     const undone = reduceEditor(next, { type: "UNDO" });
     expect(joinTagged(undone, firstId)).toBe(false);
-    expect(getSuggestions(undone.state)).toHaveLength(0);
-    expect(getTextOf(undone.state, firstId)).toBe("abc");
-    expect(getTextOf(undone.state, secondId)).toBe("def");
+    expect(getSuggestions(undone.document)).toHaveLength(0);
+    expect(getTextOf(undone.document, firstId)).toBe("abc");
+    expect(getTextOf(undone.document, secondId)).toBe("def");
   });
 
   it("direct mode (regression): the SAME block-end Delete really MERGES the two blocks", () => {
@@ -298,10 +298,10 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     const next = reduceEditor(placed, { type: "DELETE_FORWARD" });
 
     // Real merge: the second block (survivor R) holds "abcdef"; the first is gone.
-    expect(getTextOf(next.state, secondId)).toBe("abcdef");
-    expect(getBlock(next.state, firstId)).toBeNull();
+    expect(getTextOf(next.document, secondId)).toBe("abcdef");
+    expect(getBlock(next.document, firstId)).toBeNull();
     // Caret stays at currentBlock:currentLen (offset 3).
     expect(next.selection.focus).toEqual(createPosition(secondId, 3));
-    expect(getSuggestions(next.state)).toHaveLength(0);
+    expect(getSuggestions(next.document)).toHaveLength(0);
   });
 });

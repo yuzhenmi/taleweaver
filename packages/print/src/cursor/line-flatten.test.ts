@@ -276,7 +276,7 @@ describe("collectLineBoxes — descends absoluteChildren (slice 3)", () => {
   // its line sits at a known y). `position`/`inset*` are real Style fields (slice 1),
   // so cascadePass composes them — no attr interpreter needed. The abs paragraph's
   // text is DIRECT inline content so the IFC stamps `ownerBlockId === "pabs"` (the
-  // source block), matching the State below for the hit-test.
+  // source block), matching the Document below for the hit-test.
   function relativeRootWithAbs() {
     const tree = cascadePass(
       createElementBox("doc", { display: "block", position: "relative" }, [

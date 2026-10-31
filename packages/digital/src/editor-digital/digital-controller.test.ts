@@ -485,9 +485,9 @@ describe("DigitalController — Tab routing is context-sensitive (audit I5)", ()
     controller.dispatch({ type: "INSERT_TEXT", text: "item" }); // caret at offset 4
     controller.dispatch({ type: "TOGGLE_LIST", listType: "unordered" });
     const focusId = controller.editorState.selection.focus.blockId;
-    expect(getBlock(controller.editorState.state, focusId)?.type).toBe("list-item");
+    expect(getBlock(controller.editorState.document, focusId)?.type).toBe("list-item");
     // A fresh top-level list-item carries no `listLevel` attr (level 0).
-    expect(getBlock(controller.editorState.state, focusId)?.attrs.listLevel).toBeUndefined();
+    expect(getBlock(controller.editorState.document, focusId)?.attrs.listLevel).toBeUndefined();
     const offsetBefore = controller.editorState.selection.focus.offset;
 
     const e = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
@@ -495,7 +495,7 @@ describe("DigitalController — Tab routing is context-sensitive (audit I5)", ()
     // LIST_INDENT (not INSERT_TAB) was dispatched: the list nests to level 1 and the caret offset
     // is unchanged. INSERT_TAB would instead leave listLevel undefined and advance the caret by 1.
     expect(e.defaultPrevented).toBe(true);
-    expect(getBlock(controller.editorState.state, focusId)?.attrs.listLevel).toBe(1);
+    expect(getBlock(controller.editorState.document, focusId)?.attrs.listLevel).toBe(1);
     expect(controller.editorState.selection.focus.offset).toBe(offsetBefore);
     controller.destroy();
   });
@@ -761,7 +761,7 @@ describe("DigitalController — inline marks + typing attributes", () => {
     container.dispatchEvent(makeBeforeInput("insertText", { data: "X" }));
     container.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
     container.dispatchEvent(new CompositionEvent("compositionend", { data: "日", bubbles: true }));
-    const items = getBlock(controller.editorState.state, id)?.inlineContent?.items ?? [];
+    const items = getBlock(controller.editorState.document, id)?.inlineContent?.items ?? [];
     const last = items[items.length - 1];
     expect(last?.kind === "text" ? [last.text, last.attrs] : null).toEqual(["BX日ob", { bold: true }]);
     expect(leafBlock(container).querySelector("strong")?.textContent).toBe("BX日ob");
@@ -838,7 +838,7 @@ describe("DigitalController — inline marks + typing attributes", () => {
     controller.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 15) });
     container.dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true, bubbles: true, cancelable: true }));
     container.dispatchEvent(makeBeforeInput("insertText", { data: "!" }));
-    const items = getBlock(controller.editorState.state, id)?.inlineContent?.items ?? [];
+    const items = getBlock(controller.editorState.document, id)?.inlineContent?.items ?? [];
     expect(items.at(-1)?.attrs).toEqual({ bold: true });
     controller.destroy();
   });
@@ -901,7 +901,7 @@ describe("DigitalController — host extensions", () => {
     return e;
   };
   const text = (c: DigitalController) =>
-    (getBlock(c.editorState.state, c.editorState.selection.focus.blockId)?.inlineContent?.items ?? [])
+    (getBlock(c.editorState.document, c.editorState.selection.focus.blockId)?.inlineContent?.items ?? [])
       .map((i) => (i.kind === "text" ? i.text : ""))
       .join("");
 
@@ -915,7 +915,7 @@ describe("DigitalController — host extensions", () => {
     expect(text(controller)).toBe("Hi ");
     expect(keydown(container, "b", { ctrlKey: true }).defaultPrevented).toBe(true);
     typeKeys(container, "x");
-    const items = getBlock(controller.editorState.state, controller.editorState.selection.focus.blockId)?.inlineContent?.items ?? [];
+    const items = getBlock(controller.editorState.document, controller.editorState.selection.focus.blockId)?.inlineContent?.items ?? [];
     expect(items.every((i) => i.attrs.bold === undefined)).toBe(true);
     expect(controller.runCommand("insertMention")).toBe(true);
     expect(text(controller)).toBe("Hi xAnna ");
@@ -988,7 +988,7 @@ describe("DigitalController — keyboard edge cases (host extensions)", () => {
     for (const ch of text) container.dispatchEvent(makeBeforeInput("insertText", { data: ch }));
   };
   const text = (c: DigitalController) =>
-    (getBlock(c.editorState.state, c.editorState.selection.focus.blockId)?.inlineContent?.items ?? [])
+    (getBlock(c.editorState.document, c.editorState.selection.focus.blockId)?.inlineContent?.items ?? [])
       .map((i) => (i.kind === "text" ? i.text : ""))
       .join("");
 
@@ -1097,10 +1097,10 @@ describe("DigitalController — anchors, versions and collaboration", () => {
   it("a peer's update (separate Y.Doc, Y.applyUpdate) is applied: DOM, selection rebased, anchors moved", () => {
     const cfg = { componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800 };
     let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" });
-    const docA = core.getYDoc(peerA.state);
+    const docA = core.getYDoc(peerA.document);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
-    const { controller, container } = mountWith(core.createState({ resolver: TEST_RESOLVER, rootId: peerA.state.rootId, doc: docB }));
+    const { controller, container } = mountWith(core.createState({ resolver: TEST_RESOLVER, rootId: peerA.document.rootId, doc: docB }));
     docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
     const id = peerA.selection.focus.blockId;
     controller.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 5) });
@@ -1123,11 +1123,11 @@ describe("DigitalController — remote changes: lifetime, ownership, IME", () =>
   const cfg = { componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800 };
   function peerPair() {
     let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" });
-    const docA = core.getYDoc(peerA.state);
+    const docA = core.getYDoc(peerA.document);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
     docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
-    const stateB = core.createState({ resolver: TEST_RESOLVER, rootId: peerA.state.rootId, doc: docB });
+    const stateB = core.createState({ resolver: TEST_RESOLVER, rootId: peerA.document.rootId, doc: docB });
     return {
       stateB,
       type: (t: string) => {
@@ -1237,7 +1237,7 @@ describe("DigitalController — host proposals (suggestion groups)", async () =>
     expect(controller.editorState.lastProposal).toMatchObject({ groupId, outcome: "applied" });
     // The caret stays after "fox" — only rebased past the 5 inserted (pending) characters.
     expect(controller.editorState.selection.focus).toEqual(createPosition(id, 19));
-    expect(core.getSuggestionGroups(controller.editorState.state).map((g) => g.id)).toEqual([groupId]);
+    expect(core.getSuggestionGroups(controller.editorState.document).map((g) => g.id)).toEqual([groupId]);
     // Built-in suggestion visuals: inserted text underlined, deleted struck; host styling on top.
     expect(leafBlock(container).querySelector("u")?.textContent).toBe("swift");
     expect(leafBlock(container).querySelectorAll("s").length).toBeGreaterThan(0);
@@ -1247,7 +1247,7 @@ describe("DigitalController — host proposals (suggestion groups)", async () =>
     expect(leafBlock(container).textContent).toBe("The swift fox");
     expect(styledText(container)).toBe("");
     ctrlZ(container);
-    expect(core.getSuggestionGroups(controller.editorState.state).map((g) => g.id)).toEqual([groupId]);
+    expect(core.getSuggestionGroups(controller.editorState.document).map((g) => g.id)).toEqual([groupId]);
     expect(styledText(container)).toBe(styled);
     ctrlShiftZ(container);
     expect(leafBlock(container).textContent).toBe("The swift fox");
@@ -1256,11 +1256,11 @@ describe("DigitalController — host proposals (suggestion groups)", async () =>
     expect(leafBlock(container).textContent).toBe("The  quick fox");
     expect(styledText(container)).toBe("");
     ctrlZ(container);
-    expect(core.getSuggestionGroups(controller.editorState.state).map((g) => g.id)).toEqual([groupId]);
+    expect(core.getSuggestionGroups(controller.editorState.document).map((g) => g.id)).toEqual([groupId]);
     expect(styledText(container)).toBe(styled);
     ctrlShiftZ(container);
     expect(leafBlock(container).textContent).toBe("The  quick fox");
-    expect(core.getSuggestions(controller.editorState.state)).toHaveLength(0);
+    expect(core.getSuggestions(controller.editorState.document)).toHaveLength(0);
     controller.setSuggestionStyles(null);
     controller.destroy();
   });
@@ -1280,10 +1280,10 @@ describe("DigitalController — host proposals (suggestion groups)", async () =>
     expect(leafBlock(container).textContent).toBe("jumps high over!");
     ctrlZ(container); // the user's own last edit: the typed "!"
     expect(leafBlock(container).textContent).toBe("jumps high over");
-    expect(core.getSuggestionGroups(controller.editorState.state).map((g) => g.id)).toEqual([groupId]);
+    expect(core.getSuggestionGroups(controller.editorState.document).map((g) => g.id)).toEqual([groupId]);
     ctrlShiftZ(container);
     expect(leafBlock(container).textContent).toBe("jumps high over!");
-    expect(core.getSuggestionGroups(controller.editorState.state).map((g) => g.id)).toEqual([groupId]);
+    expect(core.getSuggestionGroups(controller.editorState.document).map((g) => g.id)).toEqual([groupId]);
     controller.destroy();
   });
 
@@ -1323,7 +1323,7 @@ describe("DigitalController — host proposals (suggestion groups)", async () =>
 
   it("propose() after destroy is rejected without touching the document", async () => {
     const { controller, id } = mountWithText("abc");
-    const before = controller.editorState.state;
+    const before = controller.editorState.document;
     controller.destroy();
     const result = await controller.propose({
       groupId: core.newSuggestionGroupId(),
@@ -1331,7 +1331,7 @@ describe("DigitalController — host proposals (suggestion groups)", async () =>
       edits: [{ kind: "replace", from: createPosition(id, 0), to: createPosition(id, 1), text: "x" }],
     });
     expect(result).toEqual({ ok: false, reason: "rejected", problem: { kind: "invalid", message: "controller destroyed" } });
-    expect(controller.editorState.state).toBe(before);
+    expect(controller.editorState.document).toBe(before);
   });
 
   it("a proposal based on an older version lands mapped; one whose range was edited is stale; overlaps are rejected", async () => {

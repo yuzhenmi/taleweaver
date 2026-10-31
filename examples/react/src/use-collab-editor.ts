@@ -1,7 +1,7 @@
 /**
  * A collaboration-aware editor hook for the example app's "Collaboration" tab.
  *
- * Each pane is a separate peer: its own `State` over its own `Y.Doc`, kept in sync
+ * Each pane is a separate peer: its own `Document` over its own `Y.Doc`, kept in sync
  * with the other pane by exchanging Yjs updates (`Y.applyUpdate`) — exactly what a
  * network provider does. The engine handles the rest: the print controller sees a
  * peer's update land in its Y.Doc (a non-local transaction) and dispatches
@@ -69,7 +69,7 @@ export interface UseCollabEditorResult {
 }
 
 /**
- * Bind one editing pane to the `sharedDoc` (a seed `State` over the shared
+ * Bind one editing pane to the `sharedDoc` (a seed `Document` over the shared
  * Y.Doc). `selfOrigin` is this pane's stable peer identity (e.g. "peer-a").
  */
 export function useCollabEditor(peerDoc: State): UseCollabEditorResult {

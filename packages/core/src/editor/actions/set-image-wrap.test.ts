@@ -20,16 +20,16 @@ import type { BlockId } from "../../state";
 function docWithImage() {
   let editor = createInitialEditorState(config);
   editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
-  const paraId = firstChildId(editor.state) as BlockId;
+  const paraId = firstChildId(editor.document) as BlockId;
   editor = reduceEditor(
     editor,
     { type: "INSERT_IMAGE", src: "i.png", width: 120, height: 80 },
   );
-  const imageId = getBlock(editor.state, paraId)?.nextSiblingId as BlockId;
+  const imageId = getBlock(editor.document, paraId)?.nextSiblingId as BlockId;
   // Self-validate the fixture: if INSERT_IMAGE ever stops placing the image as
   // the paragraph's next sibling, imageId would be null and the no-op tests
   // would pass vacuously. Pin it down here so a placement regression fails loud.
-  expect(getBlock(editor.state, imageId)?.type).toBe("image");
+  expect(getBlock(editor.document, imageId)?.type).toBe("image");
   return { editor, paraId, imageId };
 }
 
@@ -42,7 +42,7 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
       { type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "left" },
     );
 
-    const img = getBlock(next.state, imageId);
+    const img = getBlock(next.document, imageId);
     expect(img?.attrs.wrap).toBe("left");
     // src preserved (merge, not replace).
     expect(img?.attrs.src).toBe("i.png");
@@ -56,14 +56,14 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
       editor,
       { type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "right" },
     );
-    expect(getBlock(wrapped.state, imageId)?.attrs.wrap).toBe("right");
+    expect(getBlock(wrapped.document, imageId)?.attrs.wrap).toBe("right");
 
     const cleared = reduceEditor(
       wrapped,
       { type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "break" },
     );
 
-    const img = getBlock(cleared.state, imageId);
+    const img = getBlock(cleared.document, imageId);
     expect(img?.attrs.wrap).toBeUndefined();
     expect("wrap" in (img?.attrs ?? {})).toBe(false);
   });
@@ -89,7 +89,7 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(next.state).toBe(editor.state);
+    expect(next.document).toBe(editor.document);
   });
 
   it("is a no-op when the target block does not exist", () => {
@@ -101,7 +101,7 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(next.state).toBe(editor.state);
+    expect(next.document).toBe(editor.document);
   });
 
   it("is a no-op for an invalid wrap value", () => {
@@ -114,7 +114,7 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(next.state).toBe(editor.state);
+    expect(next.document).toBe(editor.document);
   });
 
   it("is a no-op when wrap is unchanged (already that value)", () => {
@@ -130,13 +130,13 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(again.state).toBe(wrapped.state);
+    expect(again.document).toBe(wrapped.document);
   });
 
   it("is a no-op when clearing (break) an already-un-wrapped image", () => {
     const { editor, imageId } = docWithImage();
     // The freshly-inserted image carries no wrap key, so break is identity.
-    expect(getBlock(editor.state, imageId)?.attrs.wrap).toBeUndefined();
+    expect(getBlock(editor.document, imageId)?.attrs.wrap).toBeUndefined();
 
     const next = reduceEditor(
       editor,
@@ -144,7 +144,7 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(next.state).toBe(editor.state);
+    expect(next.document).toBe(editor.document);
   });
 
   it("undo restores the previous wrap in one step (left → break, then undo → left)", () => {
@@ -157,10 +157,10 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
       wrapped,
       { type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "break" },
     );
-    expect(getBlock(cleared.state, imageId)?.attrs.wrap).toBeUndefined();
+    expect(getBlock(cleared.document, imageId)?.attrs.wrap).toBeUndefined();
 
     const undone = reduceEditor(cleared, { type: "UNDO" });
-    expect(getBlock(undone.state, imageId)?.attrs.wrap).toBe("left");
+    expect(getBlock(undone.document, imageId)?.attrs.wrap).toBe("left");
   });
 
   it("undo restores ABSENT wrap (no key) in one step ((no wrap) → left, then undo → absent)", () => {
@@ -169,10 +169,10 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
       editor,
       { type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "left" },
     );
-    expect(getBlock(wrapped.state, imageId)?.attrs.wrap).toBe("left");
+    expect(getBlock(wrapped.document, imageId)?.attrs.wrap).toBe("left");
 
     const undone = reduceEditor(wrapped, { type: "UNDO" });
-    const img = getBlock(undone.state, imageId);
+    const img = getBlock(undone.document, imageId);
     expect(img?.attrs.wrap).toBeUndefined();
     expect("wrap" in (img?.attrs ?? {})).toBe(false);
   });

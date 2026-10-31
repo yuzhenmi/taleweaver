@@ -50,7 +50,7 @@ describe("Yjs UndoManager no-op behavior (empirical baseline)", () => {
   // is no StackItem to attach the SelectionEntry to (the entry lives on
   // `StackItem.meta`, not in a parallel array), so commit returns early
   // before any mutation. Handlers conventionally short-circuit FIRST via
-  // the identity-no-op contract (`result.state === editor.state`), but commit
+  // the identity-no-op contract (`result.state === editor.document`), but commit
   // is itself no-op-safe.
   it("empty transaction does not produce an undoStack entry", () => {
     const doc = new Y.Doc();
@@ -222,7 +222,7 @@ describe("history (Y.UndoManager wrapper)", () => {
 
   it("undo after an unchanged-block read returns dirtyIds covering only the reversed block — warm cache for siblings is preserved", () => {
     // S-A2 + S-A3 together let undo/redo reuse the warm cache for
-    // unchanged blocks. Specifically, the new State produced by undo
+    // unchanged blocks. Specifically, the new Document produced by undo
     // overlays the prior state's cache with `dirtyIds` invalidated;
     // sibling reads still hit the warm entry by reference.
     const state0 = createEmptyDocument();
@@ -655,7 +655,7 @@ describe("history (Y.UndoManager wrapper)", () => {
     // short-circuit. That contract has been relaxed: commit silently drops the
     // no-op in BOTH dev and prod — there is no StackItem produced by Yjs's
     // no-op group, so there is nothing to record. The handler-side identity guard
-    // (`result.state === editor.state`) remains the conventional first stop;
+    // (`result.state === editor.document`) remains the conventional first stop;
     // commit is the safe backstop.
     const state0 = createEmptyDocument();
     const history = createHistory(state0);

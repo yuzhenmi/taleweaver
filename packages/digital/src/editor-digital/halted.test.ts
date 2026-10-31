@@ -6,7 +6,7 @@
  *     over a not-yet-upgraded document) halts the controller (hook
  *     once, no APPLY_FOREIGN_CHANGE, input ignored, `contenteditable` off, the screen
  *     kept, every member a defined no-op without reading the Y.Doc, decoration setters
- *     no-ops, an in-flight composition dropped); `replaceDocument` with a State holding
+ *     no-ops, an in-flight composition dropped); `replaceDocument` with a Document holding
  *     no legacy storage — the same Y.Doc or another — resumes editing with every layer
  *     dropped.
  */
@@ -27,7 +27,7 @@ const cfg: core.EditorConfig = {
 /** Peer A (reducer-driven, its own Y.Doc) and a digital controller B over a synced replica. */
 function setup(text: string, extra: Partial<DigitalControllerOptions> = {}) {
   let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text });
-  const docA = core.getYDoc(peerA.state);
+  const docA = core.getYDoc(peerA.document);
   const docB = new Y.Doc();
   Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
   docA.on("update", (u: Uint8Array, origin: unknown) => {
@@ -37,13 +37,13 @@ function setup(text: string, extra: Partial<DigitalControllerOptions> = {}) {
     if (origin !== "sync") Y.applyUpdate(docA, u, "sync");
   });
   core.subscribeRemoteChanges(
-    peerA.state,
+    peerA.document,
     (dirtyIds) => {
       peerA = core.reduceEditor(peerA, { type: "APPLY_FOREIGN_CHANGE", dirtyIds });
     },
     () => undefined, // peer A is the old-client side in the HALTED test
   );
-  const stateB = core.createState({ resolver: TEST_RESOLVER, rootId: peerA.state.rootId, doc: docB });
+  const stateB = core.createState({ resolver: TEST_RESOLVER, rootId: peerA.document.rootId, doc: docB });
   const container = document.createElement("div");
   document.body.appendChild(container);
   const reports: core.IncompatibleDocumentReport[] = [];
@@ -67,7 +67,7 @@ function setup(text: string, extra: Partial<DigitalControllerOptions> = {}) {
     docA,
     docB,
     id,
-    rootId: peerA.state.rootId,
+    rootId: peerA.document.rootId,
     compatible: () => compatible,
     a: (...actions: core.EditorAction[]) => {
       for (const action of actions) peerA = core.reduceEditor(peerA, action);
@@ -87,7 +87,7 @@ function secondInstanceWrite(from: Y.Doc, doc: Y.Doc): void {
 }
 
 const textOf = (c: DigitalController, id: core.BlockId): string =>
-  (core.getBlock(c.editorState.state, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
+  (core.getBlock(c.editorState.document, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
 const span = (id: core.BlockId, a: number, b: number) => core.createSpan(core.createPosition(id, a), core.createPosition(id, b));
 
 describe("digital — undo survives a peer's formatting", () => {
@@ -95,7 +95,7 @@ describe("digital — undo survives a peer's formatting", () => {
     const m = setup("");
     m.controller.dispatch({ type: "INSERT_TEXT", text: "hello" });
     m.a({ type: "SET_SELECTION", selection: span(m.id, 1, 4) }, { type: "TOGGLE_STYLE", style: "bold" });
-    expect(core.getBlock(m.controller.editorState.state, m.id)?.inlineContent?.items.some((i) => i.attrs.bold === true)).toBe(true);
+    expect(core.getBlock(m.controller.editorState.document, m.id)?.inlineContent?.items.some((i) => i.attrs.bold === true)).toBe(true);
     m.controller.dispatch({ type: "UNDO" });
     expect(textOf(m.controller, m.id)).toBe("");
     m.controller.destroy();
@@ -138,7 +138,7 @@ function legacyBlock(type: string, parentId: string | null, inline: Y.Array<Y.Ma
 }
 
 /**
- * A NOT-YET-UPGRADED document: the host bound a State to an empty Y.Doc, then a
+ * A NOT-YET-UPGRADED document: the host bound a Document to an empty Y.Doc, then a
  * schema-1 document (`doc > p1("legacy")`) synced in.
  */
 function notYetUpgraded(): { doc: Y.Doc; state: core.State } {
@@ -241,7 +241,7 @@ describe("digital — HALTED on an incompatible document", () => {
       replaceActive: () => c.replaceActive("x"),
       replaceAll: () => c.replaceAll("x"),
       version: () => c.version,
-      mapPosition: () => c.mapPosition(pos, before.state),
+      mapPosition: () => c.mapPosition(pos, before.document),
       createAnchor: () => c.createAnchor(pos),
       propose: () => c.propose({ groupId: "g", author: "a", edits: [{ kind: "replace", from: pos, to: pos, text: "x" }] }),
       setSuggestionStyles: () => c.setSuggestionStyles(() => ({ style: { backgroundColor: "blue" } })),
@@ -254,7 +254,7 @@ describe("digital — HALTED on an incompatible document", () => {
     });
     expect(reads).toBe(0);
     expect(results.editorState).toBe(before);
-    expect(results.version).toBe(before.state);
+    expect(results.version).toBe(before.document);
     expect(results.mapPosition).toBeNull();
     expect(results.createAnchor).toBeNull();
     expect(results.runCommand).toBe(false);
@@ -265,8 +265,8 @@ describe("digital — HALTED on an incompatible document", () => {
     expect(c.decorations.decorations.map((d) => d.id)).toEqual(["kept"]);
     expect(m.container.textContent).toBe(shown);
 
-    // Exit: the host REPLACES the document (here a fresh State over the same Y.Doc).
-    c.replaceDocument(core.createState({ resolver: TEST_RESOLVER, rootId: before.state.rootId, doc: m.docB }));
+    // Exit: the host REPLACES the document (here a fresh Document over the same Y.Doc).
+    c.replaceDocument(core.createState({ resolver: TEST_RESOLVER, rootId: before.document.rootId, doc: m.docB }));
     expect(c.halted).toBe(false);
     expect(m.container.contentEditable).toBe("true");
     expect(m.container.textContent).not.toContain("again"); // surfaced, not merged

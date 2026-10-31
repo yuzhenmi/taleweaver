@@ -10,7 +10,7 @@
 import type * as Y from "yjs";
 import type { Block } from "./block";
 import type { BlockId } from "./block-id";
-import type { State } from "./state";
+import type { Document } from "./state";
 import { resolveBlock } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 import type { Position, Span } from "./block-position";
@@ -44,8 +44,8 @@ export interface BoundaryMark {
   readonly suggestionIds: readonly SuggestionId[];
 }
 
-const docOf = (state: State): Y.Doc => state[STATE_INTERNAL].doc;
-const blockOf = (state: State, id: BlockId): Block | null => resolveBlock(state, id)?.block ?? null;
+const docOf = (state: Document): Y.Doc => state[STATE_INTERNAL].doc;
+const blockOf = (state: Document, id: BlockId): Block | null => resolveBlock(state, id)?.block ?? null;
 
 function live(doc: Y.Doc, id: SuggestionId | undefined): id is SuggestionId {
   return id !== undefined && getSuggestionsMap(doc).has(id);
@@ -56,7 +56,7 @@ function live(doc: Y.Doc, id: SuggestionId | undefined): id is SuggestionId {
  * `section-*` when the ¶ is a section-end item (the block ends a doc-root section that
  * another follows). O(1).
  */
-export function endMarkOf(state: State, blockId: BlockId): BoundaryMark | null {
+export function endMarkOf(state: Document, blockId: BlockId): BoundaryMark | null {
   const b = blockOf(state, blockId);
   if (b === null || b.inlineContent === null) return null;
   const doc = docOf(state);
@@ -81,7 +81,7 @@ export function endMarkOf(state: State, blockId: BlockId): BoundaryMark | null {
  * right after ¶`left`. A key on a required ¶ (before an object / at a flow end) never
  * merges, exactly as resolving it keeps the ¶. O(1).
  */
-export function boundaryMergesInView(state: State, left: Block, right: Block, view: SuggestionView): boolean {
+export function boundaryMergesInView(state: Document, left: Block, right: Block, view: SuggestionView): boolean {
   if (view === "suggesting" || left.inlineContent === null || right.inlineContent === null) return false;
   const doc = docOf(state);
   const id = view === "final" ? left.breakSuggestion?.deletionId : left.breakSuggestion?.insertionId;
@@ -100,7 +100,7 @@ export interface BoundaryRangePart {
  * key, `(b, len)`–`(N, 0)` with N the text block after ¶b, collapsed at `(b, len)` when
  * an object or the flow end follows.
  */
-export function boundaryRangeParts(state: State, b: Block): BoundaryRangePart[] {
+export function boundaryRangeParts(state: Document, b: Block): BoundaryRangePart[] {
   const tags = b.breakSuggestion;
   if (b.inlineContent === null || tags === undefined) return [];
   const start = createPosition(b.id, inlineContentLength(b.inlineContent));
@@ -126,7 +126,7 @@ export type MarkDeletion =
   | "key";
 
 /** The suggested-deletion rule for ¶`b` (own pending insertion → remove; live deletion → keep; else key). */
-export function markDeletionOf(state: State, b: Block, author: string): MarkDeletion {
+export function markDeletionOf(state: Document, b: Block, author: string): MarkDeletion {
   const doc = docOf(state);
   const ins = b.breakSuggestion?.insertionId;
   if (live(doc, ins) && readSuggestionRecord(doc, ins)?.author === author) return "remove";
@@ -141,7 +141,7 @@ export function markDeletionOf(state: State, b: Block, author: string): MarkDele
  * "final" view shows them) is empty and does not follow an object (I1). O(1) unless an
  * object follows (then O(the deletion-keyed run before b)).
  */
-export function markDeletableInFinal(state: State, b: Block): boolean {
+export function markDeletableInFinal(state: Document, b: Block): boolean {
   const after = blockAfter(state, b)?.block ?? null;
   if (after === null) return false;
   if (after.inlineContent !== null) return true;
@@ -180,7 +180,7 @@ function liveOutside(items: readonly InlineItem[], from: number, to: number): bo
  *     follows an object (I1).
  * O(span + #¶).
  */
-export function paragraphMarksInSpan(state: State, span: Span): Block[] {
+export function paragraphMarksInSpan(state: Document, span: Span): Block[] {
   const segs = [...iterateSpan(state, span)];
   const out: Block[] = [];
   let runLive = false;

@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 import { requireBlockText } from "../block-text";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { Position } from "../block-position";
@@ -90,7 +90,7 @@ interface AnchorInsertPlan {
  * NOTE: this op is NOT idempotent — it always creates a fresh anchor + body.
  */
 export function insertFootnote(
-  state: State,
+  state: Document,
   position: Position,
   allocator: IdAllocator,
 ): InsertFootnoteResult {
@@ -132,7 +132,7 @@ export function insertFootnote(
  * `insertFootnote` docstring lists.
  */
 function planAnchorInsert(
-  state: State,
+  state: Document,
   position: Position,
   bodyRootId: BlockId,
 ): AnchorInsertPlan {

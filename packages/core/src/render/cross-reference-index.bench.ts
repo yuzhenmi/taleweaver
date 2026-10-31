@@ -11,7 +11,7 @@ import { insertText } from "../state/ops/insert-text";
 import { createPosition } from "../state/block-position";
 import { BOOKMARK_START_EMBED_TYPE, BOOKMARK_END_EMBED_TYPE } from "../state/bookmarks";
 import { CROSS_REFERENCE_EMBED_TYPE } from "../state/ops/insert-cross-reference";
-import type { State } from "../state/state";
+import type { Document } from "../state/state";
 import type { BlockId } from "../state/block-id";
 import { buildCrossReferenceIndex, updateCrossReferenceIndex } from "./collect-cross-references";
 
@@ -19,7 +19,7 @@ const proc = (globalThis as { process?: { env?: Record<string, string | undefine
 if (proc?.env !== undefined) proc.env.NODE_ENV = "production";
 
 /** doc > [ p0 … p{n-1} ]: every 10th paragraph is a bookmarked heading, the next one references it. */
-function documentOf(n: number): State {
+function documentOf(n: number): Document {
   const ids = Array.from({ length: n }, (_, i) => `p${i}`);
   return buildState({
     rootId: "doc",

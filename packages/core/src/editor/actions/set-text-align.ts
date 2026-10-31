@@ -23,7 +23,7 @@ import type { ActionOf } from "../editor-action";
  * running state and dirty ids only when a write actually occurred.
  *
  * No-op (return the input `editor` unchanged, never calling `history.commit`):
- *  - No target leaf changed (the running state is still `editor.state`) — the
+ *  - No target leaf changed (the running state is still `editor.document`) — the
  *    identity guard, mirroring `handleToggleSectionLandscape`. (Notably:
  *    every target already has this alignment.)
  *
@@ -33,7 +33,7 @@ import type { ActionOf } from "../editor-action";
 export function handleSetTextAlign(editor: EditorState, { align }: ActionOf<"SET_TEXT_ALIGN">): Edit | null {
   const targetIds = targetLeafBlockIds(editor);
 
-  let state: State = editor.state;
+  let state: State = editor.document;
   const dirtyIds = new Set<BlockId>();
   for (const blockId of targetIds) {
     // Defensive: skip a block that resolved into the target list but is now
@@ -46,7 +46,7 @@ export function handleSetTextAlign(editor: EditorState, { align }: ActionOf<"SET
     for (const id of result.dirtyIds) dirtyIds.add(id);
   }
 
-  return state === editor.state ? null : { change: { state, dirtyIds } };
+  return state === editor.document ? null : { change: { state, dirtyIds } };
 }
 
 /**
@@ -59,7 +59,7 @@ export function handleSetTextAlign(editor: EditorState, { align }: ActionOf<"SET
  * through `firstChildId`). Aligning a container is nonsensical: it owns no text.
  */
 function targetLeafBlockIds(editor: EditorState): BlockId[] {
-  const { state, selection } = editor;
+  const { document: state, selection } = editor;
 
   if (positionsEqual(selection.anchor, selection.focus)) {
     const focus = getBlock(state, selection.focus.blockId);

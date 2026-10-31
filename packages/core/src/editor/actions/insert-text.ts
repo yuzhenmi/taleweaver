@@ -26,7 +26,7 @@ export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT
   // the object with the typed text (Google Docs). Routes BEFORE the collapsed
   // path, which would otherwise throw — `insertText` rejects an atomic block
   // (`inlineContent === null`).
-  const objId = isObjectSelection(editor.state, editor.selection, config.componentRegistry);
+  const objId = isObjectSelection(editor.document, editor.selection, config.componentRegistry);
   if (objId !== null) return replaceObjectWithText(editor, objId, text);
 
   const selectionBefore = editor.selection;
@@ -42,8 +42,8 @@ export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT
     // Cross-CONTEXT selection refusal (see isCrossContextSelection).
     // replaceRange's spanStart would throw "no common ancestor" on a cross-tree
     // span.
-    if (isCrossContextSelection(editor.state, selectionBefore)) return null;
-    const start = spanStart(editor.state, selectionBefore);
+    if (isCrossContextSelection(editor.document, selectionBefore)) return null;
+    const start = spanStart(editor.document, selectionBefore);
     // Suggesting mode: type-over-a-selection is the tracked composite — soft-delete
     // the selection + insert `text` as a suggestion at its seam, in ONE undoable op
     // (replaceWithSuggestion, the suggestion analog of replaceRange). Direct mode uses
@@ -59,12 +59,12 @@ export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT
     if (replaceInput === null) {
       // The seam the direct delete leaves (the surviving block — see
       // expandedSpanCollapsePoint); null = an undeletable (cross-parent) span.
-      const seam = expandedSpanCollapsePoint(editor.state, selectionBefore);
+      const seam = expandedSpanCollapsePoint(editor.document, selectionBefore);
       if (seam === null) return null;
-      result = replaceRange(editor.state, selectionBefore, text, typingAttrs());
+      result = replaceRange(editor.document, selectionBefore, text, typingAttrs());
       end = createPosition(seam.blockId, seam.offset + text.length);
     } else {
-      const suggested = replaceWithSuggestion(editor.state, selectionBefore, text, typingAttrs(), replaceInput);
+      const suggested = replaceWithSuggestion(editor.document, selectionBefore, text, typingAttrs(), replaceInput);
       result = suggested;
       end = suggested.endPosition;
     }
@@ -85,15 +85,15 @@ export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT
     const sugInput = suggestionInputForBlock(editor, focus.blockId);
     result =
       sugInput === null
-        ? insertText(editor.state, focus, text, typingAttrs())
-        : mintInsertion(editor.state, focus, text, typingAttrs(), sugInput);
+        ? insertText(editor.document, focus, text, typingAttrs())
+        : mintInsertion(editor.document, focus, text, typingAttrs(), sugInput);
     newCursorBlockId = focus.blockId;
     newCursorOffset = focus.offset + text.length;
   }
 
   // the identity-no-op contract: a no-op op returns the same state reference, so
   // nothing is edited.
-  if (result.state === editor.state) return null;
+  if (result.state === editor.document) return null;
 
   const newCursor = createPosition(newCursorBlockId, newCursorOffset);
   const newSelection = createSpan(newCursor, newCursor);

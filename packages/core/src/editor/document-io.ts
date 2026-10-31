@@ -20,7 +20,7 @@ export function exportDocument(
   format: string,
   registry: SerializerRegistry,
 ): SerializedDocument {
-  return serializeDocument(editor.state, format, registry);
+  return serializeDocument(editor.document, format, registry);
 }
 
 /**

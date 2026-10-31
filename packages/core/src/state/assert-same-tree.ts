@@ -1,4 +1,4 @@
-import type { State, ResolvedBlockKind } from "./state";
+import type { Document, ResolvedBlockKind } from "./state";
 import { resolveBlock } from "./state";
 import type { BlockId } from "./block-id";
 import { isDevMode } from "./dev-mode";
@@ -29,7 +29,7 @@ import { isDevMode } from "./dev-mode";
  * dev/test, O(neighbors) with an O(1) `resolveBlock` per neighbor.
  */
 export function assertSameTree(
-  state: State,
+  state: Document,
   expectedKind: ResolvedBlockKind,
   neighborIds: ReadonlyArray<BlockId | null>,
   opName: string,

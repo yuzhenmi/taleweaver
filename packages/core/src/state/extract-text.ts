@@ -1,4 +1,4 @@
-import type { State } from "./state";
+import type { Document } from "./state";
 import type { Span } from "./block-position";
 import { iterateSpan } from "./span-iteration";
 import type { InlineItem, EmbedItem } from "./inline-content";
@@ -114,7 +114,7 @@ export const captionEmbedSerializer: EmbedSerializer = (item) => {
  * Used by clipboard, find/replace, accessibility.
  */
 export function extractText(
-  state: State,
+  state: Document,
   span: Span,
   embedSerializer: EmbedSerializer = defaultEmbedSerializer,
   view: SuggestionView = "suggesting",

@@ -124,13 +124,13 @@ function run(state: State, b: BlockId, o: number, config: EditorConfig, ...actio
 
 /** alice's Backspace at the start of `p1` → a pending join drawn at the end of `p0`. */
 function joined(texts: readonly string[], attrs?: Record<string, unknown>, width = WIDTH): { state: State; tree: LayoutBox } {
-  const state = run(doc(texts, attrs), id("p1"), 0, alice, { type: "DELETE_BACKWARD" }).state;
+  const state = run(doc(texts, attrs), id("p1"), 0, alice, { type: "DELETE_BACKWARD" }).document;
   return { state, tree: lay(state, width) };
 }
 
 /** alice's suggested section break at `(p<k>, 0)` → a tracked section-end item (an empty ¶ before `p<k>`). */
 function sectioned(texts: readonly string[], k: number, attrs?: Record<string, unknown>): State {
-  return run(doc(texts, attrs), id(`p${k}`), 0, alice, { type: "SECTION_BREAK" }).state;
+  return run(doc(texts, attrs), id(`p${k}`), 0, alice, { type: "SECTION_BREAK" }).document;
 }
 
 function lay(state: State, width = WIDTH, s: TextShaper = shaper): LayoutBox {
@@ -277,10 +277,10 @@ describe("print ¶ — placement", () => {
 
   it("Enter at offset 0: the new empty head above draws its keyed underlined ¶ at its line start", () => {
     const e = run(doc(["Hello"]), id("p0"), 0, alice, { type: "SPLIT_NODE" });
-    const h = headOf(e.state, id("p0"));
-    const tree = lay(e.state);
+    const h = headOf(e.document, id("p0"));
+    const tree = lay(e.document);
     expect(getBoundaryMarkIndex(tree).map((r) => r.box.boundaryMark.blockId)).toEqual([h]);
-    const m = expectAtCaret(e.state, tree, h, 0);
+    const m = expectAtCaret(e.document, tree, h, 0);
     expect(m.x).toBe(0);
     expect(m.box.computedStyle.underline).toBe(true);
     expect(m.box.computedStyle.lineThrough).toBe(false);
@@ -288,7 +288,7 @@ describe("print ¶ — placement", () => {
 
   it("paginated body: the ¶ hangs into the page margin and is clipped by the page box", () => {
     // Content 40 wide; "aaaaa" fills the line, so the ¶ starts at the content edge.
-    const state = run(doc(["aaaaa", "b"]), id("p1"), 0, alice, { type: "DELETE_BACKWARD" }).state;
+    const state = run(doc(["aaaaa", "b"]), id("p1"), 0, alice, { type: "DELETE_BACKWARD" }).document;
     const wide = markOf(pages(state, page(60, 200, 10))[0] ?? lay(state), id("p0"));
     expect([wide.glyphX, wide.x, wide.width]).toEqual([50, 50, 8]); // inside the 10px margin
     const narrow = markOf(pages(state, page(46, 200, 3))[0] ?? lay(state), id("p0"));
@@ -301,8 +301,8 @@ describe("print ¶ — placement", () => {
     const cellPara = e.selection.focus.blockId;
     e = reduceEditor(e, { type: "INSERT_TEXT", text: `a${" ".repeat(60)}` });
     e = reduceEditor({ ...e, config: alice }, { type: "SPLIT_NODE" });
-    const cellHead = headOf(e.state, cellPara); // Enter at the end — the head holds the text
-    const tree = lay(e.state, WIDTH, wideGlyph);
+    const cellHead = headOf(e.document, cellPara); // Enter at the end — the head holds the text
+    const tree = lay(e.document, WIDTH, wideGlyph);
     const m = getBoundaryMarkIndex(tree).find((r) => r.box.boundaryMark.blockId === cellHead);
     if (m === undefined) throw new Error("no ¶ in the cell");
     const [cell, neighbour] = boxesOf(tree, "table-cell").sort((a, b) => a.x - b.x);
@@ -404,7 +404,7 @@ describe("print ¶ — incremental + paginated layout", () => {
   });
 
   it("a block split across pages carries its ¶ on the last fragment only", () => {
-    const state = run(doc(["aaaa bbbb cccc dddd eeee ffff gggg hhhh", "x"]), id("p1"), 0, alice, { type: "DELETE_BACKWARD" }).state;
+    const state = run(doc(["aaaa bbbb cccc dddd eeee ffff gggg hhhh", "x"]), id("p1"), 0, alice, { type: "DELETE_BACKWARD" }).document;
     const [first, second] = pages(state, page(80, 32));
     if (first === undefined || second === undefined) throw new Error("pages");
     expect(getBoundaryMarkIndex(first)).toEqual([]);
@@ -475,8 +475,8 @@ describe("print ¶ — interaction", () => {
     const cellPara = e.selection.focus.blockId;
     e = reduceEditor(e, { type: "INSERT_TEXT", text: `a${" ".repeat(60)}` });
     e = reduceEditor({ ...e, config: alice }, { type: "SPLIT_NODE" });
-    const cellHead = headOf(e.state, cellPara); // the head holds the text and the keyed ¶
-    const state = setBlockAttrs(e.state, cellHead, { shift: true }).state;
+    const cellHead = headOf(e.document, cellPara); // the head holds the text and the keyed ¶
+    const state = setBlockAttrs(e.document, cellHead, { shift: true }).state;
     const tree = lay(state, WIDTH, wideGlyph);
     const m = getBoundaryMarkIndex(tree).find((r) => r.box.boundaryMark.blockId === cellHead);
     if (m === undefined) throw new Error("no ¶ in the cell");
@@ -534,10 +534,10 @@ describe("print ¶ — interaction", () => {
 
   it("list item: the marker and the ¶ never collide, and a marker click is unchanged", () => {
     const listed = run(doc(["one", "two"]), id("p0"), 0, base, caret(id("p0"), 0), { type: "SET_SELECTION", selection: createSpan(createPosition(id("p0"), 0), createPosition(id("p1"), 3)) }, { type: "TOGGLE_LIST", listType: "ordered" });
-    const plain = lay(listed.state);
-    const e = run(listed.state, id("p0"), 3, alice, { type: "SPLIT_NODE" });
-    const tree = lay(e.state);
-    const m = markOf(tree, headOf(e.state, id("p0"))); // the head takes the new id
+    const plain = lay(listed.document);
+    const e = run(listed.document, id("p0"), 3, alice, { type: "SPLIT_NODE" });
+    const tree = lay(e.document);
+    const m = markOf(tree, headOf(e.document, id("p0"))); // the head takes the new id
     const markers = boxesOf(tree, "marker").filter((r) => !(r.x === m.glyphX && r.y === m.glyphY));
     expect(markers.length).toBeGreaterThan(0);
     for (const k of markers) expect(k.x + k.width <= m.x || m.x + m.width <= k.x || k.y + k.height <= m.y || m.y + m.height <= k.y).toBe(true);
@@ -545,8 +545,8 @@ describe("print ¶ — interaction", () => {
     if (first === undefined) throw new Error("no list marker");
     const click = (t: LayoutBox, s: State) => resolveHitPosition(s, t, shaper, first.x + 1, first.y + first.height / 2);
     // The first item's start (the split head carries "one").
-    expect(click(plain, listed.state)).toEqual(createPosition(id("p0"), 0));
-    expect(click(tree, e.state)).toEqual(createPosition(headOf(e.state, id("p0")), 0));
+    expect(click(plain, listed.document)).toEqual(createPosition(id("p0"), 0));
+    expect(click(tree, e.document)).toEqual(createPosition(headOf(e.document, id("p0")), 0));
   });
 });
 
@@ -586,8 +586,8 @@ describe("print — selection ¶ extension: anchored at the caret of (P, len), a
     const tail = e.selection.focus.blockId;
     e = reduceEditor(e, { type: "INSERT_TEXT", text: `${text}${" ".repeat(60)}` });
     e = reduceEditor(e, { type: "SPLIT_NODE" });
-    const head = headOf(e.state, tail); // Enter at the end — the head holds the text
-    return { state: attrs === undefined ? e.state : setBlockAttrs(e.state, head, attrs).state, head, tail };
+    const head = headOf(e.document, tail); // Enter at the end — the head holds the text
+    return { state: attrs === undefined ? e.document : setBlockAttrs(e.document, head, attrs).state, head, tail };
   }
   const firstCell = (tree: LayoutBox): { x: number; width: number } => {
     const [cell] = boxesOf(tree, "table-cell").sort((a, b) => a.x - b.x);
@@ -655,31 +655,31 @@ describe("print section-break label (a tracked section-end item)", () => {
     expect(m.box.computedStyle.lineThrough).toBe(false);
     expect(m.box.computedStyle.color).toBe(m.box.boundaryMark.mark.color);
     // No line space: the next paragraph sits where it would without the suggestion.
-    const plain = lay(run(doc(["A", "B"]), id("p1"), 0, base, { type: "SECTION_BREAK" }).state);
+    const plain = lay(run(doc(["A", "B"]), id("p1"), 0, base, { type: "SECTION_BREAK" }).document);
     expect(linesOf(tree, id("p1")).map((l) => l.absoluteY)).toEqual(linesOf(plain, id("p1")).map((l) => l.absoluteY));
     expect(getBoundaryMarkIndex(plain)).toEqual([]);
   });
 
   it("after text it starts at the text's end; on a full line it is one ¶ glyph wide", () => {
     const split = run(doc(["Alpha", "B"]), id("p0"), 5, alice, { type: "SECTION_BREAK" });
-    const tree = lay(split.state);
+    const tree = lay(split.document);
     const m = sectionMarkOf(tree);
     expect(m.box.boundaryMark.offset).toBe(5); // the head holding "Alpha" ends the section
-    expect(caretOf(split.state, tree, m.box.boundaryMark.blockId, 5).x).toBe(40);
+    expect(caretOf(split.document, tree, m.box.boundaryMark.blockId, 5).x).toBe(40);
     expect([m.x, m.width]).toEqual([40, WIDTH - 40]);
-    const full = lay(run(doc(["aaaaa", "B"]), id("p0"), 5, alice, { type: "SECTION_BREAK" }).state, 40);
+    const full = lay(run(doc(["aaaaa", "B"]), id("p0"), 5, alice, { type: "SECTION_BREAK" }).document, 40);
     expect(sectionMarkOf(full).width).toBe(8);
   });
 
   it("section-join: struck; vertical-rl: the label runs down the line from the caret", () => {
     const split = run(doc(["A", "B"]), id("p1"), 0, base, { type: "SECTION_BREAK" });
     const j = reduceEditor(reduceEditor({ ...split, config: alice }, caret(id("p1"), 0)), { type: "DELETE_BACKWARD" });
-    const jm = sectionMarkOf(lay(j.state));
+    const jm = sectionMarkOf(lay(j.document));
     expect(jm.box.boundaryMark.mark.kind).toBe("section-join");
     expect(jm.box.computedStyle.lineThrough).toBe(true);
     expect(jm.box.computedStyle.underline).toBe(false);
 
-    const v = run(doc(["abc", "d"], { writingMode: "vertical-rl" }), id("p0"), 3, alice, { type: "SECTION_BREAK" }).state;
+    const v = run(doc(["abc", "d"], { writingMode: "vertical-rl" }), id("p0"), 3, alice, { type: "SECTION_BREAK" }).document;
     const vt = lay(v);
     const vm = sectionMarkOf(vt);
     const c = caretOf(v, vt, vm.box.boundaryMark.blockId, 3);
@@ -688,7 +688,7 @@ describe("print section-break label (a tracked section-end item)", () => {
   });
 
   it("a click on the label → (B, len); a selection covering the section end covers the label; painted centred between dotted rules", () => {
-    const state = run(doc(["Alpha", "Beta"]), id("p1"), 0, alice, { type: "SECTION_BREAK" }).state;
+    const state = run(doc(["Alpha", "Beta"]), id("p1"), 0, alice, { type: "SECTION_BREAK" }).document;
     const tree = lay(state);
     const m = sectionMarkOf(tree);
     const h = m.box.boundaryMark.blockId; // the empty ¶ ending the first section

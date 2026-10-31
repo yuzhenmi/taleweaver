@@ -1868,8 +1868,8 @@ describe("createEditorController", () => {
       const withFn = core.reduceEditor(typed, { type: "INSERT_FOOTNOTE" });
       const footnoteBlockId = withFn.selection.focus.blockId;
       // Sanity: the two ends are genuinely in different selection contexts.
-      expect(core.selectionContextOf(withFn.state, bodyBlockId)).not.toBe(
-        core.selectionContextOf(withFn.state, footnoteBlockId),
+      expect(core.selectionContextOf(withFn.document, bodyBlockId)).not.toBe(
+        core.selectionContextOf(withFn.document, footnoteBlockId),
       );
       return {
         editorState: withFn,
@@ -1916,7 +1916,7 @@ describe("createEditorController", () => {
       // that is exactly the render-path crash this guard avoids storing.
       const crossContextSpan = core.createSpan(bodyPos, footnotePos);
       expect(() =>
-        core.getActiveFormatting(editorState.state, crossContextSpan),
+        core.getActiveFormatting(editorState.document, crossContextSpan),
       ).toThrow(/different selection contexts/);
 
       document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
@@ -1992,7 +1992,7 @@ describe("createEditorController", () => {
       });
 
       const ghostId = core.createTestAllocator().allocate();
-      expect(core.selectionContextOf(editorState.state, ghostId)).toBeNull();
+      expect(core.selectionContextOf(editorState.document, ghostId)).toBeNull();
       vi.mocked(hitTest.resolvePositionFromPixel).mockReturnValueOnce(
         hit(core.createPosition(ghostId, 0)),
       );

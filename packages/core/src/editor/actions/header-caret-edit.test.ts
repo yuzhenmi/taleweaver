@@ -5,7 +5,7 @@
 // and mutate the templateContents header body.
 //
 // Before T7d the handlers read the cursor/anchor/focus/prev/next block with
-// `getBlock(editor.state, id)` (MAIN map only) to make their merge/split
+// `getBlock(editor.document, id)` (MAIN map only) to make their merge/split
 // decisions. For a header caret `getBlock` returned null, so the handler
 // short-circuited to a no-op BEFORE reaching the Layer-3 op — for DELETE_FORWARD
 // at any offset, for Enter/SPLIT, and for DELETE_BACKWARD at offset 0 (the
@@ -101,7 +101,7 @@ function buildStateWithHeaderBody(): State {
 }
 
 /**
- * Build a geometry-free EditorState from a State with the caret at `caret`.
+ * Build a geometry-free EditorState from a Document with the caret at `caret`.
  * Phase 0b: the structural caret-edit handlers (split/merge inside a header
  * body) read only caret/selection/context state — no layout — so the synthetic
  * state needs only the geometry-free fields.
@@ -130,12 +130,12 @@ describe("C.2c T7d — mid-header DELETE_BACKWARD reaches the op", () => {
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     // The header body block shrank — observable via getTemplateContent.
-    expect(headerText(next.state, HDR_P1)).toBe("alha");
+    expect(headerText(next.document, HDR_P1)).toBe("alha");
     // Caret moved back one grapheme, stayed in the header paragraph.
     expect(next.selection.focus.blockId).toBe(HDR_P1);
     expect(next.selection.focus.offset).toBe(2);
     // It actually mutated (not a no-op).
-    expect(next.state).not.toBe(editor.state);
+    expect(next.document).not.toBe(editor.document);
   });
 
   it("does NOT trigger the section-boundary merge for a header caret (routes to a content delete)", () => {
@@ -149,13 +149,13 @@ describe("C.2c T7d — mid-header DELETE_BACKWARD reaches the op", () => {
 
     // The two header paragraphs merged: "alpha" + "beta" = "alphabeta"; ¶c1 goes and
     // c2 survives.
-    expect(headerText(next.state, HDR_P2)).toBe("alphabeta");
-    expect(getTemplateContent(next.state, HDR_P1)).toBeNull();
+    expect(headerText(next.document, HDR_P2)).toBe("alphabeta");
+    expect(getTemplateContent(next.document, HDR_P1)).toBeNull();
     // Caret sits at the join point (end of original "alpha").
     expect(next.selection.focus.blockId).toBe(HDR_P2);
     expect(next.selection.focus.offset).toBe(5);
     // Main body paragraph is untouched (no spurious section op).
-    expect(joinText(getBlock(next.state, BODY_P)?.inlineContent?.items)).toBe("body text");
+    expect(joinText(getBlock(next.document, BODY_P)?.inlineContent?.items)).toBe("body text");
   });
 });
 
@@ -165,11 +165,11 @@ describe("C.2c T7d — mid-header DELETE_FORWARD reaches the op", () => {
     // "alpha", caret after "al" → forward-delete removes "p".
     const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
 
-    expect(headerText(next.state, HDR_P1)).toBe("alha");
+    expect(headerText(next.document, HDR_P1)).toBe("alha");
     // Caret stays put.
     expect(next.selection.focus.blockId).toBe(HDR_P1);
     expect(next.selection.focus.offset).toBe(2);
-    expect(next.state).not.toBe(editor.state);
+    expect(next.document).not.toBe(editor.document);
   });
 
   it("forward-delete at end of a header paragraph merges the next header paragraph in (not a section op)", () => {
@@ -178,12 +178,12 @@ describe("C.2c T7d — mid-header DELETE_FORWARD reaches the op", () => {
     const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
 
     // ¶c1 goes; c2 survives.
-    expect(headerText(next.state, HDR_P2)).toBe("alphabeta");
-    expect(getTemplateContent(next.state, HDR_P1)).toBeNull();
+    expect(headerText(next.document, HDR_P2)).toBe("alphabeta");
+    expect(getTemplateContent(next.document, HDR_P1)).toBeNull();
     expect(next.selection.focus.blockId).toBe(HDR_P2);
     expect(next.selection.focus.offset).toBe(5);
     // Main body untouched.
-    expect(joinText(getBlock(next.state, BODY_P)?.inlineContent?.items)).toBe("body text");
+    expect(joinText(getBlock(next.document, BODY_P)?.inlineContent?.items)).toBe("body text");
   });
 });
 
@@ -195,17 +195,17 @@ describe("C.2c T7d — mid-header SPLIT_NODE (Enter) reaches the op", () => {
 
     // the original block keeps its id + the right half (and its ¶);
     // a NEW head block in templateContents takes the left half.
-    expect(headerText(next.state, HDR_P1)).toBe("ha");
-    const newId = getTemplateContent(next.state, HDR_P1)?.prevSiblingId;
+    expect(headerText(next.document, HDR_P1)).toBe("ha");
+    const newId = getTemplateContent(next.document, HDR_P1)?.prevSiblingId;
     expect(newId).not.toBeNull();
     expect(newId).toBeDefined();
     if (newId === null || newId === undefined) return;
     // The new block lives in templateContents, NOT the main map.
-    expect(getTemplateContent(next.state, newId)).not.toBeNull();
-    expect(getBlock(next.state, newId)).toBeNull();
-    expect(headerText(next.state, newId)).toBe("alp");
+    expect(getTemplateContent(next.document, newId)).not.toBeNull();
+    expect(getBlock(next.document, newId)).toBeNull();
+    expect(headerText(next.document, newId)).toBe("alp");
     // The new header paragraph's parent is the header root.
-    expect(getTemplateContent(next.state, newId)?.parentId).toBe(HDR_ROOT);
+    expect(getTemplateContent(next.document, newId)?.parentId).toBe(HDR_ROOT);
     // Caret moved to the start of the tail paragraph.
     expect(next.selection.focus.blockId).toBe(HDR_P1);
     expect(next.selection.focus.offset).toBe(0);

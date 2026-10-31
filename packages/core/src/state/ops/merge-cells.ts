@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -54,7 +54,7 @@ export interface MergeCellsPlan {
  * NO-OP (same `state` ref) when the range resolves to a single cell or the grid
  * can't be built. MAIN-TREE ONLY.
  */
-export function mergeCells(state: State, range: CellRange): OperationResult {
+export function mergeCells(state: Document, range: CellRange): OperationResult {
   const plan = planMergeCells(state, range);
   if (plan === null) return { state, dirtyIds: new Set<BlockId>() };
   return applyOperation(state, (doc) => {
@@ -63,7 +63,7 @@ export function mergeCells(state: State, range: CellRange): OperationResult {
 }
 
 /** Build the merge plan, or null when the range is a single cell (nothing to merge). */
-export function planMergeCells(state: State, range: CellRange): MergeCellsPlan | null {
+export function planMergeCells(state: Document, range: CellRange): MergeCellsPlan | null {
   const grid = buildTableGrid(state, range.tableId);
   if (grid === null) return null;
 
@@ -156,7 +156,7 @@ function withSpan(attrs: ReadonlyAttrs, rowSpan: number, colSpan: number): Reado
  * its attrs). A child with `inlineContent === null` (a container, not a text block)
  * is conservatively NOT empty — its content migrates, never silently dropped.
  */
-function isSingleEmptyParagraph(state: State, childIds: readonly BlockId[]): boolean {
+function isSingleEmptyParagraph(state: Document, childIds: readonly BlockId[]): boolean {
   const onlyChildId = childIds[0];
   if (childIds.length !== 1 || onlyChildId === undefined) return false;
   const only = getBlock(state, onlyChildId);

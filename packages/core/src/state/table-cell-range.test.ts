@@ -3,11 +3,11 @@ import { resolveCellRange } from "./table-cell-range";
 import { createPosition, createSpan } from "./block-position";
 import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
-import type { State } from "./state";
+import type { Document } from "./state";
 import type { Block } from "./block";
 
 /** A 2×2 table: doc > table > [row0(cA,cB), row1(cC,cD)], each cell one paragraph. */
-function build2x2(): State {
+function build2x2(): Document {
   const blocks: Block[] = [
     buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
     buildBlock({ id: "table", type: "table", parentId: "doc", firstChildId: "row0", lastChildId: "row1" }),

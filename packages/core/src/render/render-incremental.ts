@@ -443,7 +443,7 @@ function renderBlockIncremental(
   // Note: one could also add a `getBlock(state, id) === getBlock(prevState, id)`
   // belt-and-suspenders check. In practice that comparison is not
   // useful at runtime: `getBlock` returns a wrapper over the Y.Doc
-  // (per `state/state.ts`); fresh State after an operation produces
+  // (per `state/state.ts`); fresh Document after an operation produces
   // different wrapper instances even for blocks whose underlying
   // content is unchanged. A meaningful "did this block change"
   // comparison would have to be structural (O(block-size)) and would

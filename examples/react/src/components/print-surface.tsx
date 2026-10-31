@@ -15,7 +15,7 @@ const PAGE_GAP = 24;
 /**
  * The PRINT editing surface: the `@taleweaver/print` canvas backend (paginated
  * geometry computed in-engine). Owns its own chrome + find-bar (find/replace is
- * print-geometry-specific). Exposes its live `State` via `registerGetState` so
+ * print-geometry-specific). Exposes its live `Document` via `registerGetState` so
  * the tab-bar can hand the document off on switch.
  */
 /** The caret rect of a position from the print view handle (viewport coords). */

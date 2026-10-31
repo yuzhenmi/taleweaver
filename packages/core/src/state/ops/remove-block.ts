@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId } from "../block-id";
 import { requireInTransaction } from "../yjs-doc";
@@ -95,7 +95,7 @@ export interface RemoveBlockPlan {
  * lets callers chain a removal with other `*InTx` ops inside a single Y.Doc
  * transaction (one undo entry / one collab event).
  */
-export function removeBlock(state: State, blockId: BlockId): OperationResult {
+export function removeBlock(state: Document, blockId: BlockId): OperationResult {
   const plan = planRemoveBlock(state, blockId);
   return applyOperation(state, (doc) => {
     removeBlockInTx(doc, plan);
@@ -111,7 +111,7 @@ export function removeBlock(state: State, blockId: BlockId): OperationResult {
  * to cascade-delete, ALL against the pre-mutation snapshot. `inTx` performs no
  * further `state` / `getBlock` reads.
  */
-export function planRemoveBlock(state: State, blockId: BlockId): RemoveBlockPlan {
+export function planRemoveBlock(state: Document, blockId: BlockId): RemoveBlockPlan {
   const block = getBlock(state, blockId);
   if (block === null) {
     throw new Error(`removeBlock: block "${blockId}" not found`);
@@ -205,7 +205,7 @@ export function removeBlockInTx(doc: Y.Doc, plan: RemoveBlockPlan): void {
  * Walk the subtree rooted at `rootId` and add every visited id to `out`.
  * Cycle-defended: a block already in `out` is not re-visited.
  */
-function collectSubtreeIds(state: State, rootId: BlockId, out: Set<BlockId>): void {
+function collectSubtreeIds(state: Document, rootId: BlockId, out: Set<BlockId>): void {
   if (out.has(rootId)) return;
   const block = getBlock(state, rootId);
   if (block === null) return;

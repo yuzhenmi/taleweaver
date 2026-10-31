@@ -1,7 +1,7 @@
 import type { State, BlockId } from "../state";
 
 /**
- * One document change: the State it was made from and its raw dirty set, linked to the
+ * One document change: the Document it was made from and its raw dirty set, linked to the
  * change before it (`prior`) so a consumer that missed intermediate states (a host that
  * batches dispatches) can still compose the mappings across them. The chain is bounded:
  * `depth` counts it, and `recordChange` trims it once it grows past

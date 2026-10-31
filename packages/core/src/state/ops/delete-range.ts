@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 import { requireBlockText } from "../block-text";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { Position, Span } from "../block-position";
@@ -134,7 +134,7 @@ export type DeleteRangePlan =
  * transaction (atomic).
  */
 export function deleteRange(
-  state: State,
+  state: Document,
   span: Span,
 ): OperationResult {
   // Empty-span no-op (collapsed-ness is normalization-invariant).
@@ -212,7 +212,7 @@ export function deleteRangeInTx(doc: Y.Doc, plan: DeleteRangePlan): void {
  * start marker was, and a cut of exactly a bookmark's text carries the pair. A
  * collapsed span is returned normalized with nothing removed. O(span).
  */
-export function bookmarkDeletionSpan(state: State, span: Span): { readonly span: Span; readonly removed: Set<string> } {
+export function bookmarkDeletionSpan(state: Document, span: Span): { readonly span: Span; readonly removed: Set<string> } {
   const n = normalizeSpan(state, span);
   if (positionsEqual(n.anchor, n.focus)) return { span: n, removed: new Set() };
   const removed = bookmarksRemovedBy(
@@ -235,7 +235,7 @@ export function bookmarkDeletionSpan(state: State, span: Span): { readonly span:
  * ({@link bookmarkDeletionSpan}). Null only when two object endpoints have no text
  * block after them. Assumes a span `deleteRange` accepts. O(span).
  */
-export function deleteRangeSeam(state: State, span: Span): Position | null {
+export function deleteRangeSeam(state: Document, span: Span): Position | null {
   const { span: wide } = bookmarkDeletionSpan(state, span);
   const start = wide.anchor;
   if (start.blockId === wide.focus.blockId) return start;
@@ -271,7 +271,7 @@ export function seamBlockOf(plan: DeleteRangePlan): BlockId {
  * Throws on missing block or a container endpoint that is not an object
  * (`isObjectBlock`); returns void on success.
  */
-export function assertDeleteRangeEndpoints(state: State, span: Span): void {
+export function assertDeleteRangeEndpoints(state: Document, span: Span): void {
   const sameBlock = span.anchor.blockId === span.focus.blockId;
   // Map-agnostic: resolve across all three trees so a span inside a
   // header/footer body (templateContents) passes these guards rather than
@@ -321,7 +321,7 @@ export function assertDeleteRangeEndpoints(state: State, span: Span): void {
  * for the dual primitive.
  */
 export function planDeleteRange(
-  state: State,
+  state: Document,
   span: Span,
 ): DeleteRangePlan | null {
   // Pre-normalize existence + leaf guards. These run before normalizeSpan

@@ -13,7 +13,7 @@
  * UndoManager's tracked scopes; (3) the run's LIVE format attrs are untouched
  * (the proposal is not applied until accept — a later slice); (4) adjacent
  * same-author/same-proposal marks COALESCE into one suggestion (id reuse); (5)
- * identity no-ops short-circuit (return the same State reference).
+ * identity no-ops short-circuit (return the same Document reference).
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -53,7 +53,7 @@ import { TEST_RESOLVER,
   embed,
   inlineContent,
 } from "../../test-utils/state-builders";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { InlineContent } from "../inline-content";
 
 const SID = "s1" as SuggestionId;
@@ -67,7 +67,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 /** doc > [ p("abcdef") ] (one text run unless overridden). */
 function oneBlock(
   items = inlineContent([text("abcdef")]),
-): State {
+): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -91,12 +91,12 @@ function span(start: number, end: number): Span {
 }
 
 /** The inline items of p. */
-function pItems(s: State) {
+function pItems(s: Document) {
   return getBlock(s, "p" as BlockId)?.inlineContent?.items ?? [];
 }
 
 /** The first text item of p whose attrs carry the formatting-suggestion attr. */
-function markedRunAttr(s: State): unknown {
+function markedRunAttr(s: Document): unknown {
   for (const it of pItems(s)) {
     if (it.kind === "text" && formattingSuggestionIds(it.attrs)[0] !== undefined) {
       return formattingSuggestionIds(it.attrs)[0];
@@ -332,15 +332,15 @@ const DEL_INPUT = { id: DEL_SID, author: "alice", createdAt: 5000 } as const;
  * Seed an insertion `SuggestionRecord` (id `insId`, by `author`) into the
  * suggestions map of `state`. The run carrying the matching
  * `insertionSuggestionId` attr is built into the fixture separately (via the
- * `text(str, { insertionSuggestionId })` builder). Returns the new State (the
+ * `text(str, { insertionSuggestionId })` builder). Returns the new Document (the
  * record write is a tracked op surfacing rootId — but we only need the resulting
  * state; History is not involved).
  */
 function seedInsertionRecord(
-  state: State,
+  state: Document,
   insId: string,
   author: string,
-): State {
+): Document {
   const record: SuggestionRecord = {
     id: insId as SuggestionId,
     kind: "insertion",
@@ -354,7 +354,7 @@ function seedInsertionRecord(
 }
 
 /** The first text item of p whose attrs carry the deletion-suggestion attr. */
-function deletedRunAttr(s: State): unknown {
+function deletedRunAttr(s: Document): unknown {
   for (const it of pItems(s)) {
     if (it.kind === "text" && it.attrs[DELETION_SUGGESTION_ATTR] !== undefined) {
       return it.attrs[DELETION_SUGGESTION_ATTR];
@@ -364,7 +364,7 @@ function deletedRunAttr(s: State): unknown {
 }
 
 /** Concatenated text of all text items of p, in order. */
-function pText(s: State): string {
+function pText(s: Document): string {
   return pItems(s)
     .filter((it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text")
     .map((it) => it.text)
@@ -592,7 +592,7 @@ describe("markDeletion — coalesce with an adjacent same-author deletion", () =
 });
 
 /** doc > [ p1(items1), p2(items2) ] — a two-leaf fixture for cross-block spans. */
-function twoBlocks(items1: InlineContent, items2: InlineContent): State {
+function twoBlocks(items1: InlineContent, items2: InlineContent): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -604,7 +604,7 @@ function twoBlocks(items1: InlineContent, items2: InlineContent): State {
 }
 
 /** The inline items of an arbitrary block by id. */
-function itemsOf(s: State, id: string) {
+function itemsOf(s: Document, id: string) {
   return getBlock(s, id as BlockId)?.inlineContent?.items ?? [];
 }
 
@@ -790,7 +790,7 @@ const INS_SID = "ins1" as SuggestionId;
 const INS_INPUT = { id: INS_SID, author: "alice", createdAt: 7000 } as const;
 
 /** The first text item of p whose attrs carry the insertion-suggestion attr. */
-function insertedRunAttr(s: State): unknown {
+function insertedRunAttr(s: Document): unknown {
   for (const it of pItems(s)) {
     if (it.kind === "text" && it.attrs[INSERTION_SUGGESTION_ATTR] !== undefined) {
       return it.attrs[INSERTION_SUGGESTION_ATTR];
@@ -1044,7 +1044,7 @@ describe("acceptSuggestion / rejectSuggestion — multi-author nested run cleanu
   // the "BB" run carries BOTH ids; both records live. Resolving EITHER id such
   // that the run is DROPPED must also clean up the co-tenant record — else it is
   // left orphaned (present, range null).
-  function nestedRun(): State {
+  function nestedRun(): Document {
     let s = oneBlock(
       inlineContent([text("AA"), text("BB", { [INSERTION_SUGGESTION_ATTR]: "ins1" }), text("CC")]),
     );
@@ -1166,7 +1166,7 @@ describe("acceptSuggestion / rejectSuggestion — formatting", () => {
   // else it dangles after the record is deleted. Both single-id and bulk paths.
   const withTabEmbed = () =>
     oneBlock(inlineContent([text("ab"), embed("tab"), text("cd")]));
-  const tabEmbed = (s: State) => {
+  const tabEmbed = (s: Document) => {
     const e = pItems(s).find((it) => it.kind === "embed" && it.embedType === "tab");
     if (e === undefined || e.kind !== "embed") throw new Error("expected the tab embed");
     return e;
@@ -1269,7 +1269,7 @@ describe("acceptSuggestion — UNDOABLE (one undo step)", () => {
     });
     const spanIn = (block: string, a: number, b: number): Span =>
       createSpan(createPosition(block as BlockId, a), createPosition(block as BlockId, b));
-    const fmtAttr = (s: State, block: string): unknown => {
+    const fmtAttr = (s: Document, block: string): unknown => {
       for (const it of getBlock(s, block as BlockId)?.inlineContent?.items ?? []) {
         if (it.kind === "text" && formattingSuggestionIds(it.attrs)[0] !== undefined) {
           return formattingSuggestionIds(it.attrs)[0];
@@ -1405,7 +1405,7 @@ describe("acceptSuggestion / rejectSuggestion — MT-3: resolves a suggestion in
   // (offsets 1..4) carries DELETION_SUGGESTION_ATTR "s-body", plus its record.
   // Pre-MT-3 the resolve scan visited only the main tree, so accept/reject
   // deleted the record but left the body run tagged as an un-resolvable zombie.
-  function bodyDeletionState(): State {
+  function bodyDeletionState(): Document {
     const seed = buildState({
       rootId: "doc",
       blocks: [
@@ -1437,7 +1437,7 @@ describe("acceptSuggestion / rejectSuggestion — MT-3: resolves a suggestion in
   }
 
   /** Concatenated text of the embed-body block fnp (resolved off the main tree). */
-  function fnpText(s: State): string {
+  function fnpText(s: Document): string {
     return (resolveBlock(s, "fnp" as BlockId)?.block.inlineContent?.items ?? [])
       .map((it) => (it.kind === "text" ? it.text : ""))
       .join("");
@@ -1483,7 +1483,7 @@ const ALL_FMT_SID = "allFmt" as SuggestionId;
  * assertions look runs up by their text). The INS run is introduced by
  * `mintInsertion` (so it carries a real insertion record).
  */
-function threeSuggestionDoc(): State {
+function threeSuggestionDoc(): Document {
   // Distinct-colored base runs so resolved runs stay independently findable.
   let s = oneBlock(
     inlineContent([
@@ -1515,7 +1515,7 @@ function threeSuggestionDoc(): State {
 }
 
 /** The single text run whose text equals `t` (throws if no such text run). */
-function runWithText(s: State, t: string) {
+function runWithText(s: Document, t: string) {
   const run = pItems(s).find((it) => it.kind === "text" && it.text === t);
   if (run === undefined || run.kind !== "text") {
     throw new Error(`expected a text run "${t}"`);
@@ -1578,7 +1578,7 @@ describe("acceptAll / rejectAll — NESTED insertion + deletion on ONE run is DR
    * Both records are present. Under accept (delete dominates) AND reject (insert
    * dominates) the run must be DROPPED.
    */
-  function nestedInsDelDoc(): State {
+  function nestedInsDelDoc(): Document {
     // The run "X" carries both ids in its attrs; seed both records.
     let s = oneBlock(
       inlineContent([
@@ -1623,7 +1623,7 @@ describe("acceptAll / rejectAll — NESTED insertion + formatting on ONE run (co
    * run KEEPS (no deletion id), strips the insertion id, AND applies the
    * proposal live. Under rejectAll the insertion dominates → the run is DROPPED.
    */
-  function nestedInsFmtDoc(): State {
+  function nestedInsFmtDoc(): Document {
     let s = oneBlock(
       inlineContent([
         text("a"),
@@ -1675,7 +1675,7 @@ describe("acceptAll / rejectAll — NESTED deletion + formatting on ONE run", ()
    * the one non-trivial `rejectAll` keep-path distinct from the drop + single-id
    * strip paths.
    */
-  function nestedDelFmtDoc(): State {
+  function nestedDelFmtDoc(): Document {
     let s = oneBlock(
       inlineContent([
         text("a"),
@@ -1759,7 +1759,7 @@ describe("acceptAll — UNDOABLE (one undo step)", () => {
     });
     const spanIn = (block: string, a: number, b: number): Span =>
       createSpan(createPosition(block as BlockId, a), createPosition(block as BlockId, b));
-    const pAText = (s: State): string =>
+    const pAText = (s: Document): string =>
       (getBlock(s, "pA" as BlockId)?.inlineContent?.items ?? [])
         .filter((it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text")
         .map((it) => it.text)

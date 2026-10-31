@@ -3,7 +3,7 @@ import { blockText } from "./block-text";
 import type { Position, Selection } from "./block-position";
 import { createPosition, createSpan, positionsEqual } from "./block-position";
 import type { BlockId } from "./block-id";
-import type { OperationResult, State } from "./state";
+import type { OperationResult, Document } from "./state";
 import { freshState, resolveBlock } from "./state";
 import { selectionContextOf } from "./block-compare";
 import {
@@ -45,7 +45,7 @@ export interface SelectionEntry {
 }
 
 export interface UndoRedoResult {
-  readonly state: State;
+  readonly state: Document;
   readonly selection: Selection | null;
   /**
    * BlockIds whose subtrees were mutated by the undo/redo's reversal.
@@ -127,7 +127,7 @@ function encodeSelection(doc: Y.Doc, sel: Selection | null): StoredSelection | n
  * restored, the text / block is gone, or the position is unknown to this doc.
  * A resolved offset is snapped to a grapheme boundary.
  */
-function resolveEndpoint(state: State, ep: StoredEndpoint): Position | null {
+function resolveEndpoint(state: Document, ep: StoredEndpoint): Position | null {
   if (ep.rel === null) return resolveBlock(state, ep.blockId) === null ? null : createPosition(ep.blockId, 0);
   const doc = state[STATE_INTERNAL].doc;
   if (ep.rel.item !== null) {
@@ -146,7 +146,7 @@ function resolveEndpoint(state: State, ep: StoredEndpoint): Position | null {
   return createPosition(blockId, snapOffset(content.items, at.offset));
 }
 
-function resolveSelection(state: State, stored: StoredSelection): Selection | null {
+function resolveSelection(state: Document, stored: StoredSelection): Selection | null {
   const anchor = resolveEndpoint(state, stored.anchor);
   const focus = stored.focus === stored.anchor ? anchor : resolveEndpoint(state, stored.focus);
   if (anchor === null || focus === null) return null;
@@ -169,7 +169,7 @@ function readSelectionEntry(item: YStackItem): StoredEntry | null {
 
 /**
  * Yjs-backed history wrapper. Mutable internal state — instances live
- * alongside an `EditorState`-like container and produce fresh State
+ * alongside an `EditorState`-like container and produce fresh Document
  * references on undo/redo (so consumers can use `oldState !== newState`
  * to detect changes).
  *
@@ -226,7 +226,7 @@ function readSelectionEntry(item: YStackItem): StoredEntry | null {
  * `dirtyIds` is silently dropped (no StackItem produced, no selection
  * recorded, `currentState` unchanged). Action handlers conventionally
  * short-circuit FIRST via the identity-no-op contract
- * (`result.state === editor.state`) — that returns the SAME editor
+ * (`result.state === editor.document`) — that returns the SAME editor
  * reference on no-ops, the editor module's invariant — but commit does
  * not depend on it for soundness.
  *
@@ -277,7 +277,7 @@ export type BeginKey = "insert" | "delete" | "command";
 export class History {
   private readonly undoManager: Y.UndoManager;
   private readonly maxDepth: number;
-  private currentState: State;
+  private currentState: Document;
 
   // Typing-coalescing state. `coalesceKey` is the open group's kind, or
   // null when no coalescible group is open. `lastEditTime` is the injected-clock
@@ -299,13 +299,13 @@ export class History {
   // Rollback bookkeeping for a throwing transaction: the undo-stack depth and the
   // wrapper's state when the outermost batch opened.
   private batchStackDepth = 0;
-  private batchState: State | null = null;
+  private batchState: Document | null = null;
   // An inner transaction aborted inside the open batch (its error may have been
   // swallowed by the outer `run`): the outermost batch must roll back entirely.
   private batchPoisoned = false;
 
   constructor(
-    state: State,
+    state: Document,
     maxDepth: number = DEFAULT_MAX_UNDO_DEPTH,
     trackedOrigin: unknown = null,
   ) {
@@ -451,12 +451,12 @@ export class History {
   /**
    * Abandon the OUTERMOST open transaction after a step threw: revert everything it
    * applied (its single undo item, if it produced one — undone and dropped, never
-   * redoable), restore the wrapper's state, and close the batch. Returns the State the
+   * redoable), restore the wrapper's state, and close the batch. Returns the Document the
    * history is back at. An inner (nested) batch closes and POISONS the outermost one:
    * even if the outer `run` swallows the inner error, ending the outer batch rolls the
    * whole transaction back and throws (`endBatch`).
    */
-  abortBatch(): State {
+  abortBatch(): Document {
     if (this.batchDepth === 0) throw new Error("History.abortBatch: no open batch");
     this.batchDepth--;
     if (this.batchDepth > 0) {
@@ -506,7 +506,7 @@ export class History {
    * SelectionEntry onto and nothing to record. The early return below
    * keeps the wrapper consistent in that case. Handlers conventionally
    * short-circuit first via the identity-no-op contract
-   * (`result.state === editor.state`), which is the editor module's
+   * (`result.state === editor.document`), which is the editor module's
    * same-reference-on-no-op invariant; commit's no-op safety is the
    * backstop, not a substitute.
    */
@@ -602,7 +602,7 @@ export class History {
    * event, so the stacks stay correct; `advanceState` only reconciles the cached
    * `currentState`).
    */
-  advanceState(newState: State): void {
+  advanceState(newState: Document): void {
     this.currentState = newState;
   }
 
@@ -634,7 +634,7 @@ export class History {
   }
 
   /**
-   * Pop the latest undo entry: mutate Y.Doc back, mint a fresh State,
+   * Pop the latest undo entry: mutate Y.Doc back, mint a fresh Document,
    * and return the pre-action selection so the caller can restore it.
    * Y.UndoManager creates a fresh StackItem on the redo stack; we re-weld
    * this action's `SelectionEntry` onto it (Yjs does not copy `.meta`) so a
@@ -849,7 +849,7 @@ export class History {
  * own edits (see the `History` constructor for the collab-isolation rationale).
  */
 export function createHistory(
-  state: State,
+  state: Document,
   maxDepth?: number,
   trackedOrigin: unknown = null,
 ): History {

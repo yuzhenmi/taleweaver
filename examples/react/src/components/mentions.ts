@@ -56,7 +56,7 @@ export function createDemoAttrRegistry(): AttrRegistry {
 export function mentionAction(editor: EditorState): EditorAction | null {
   const { anchor, focus } = editor.selection;
   if (anchor.blockId === focus.blockId && anchor.offset === focus.offset) return null;
-  const label = extractText(editor.state, editor.selection).trim();
+  const label = extractText(editor.document, editor.selection).trim();
   if (label === "" || label.includes("\n")) return null;
   const value: MentionValue = { ref: `person:${label.toLowerCase().replace(/\s+/g, "-")}`, label };
   return { type: "SET_MARK", key: MENTION, value };

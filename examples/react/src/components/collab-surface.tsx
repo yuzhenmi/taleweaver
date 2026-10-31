@@ -59,8 +59,8 @@ export function CollabSurface({
 
   // Hand off pane A's live document on a tab switch (both peers hold the same synced
   // content, so A is an arbitrary-but-fine choice).
-  const latestStateA = useRef(paneA.editorState.state);
-  latestStateA.current = paneA.editorState.state;
+  const latestStateA = useRef(paneA.editorState.document);
+  latestStateA.current = paneA.editorState.document;
   useEffect(() => {
     registerGetState(() => latestStateA.current);
   }, [registerGetState]);
@@ -224,8 +224,8 @@ function makeStarterDoc(): State {
     editor,
     { type: "INSERT_TEXT", text: "Type here — your edits sync to the other pane live." },
   );
-  // Only the seed `State` survives; release this throwaway editor's History so
+  // Only the seed `Document` survives; release this throwaway editor's History so
   // its Y.UndoManager listener doesn't leak on the shared doc the panes will use.
   editor.history.destroy();
-  return editor.state;
+  return editor.document;
 }

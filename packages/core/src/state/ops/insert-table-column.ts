@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -51,7 +51,7 @@ export interface InsertTableColumnPlan {
  * and/or a row's child-list change) plus every touched row + new cell.
  */
 export function insertTableColumn(
-  state: State,
+  state: Document,
   ctx: TableContext,
   position: ColumnPosition,
   allocator: IdAllocator,
@@ -65,7 +65,7 @@ export function insertTableColumn(
 /** Build the plan from a resolved context. Allocates one cell + paragraph id per
  *  row, and computes the spliced `columnWidths` attrs bag when present. */
 export function planInsertTableColumn(
-  state: State,
+  state: Document,
   ctx: TableContext,
   position: ColumnPosition,
   allocator: IdAllocator,

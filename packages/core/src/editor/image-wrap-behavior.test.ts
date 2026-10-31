@@ -91,7 +91,7 @@ function makeConfig(): EditorConfig {
 
 /** Build the layout tree the backend driver would (render → cascade → layout). */
 function layoutOf(editor: EditorState, config: EditorConfig): LayoutBox {
-  const rendered = render(editor.state, config.componentRegistry, config.attrRegistry);
+  const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   const tree = layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
   if (tree.type === "virtual-root") {
@@ -256,7 +256,7 @@ describe("image-wrap behavior — float geometry (the load-bearing layout claim,
 describe("image-wrap behavior — caret positions & arrow-nav across the floated image", () => {
   it("document order is unchanged by floating: pre → img → para chain intact", () => {
     const editor = editorFrom(seedWithPredecessor("left"), createSpan(para(0), para(0)));
-    const s = editor.state;
+    const s = editor.document;
     expect(getBlock(s, "pre" as BlockId)?.nextSiblingId).toBe("img");
     expect(getBlock(s, "img" as BlockId)?.prevSiblingId).toBe("pre");
     expect(getBlock(s, "img" as BlockId)?.nextSiblingId).toBe("para");
@@ -280,14 +280,14 @@ describe("image-wrap behavior — hit-test around the floated image", () => {
     const clickX = first.absoluteX + 3 * CHAR_W + 2;
     const y = first.absoluteY + LINE_H / 2;
 
-    const hit = resolveHitPosition(editor.state, tree, measurer, clickX, y, 0);
+    const hit = resolveHitPosition(editor.document, tree, measurer, clickX, y, 0);
     expect(hit).not.toBeNull();
     if (hit === null) return;
     expect(hit.blockId).toBe("para");
     expect(hit.offset).toBe(3);
 
     // Round-trip: the caret for the resolved offset lands back at the click x.
-    const caret = resolvePixelPosition(editor.state, para(hit.offset), tree, measurer);
+    const caret = resolvePixelPosition(editor.document, para(hit.offset), tree, measurer);
     expect(caret).not.toBeNull();
     if (caret === null) return;
     expect(caret.x).toBe(first.absoluteX + 3 * CHAR_W); // 100 + 24 = 124
@@ -301,7 +301,7 @@ describe("image-wrap behavior — hit-test around the floated image", () => {
     expect(fImg).not.toBeNull();
     if (fImg === null) return;
     const fHit = resolveHitPosition(
-      floated.state, fTree, measurer,
+      floated.document, fTree, measurer,
       fImg.x + fImg.inlineSize / 2, fImg.y + fImg.blockSize / 2, 0,
     );
     // Atomic-leaf blocks produce no LineBox; hit-test is line-based, so the click
@@ -318,7 +318,7 @@ describe("image-wrap behavior — hit-test around the floated image", () => {
     expect(pImg).not.toBeNull();
     if (pImg === null) return;
     const pHit = resolveHitPosition(
-      plain.state, pTree, measurer,
+      plain.document, pTree, measurer,
       pImg.x + pImg.inlineSize / 2, pImg.y + pImg.blockSize / 2, 0,
     );
     expect(pHit?.blockId).toBe("para");
@@ -331,7 +331,7 @@ describe("image-wrap behavior — selection across the floated image", () => {
     // Anchor at the start of the preceding text, focus inside the wrapped para.
     const span = createSpan(createPosition("pre" as BlockId, 0), para(5));
     const tree = plainTree(editor);
-    const all = computeSelectionRects(editor.state, span, tree, measurer);
+    const all = computeSelectionRects(editor.document, span, tree, measurer);
 
     // The range covers the image whole (an object block between its endpoints), so
     // the image's box is highlighted after the text rects.
@@ -358,7 +358,7 @@ describe("image-wrap behavior — selection across the floated image", () => {
     const first = nth(lines, 0, "line");
     // Select the first 4 chars of the first (narrowed) line.
     const span = createSpan(para(0), para(4));
-    const rects = computeSelectionRects(editor.state, span, tree, measurer);
+    const rects = computeSelectionRects(editor.document, span, tree, measurer);
     expect(rects.length).toBeGreaterThanOrEqual(1);
     const r0 = nth(rects, 0, "rect");
     // The highlight begins at the narrowed line's inset edge (x = W = 100), proving
@@ -415,7 +415,7 @@ describe("image-wrap behavior — delete + undo restores the wrap attr", () => {
     const seeded = editorFrom(seedWithPredecessor("left"), createSpan(start, start));
 
     const deleted = reduceEditor({ ...seeded, config: config }, { type: "DELETE_FORWARD" });
-    expect(getBlock(deleted.state, "img" as BlockId)).toBeNull();
+    expect(getBlock(deleted.document, "img" as BlockId)).toBeNull();
     // With the float gone, the paragraph reflows full-width (no inset line).
     const afterLines = paraLines(plainTree(deleted));
     expect(afterLines.length).toBeGreaterThanOrEqual(1);
@@ -424,7 +424,7 @@ describe("image-wrap behavior — delete + undo restores the wrap attr", () => {
 
     // UNDO restores the image as a unit, INCLUDING its wrap attr…
     const undone = reduceEditor(deleted, { type: "UNDO" });
-    const restored = getBlock(undone.state, "img" as BlockId);
+    const restored = getBlock(undone.document, "img" as BlockId);
     expect(restored?.type).toBe("image");
     expect(restored?.attrs.wrap).toBe("left");
     // …and the restored image floats again (real box: x=0, W×H, inline-start)…
@@ -449,10 +449,10 @@ describe("image-wrap behavior — delete + undo restores the wrap attr", () => {
     const seeded = editorFrom(seedWithPredecessor("left"), createSpan(para(0), para(0)));
 
     const deleted = reduceEditor({ ...seeded, config: config }, { type: "DELETE_BACKWARD" });
-    expect(getBlock(deleted.state, "img" as BlockId)).toBeNull();
-    expect(getBlock(deleted.state, "para" as BlockId)?.type).toBe("paragraph");
+    expect(getBlock(deleted.document, "img" as BlockId)).toBeNull();
+    expect(getBlock(deleted.document, "para" as BlockId)?.type).toBe("paragraph");
     // pre and para close up around the removed image.
-    expect(getBlock(deleted.state, "pre" as BlockId)?.nextSiblingId).toBe("para");
-    expect(getBlock(deleted.state, "para" as BlockId)?.prevSiblingId).toBe("pre");
+    expect(getBlock(deleted.document, "pre" as BlockId)?.nextSiblingId).toBe("para");
+    expect(getBlock(deleted.document, "para" as BlockId)?.prevSiblingId).toBe("pre");
   });
 });

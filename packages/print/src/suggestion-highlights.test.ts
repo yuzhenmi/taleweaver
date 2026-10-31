@@ -84,7 +84,7 @@ const suggestingConfig: core.EditorConfig = {
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: core.EditorState): core.BlockId {
-  const root = finalSection(editor.state);
+  const root = finalSection(editor.document);
   const id = root?.firstChildId;
   if (id === undefined || id === null) throw new Error("no paragraph block");
   return id;
@@ -92,7 +92,7 @@ function bodyParaId(editor: core.EditorState): core.BlockId {
 
 /** The number of inline offsets in `paraId` (its content length). */
 function paraLength(editor: core.EditorState, paraId: core.BlockId): number {
-  const content = core.getBlock(editor.state, paraId)?.inlineContent ?? null;
+  const content = core.getBlock(editor.document, paraId)?.inlineContent ?? null;
   return content === null ? 0 : core.inlineContentLength(content);
 }
 
@@ -104,7 +104,7 @@ function paraLength(editor: core.EditorState, paraId: core.BlockId): number {
 function seededSuggestion(text: string): { editor: core.EditorState; suggestionId: core.SuggestionId } {
   let editor = core.createInitialEditorState(suggestingConfig);
   editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text });
-  const suggestions = core.getSuggestions(editor.state);
+  const suggestions = core.getSuggestions(editor.document);
   const live = suggestions[0];
   if (live === undefined) throw new Error("no live suggestion minted");
   return { editor, suggestionId: live.id };
@@ -160,7 +160,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
   it("setSuggestionHighlights([{ active:false }]) over a live suggestion → inactive bands painted", () => {
     const { editor, suggestionId } = seededSuggestion("hello world foo");
     // The suggestion is live (its tagged run survives).
-    expect(core.resolveSuggestionRange(editor.state, suggestionId)).not.toBeNull();
+    expect(core.resolveSuggestionRange(editor.document, suggestionId)).not.toBeNull();
 
     const { container, lastCtx } = mount();
     const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
@@ -195,7 +195,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
       { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(paraId, end), core.createPosition(paraId, end)) },
     );
     editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "world" });
-    const suggestions = core.getSuggestions(editor.state);
+    const suggestions = core.getSuggestions(editor.document);
     expect(suggestions.length).toBeGreaterThanOrEqual(2);
     const [s1, s2] = suggestions;
     if (s1 === undefined || s2 === undefined) throw new Error("expected two suggestions");
@@ -227,7 +227,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     });
     editor = core.reduceEditor(core.reduceEditor({ ...editor, config: alice }, select(0, 4)), { type: "TOGGLE_STYLE", style: "bold" });
     editor = core.reduceEditor(core.reduceEditor({ ...editor, config: bob }, select(2, 6)), { type: "TOGGLE_STYLE", style: "italic" });
-    const ids = core.getSuggestions(editor.state).map((x) => x.id);
+    const ids = core.getSuggestions(editor.document).map((x) => x.id);
     const [a, b] = ids;
     if (a === undefined || b === undefined) throw new Error("expected two suggestions");
 
@@ -260,11 +260,11 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     expect(bands).toEqual([[0, 16], [16, 16], [16, 16], [32, 16]]);
 
     dispatch({ type: "ACCEPT_SUGGESTION", id: b });
-    expect(core.getSuggestions(current.state).map((x) => x.id)).toEqual([a]);
+    expect(core.getSuggestions(current.document).map((x) => x.id)).toEqual([a]);
     expect(glyphLook("c")).toEqual([true, true, aliceTint]);
     expect(glyphLook("e")[1]).toBe(true);
     dispatch({ type: "UNDO" });
-    expect(core.getSuggestions(current.state).map((x) => x.id).sort()).toEqual([a, b].sort());
+    expect(core.getSuggestions(current.document).map((x) => x.id).sort()).toEqual([a, b].sort());
     expect(glyphLook("c")).toEqual([true, true, bobTint]);
     controller.destroy();
   });
@@ -278,7 +278,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     const tabOnly = core.createSpan(core.createPosition(paraId, 2), core.createPosition(paraId, 3));
     editor = core.reduceEditor({ ...editor, config: suggestingConfig }, { type: "SET_SELECTION", selection: tabOnly });
     editor = core.reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
-    const [only] = core.getSuggestions(editor.state);
+    const [only] = core.getSuggestions(editor.document);
     if (only === undefined) throw new Error("expected a suggestion");
     expect(only.range?.start.offset).toBe(2);
 
@@ -308,7 +308,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
       },
     );
     e = core.reduceEditor(e, { type: "DELETE_FORWARD" });
-    expect(core.resolveSuggestionRange(e.state, suggestionId)).toBeNull();
+    expect(core.resolveSuggestionRange(e.document, suggestionId)).toBeNull();
 
     const { container, lastCtx } = mount();
     const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
@@ -354,7 +354,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     const word = "wordword "; // 9 chars
     const text = word.repeat(20).trim(); // ~179 chars → wraps across lines
     const { editor, suggestionId } = seededSuggestion(text);
-    expect(core.resolveSuggestionRange(editor.state, suggestionId)).not.toBeNull();
+    expect(core.resolveSuggestionRange(editor.document, suggestionId)).not.toBeNull();
 
     const { container, lastCtx } = mount();
     const controller = createEditorController(container, { measurer, dispatch: vi.fn() });

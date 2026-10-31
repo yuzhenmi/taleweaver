@@ -16,7 +16,7 @@ Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
 describe("useEditor", () => {
   it("returns editorState with initial document", () => {
     const { result } = renderHook(() => useEditor());
-    const state = result.current.editorState.state;
+    const state = result.current.editorState.document;
     const rootBlock = getBlock(state, state.rootId);
     expect(rootBlock).not.toBeNull();
     expect(rootBlock?.type).toBe("document");
@@ -38,7 +38,7 @@ describe("useEditor", () => {
       result.current.dispatch({ type: "INSERT_TEXT", text: "a" });
     });
     // After INSERT_TEXT "a", the first leaf paragraph block carries the text.
-    const state = result.current.editorState.state;
+    const state = result.current.editorState.document;
     const focusBlockId = result.current.editorState.selection.focus.blockId;
     const block = getBlock(state, focusBlockId);
     expect(block).not.toBeNull();

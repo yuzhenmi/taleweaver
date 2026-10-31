@@ -45,7 +45,7 @@ export function handleSetLink(editor: EditorState, { url }: ActionOf<"SET_LINK">
     ? { link: url }
     : { link: undefined };
   const result = applyAttrsOrSuggest(editor, selection, incoming);
-  if (result.state === editor.state) return null;
+  if (result.state === editor.document) return null;
 
   // An attr-only edit shifts no offsets, so the selection is unchanged — it is
   // committed and rebuilt AS-IS, preserving both endpoints and the anchor/focus

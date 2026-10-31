@@ -17,7 +17,7 @@ export function deleteRangeOrSuggest(
   editor: EditorState,
   span: Span,
 ): OperationResult {
-  const { state } = editor;
+  const { document: state } = editor;
   const input = suggestionInputForBlock(editor, spanStart(state, span).blockId);
   return input === null
     ? deleteRange(state, span)

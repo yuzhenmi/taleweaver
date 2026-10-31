@@ -334,7 +334,7 @@ function seededEditorState(text: string): { editor: core.EditorState; blockId: c
   };
   let editor = core.createInitialEditorState(config);
   editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text });
-  const block = finalSection(editor.state);
+  const block = finalSection(editor.document);
   const blockId = block?.firstChildId;
   if (blockId === null || blockId === undefined) throw new Error("no paragraph block");
   return { editor, blockId };
@@ -395,7 +395,7 @@ describe("controller setFindHighlights / clearFindHighlights (#433)", () => {
     controller.update(editor);
 
     // Two matches of "foo": at [0,3) and [8,11).
-    const matches = core.findMatches(editor.state, "foo");
+    const matches = core.findMatches(editor.document, "foo");
     expect(matches.length).toBe(2);
     const match0 = matches[0];
     if (match0 === undefined) throw new Error("expected match 0");
@@ -416,7 +416,7 @@ describe("controller setFindHighlights / clearFindHighlights (#433)", () => {
     const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
     controller.update(editor);
 
-    const matches = core.findMatches(editor.state, "foo");
+    const matches = core.findMatches(editor.document, "foo");
     controller.setFindHighlights(matches, 99); // out of range
     const { inactive, active } = matchOps(lastCtx());
     expect(inactive.length).toBeGreaterThan(0);
@@ -431,7 +431,7 @@ describe("controller setFindHighlights / clearFindHighlights (#433)", () => {
     const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
     controller.update(editor);
 
-    const matches = core.findMatches(editor.state, "foo");
+    const matches = core.findMatches(editor.document, "foo");
     controller.setFindHighlights(matches, 0);
     expect(matchOps(lastCtx()).inactive.length + matchOps(lastCtx()).active.length).toBeGreaterThan(0);
 

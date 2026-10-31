@@ -30,7 +30,7 @@ import {
   inlineContent,
 } from "../../test-utils/state-builders";
 import { mergeAdjacentTextItems } from "../inline-content";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { ReadonlyAttrs } from "../attrs";
 import type { InlineContent, InlineItem } from "../inline-content";
 import type { BlockId } from "../block-id";
@@ -45,7 +45,7 @@ const DEL_ID = "del-1" as SuggestionId;
 const AUTHOR = "alice";
 
 /** doc > [ p(<items>) ] — one leaf block "p" holding the given inline content. */
-function oneBlock(content: InlineContent): State {
+function oneBlock(content: InlineContent): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -61,17 +61,17 @@ function oneBlock(content: InlineContent): State {
 }
 
 /** Block "p"'s live inline items (the read model of its Y.Text). */
-function liveItems(state: State): InlineItem[] {
+function liveItems(state: Document): InlineItem[] {
   return inlineItemsFromYText(blockText(state, "p"));
 }
 
 /** `{ text, attrs }` of every text item (compact assertions). */
-function yItems2(state: State): { text: string; attrs: ReadonlyAttrs }[] {
+function yItems2(state: Document): { text: string; attrs: ReadonlyAttrs }[] {
   return liveItems(state).flatMap((it) => (it.kind === "text" ? [{ text: it.text, attrs: it.attrs }] : []));
 }
 
 /** Run the applier on block "p" over [start, end) with the standard id/author. */
-function strike(state: State, start: number, end: number): boolean {
+function strike(state: Document, start: number, end: number): boolean {
   const doc = state[STATE_INTERNAL].doc;
   let tagged = false;
   runTransaction(doc, () => {
@@ -81,7 +81,7 @@ function strike(state: State, start: number, end: number): boolean {
 }
 
 /** Seed an `insertion` record by `AUTHOR` for `id`, so it counts as own-insertion. */
-function seedOwnInsertion(state: State, id: string): void {
+function seedOwnInsertion(state: Document, id: string): void {
   const doc = state[STATE_INTERNAL].doc;
   runTransaction(doc, () => {
     writeSuggestionRecordInTx(doc, {

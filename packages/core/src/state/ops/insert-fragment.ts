@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, getBlock, resolveBlock } from "../state";
 import type { Block } from "../block";
 import type { BlockId, IdAllocator } from "../block-id";
@@ -62,7 +62,7 @@ export interface InsertFragmentResult extends OperationResult {
  * Uses `newSuggestionId()` (crypto.randomUUID-based) — the same minting path
  * the suggestion subsystem uses for brand-new suggestions.
  */
-function buildSuggestionIdRemap(fragmentState: State): {
+function buildSuggestionIdRemap(fragmentState: Document): {
   idMap: ReadonlyMap<SuggestionId, SuggestionId>;
   records: SuggestionRecord[];
 } {
@@ -221,7 +221,7 @@ function rewriteClonedSubtreeSuggestionIds(
  * Check if `blockId` lives inside a table-cell by walking the
  * ancestor chain. Returns true when any ancestor has type "table-cell".
  */
-function isInsideTableCell(state: State, blockId: BlockId): boolean {
+function isInsideTableCell(state: Document, blockId: BlockId): boolean {
   const chain = ancestorChain(state, blockId);
   return chain.some((id) => {
     const b = resolveBlock(state, id)?.block;
@@ -318,7 +318,7 @@ function middleNodes(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Insert a fragment `State` (produced by `extractFragment` / `decodeHtml` / `decodeFragmentClip`)
+ * Insert a fragment `Document` (produced by `extractFragment` / `decodeHtml` / `decodeFragmentClip`)
  * into `state` at `selection`, in DIRECT (non-suggesting) mode.
  *
  * **Boundary semantics:**
@@ -338,9 +338,9 @@ function middleNodes(
  * references. Break tags are never carried: a pasted boundary is a real break.
  */
 export function insertFragment(
-  state: State,
+  state: Document,
   selection: Span,
-  fragment: State,
+  fragment: Document,
   allocator: IdAllocator,
 ): InsertFragmentResult {
   // Step 1: cross-context guard → identity no-op.
@@ -352,7 +352,7 @@ export function insertFragment(
 
   // Step 2: non-collapsed selection → deleteRange; accumulate dirtyIds; caret = the
   // seam the delete leaves (`deleteRangeSeam`: in the surviving block).
-  let currentState: State = state;
+  let currentState: Document = state;
   let caretPos: Position = selection.focus;
 
   if (!isCollapsed(selection)) {

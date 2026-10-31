@@ -55,12 +55,12 @@ describe("FN-8 — editor rebuild skips the anchor walk for footnote-free docs",
     // is reused BY REFERENCE.
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" });
-    const prevState = editor.state;
+    const prevState = editor.document;
     const prev = renderFull(prevState);
 
     const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "d" });
     const rendered = renderIncrementalCycle(
-      after.state,
+      after.document,
       prev,
       prevState,
       after.lastDirtyIds ?? new Set<BlockId>(),
@@ -87,12 +87,12 @@ describe("FN-8 — editor rebuild skips the anchor walk for footnote-free docs",
         },
       },
     );
-    const prevState = editor.state;
+    const prevState = editor.document;
     const prev = renderFull(prevState);
 
     const after = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     const rendered = renderIncrementalCycle(
-      after.state,
+      after.document,
       prev,
       prevState,
       after.lastDirtyIds ?? new Set<BlockId>(),
@@ -109,12 +109,12 @@ describe("FN-8 — editor rebuild skips the anchor walk for footnote-free docs",
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" });
     editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     // Caret is inside the footnote body after INSERT_FOOTNOTE.
-    const prevState = editor.state;
+    const prevState = editor.document;
     const prev = renderFull(prevState);
 
     const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "d" });
     const rendered = renderIncrementalCycle(
-      after.state,
+      after.document,
       prev,
       prevState,
       after.lastDirtyIds ?? new Set<BlockId>(),

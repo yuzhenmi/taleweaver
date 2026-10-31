@@ -31,7 +31,7 @@ const measurer = createMockShaper(8, 16);
 
 /** Build the layout tree the backend driver would (render → cascade → layout). */
 function layoutOf(editor: EditorState, config: EditorConfig): LayoutBox | VirtualLayoutTree {
-  const rendered = render(editor.state, config.componentRegistry, config.attrRegistry);
+  const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   return layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
 }
@@ -63,20 +63,20 @@ function buildPasted(config: EditorConfig, n: number): EditorState {
 
 /** The document root's direct children, in order. */
 function rootChildIds(editor: EditorState): BlockId[] {
-  const root = getBlock(editor.state, editor.state.rootId); // the root holds sections
+  const root = getBlock(editor.document, editor.document.rootId); // the root holds sections
   if (root === null || root.firstChildId === null) return [];
   const ids: BlockId[] = [];
   let id: BlockId | null = root.firstChildId;
   while (id !== null) {
     ids.push(id);
-    id = getBlock(editor.state, id)?.nextSiblingId ?? null;
+    id = getBlock(editor.document, id)?.nextSiblingId ?? null;
   }
   return ids;
 }
 
 /** The nth top-level block id (paragraphs, pre-section-break). */
 function nthBlockId(editor: EditorState, n: number): BlockId {
-  const ids = topLevelBlockIds(editor.state);
+  const ids = topLevelBlockIds(editor.document);
   const id = ids[n];
   if (id === undefined) throw new Error(`no block ${n}`);
   return id;
@@ -128,7 +128,7 @@ describe("section pagination — positioning honors the section page-break cap (
     const sectionIds = rootChildIds(editor);
     expect(sectionIds).toHaveLength(2);
     for (const id of sectionIds) {
-      expect(getBlock(editor.state, id)?.type).toBe("section");
+      expect(getBlock(editor.document, id)?.type).toBe("section");
     }
 
     // Press Enter (SPLIT_NODE) inside section 1 exactly as the bug report
@@ -136,7 +136,7 @@ describe("section pagination — positioning honors the section page-break cap (
     // whole pipeline; the leak (if present) survives the re-layout. Section A is
     // still only ~2 short lines afterward, so page 0 retains ample leftover room.
     const secA = nth(sectionIds, 0, "section");
-    const firstParaOfA = getBlock(editor.state, secA)?.firstChildId;
+    const firstParaOfA = getBlock(editor.document, secA)?.firstChildId;
     if (firstParaOfA == null) throw new Error("section A has no first child");
     editor = reduceEditor(
       editor,

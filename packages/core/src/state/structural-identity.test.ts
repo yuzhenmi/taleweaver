@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import { createState, getBlock, type State } from "./state";
+import { createState, getBlock, type Document } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 import { createHistory } from "./history";
 import { insertText } from "./ops/insert-text";
@@ -25,7 +25,7 @@ const id = (s: string) => s as BlockId;
 const pos = (b: string, o: number): Position => createPosition(id(b), o);
 
 /** A document `doc` with one paragraph per `[id, text]`. */
-function docOf(paras: ReadonlyArray<readonly [string, string]>, attrs: Record<string, Record<string, unknown>> = {}): State {
+function docOf(paras: ReadonlyArray<readonly [string, string]>, attrs: Record<string, Record<string, unknown>> = {}): Document {
   const ids = paras.map(([i]) => i);
   return buildState({
     rootId: "doc",
@@ -46,7 +46,7 @@ function docOf(paras: ReadonlyArray<readonly [string, string]>, attrs: Record<st
   });
 }
 
-function peerOf(s: State, clientID: number): State {
+function peerOf(s: Document, clientID: number): Document {
   const doc = new Y.Doc();
   doc.clientID = clientID;
   Y.applyUpdate(doc, Y.encodeStateAsUpdate(s[STATE_INTERNAL].doc));
@@ -54,11 +54,11 @@ function peerOf(s: State, clientID: number): State {
 }
 
 /** Two peers over the same document (clientIDs 1 and 2). */
-function twoPeers(s: State): [State, State] {
+function twoPeers(s: Document): [Document, Document] {
   return [peerOf(s, 1), peerOf(s, 2)];
 }
 
-function sync(a: State, b: State): [State, State] {
+function sync(a: Document, b: Document): [Document, Document] {
   const da = a[STATE_INTERNAL].doc;
   const db = b[STATE_INTERNAL].doc;
   Y.applyUpdate(db, Y.encodeStateAsUpdate(da), "remote");
@@ -66,7 +66,7 @@ function sync(a: State, b: State): [State, State] {
   return [createState({ resolver: TEST_RESOLVER, rootId: a.rootId, doc: da }), createState({ resolver: TEST_RESOLVER, rootId: b.rootId, doc: db })];
 }
 
-function reload(s: State): State {
+function reload(s: Document): Document {
   const doc = new Y.Doc();
   Y.applyUpdate(doc, Y.encodeStateAsUpdate(s[STATE_INTERNAL].doc));
   return createState({ resolver: TEST_RESOLVER, rootId: s.rootId, doc });
@@ -76,7 +76,7 @@ const textOf = (b: Block | null): string =>
   (b?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "￼")).join("");
 
 /** The document's leaf blocks in order as `id:text`, joined by ` | `. */
-function read(s: State): string {
+function read(s: Document): string {
   const out: string[] = [];
   const walk = (bid: BlockId | null): void => {
     for (let cur = bid; cur !== null; ) {
@@ -92,7 +92,7 @@ function read(s: State): string {
 }
 
 /** Every leaf's text concatenated (order-insensitive loss checks use this). */
-const allText = (s: State) => read(s).split(" | ").map((x) => x.slice(x.indexOf(":") + 1)).join("");
+const allText = (s: Document) => read(s).split(" | ").map((x) => x.slice(x.indexOf(":") + 1)).join("");
 
 function alloc(prefix: string): IdAllocator {
   return createTestAllocator(prefix);

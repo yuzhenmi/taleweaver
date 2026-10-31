@@ -43,10 +43,10 @@ export function insertHeaderFooter(editor: EditorState, region: TemplateRegion):
   // region, place the caret in its FIRST paragraph child (the editable line)
   // and return. The link points at the CONTAINER root; resolve its
   // `firstChildId` to find the editable paragraph.
-  const section = getBlock(editor.state, sectionBlockId);
+  const section = getBlock(editor.document, sectionBlockId);
   const existingId = section?.attrs[attrKey];
   if (typeof existingId === "string") {
-    const existingBody = getTemplateContent(editor.state, existingId as BlockId);
+    const existingBody = getTemplateContent(editor.document, existingId as BlockId);
     if (existingBody !== null) {
       // Caret into the first paragraph child; fall back to the container root
       // only if (unexpectedly) it has no child.
@@ -59,7 +59,7 @@ export function insertHeaderFooter(editor: EditorState, region: TemplateRegion):
 
   // Create + link a fresh body (container + paragraph child), atomically.
   const result = insertTemplateBody(
-    editor.state,
+    editor.document,
     { region, sectionBlockId },
     productionAllocator,
   );

@@ -99,7 +99,7 @@ function makeEditor(cursorBlock: BlockId): EditorState {
  */
 function materialize(editor: EditorState): LayoutBox {
   const rendered = render(
-    editor.state,
+    editor.document,
     config.componentRegistry,
     config.attrRegistry,
   );
@@ -186,7 +186,7 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
 
     // Boundary p3 is a leaf, so firstLeaf(p3) === p3.
     const boundary = "p3" as BlockId;
-    expect(firstLeafBlock(before.state, boundary)).toBe("p3");
+    expect(firstLeafBlock(before.document, boundary)).toBe("p3");
 
     const beforeLayout = materialize(before);
     const beforeGeom = paraGeometry(beforeLayout);
@@ -209,13 +209,13 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
     const after = reduceEditor(before, { type: "SECTION_BREAK" });
 
     // A real break produced a new state reference.
-    expect(after.state).not.toBe(before.state);
+    expect(after.document).not.toBe(before.document);
 
     // Root now has exactly two `section` children.
-    const sectionIds = rootChildIds(after.state);
+    const sectionIds = rootChildIds(after.document);
     expect(sectionIds).toHaveLength(2);
     for (const id of sectionIds) {
-      expect(getBlock(after.state, id)?.type).toBe("section");
+      expect(getBlock(after.document, id)?.type).toBe("section");
     }
     const secA = nth(sectionIds, 0, "section");
     const secB = nth(sectionIds, 1, "section");
@@ -243,7 +243,7 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
 
     // ----- 2. CURSOR collapses to { firstLeaf(boundary)=p3, 0 } -----
     const expectedCursor = {
-      blockId: firstLeafBlock(after.state, boundary) ?? boundary,
+      blockId: firstLeafBlock(after.document, boundary) ?? boundary,
       offset: 0,
     };
     expect(expectedCursor).toEqual({ blockId: "p3" as BlockId, offset: 0 });
@@ -254,8 +254,8 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
     const undone = reduceEditor(after, { type: "UNDO" });
 
     // One (final) section again, holding the original paragraphs.
-    expect(rootChildIds(undone.state)).toHaveLength(1);
-    const undoneRootChildren = topLevelBlockIds(undone.state);
+    expect(rootChildIds(undone.document)).toHaveLength(1);
+    const undoneRootChildren = topLevelBlockIds(undone.document);
     expect(undoneRootChildren).toEqual([
       "p1" as BlockId,
       "p2" as BlockId,
@@ -263,8 +263,8 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
       "p4" as BlockId,
     ]);
     for (const id of undoneRootChildren) {
-      expect(getBlock(undone.state, id)?.type).not.toBe("section");
-      expect(getBlock(undone.state, id)?.type).toBe("paragraph");
+      expect(getBlock(undone.document, id)?.type).not.toBe("section");
+      expect(getBlock(undone.document, id)?.type).toBe("paragraph");
     }
     // The section blocks are gone from the doc-root chain.
     expect(undoneRootChildren).not.toContain(secA);
@@ -283,14 +283,14 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
     // ----- 4. REDO: sections back, cursor at the new section start -----
     const redone = reduceEditor(undone, { type: "REDO" });
 
-    const redoneRootChildren = rootChildIds(redone.state);
+    const redoneRootChildren = rootChildIds(redone.document);
     expect(redoneRootChildren).toHaveLength(2);
     for (const id of redoneRootChildren) {
-      expect(getBlock(redone.state, id)?.type).toBe("section");
+      expect(getBlock(redone.document, id)?.type).toBe("section");
     }
     // Cursor back at { firstLeaf(p3)=p3, 0 }.
     const redoneCursor = {
-      blockId: firstLeafBlock(redone.state, boundary) ?? boundary,
+      blockId: firstLeafBlock(redone.document, boundary) ?? boundary,
       offset: 0,
     };
     expect(redoneCursor).toEqual({ blockId: "p3" as BlockId, offset: 0 });

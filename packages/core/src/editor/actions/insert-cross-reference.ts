@@ -63,12 +63,12 @@ export function handleInsertCrossReference(
 
   // Body-text-only: refuse a cross-reference inside a footnote / header / footer
   // body (a non-root context), matching the main-tree host index.
-  if (selectionContextOf(editor.state, focus.blockId) !== editor.state.rootId) {
+  if (selectionContextOf(editor.document, focus.blockId) !== editor.document.rootId) {
     return null;
   }
 
   // Structural target validation (the op trusts targetId; we gate it here).
-  const target = getBlock(editor.state, targetId);
+  const target = getBlock(editor.document, targetId);
   if (target === null) return null; // dangling / non-main-tree target
   if (refMode === "number") {
     // A number ref needs an ORDERED list-item — an unordered (bulleted) item has
@@ -78,7 +78,7 @@ export function handleInsertCrossReference(
     const listIdRaw = target.attrs["listId"];
     const def =
       typeof listIdRaw === "string"
-        ? getListDefsForState(editor.state).get(listIdRaw)
+        ? getListDefsForState(editor.document).get(listIdRaw)
         : undefined;
     if (def === undefined || classifyListDef(def) !== "ordered") return null;
   }
@@ -97,7 +97,7 @@ export function handleInsertCrossReference(
   // happened to span the target block and the delete merged it away, the ref is
   // now dangling — a documented LEGAL state that renders as broken-ref (see the
   // cross-references section of state-of-branch.md), not a bug.
-  const prep = prepareEmbedInsertPoint(editor.state, editor.selection);
+  const prep = prepareEmbedInsertPoint(editor.document, editor.selection);
   if (!prep.ok) return null;
 
   const result = insertCrossReference(

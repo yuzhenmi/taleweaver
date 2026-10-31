@@ -14,7 +14,7 @@
  * not rendered, not resolved, dropped on copy. A bookmark whose start or end is
  * gone is BROKEN (the field renders Word's "Error! Reference source not found").
  */
-import type { State } from "./state";
+import type { Document } from "./state";
 import type { BlockId } from "./block-id";
 import type { Position } from "./block-position";
 import { createPosition } from "./block-position";
@@ -105,7 +105,7 @@ export function pairBookmarkMarkers(markers: Iterable<BookmarkMarker>): Bookmark
  * Every paired bookmark of the main tree (the duplicate-id rule above), in one pass
  * over the document's inline content. O(document).
  */
-export function collectBookmarks(state: State): Map<string, BookmarkRange> {
+export function collectBookmarks(state: Document): Map<string, BookmarkRange> {
   const byId = new Map<string, BookmarkMarker[]>();
   for (const block of iterateBlocksInDocumentOrder(state)) {
     if (block.inlineContent === null) continue;

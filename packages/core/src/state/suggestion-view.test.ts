@@ -20,7 +20,7 @@ import {
 import { boundaryMergesInView } from "./break-suggestions";
 import { markParagraphMarkDeletion } from "./ops/merge-blocks";
 import { splitWithSuggestion } from "./ops/split-block";
-import { getBlock, type State } from "./state";
+import { getBlock, type Document } from "./state";
 import { createPosition } from "./block-position";
 import { createTestAllocator, type BlockId } from "./block-id";
 import { text, embed, buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
@@ -85,7 +85,7 @@ describe("itemVisibleInView (slice 5c-i projection foundation)", () => {
 describe("boundaryMergesInView (paragraph-boundary merge predicate over break tags)", () => {
   const INPUT = { id: ID, author: "alice", createdAt: 1 };
   /** doc > [ p1("a"), p2("b") ] — re-seeded per call (ops mutate the shared Y.Doc). */
-  function twoBlocks(): State {
+  function twoBlocks(): Document {
     return buildState({
       rootId: "doc",
       blocks: [
@@ -95,15 +95,15 @@ describe("boundaryMergesInView (paragraph-boundary merge predicate over break ta
       ],
     });
   }
-  function merges(s: State, left: string, right: string, view: "suggesting" | "final" | "original"): boolean {
+  function merges(s: Document, left: string, right: string, view: "suggesting" | "final" | "original"): boolean {
     const l = getBlock(s, left as BlockId);
     const r = getBlock(s, right as BlockId);
     if (l === null || r === null) throw new Error("expected both blocks");
     return boundaryMergesInView(s, l, r, view);
   }
-  const joined = (): State => markParagraphMarkDeletion(twoBlocks(), "p1" as BlockId, INPUT).state;
+  const joined = (): Document => markParagraphMarkDeletion(twoBlocks(), "p1" as BlockId, INPUT).state;
   // A split: the NEW head H carries the inserted ¶; p1 keeps the tail.
-  const split = (): { s: State; head: BlockId } => {
+  const split = (): { s: Document; head: BlockId } => {
     const r = splitWithSuggestion(twoBlocks(), createPosition("p1" as BlockId, 1), createTestAllocator("n"), INPUT);
     return { s: r.state, head: r.newBlockId };
   };

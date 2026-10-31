@@ -5,7 +5,7 @@ import { createHistory } from "../history";
 import { createPosition, createSpan } from "../block-position";
 import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
 import type { BlockId } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { Block } from "../block";
 
 /** One 1×1 cell: a `table-cell` + its empty paragraph. */
@@ -25,7 +25,7 @@ function cell(id: string, rowId: string, prev: string | null, next: string | nul
 }
 
 /** doc > table with `rowCount` 1×1 rows (single column). Rows are r0..r{n-1}. */
-function plainTable(rowCount: number): State {
+function plainTable(rowCount: number): Document {
   const blocks: Block[] = [
     buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
     buildBlock({
@@ -58,7 +58,7 @@ function plainTable(rowCount: number): State {
  * doc > table: row0=[A], row1=[B(rowSpan 2)] covering row2, row3=[D]. A boundary
  * at count=2 would straddle B (origin row 1, spans rows 1–2) → clamps to 1.
  */
-function spanTable(): State {
+function spanTable(): Document {
   const blocks: Block[] = [
     buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
     buildBlock({ id: "table", type: "table", parentId: "doc", attrs: { columnWidths: [1] }, firstChildId: "r0", lastChildId: "r3" }),
@@ -75,13 +75,13 @@ function spanTable(): State {
   return buildState({ rootId: "doc", blocks });
 }
 
-function headerRowCountOf(state: State): unknown {
+function headerRowCountOf(state: Document): unknown {
   return getBlock(state, "table" as BlockId)?.attrs.headerRowCount;
 }
 
 describe("setTableHeaderRows", () => {
   it("writes headerRowCount clamped to [0, rowCount]", () => {
-    // A fresh table per call (all States of one fixture share its Y.Doc).
+    // A fresh table per call (all Documents of one fixture share its Y.Doc).
     const state = plainTable(3);
     const two = setTableHeaderRows(state, "table" as BlockId, 2).state;
     expect(two).not.toBe(state);

@@ -162,7 +162,7 @@ function tocEntryCenter(
  * (exactly what the driver does) to read page 0's materialized TOC-entry boxes.
  */
 function getPage0(editor: core.EditorState, config: core.EditorConfig): printPkg.LayoutBox {
-  const rendered = core.render(editor.state, config.componentRegistry, config.attrRegistry);
+  const rendered = core.render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = core.cascadePass(rendered.root);
   const lt = printPkg.layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
   if (lt.type === "virtual-root") return lt.getPage(0);

@@ -6,26 +6,26 @@
  */
 import { describe, it, expect } from "vitest";
 import { mergeAdjacentBlocks } from "./merge-blocks";
-import { getBlock, getEmbedContent, type State } from "../state";
+import { getBlock, getEmbedContent, type Document } from "../state";
 import type { Block } from "../block";
 import { buildBlock, buildState, text, embed, inlineContent } from "../../test-utils/state-builders";
 import { flowShape, assertInvariantI } from "../../test-utils/invariant-i";
 import type { BlockId } from "../block-id";
 
 const id = (s: string) => s as BlockId;
-function doc(blocks: Block[], embedContents?: Block[]): State {
+function doc(blocks: Block[], embedContents?: Block[]): Document {
   const ids = blocks.map((b) => b.id);
   const linked = blocks.map((b, i) => ({ ...b, parentId: id("doc"), prevSiblingId: ids[i - 1] ?? null, nextSiblingId: ids[i + 1] ?? null }));
   return buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document", firstChildId: ids[0] ?? null, lastChildId: ids[ids.length - 1] ?? null }), ...linked], embedContents });
 }
 const para = (pid: string, items: Parameters<typeof inlineContent>[0], more: Partial<Parameters<typeof buildBlock>[0]> = {}) =>
   buildBlock({ id: pid, type: "paragraph", ...more, inlineContent: inlineContent(items) });
-const fin = (s: State): BlockId => {
+const fin = (s: Document): BlockId => {
   const f = getBlock(s, id("doc"))?.lastChildId;
   if (f === null || f === undefined) throw new Error("no final section");
   return f;
 };
-const items = (s: State, b: string) => getBlock(s, id(b))?.inlineContent?.items;
+const items = (s: Document, b: string) => getBlock(s, id(b))?.inlineContent?.items;
 
 describe("mergeAdjacentBlocks — the survivor is R", () => {
   it("deletes ¶L: R holds L's content then its own; links + dirty ids", () => {

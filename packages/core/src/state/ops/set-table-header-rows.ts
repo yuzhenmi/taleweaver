@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -38,7 +38,7 @@ export interface SetTableHeaderRowsPlan {
  * body is out of scope (mirrors the other table ops).
  */
 export function setTableHeaderRows(
-  state: State,
+  state: Document,
   tableId: BlockId,
   count: number,
 ): OperationResult {
@@ -55,7 +55,7 @@ export function setTableHeaderRows(
  * (the clean-cut invariant).
  */
 export function planSetTableHeaderRows(
-  state: State,
+  state: Document,
   tableId: BlockId,
   count: number,
 ): SetTableHeaderRowsPlan {

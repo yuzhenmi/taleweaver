@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -47,7 +47,7 @@ export interface InsertTableRowPlan {
  * first/last-child or a row's sibling pointer changes) plus every new block.
  */
 export function insertTableRow(
-  state: State,
+  state: Document,
   ctx: TableContext,
   position: RowPosition,
   allocator: IdAllocator,
@@ -64,7 +64,7 @@ export function insertTableRow(
  *  compute the `headerRowCount` adjustment. Throws when the caret row has
  *  no cells (degenerate). */
 export function planInsertTableRow(
-  state: State,
+  state: Document,
   ctx: TableContext,
   position: RowPosition,
   allocator: IdAllocator,

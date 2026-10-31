@@ -17,7 +17,7 @@ import { chainDepth } from "./snapshot";
 import { getMetaMap, allTreeBlockCount } from "./yjs-doc";
 import { insertChildren, writeBlockType } from "./flow-ops";
 import type { BlockId } from "./block-id";
-import type { State } from "./state";
+import type { Document } from "./state";
 import { TEST_RESOLVER, buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
 import { insertText } from "./ops/insert-text";
 import { applyAttrsToRange } from "./ops/apply-attrs";
@@ -27,7 +27,7 @@ import { createPosition, createSpan } from "./block-position";
 import { STATE_INTERNAL } from "./state-internal";
 
 /** A document `root` with one empty paragraph per id. */
-function docWith(ids: readonly string[]): State {
+function docWith(ids: readonly string[]): Document {
   return buildState({
     rootId: "root",
     blocks: [
@@ -47,12 +47,12 @@ function docWith(ids: readonly string[]): State {
 }
 
 /** Retype block `id` in one operation. */
-function retype(state: State, id: string, type: string) {
+function retype(state: Document, id: string, type: string) {
   return applyOperation(state, (doc) => writeBlockType(doc, id, type));
 }
 
 describe("state", () => {
-  it("createState produces a State with a Y.Doc-backed root", () => {
+  it("createState produces a Document with a Y.Doc-backed root", () => {
     const state = createState({ resolver: TEST_RESOLVER, rootId: "root" as BlockId });
     expect(state.rootId).toBe("root");
   });
@@ -85,14 +85,14 @@ describe("applyOperation", () => {
     expect(getBlock(result.state, "p1" as BlockId)).not.toBeNull();
   });
 
-  it("produces a State with a fresh SnapshotCache (snapshots reflect post-mutation state)", () => {
+  it("produces a Document with a fresh SnapshotCache (snapshots reflect post-mutation state)", () => {
     const state = docWith(["p1"]);
     getBlock(state, "p1" as BlockId);
     const result = retype(state, "p1", "heading");
     expect(getBlock(result.state, "p1" as BlockId)?.type).toBe("heading");
   });
 
-  it("freshStateFromDoc returns a State referencing the same Y.Doc with a clean cache", () => {
+  it("freshStateFromDoc returns a Document referencing the same Y.Doc with a clean cache", () => {
     const state = createState({ resolver: TEST_RESOLVER, rootId: "root" as BlockId });
     const next = freshStateFromDoc(state);
     expect(next[STATE_INTERNAL].doc).toBe(state[STATE_INTERNAL].doc);
@@ -462,7 +462,7 @@ describe("getTemplateContentIds", () => {
 });
 
 describe("resolveBlock", () => {
-  function threeTreeState(): State {
+  function threeTreeState(): Document {
     return buildState({
       rootId: "root",
       blocks: [

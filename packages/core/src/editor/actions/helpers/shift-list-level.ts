@@ -27,7 +27,7 @@ export const MAX_LIST_LEVEL = 8;
 export function shiftListLevel(editor: EditorState, delta: 1 | -1): Edit | null {
   const targetIds = targetListItemIds(editor);
 
-  let state: State = editor.state;
+  let state: State = editor.document;
   const dirtyIds = new Set<BlockId>();
   for (const blockId of targetIds) {
     const block = getBlock(state, blockId);
@@ -48,7 +48,7 @@ export function shiftListLevel(editor: EditorState, delta: 1 | -1): Edit | null 
     for (const id of result.dirtyIds) dirtyIds.add(id);
   }
 
-  return state === editor.state ? null : { change: { state, dirtyIds } };
+  return state === editor.document ? null : { change: { state, dirtyIds } };
 }
 
 /**
@@ -57,7 +57,7 @@ export function shiftListLevel(editor: EditorState, delta: 1 | -1): Edit | null 
  *  - range selection → every list-item the span covers.
  */
 function targetListItemIds(editor: EditorState): BlockId[] {
-  const { state, selection } = editor;
+  const { document: state, selection } = editor;
 
   if (positionsEqual(selection.anchor, selection.focus)) {
     const focus = getBlock(state, selection.focus.blockId);

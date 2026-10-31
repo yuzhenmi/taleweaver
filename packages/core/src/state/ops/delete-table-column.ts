@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -43,7 +43,7 @@ export interface DeleteTableColumnPlan {
  * MAIN-TREE ONLY. dirtyIds covers the table (its `columnWidths` attr write and/or
  * a row's child-list change) plus every touched row + removed cell subtree.
  */
-export function deleteTableColumn(state: State, ctx: TableContext): OperationResult {
+export function deleteTableColumn(state: Document, ctx: TableContext): OperationResult {
   const plan = planDeleteTableColumn(state, ctx);
   return applyOperation(state, (doc) => {
     deleteTableColumnInTx(doc, plan);
@@ -52,7 +52,7 @@ export function deleteTableColumn(state: State, ctx: TableContext): OperationRes
 
 /** Build the plan: one `planRemoveBlock` per row for the caret-column cell, plus
  *  the re-removed `columnWidths` attrs bag when present. */
-export function planDeleteTableColumn(state: State, ctx: TableContext): DeleteTableColumnPlan {
+export function planDeleteTableColumn(state: Document, ctx: TableContext): DeleteTableColumnPlan {
   const colIndex = ctx.colIndex;
   const caretRowCells = ctx.cellIdsByRow[ctx.rowIndex];
   if (caretRowCells === undefined) {

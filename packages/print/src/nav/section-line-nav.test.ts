@@ -47,26 +47,26 @@ function buildPasted(pageConfig: PageConfig, n: number): NavCtx {
 
 /** Direct children of the document root, in order. */
 function rootChildIds(ctx: NavCtx): BlockId[] {
-  const root = getBlock(ctx.editor.state, ctx.editor.state.rootId);
+  const root = getBlock(ctx.editor.document, ctx.editor.document.rootId);
   if (root === null || root.firstChildId === null) return [];
   const ids: BlockId[] = [];
   let id: BlockId | null = root.firstChildId;
   while (id !== null) {
     ids.push(id);
-    id = getBlock(ctx.editor.state, id)?.nextSiblingId ?? null;
+    id = getBlock(ctx.editor.document, id)?.nextSiblingId ?? null;
   }
   return ids;
 }
 
 /** Children of a block, in order. */
 function childIds(ctx: NavCtx, parent: BlockId): BlockId[] {
-  const block = getBlock(ctx.editor.state, parent);
+  const block = getBlock(ctx.editor.document, parent);
   if (block === null || block.firstChildId === null) return [];
   const ids: BlockId[] = [];
   let id: BlockId | null = block.firstChildId;
   while (id !== null) {
     ids.push(id);
-    id = getBlock(ctx.editor.state, id)?.nextSiblingId ?? null;
+    id = getBlock(ctx.editor.document, id)?.nextSiblingId ?? null;
   }
   return ids;
 }

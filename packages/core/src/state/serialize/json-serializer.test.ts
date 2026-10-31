@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { BlockId } from "../block-id";
 import { createTestAllocator } from "../block-id";
 import type { Block } from "../block";
-import type { State } from "../state";
+import type { Document } from "../state";
 import { createState, getBlock, getEmbedContent, getTemplateContent } from "../state";
 import * as Y from "yjs";
 import { STATE_INTERNAL } from "../state-internal";
@@ -74,7 +74,7 @@ function makeSerializer() {
  * Compare two states for document-model identity across all three block trees
  * plus the side-tables. ids/types/attrs/inlineContent must match exactly.
  */
-function assertSameDocument(a: State, b: State): void {
+function assertSameDocument(a: Document, b: Document): void {
   expect(b.rootId).toBe(a.rootId);
 
   const aBlocks = collectTreeBlocks(a, getBlock);
@@ -83,8 +83,8 @@ function assertSameDocument(a: State, b: State): void {
 }
 
 function collectTreeBlocks(
-  state: State,
-  read: (s: State, id: BlockId) => Block | null,
+  state: Document,
+  read: (s: Document, id: BlockId) => Block | null,
 ): Map<string, Block> {
   const out = new Map<string, Block>();
   for (const block of iterateBlocksInDocumentOrder(state)) {
@@ -107,12 +107,12 @@ function assertSameBlockSet(a: Map<string, Block>, b: Map<string, Block>): void 
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Shared non-trivial fixture builder. Returns a State with: nested containers,
+// Shared non-trivial fixture builder. Returns a Document with: nested containers,
 // inline-bearing leaves with marks, an atomic-leaf, an empty paragraph ADJACENT
 // to an empty container, a multi-level embed body, a list+listDef, a comment
 // (range from markers), a suggestion, and a nested-object attr.
 // ─────────────────────────────────────────────────────────────────────────
-function buildRichState(): State {
+function buildRichState(): Document {
   const listDef: ListDef = {
     levels: [{ style: "decimal", start: 1, restart: "never" }],
   };

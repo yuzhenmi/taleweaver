@@ -5,7 +5,7 @@ import { resolveTableContext, getChildIds, buildTableGrid } from "../table-conte
 import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
 import { createTestAllocator } from "../block-id";
 import type { BlockId } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { Block } from "../block";
 import type { RowPosition } from "./insert-table-row";
 
@@ -23,7 +23,7 @@ function cell(id: string, rowId: string, attrs: Record<string, unknown> | undefi
 }
 
 /** row0=[A(rowSpan 2), B], row1=[C]. occupancy [[A,B],[A,C]] (A carries into row1 col0). */
-function buildRowSpanTable(): State {
+function buildRowSpanTable(): Document {
   const blocks: Block[] = [
     buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
     buildBlock({ id: "table", type: "table", parentId: "doc", firstChildId: "r0", lastChildId: "r1" }),
@@ -36,13 +36,13 @@ function buildRowSpanTable(): State {
   return buildState({ rootId: "doc", blocks });
 }
 
-function ctxAt(state: State, blockId: string) {
+function ctxAt(state: Document, blockId: string) {
   const ctx = resolveTableContext(state, blockId as BlockId);
   if (ctx === null) throw new Error("expected table context");
   return ctx;
 }
 
-const run = (state: State, caretBlock: string, pos: RowPosition) =>
+const run = (state: Document, caretBlock: string, pos: RowPosition) =>
   insertTableRowSpanAware(state, ctxAt(state, caretBlock), pos, createTestAllocator("nr"));
 
 describe("insertTableRowSpanAware", () => {
@@ -136,7 +136,7 @@ describe("insertTableRowSpanAware", () => {
     // 4-row, 2-col table with a BODY span (E rowSpan 2 over rows 2–3) so
     // headerRowCount=2 (rows 0–1) is clean-cut valid. row0=[A,B] row1=[C,D]
     // row2=[E(rowSpan2),F] row3=[G]. occupancy [[A,B],[C,D],[E,F],[E,G]].
-    const fourRowBodySpan = (): State => {
+    const fourRowBodySpan = (): Document => {
       const blocks: Block[] = [
         buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
         buildBlock({ id: "table", type: "table", parentId: "doc", attrs: { headerRowCount: 2 }, firstChildId: "r0", lastChildId: "r3" }),
@@ -154,7 +154,7 @@ describe("insertTableRowSpanAware", () => {
       ];
       return buildState({ rootId: "doc", blocks });
     };
-    const hrc = (s: State) => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
+    const hrc = (s: Document) => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
     // Insert INSIDE the header (above row 1, gr=1 < count=2) → 3.
     expect(hrc(run(fourRowBodySpan(), "Dp", "above").state)).toBe(3);
     // Insert AT the boundary (below row 1, gr=2 === count) → body row, unchanged (2).

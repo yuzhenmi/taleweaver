@@ -54,12 +54,12 @@ function objectDoc(): ObjectDoc {
   const paraId = firstBlockId(ctx);
   ctx = dispatch(ctx, { type: "INSERT_IMAGE", src: "img.png" });
 
-  const { imageId, trailingId } = locateImageAndTrailing(ctx.editor.state, paraId);
+  const { imageId, trailingId } = locateImageAndTrailing(ctx.editor.document, paraId);
 
   // Select the image as an object (collapsed caret at offset 0 of the image).
   const objSel = createSpan(createPosition(imageId, 0), createPosition(imageId, 0));
   ctx = dispatch(ctx, { type: "SET_SELECTION", selection: objSel });
-  expect(isObjectSelection(ctx.editor.state, ctx.editor.selection, ctx.componentRegistry)).toBe(
+  expect(isObjectSelection(ctx.editor.document, ctx.editor.selection, ctx.componentRegistry)).toBe(
     imageId,
   );
   return { ctx, paraId, imageId, trailingId };
@@ -94,35 +94,35 @@ describe("arrow / escape nav off an object selection (#525 Task 8)", () => {
     const { ctx, imageId, trailingId } = objectDoc();
     const next = nav(ctx, { type: "MOVE_CURSOR", direction: "forward" });
     expectCaretAt(next, trailingId, 0);
-    expect(getBlock(next.editor.state, imageId)?.type).toBe("image");
+    expect(getBlock(next.editor.document, imageId)?.type).toBe("image");
   });
 
   it("MOVE_CURSOR backward (ArrowLeft) → caret BEFORE the image (end of preceding block)", () => {
     const { ctx, paraId, imageId } = objectDoc();
     const next = nav(ctx, { type: "MOVE_CURSOR", direction: "backward" });
     expectCaretAt(next, paraId, ABOVE.length);
-    expect(getBlock(next.editor.state, imageId)?.type).toBe("image");
+    expect(getBlock(next.editor.document, imageId)?.type).toBe("image");
   });
 
   it("MOVE_LINE down (ArrowDown) → caret AFTER the image", () => {
     const { ctx, imageId, trailingId } = objectDoc();
     const next = nav(ctx, { type: "MOVE_LINE", direction: "down" });
     expectCaretAt(next, trailingId, 0);
-    expect(getBlock(next.editor.state, imageId)?.type).toBe("image");
+    expect(getBlock(next.editor.document, imageId)?.type).toBe("image");
   });
 
   it("MOVE_LINE up (ArrowUp) → caret BEFORE the image", () => {
     const { ctx, paraId, imageId } = objectDoc();
     const next = nav(ctx, { type: "MOVE_LINE", direction: "up" });
     expectCaretAt(next, paraId, ABOVE.length);
-    expect(getBlock(next.editor.state, imageId)?.type).toBe("image");
+    expect(getBlock(next.editor.document, imageId)?.type).toBe("image");
   });
 
   it("ESCAPE → caret AFTER the image (Google Docs); image intact", () => {
     const { ctx, imageId, trailingId } = objectDoc();
     const next = dispatch(ctx, { type: "ESCAPE" });
     expectCaretAt(next, trailingId, 0);
-    expect(getBlock(next.editor.state, imageId)?.type).toBe("image");
+    expect(getBlock(next.editor.document, imageId)?.type).toBe("image");
   });
 
   it("Shift+Arrow (EXPAND_*) from an object selection does not crash; image intact", () => {
@@ -134,8 +134,8 @@ describe("arrow / escape nav off an object selection (#525 Task 8)", () => {
     expect(() => nav(ctx, { type: "EXPAND_LINE", direction: "down" })).not.toThrow();
     const afterSelect = nav(ctx, { type: "EXPAND_SELECTION", direction: "forward" });
     const afterLine = nav(ctx, { type: "EXPAND_LINE", direction: "down" });
-    expect(getBlock(afterSelect.editor.state, imageId)?.type).toBe("image");
-    expect(getBlock(afterLine.editor.state, imageId)?.type).toBe("image");
+    expect(getBlock(afterSelect.editor.document, imageId)?.type).toBe("image");
+    expect(getBlock(afterLine.editor.document, imageId)?.type).toBe("image");
   });
 
   it("REGRESSION: a plain text caret (not an object selection) still navigates normally", () => {
@@ -148,6 +148,6 @@ describe("arrow / escape nav off an object selection (#525 Task 8)", () => {
     });
     const next = nav(seated, { type: "MOVE_CURSOR", direction: "forward" });
     expectCaretAt(next, paraId, 1);
-    expect(getBlock(next.editor.state, imageId)?.type).toBe("image");
+    expect(getBlock(next.editor.document, imageId)?.type).toBe("image");
   });
 });

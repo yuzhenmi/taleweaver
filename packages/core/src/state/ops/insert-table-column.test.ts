@@ -5,7 +5,7 @@ import { resolveTableContext, getChildIds } from "../table-context";
 import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
 import { createTestAllocator } from "../block-id";
 import type { BlockId } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { Block } from "../block";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -18,7 +18,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
  * A 2×2 table (doc > table > 2 rows > 2 cells each > paragraph). `columnWidths`
  * is supplied via `tableAttrs` so tests can exercise the present/absent paths.
  */
-function build2x2(tableAttrs: Record<string, unknown>): State {
+function build2x2(tableAttrs: Record<string, unknown>): Document {
   const blocks: Block[] = [
     buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
     buildBlock({ id: "table", type: "table", attrs: tableAttrs, parentId: "doc", firstChildId: "r0", lastChildId: "r1" }),
@@ -37,7 +37,7 @@ function build2x2(tableAttrs: Record<string, unknown>): State {
 }
 
 /** Resolve a context with the caret in the given cell's paragraph. */
-function ctxAt(state: State, cellParagraphId: string) {
+function ctxAt(state: Document, cellParagraphId: string) {
   const ctx = resolveTableContext(state, cellParagraphId as BlockId);
   if (ctx === null) throw new Error("expected a table context");
   return ctx;

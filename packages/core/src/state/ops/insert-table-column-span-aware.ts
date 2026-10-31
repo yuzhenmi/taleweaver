@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -50,7 +50,7 @@ export interface InsertTableColumnSpanAwarePlan {
  * can't be built. MAIN-TREE ONLY.
  */
 export function insertTableColumnSpanAware(
-  state: State,
+  state: Document,
   ctx: TableContext,
   position: ColumnPosition,
   allocator: IdAllocator,
@@ -70,7 +70,7 @@ export function insertTableColumnSpanAware(
  * neighbour from another row is excluded), mirroring `split-cell`.
  */
 export function planInsertTableColumnSpanAware(
-  state: State,
+  state: Document,
   ctx: TableContext,
   position: ColumnPosition,
   allocator: IdAllocator,

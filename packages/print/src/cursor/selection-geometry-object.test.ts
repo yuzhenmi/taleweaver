@@ -222,7 +222,7 @@ function objectAction(kind: ObjectKind, rows = 1): EditorAction {
 function objectRangeDoc(kind: ObjectKind, opts: MakeNavEditorOptions = {}, rows = 1) {
   let ctx = typeText(makeNavEditor(opts), "abcd");
   ctx = dispatch(ctx, objectAction(kind, rows));
-  const st = ctx.editor.state;
+  const st = ctx.editor.document;
   const section = getBlock(st, firstBlockId(ctx))?.parentId ?? null;
   const ids: BlockId[] = [];
   for (let id = section === null ? null : getBlock(st, section)?.firstChildId ?? null; id !== null; id = getBlock(st, id)?.nextSiblingId ?? null) {
@@ -242,12 +242,12 @@ function positioned(ctx: NavCtx): LayoutBox {
 }
 
 function rangeRects(ctx: NavCtx, anchor: Position, focus: Position): SelectionRect[] {
-  return computeSelectionRects(ctx.editor.state, createSpan(anchor, focus), positioned(ctx), ctx.measurer);
+  return computeSelectionRects(ctx.editor.document, createSpan(anchor, focus), positioned(ctx), ctx.measurer);
 }
 
 /** The object's box fragments on `tree` (the highlight a covered object paints). */
 function boxesOf(ctx: NavCtx, tree: LayoutBox, id: BlockId): SelectionRect[] {
-  return getObjectBoxes(tree, ctx.editor.state).filter((b) => b.blockId === id).map((b) => ({ ...b.rect }));
+  return getObjectBoxes(tree, ctx.editor.document).filter((b) => b.blockId === id).map((b) => ({ ...b.rect }));
 }
 
 // "bcd" + the ¶ extension (8px glyphs, 16px lines; "abcd" is the first line).
@@ -275,22 +275,22 @@ describe("range selections paint covered object blocks whole", () => {
 
   it("a drag from text into a table cell paints the whole table (core lifts the endpoint)", () => {
     const { ctx, text, object } = objectRangeDoc("table");
-    const cell = firstLeafBlock(ctx.editor.state, object);
+    const cell = firstLeafBlock(ctx.editor.document, object);
     if (cell === null) throw new Error("expected a cell paragraph");
     const dragged = setSelection(ctx, createSpan(createPosition(text, 1), createPosition(cell, 0)));
     expect(dragged.editor.selection.focus).toEqual(createPosition(object, 0));
     const tree = positioned(dragged);
-    expect(computeSelectionRects(dragged.editor.state, dragged.editor.selection, tree, dragged.measurer))
+    expect(computeSelectionRects(dragged.editor.document, dragged.editor.selection, tree, dragged.measurer))
       .toEqual([BCD, ...boxesOf(dragged, tree, object)]);
   });
 
   it("a range inside one table's cells does not highlight the table", () => {
     let { ctx, object } = objectRangeDoc("table");
-    const cell = firstLeafBlock(ctx.editor.state, object);
+    const cell = firstLeafBlock(ctx.editor.document, object);
     if (cell === null) throw new Error("expected a cell paragraph");
     ctx = typeText(caretAt(ctx, cell, 0), "xy");
     const tree = positioned(ctx);
-    const rects = computeSelectionRects(ctx.editor.state, createSpan(createPosition(cell, 0), createPosition(cell, 2)), tree, ctx.measurer);
+    const rects = computeSelectionRects(ctx.editor.document, createSpan(createPosition(cell, 0), createPosition(cell, 2)), tree, ctx.measurer);
     expect(rects).toHaveLength(1);
     expect(rects[0]?.width).toBe(16);
   });
@@ -303,7 +303,7 @@ describe("range selections paint covered object blocks whole", () => {
     if (tree.type !== "virtual-root") throw new Error("expected a paginated layout");
     const span = tree.plan.pageSpanOfBlock(object);
     if (span === null || span.first === span.last) throw new Error("expected the table to span pages");
-    const st = ctx.editor.state;
+    const st = ctx.editor.document;
     const fragments: SelectionRect[] = [];
     for (let i = span.first; i <= span.last; i++) fragments.push(...boxesOf(ctx, tree.getPage(i), object));
     expect(new Set(fragments.map((r) => r.pageIndex)).size).toBe(span.last - span.first + 1);

@@ -26,7 +26,7 @@ describe("state-builders (Y.Doc-backed)", () => {
     expect(b.inlineContent?.items.length).toBe(1);
   });
 
-  it("buildState creates a State queryable via getBlock", () => {
+  it("buildState creates a Document queryable via getBlock", () => {
     const state = buildState({
       rootId: "root",
       blocks: [

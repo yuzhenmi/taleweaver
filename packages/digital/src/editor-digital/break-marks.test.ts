@@ -76,7 +76,7 @@ function mount(state: State, onDecorationPointer?: (e: DecorationPointerEvent) =
     ...(onDecorationPointer !== undefined ? { onDecorationPointer } : {}),
   });
   // A standalone bridge over the same DOM, reading the controller's state (caret affinity).
-  const bridge = createDigitalSelectionBridge(container, window, undefined, () => controller.editorState.state);
+  const bridge = createDigitalSelectionBridge(container, window, undefined, () => controller.editorState.document);
   const el = (b: BlockId): HTMLElement => {
     const e = container.querySelector(`[data-block-id="${b}"]`);
     if (!(e instanceof HTMLElement)) throw new Error(`no element for ${b}`);
@@ -91,32 +91,32 @@ function mount(state: State, onDecorationPointer?: (e: DecorationPointerEvent) =
 /** "Anna" | "Rosa" with a pending join (alice's Backspace at the start of "Rosa"). */
 function joined(): { state: State; l: BlockId; r: BlockId } {
   const e0 = paras(["Anna", "Rosa"]);
-  const [l, r] = leaves(e0.state);
+  const [l, r] = leaves(e0.document);
   if (l === undefined || r === undefined) throw new Error("setup");
   const e = reduceEditor(reduceEditor({ ...e0, config: alice }, caret(r, 0)), { type: "DELETE_BACKWARD" });
-  return { state: e.state, l, r };
+  return { state: e.document, l, r };
 }
 
 /** "Ax" | "B"; alice's section break at (B, 0) — an empty paragraph H ends the first section (Word). */
 function sectioned(): { state: State; h: BlockId; b: BlockId } {
   const e0 = paras(["Ax", "B"]);
-  const [, b] = leaves(e0.state);
+  const [, b] = leaves(e0.document);
   if (b === undefined) throw new Error("setup");
   const e = reduceEditor(reduceEditor({ ...e0, config: alice }, caret(b, 0)), { type: "SECTION_BREAK" });
-  const [, h, b2] = leaves(e.state);
+  const [, h, b2] = leaves(e.document);
   if (h === undefined || b2 !== b) throw new Error("setup: expected Ax | H | B");
-  return { state: e.state, h, b };
+  return { state: e.document, h, b };
 }
 
 describe("digital boundary ¶ marks", () => {
   it("an empty block keeps its filler <br> with the mark present; the anchor precedes it after a re-render; the filler check ignores it", () => {
     const e0 = paras(["Hello"]);
-    const [h] = leaves(e0.state);
+    const [h] = leaves(e0.document);
     if (h === undefined) throw new Error("setup");
     const e = reduceEditor(reduceEditor({ ...e0, config: alice }, caret(h, 0)), { type: "SPLIT_NODE" }); // Enter at 0: the first block empties
-    const [n] = leaves(e.state);
+    const [n] = leaves(e.document);
     if (n === undefined) throw new Error("setup");
-    const { controller, el, bridge } = mount(e.state);
+    const { controller, el, bridge } = mount(e.document);
     const kids = (): string[] =>
       Array.from(el(n).childNodes).map((c) => (c instanceof HTMLElement ? (c.hasAttribute("data-tw-generated") ? "mark" : c.tagName) : "#text"));
     expect(kids()).toEqual(["mark", "BR"]);
@@ -266,7 +266,7 @@ describe("digital section-kind ¶", () => {
     if (text === null) throw new Error("no label text");
     expect(bridge.domToPosition(text, 0)).toEqual(createPosition(h, 0));
     // Rejecting the break removes the label with its paragraph's re-render.
-    const id = getSuggestions(controller.editorState.state)[0]?.id;
+    const id = getSuggestions(controller.editorState.document)[0]?.id;
     if (id === undefined) throw new Error("no suggestion");
     controller.dispatch({ type: "REJECT_SUGGESTION", id });
     expect(container.querySelector(".tw-break-mark")).toBeNull();
@@ -287,9 +287,9 @@ describe("digital selected ¶", () => {
 
   it("every ¶ the selection covers (start ≤ (P, len), end ≥ (N, 0)) gets an indicator after P's content; none for a collapsed or one-paragraph selection", () => {
     const e = paras(["Anna", "", "Rosa", "Bee"]);
-    const [a, empty, r, bee] = leaves(e.state);
+    const [a, empty, r, bee] = leaves(e.document);
     if (a === undefined || empty === undefined || r === undefined || bee === undefined) throw new Error("setup");
-    const { controller, el, selected, bridge } = mount(e.state);
+    const { controller, el, selected, bridge } = mount(e.document);
     controller.dispatch(select(a, 1, r, 0));
     expect(selected()).toEqual([`¶:${a}`, `¶:${empty}`]);
     // Generated, offsetless, after the content; in the empty paragraph before the filler.
@@ -328,13 +328,13 @@ describe("digital selected ¶", () => {
 
   it("incremental: extending a selection by one paragraph touches one ¶, however large the selection; a far click clears in O(selection)", () => {
     const e = paras(Array.from({ length: 60 }, (_, i) => `p${i}`));
-    const ids = leaves(e.state);
+    const ids = leaves(e.document);
     const at = (i: number): BlockId => {
       const id = ids[i];
       if (id === undefined) throw new Error("setup");
       return id;
     };
-    const { controller, selected } = mount(e.state);
+    const { controller, selected } = mount(e.document);
     expect(trace(() => controller.dispatch(select(at(0), 0, at(50), 0))).touched).toBe(50);
     expect(trace(() => controller.dispatch(select(at(0), 0, at(51), 0))).touched).toBe(1);
     expect(trace(() => controller.dispatch(select(at(0), 0, at(50), 1))).touched).toBe(1);
@@ -350,27 +350,27 @@ describe("digital selected ¶", () => {
 describe("digital caret affinity (markers are never caret stops)", () => {
   it("a DOM caret right before a bookmark's start marker maps to the position after it; typing there lands inside the bookmark", () => {
     const e0 = paras(["Title", ""]);
-    const [t, host] = leaves(e0.state);
+    const [t, host] = leaves(e0.document);
     if (t === undefined || host === undefined) throw new Error("setup");
     const e = reduceEditor(reduceEditor(e0, caret(host, 0)), { type: "INSERT_CROSS_REFERENCE", targetId: t, refMode: "text" });
     // [start] "Title" [end]
-    expect(getBlock(e.state, t)?.inlineContent?.items.map((i) => i.kind)).toEqual(["embed", "text", "embed"]);
-    const { controller, el, bridge } = mount(e.state);
+    expect(getBlock(e.document, t)?.inlineContent?.items.map((i) => i.kind)).toEqual(["embed", "text", "embed"]);
+    const { controller, el, bridge } = mount(e.document);
     expect(bridge.domToPosition(el(t), 0)).toEqual(createPosition(t, 1));
     window.getSelection()?.collapse(el(t), 0);
     document.dispatchEvent(new Event("selectionchange"));
     expect(controller.editorState.selection.focus).toEqual(createPosition(t, 1));
     controller.dispatch({ type: "INSERT_TEXT", text: "X" });
-    const items = getBlock(controller.editorState.state, t)?.inlineContent?.items ?? [];
+    const items = getBlock(controller.editorState.document, t)?.inlineContent?.items ?? [];
     expect(items.map((i) => (i.kind === "text" ? i.text : i.kind))).toEqual(["embed", "XTitle", "embed"]);
   });
 
   it("native arrows never dead-stop at a marker or a generated END anchor: the DOM caret is moved past them first", () => {
     const e0 = paras(["Title", "after"]);
-    const [t, host] = leaves(e0.state);
+    const [t, host] = leaves(e0.document);
     if (t === undefined || host === undefined) throw new Error("setup");
     const e = reduceEditor(reduceEditor(e0, caret(host, 0)), { type: "INSERT_CROSS_REFERENCE", targetId: t, refMode: "text" });
-    const { controller, el, bridge, container } = mount(e.state);
+    const { controller, el, bridge, container } = mount(e.document);
     const sel = window.getSelection();
     if (sel === null) throw new Error("selection");
     const key = (k: string, shiftKey = false): void => {

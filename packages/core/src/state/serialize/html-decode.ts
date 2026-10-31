@@ -1,10 +1,10 @@
 /**
- * `taleweaver-html` DECODE: HTML string → `State`, via an INJECTED
+ * `taleweaver-html` DECODE: HTML string → `Document`, via an INJECTED
  * {@link HtmlParser}. The parser turns the string into a DOM-free
  * {@link HtmlNode} body (a browser host adapts `DOMParser`, a server host adapts
  * parse5/jsdom) — core itself references NO DOM type. The walk maps supported
  * elements to declarative `BlockNode`s, then lowers the flat
- * block list to a `State` with `buildDocumentFromTree`.
+ * block list to a `Document` with `buildDocumentFromTree`.
  *
  * This decoder NEVER throws `MalformedDocumentError`: a
  * conforming `HtmlParser` is lenient, the empty-paragraph fallback covers
@@ -20,7 +20,7 @@ import type {
 } from "../build-document-from-tree";
 import { newListId } from "../block-id";
 import type { IdAllocator } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../state";
 import { classifyListDef } from "../list-defs";
 import type { ListDef } from "../list-defs";
 import { HARD_BREAK_EMBED_TYPE } from "../hard-break";
@@ -628,7 +628,7 @@ function decodeBlockElement(
 }
 
 /**
- * Decode an HTML string to a State. Never throws. The host injects
+ * Decode an HTML string to a Document. Never throws. The host injects
  * `parseHtml` (a DOM-free {@link HtmlParser}) — it parses `html` and returns the
  * BODY as an `HtmlNode`; the walk below references no DOM type.
  */
@@ -637,7 +637,7 @@ export function decodeHtml(
   allocator: IdAllocator,
   parseHtml: HtmlParser,
   resolver: BlockKindResolver,
-): State {
+): Document {
   const body = parseHtml(html);
   const acc: DecodeAccumulator = { blocks: [], listDefs: {} };
 

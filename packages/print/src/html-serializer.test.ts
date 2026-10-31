@@ -7,7 +7,7 @@
  *
  * Runs under `@taleweaver/print`'s jsdom test env so `browserHtmlParser`'s
  * `DOMParser` is present. Fixtures are built via the core barrel —
- * `buildDocumentFromTree` lowers a declarative `BlockNode` tree to a `State`.
+ * `buildDocumentFromTree` lowers a declarative `BlockNode` tree to a `Document`.
  *
  * Round-trip fidelity is SEMANTIC, not id-level: decode mints fresh block ids
  * (the binary serializer owns id-preserving interchange), so every assertion
@@ -91,7 +91,7 @@ function build(
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Semantic readers over a State (compare by content, never by id).
+// Semantic readers over a Document (compare by content, never by id).
 // ─────────────────────────────────────────────────────────────────────────
 
 interface SemBlock {

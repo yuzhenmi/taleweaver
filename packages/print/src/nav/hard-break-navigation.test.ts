@@ -69,7 +69,7 @@ function up(ctx: NavCtx): NavCtx {
 /** Rendered caret pixel position for the editor's current focus. */
 function caretPixel(ctx: NavCtx) {
   const r = resolvePixelPosition(
-    ctx.editor.state,
+    ctx.editor.document,
     ctx.editor.selection.focus,
     layoutOf(ctx),
     ctx.measurer,
@@ -200,7 +200,7 @@ describe("hard-break — hit-test lands on the clicked sub-line", () => {
     const x = startOfCD.x + CHAR_W; // between C and D
     const y = startOfCD.lineY + LINE_H / 2;
 
-    const hit = resolvePositionFromPixel(ctx.editor.state, lt, ctx.measurer, x, y);
+    const hit = resolvePositionFromPixel(ctx.editor.document, lt, ctx.measurer, x, y);
     expect(hit).not.toBeNull();
     expect(hit?.position.blockId).toBe(para);
     expect(hit?.position.offset).toBeGreaterThanOrEqual(3);
@@ -217,7 +217,7 @@ describe("hard-break — hit-test lands on the clicked sub-line", () => {
     const x = CHAR_W; // between A and B
     const y = endOfAB.lineY + LINE_H / 2;
 
-    const hit = resolvePositionFromPixel(ctx.editor.state, lt, ctx.measurer, x, y);
+    const hit = resolvePositionFromPixel(ctx.editor.document, lt, ctx.measurer, x, y);
     expect(hit?.position.blockId).toBe(para);
     expect(hit?.position.offset).toBeGreaterThanOrEqual(0);
     expect(hit?.position.offset).toBeLessThanOrEqual(2);
@@ -248,7 +248,7 @@ describe("hard-break — selection spans the break (EXPAND_SELECTION / EXPAND_LI
     expanded = nav(expanded, { type: "EXPAND_SELECTION", direction: "forward" });
     expect(expanded.editor.selection.anchor.offset).toBe(2);
     expect(expanded.editor.selection.focus.offset).toBe(4);
-    const block = getBlock(expanded.editor.state, para);
+    const block = getBlock(expanded.editor.document, para);
     expect(block?.inlineContent?.items.length).toBe(3);
   });
 });

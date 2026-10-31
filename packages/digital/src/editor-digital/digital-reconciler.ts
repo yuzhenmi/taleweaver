@@ -203,7 +203,7 @@ export function createDigitalReconciler(
     // Thread the authoritative `blockElMap` into the bridge so `positionToDom` resolves blocks via
     // an O(1) map lookup instead of an O(n) `querySelectorAll` scan per keystroke.
     bridge = createDigitalSelectionBridge(c, win, (blockId) => blockElMap.get(blockId) ?? null, () => rendered?.state ?? null);
-    fullRebuild(initial.state, decorations);
+    fullRebuild(initial.document, decorations);
     bridge.positionToDom(initial.selection);
   }
 
@@ -445,15 +445,15 @@ export function createDigitalReconciler(
       if (!isComposing) bridge?.positionToDom(next.selection);
     };
     if (prev === null) {
-      fullRebuild(next.state, decorations);
+      fullRebuild(next.document, decorations);
       projectSelection();
       return;
     }
     const dirty = next.lastDirtyIds;
-    const stateChanged = prev.state !== next.state;
+    const stateChanged = prev.state !== next.document;
     if (stateChanged && dirty === null) {
       // Unknown change set (document replaced): rebuild everything.
-      fullRebuild(next.state, decorations);
+      fullRebuild(next.document, decorations);
       projectSelection();
       return;
     }
@@ -463,10 +463,10 @@ export function createDigitalReconciler(
     }
     const tree: StyledTree =
       stateChanged && dirty !== null
-        ? renderStyled(next.state, componentRegistry, attrRegistry, undefined, { prev, prevState: prev.state, dirtyIds: dirty })
+        ? renderStyled(next.document, componentRegistry, attrRegistry, undefined, { prev, prevState: prev.state, dirtyIds: dirty })
         : prev;
-    if (patch(next.state, prev, tree.cascaded, decorations, isComposing)) {
-      rendered = { out: tree.out, cascaded: tree.cascaded, state: next.state, decorations };
+    if (patch(next.document, prev, tree.cascaded, decorations, isComposing)) {
+      rendered = { out: tree.out, cascaded: tree.cascaded, state: next.document, decorations };
     }
     projectSelection();
   }

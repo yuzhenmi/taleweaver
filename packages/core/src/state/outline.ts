@@ -1,4 +1,4 @@
-import type { State } from "./state";
+import type { Document } from "./state";
 import { getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import { createPosition, createSpan } from "./block-position";
@@ -64,7 +64,7 @@ export interface OutlineOptions {
  * the `level` field) is a consumer concern. An empty document, or one with no
  * headings, yields `[]`.
  */
-export function getOutline(state: State, options?: OutlineOptions): OutlineEntry[] {
+export function getOutline(state: Document, options?: OutlineOptions): OutlineEntry[] {
   const entries: OutlineEntry[] = [];
 
   for (const blockId of iterateTargetBlocks(state, options?.blockIds)) {
@@ -136,7 +136,7 @@ export const EMPTY_OUTLINE_SIGNATURE: OutlineSignature = Object.freeze({
  * carry no inlineContent).
  */
 export function computeOutlineSignature(
-  state: State,
+  state: Document,
   suggestionView: SuggestionView,
 ): OutlineSignature {
   const entries = getOutline(state, { suggestionView });
@@ -197,7 +197,7 @@ function levelOf(level: unknown): number {
  * are NOT filtered here; `getOutline` skips them.
  */
 function* iterateTargetBlocks(
-  state: State,
+  state: Document,
   blockIds: Iterable<BlockId> | undefined,
 ): Iterable<BlockId> {
   if (blockIds !== undefined) {

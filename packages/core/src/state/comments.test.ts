@@ -30,13 +30,13 @@ import { clonePastedSubtree } from "./clone-pasted-subtree";
 import { createPosition, createSpan } from "./block-position";
 import { createTestAllocator, type BlockId } from "./block-id";
 import { buildBlock, buildState, text, inlineContent } from "../test-utils/state-builders";
-import type { State } from "./state";
+import type { Document } from "./state";
 import { getBlock } from "./state";
 
 const CID = "c1" as CommentId;
 
 /** doc > [ p("hello world") ] */
-function oneBlock(): State {
+function oneBlock(): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -52,7 +52,7 @@ function oneBlock(): State {
 }
 
 /** doc > [ p1("hello"), p2("world") ] */
-function twoBlocks(): State {
+function twoBlocks(): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -76,7 +76,7 @@ function twoBlocks(): State {
 }
 
 /** Comment "world" in p ("hello world"): start at offset 6, end at offset 11. */
-function commentWorld(state: State): State {
+function commentWorld(state: Document): Document {
   return insertCommentMarkers(
     state,
     createSpan(createPosition("p" as BlockId, 6), createPosition("p" as BlockId, 11)),

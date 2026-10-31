@@ -14,7 +14,7 @@
 import { bench, describe } from "vitest";
 import * as Y from "yjs";
 import { TEST_RESOLVER, buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
-import { createState, getBlock, type State } from "./state";
+import { createState, getBlock, type Document } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 import { insertText } from "./ops/insert-text";
 import { splitBlockAtPosition } from "./ops/split-block";
@@ -37,7 +37,7 @@ if (proc?.env !== undefined) proc.env.NODE_ENV = "production";
 
 const id = (s: string) => s as BlockId;
 
-function documentOf(n: number, para = "paragraph text of moderate length"): State {
+function documentOf(n: number, para = "paragraph text of moderate length"): Document {
   const ids = Array.from({ length: n }, (_, i) => `p${i}`);
   return buildState({
     rootId: "doc",
@@ -58,7 +58,7 @@ function documentOf(n: number, para = "paragraph text of moderate length"): Stat
 }
 
 /** Typing into block `target` (read back each time, like the editor's render). */
-function typing(state0: State, target: BlockId, offset0: number): () => void {
+function typing(state0: Document, target: BlockId, offset0: number): () => void {
   let state = state0;
   let offset = offset0;
   return () => {

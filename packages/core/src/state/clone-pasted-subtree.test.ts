@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { clonePastedSubtree } from "./clone-pasted-subtree";
 import { TEST_RESOLVER, testContainer, buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import { createTestAllocator, type BlockId } from "./block-id";
-import { getBlock, type State } from "./state";
+import { getBlock, type Document } from "./state";
 import type { Block } from "./block";
 
 // Host container types the default registry lacks (file-local registry instance).
@@ -711,7 +711,7 @@ describe("clonePastedSubtree — id-collision check namespace (S-B4)", () => {
 
 describe("clonePastedSubtree — bookmarks (Word's paste rule)", () => {
   // A pasted bookmark pair is kept iff the destination has NO live pair of its id.
-  const source = (): State =>
+  const source = (): Document =>
     buildState({
       rootId: "doc",
       blocks: [

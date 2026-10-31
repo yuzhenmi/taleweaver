@@ -40,7 +40,7 @@ import type { ActionOf } from "../editor-action";
  * when a write actually occurred.
  *
  * No-op (return the input `editor` unchanged, never calling `history.commit`):
- *  - No target leaf changed (the running state is still `editor.state`) — the
+ *  - No target leaf changed (the running state is still `editor.document`) — the
  *    identity guard.
  *
  * Selection is UNCHANGED: paragraph spacing is a block-geometry change, not a
@@ -57,7 +57,7 @@ export function handleSetParagraphSpacing(
 
   const targetIds = targetLeafBlockIds(editor);
 
-  let state: State = editor.state;
+  let state: State = editor.document;
   const dirtyIds = new Set<BlockId>();
   for (const blockId of targetIds) {
     // Defensive: skip a block that resolved into the target list but is now
@@ -76,7 +76,7 @@ export function handleSetParagraphSpacing(
 
   // the identity-no-op contract: nothing changed → return the input editor unchanged.
   // (`history.commit` is itself no-op-safe.)
-  if (state === editor.state) return null;
+  if (state === editor.document) return null;
 
   return { change: { state, dirtyIds } };
 }
@@ -91,7 +91,7 @@ export function handleSetParagraphSpacing(
  * container is nonsensical: it owns no text. Mirrors `handleSetLineSpacing`.
  */
 function targetLeafBlockIds(editor: EditorState): BlockId[] {
-  const { state, selection } = editor;
+  const { document: state, selection } = editor;
 
   if (positionsEqual(selection.anchor, selection.focus)) {
     const focus = getBlock(state, selection.focus.blockId);

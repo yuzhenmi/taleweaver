@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 import { requireBlockText } from "../block-text";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import { STATE_INTERNAL } from "../state-internal";
 import type { BlockId, IdAllocator } from "../block-id";
@@ -71,7 +71,7 @@ export interface SplitBlockResult extends OperationResult {
  * transaction.
  */
 export function splitBlockAtPosition(
-  state: State,
+  state: Document,
   position: Position,
   allocator: IdAllocator,
   newBlockInit?: { readonly type?: string; readonly attrs?: ReadonlyAttrs },
@@ -88,7 +88,7 @@ export function splitBlockAtPosition(
  * on every condition `splitBlockAtPosition` lists. Allocates the head's id once.
  */
 export function planSplitBlockAtPosition(
-  state: State,
+  state: Document,
   position: Position,
   allocator: IdAllocator,
   newBlockInit?: { readonly type?: string; readonly attrs?: ReadonlyAttrs },
@@ -183,7 +183,7 @@ export function splitBlockAtPositionInTx(doc: Y.Doc, plan: SplitBlockPlan, opts:
  * delegated to {@link planSplitBlockAtPosition}.
  */
 export function splitWithSuggestion(
-  state: State,
+  state: Document,
   position: Position,
   allocator: IdAllocator,
   input: SuggestionMintInput,

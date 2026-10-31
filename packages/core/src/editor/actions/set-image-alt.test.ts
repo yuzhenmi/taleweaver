@@ -28,16 +28,16 @@ import type { BlockId } from "../../state";
 function docWithImage() {
   let editor = createInitialEditorState(config);
   editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
-  const paraId = firstChildId(editor.state) as BlockId;
+  const paraId = firstChildId(editor.document) as BlockId;
   editor = reduceEditor(
     editor,
     { type: "INSERT_IMAGE", src: "i.png", width: 120, height: 80 },
   );
-  const imageId = getBlock(editor.state, paraId)?.nextSiblingId as BlockId;
+  const imageId = getBlock(editor.document, paraId)?.nextSiblingId as BlockId;
   // Self-validate the fixture: if INSERT_IMAGE ever stops placing the image as
   // the paragraph's next sibling, imageId would be null and the no-op tests
   // would pass vacuously. Pin it down here so a placement regression fails loud.
-  expect(getBlock(editor.state, imageId)?.type).toBe("image");
+  expect(getBlock(editor.document, imageId)?.type).toBe("image");
   return { editor, paraId, imageId };
 }
 
@@ -50,7 +50,7 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: "A red barn" },
     );
 
-    const img = getBlock(next.state, imageId);
+    const img = getBlock(next.document, imageId);
     expect(img?.attrs.alt).toBe("A red barn");
     // src preserved (merge, not replace).
     expect(img?.attrs.src).toBe("i.png");
@@ -64,7 +64,7 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: "" },
     );
 
-    const img = getBlock(next.state, imageId);
+    const img = getBlock(next.document, imageId);
     expect(img?.attrs.alt).toBe("");
     expect("alt" in (img?.attrs ?? {})).toBe(true);
   });
@@ -77,14 +77,14 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
       editor,
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: "Cat" },
     );
-    expect(getBlock(labeled.state, imageId)?.attrs.alt).toBe("Cat");
+    expect(getBlock(labeled.document, imageId)?.attrs.alt).toBe("Cat");
 
     const cleared = reduceEditor(
       labeled,
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: null },
     );
 
-    const img = getBlock(cleared.state, imageId);
+    const img = getBlock(cleared.document, imageId);
     expect(img?.attrs.alt).toBeUndefined();
     expect("alt" in (img?.attrs ?? {})).toBe(false);
   });
@@ -110,7 +110,7 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(next.state).toBe(editor.state);
+    expect(next.document).toBe(editor.document);
   });
 
   it("is a no-op when the target block does not exist", () => {
@@ -122,7 +122,7 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(next.state).toBe(editor.state);
+    expect(next.document).toBe(editor.document);
   });
 
   it("is a no-op when alt is unchanged (already that value)", () => {
@@ -138,13 +138,13 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(again.state).toBe(labeled.state);
+    expect(again.document).toBe(labeled.document);
   });
 
   it("is a no-op when clearing (null) an already-unlabeled image", () => {
     const { editor, imageId } = docWithImage();
     // The freshly-inserted image carries no alt key, so null is identity.
-    expect(getBlock(editor.state, imageId)?.attrs.alt).toBeUndefined();
+    expect(getBlock(editor.document, imageId)?.attrs.alt).toBeUndefined();
 
     const next = reduceEditor(
       editor,
@@ -152,7 +152,7 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(next.state).toBe(editor.state);
+    expect(next.document).toBe(editor.document);
   });
 
   it("undo restores the previous alt in one step (Cat → null, then undo → Cat)", () => {
@@ -165,10 +165,10 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
       labeled,
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: null },
     );
-    expect(getBlock(cleared.state, imageId)?.attrs.alt).toBeUndefined();
+    expect(getBlock(cleared.document, imageId)?.attrs.alt).toBeUndefined();
 
     const undone = reduceEditor(cleared, { type: "UNDO" });
-    expect(getBlock(undone.state, imageId)?.attrs.alt).toBe("Cat");
+    expect(getBlock(undone.document, imageId)?.attrs.alt).toBe("Cat");
   });
 
   it("undo restores ABSENT alt (no key) in one step ((no alt) → Cat, then undo → absent)", () => {
@@ -177,10 +177,10 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
       editor,
       { type: "SET_IMAGE_ALT", blockId: imageId, alt: "Cat" },
     );
-    expect(getBlock(labeled.state, imageId)?.attrs.alt).toBe("Cat");
+    expect(getBlock(labeled.document, imageId)?.attrs.alt).toBe("Cat");
 
     const undone = reduceEditor(labeled, { type: "UNDO" });
-    const img = getBlock(undone.state, imageId);
+    const img = getBlock(undone.document, imageId);
     expect(img?.attrs.alt).toBeUndefined();
     expect("alt" in (img?.attrs ?? {})).toBe(false);
   });

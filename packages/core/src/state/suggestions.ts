@@ -2,7 +2,7 @@ import * as Y from "yjs";
 import type { ReadonlyAttrs } from "./attrs";
 import { mergeAttrs } from "./attrs";
 import type { InlineItem } from "./inline-content";
-import type { State } from "./state";
+import type { Document } from "./state";
 import type { Position } from "./block-position";
 import { createPosition } from "./block-position";
 import { iterateAllBlocksInDocumentOrder } from "./document-order";
@@ -416,16 +416,16 @@ export function readSuggestionRecord(doc: Y.Doc, id: SuggestionId): SuggestionRe
 }
 
 /**
- * `State`-level read of a single suggestion record, or `null` if absent. Thin
+ * `Document`-level read of a single suggestion record, or `null` if absent. Thin
  * wrapper over {@link readSuggestionRecord} that pulls the backing `Y.Doc` out
- * of the opaque `State` so callers OUTSIDE the state module (the render pass
+ * of the opaque `Document` so callers OUTSIDE the state module (the render pass
  * resolves suggestion visuals in `expandInlineItems`) can read a record by id
  * WITHOUT reaching into `STATE_INTERNAL` themselves. Mirror of how other
- * cross-module reads (`resolveSuggestionRange`, `getSuggestions`) take `State`
+ * cross-module reads (`resolveSuggestionRange`, `getSuggestions`) take `Document`
  * rather than a raw `Y.Doc`.
  */
 export function readSuggestionRecordFromState(
-  state: State,
+  state: Document,
   id: SuggestionId,
 ): SuggestionRecord | null {
   return readSuggestionRecord(state[STATE_INTERNAL].doc, id);
@@ -491,7 +491,7 @@ interface RangeAccumulator {
  * the mirror of {@link buildCommentRangeIndex}.
  */
 export function buildSuggestionRangeIndex(
-  state: State,
+  state: Document,
 ): Map<SuggestionId, SuggestionRange> {
   const acc = new Map<SuggestionId, RangeAccumulator>();
 
@@ -591,7 +591,7 @@ function extend(
  * carries its id (orphaned-by-absence). Mirror of {@link resolveCommentRange}.
  */
 export function resolveSuggestionRange(
-  state: State,
+  state: Document,
   id: SuggestionId,
 ): SuggestionRange | null {
   return buildSuggestionRangeIndex(state).get(id) ?? null;
@@ -611,7 +611,7 @@ export interface ResolvedSuggestion extends SuggestionRecord {
  * record — a single O(N inline-items + N records) pass. Frozen output, stable
  * iteration order (the `suggestions` map's key order).
  */
-export function getSuggestions(state: State): readonly ResolvedSuggestion[] {
+export function getSuggestions(state: Document): readonly ResolvedSuggestion[] {
   const doc = state[STATE_INTERNAL].doc;
   const rangeIndex = buildSuggestionRangeIndex(state);
   const out: ResolvedSuggestion[] = [];
@@ -646,7 +646,7 @@ export interface SuggestionGroup {
  * Every open suggestion group with ≥1 visible member, in document order of its first
  * range. A record with no live range is not a member (see {@link getSuggestions}).
  */
-export function getSuggestionGroups(state: State): readonly SuggestionGroup[] {
+export function getSuggestionGroups(state: Document): readonly SuggestionGroup[] {
   const byGroup = new Map<string, ResolvedSuggestion[]>();
   for (const s of getSuggestions(state)) {
     const key = suggestionGroupOf(s);

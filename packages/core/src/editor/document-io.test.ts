@@ -2,7 +2,7 @@
  * Editor document load/save convenience surface (`document-io.ts`): the
  * editor-level "open / save" operations over the engine's
  * `serializeDocument` / `deserializeDocument`. `exportDocument` serializes the
- * editor's current `State`; `loadDocument` deserializes bytes into a FRESH
+ * editor's current `Document`; `loadDocument` deserializes bytes into a FRESH
  * `EditorState` (fresh `History` + a valid initial caret + full
  * render/cascade/layout).
  *
@@ -145,9 +145,9 @@ describe("document-io — exportDocument / loadDocument", () => {
     const bytes = exportDocument(editor, BINARY_FORMAT, reg);
     const loaded = loadDocument(bytes, BINARY_FORMAT, reg, config);
 
-    expect(loaded.state.rootId).toBe(editor.state.rootId);
-    expect(docText(loaded.state)).toBe(docText(editor.state));
-    expect(docText(loaded.state)).toBe("alpha\nbeta");
+    expect(loaded.document.rootId).toBe(editor.document.rootId);
+    expect(docText(loaded.document)).toBe(docText(editor.document));
+    expect(docText(loaded.document)).toBe("alpha\nbeta");
   });
 
   it("loadDocument places a valid collapsed initial caret on a content leaf", () => {
@@ -167,7 +167,7 @@ describe("document-io — exportDocument / loadDocument", () => {
     expect(anchor.offset).toBe(focus.offset);
     expect(anchor.offset).toBe(0);
     // The caret block is a real content-bearing leaf.
-    const caretBlock = getBlock(loaded.state, anchor.blockId);
+    const caretBlock = getBlock(loaded.document, anchor.blockId);
     expect(caretBlock).not.toBeNull();
     expect(caretBlock?.inlineContent).not.toBeNull();
   });
@@ -201,7 +201,7 @@ describe("document-io — exportDocument / loadDocument", () => {
 
     const caretBlockId = loaded.selection.anchor.blockId;
     const edited = reduceEditor(loaded, { type: "INSERT_TEXT", text: "X" });
-    const editedBlock = getBlock(edited.state, caretBlockId);
+    const editedBlock = getBlock(edited.document, caretBlockId);
     expect(editedBlock).not.toBeNull();
     const text = editedBlock?.inlineContent?.items
       .map((it) => (it.kind === "text" ? it.text : ""))
@@ -222,7 +222,7 @@ describe("document-io — exportDocument / loadDocument", () => {
     // an empty one — the format lookup fails before any decode.
     const editor = createInitialEditorState(config);
     const fullReg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
-    const bytes = serializeDocument(editor.state, BINARY_FORMAT, fullReg);
+    const bytes = serializeDocument(editor.document, BINARY_FORMAT, fullReg);
     const emptyReg = createSerializerRegistry();
     expect(() => loadDocument(bytes, BINARY_FORMAT, emptyReg, config)).toThrow(
       UnknownSerializerFormatError,
@@ -249,7 +249,7 @@ describe("initialSelectionForState — robust caret derivation", () => {
     const sel = editor.selection;
     expect(sel.anchor.blockId).toBe(sel.focus.blockId);
     expect(sel.anchor.offset).toBe(0);
-    const block = getBlock(editor.state, sel.anchor.blockId);
+    const block = getBlock(editor.document, sel.anchor.blockId);
     expect(block).not.toBeNull();
     expect(block?.inlineContent).not.toBeNull();
   });

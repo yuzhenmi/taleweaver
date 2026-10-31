@@ -8,7 +8,7 @@ import * as Y from "yjs";
 import type { BlockId } from "./block-id";
 import { createTestAllocator } from "./block-id";
 import type { Block } from "./block";
-import { createState, getBlock, type State } from "./state";
+import { createState, getBlock, type Document } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 import { insertText } from "./ops/insert-text";
 import { deleteRange } from "./ops/delete-range";
@@ -37,7 +37,7 @@ declare const process: { env: Record<string, string | undefined> };
 
 const id = (s: string) => s as BlockId;
 
-function docOf(texts: readonly string[]): State {
+function docOf(texts: readonly string[]): Document {
   const ids = texts.map((_, i) => `p${i}`);
   return buildState({
     rootId: "doc",
@@ -57,7 +57,7 @@ function docOf(texts: readonly string[]): State {
   });
 }
 
-function peer(s: State, clientID: number): State {
+function peer(s: Document, clientID: number): Document {
   const doc = new Y.Doc();
   doc.clientID = clientID;
   Y.applyUpdate(doc, Y.encodeStateAsUpdate(s[STATE_INTERNAL].doc));
@@ -69,7 +69,7 @@ const textOf = (b: Block | null): string =>
   (b?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "￼")).join("");
 
 /** Every block in document order (sections entered) with its parent, links and text. */
-function read(s: State): string {
+function read(s: Document): string {
   const out: string[] = [];
   const walk = (start: BlockId | null): void => {
     for (let cur = start; cur !== null; ) {
@@ -85,7 +85,7 @@ function read(s: State): string {
 }
 
 /** The same document read cold: a fresh doc with no derived caches. */
-function coldRead(s: State): string {
+function coldRead(s: Document): string {
   return read(peer(s, 999));
 }
 
@@ -205,7 +205,7 @@ describe("locator cache — cached reads equal cold reads", () => {
   }
 
   /** Leaf blocks in document order (sections entered): text blocks and objects. */
-  function leavesOf(s: State): { text: BlockId[]; objects: BlockId[] } {
+  function leavesOf(s: Document): { text: BlockId[]; objects: BlockId[] } {
     const text: BlockId[] = [];
     const objects: BlockId[] = [];
     const walk = (start: BlockId | null): void => {
@@ -220,9 +220,9 @@ describe("locator cache — cached reads equal cold reads", () => {
     walk(getBlock(s, s.rootId)?.firstChildId ?? null);
     return { text, objects };
   }
-  const parentOf = (s: State, b: BlockId): BlockId => getBlock(s, b)?.parentId ?? id("doc");
+  const parentOf = (s: Document, b: BlockId): BlockId => getBlock(s, b)?.parentId ?? id("doc");
   /** The doc-root section holding `b`, or null. */
-  const sectionOf = (s: State, b: BlockId): BlockId | null => {
+  const sectionOf = (s: Document, b: BlockId): BlockId | null => {
     for (let cur = getBlock(s, b); cur !== null; cur = cur.parentId === null ? null : getBlock(s, cur.parentId)) {
       if (cur.type === "section" && cur.parentId === s.rootId) return cur.id;
     }
@@ -230,7 +230,7 @@ describe("locator cache — cached reads equal cold reads", () => {
   };
 
   /** An undo manager scoped like `History`'s (pieces / sub-flows are never deleted by undo). */
-  function undoManagerOf(s: State): Y.UndoManager {
+  function undoManagerOf(s: Document): Y.UndoManager {
     return new Y.UndoManager([getRegistry(s[STATE_INTERNAL].doc)], {
       captureTimeout: 0,
       deleteFilter: (item: Y.Item) => !(isSubflowItem(item) || (item.content instanceof Y.ContentType && isPiece(item.content.type))),
@@ -281,13 +281,13 @@ describe("locator cache — cached reads equal cold reads", () => {
       if (x === undefined) throw new Error("empty");
       return x;
     };
-    let peers: State[] = [peer(docOf(["one", "two two", "three", ""]), 1)];
-    peers.push(peer(peers[0] as State, 2));
+    let peers: Document[] = [peer(docOf(["one", "two two", "three", ""]), 1)];
+    peers.push(peer(peers[0] as Document, 2));
     const alloc = createTestAllocator(`f${seed}`);
     const undos = peers.map(undoManagerOf);
     for (let step = 0; step < steps; step++) {
       const k = r() < 0.5 ? 0 : 1;
-      let s = peers[k] as State;
+      let s = peers[k] as Document;
       const storageOk = storageViolation(s) === null;
       let local = true;
       const { text: ids, objects } = leavesOf(s);
@@ -347,8 +347,8 @@ describe("locator cache — cached reads equal cold reads", () => {
         } else {
           local = false;
           // Sync both ways (remote transactions on each side).
-          const da = (peers[0] as State)[STATE_INTERNAL].doc;
-          const db = (peers[1] as State)[STATE_INTERNAL].doc;
+          const da = (peers[0] as Document)[STATE_INTERNAL].doc;
+          const db = (peers[1] as Document)[STATE_INTERNAL].doc;
           // Each peer's State advances by the remote transactions' dirty sets (the collab path).
           const remote = (from: Y.Doc, to: Y.Doc): Set<BlockId> => {
             const dirty = new Set<BlockId>();
@@ -362,8 +362,8 @@ describe("locator cache — cached reads equal cold reads", () => {
           };
           const dirtyB = remote(da, db);
           const dirtyA = remote(db, da);
-          peers = [freshState(peers[0] as State, dirtyA), freshState(peers[1] as State, dirtyB)];
-          s = peers[k] as State;
+          peers = [freshState(peers[0] as Document, dirtyA), freshState(peers[1] as Document, dirtyB)];
+          s = peers[k] as Document;
         }
       } catch (e) {
         throw new Error(`${where}: ${String(e)}`);

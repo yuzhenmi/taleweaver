@@ -27,7 +27,7 @@ import {
   type SuggestionId,
 } from "../suggestions";
 import { createHistory } from "../history";
-import { createState, getBlock, type State } from "../state";
+import { createState, getBlock, type Document } from "../state";
 import { STATE_INTERNAL } from "../state-internal";
 import { createPosition, createSpan } from "../block-position";
 import type { BlockId } from "../block-id";
@@ -42,7 +42,7 @@ const B = "sB" as SuggestionId;
 const C = "sC" as SuggestionId;
 const P = "p" as BlockId;
 
-function doc(chars = "abcdefghijklmnopqrst"): State {
+function doc(chars = "abcdefghijklmnopqrst"): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -55,7 +55,7 @@ function doc(chars = "abcdefghijklmnopqrst"): State {
 const span = (a: number, b: number) => createSpan(createPosition(P, a), createPosition(P, b));
 
 /** The attrs of the char at `offset` in p. */
-function attrsAt(s: State, offset: number): ReadonlyAttrs {
+function attrsAt(s: Document, offset: number): ReadonlyAttrs {
   let pos = 0;
   for (const it of getBlock(s, P)?.inlineContent?.items ?? []) {
     const len = it.kind === "text" ? it.text.length : 1;
@@ -65,30 +65,30 @@ function attrsAt(s: State, offset: number): ReadonlyAttrs {
   throw new Error(`no char at ${offset}`);
 }
 
-function rangeOf(s: State, id: SuggestionId): [number, number] | null {
+function rangeOf(s: Document, id: SuggestionId): [number, number] | null {
   const r = getSuggestions(s).find((x) => x.id === id)?.range ?? null;
   return r === null ? null : [r.start.offset, r.end.offset];
 }
 
 /** Live attrs without provenance tags. */
-function live(s: State, offset: number): ReadonlyAttrs {
+function live(s: Document, offset: number): ReadonlyAttrs {
   return Object.fromEntries(Object.entries(attrsAt(s, offset)).filter(([k]) => !k.startsWith("formattingSuggestionId")));
 }
 
 /** Composite ("final" preview) attrs at `offset`. */
-function preview(s: State, offset: number): ReadonlyAttrs {
+function preview(s: Document, offset: number): ReadonlyAttrs {
   const d = s[STATE_INTERNAL].doc;
   return resolveFormattingSuggestionTags(attrsAt(s, offset), () => "accept", (id) => readSuggestionRecord(d, id));
 }
 
 /** A (alice, t=1) bold over [0,10); B (bob, t=2) italic over [5,15). */
-function stackedBoldItalic(): State {
+function stackedBoldItalic(): Document {
   const s1 = markFormatting(doc(), span(0, 10), { bold: true }, { id: A, author: "alice", createdAt: 1 }).state;
   return markFormatting(s1, span(5, 15), { italic: true }, { id: B, author: "bob", createdAt: 2 }).state;
 }
 
 /** A (t=1) color red and B (t=2) color blue, both over [0,10). */
-function conflictingColors(): State {
+function conflictingColors(): Document {
   const s1 = markFormatting(doc(), span(0, 10), { color: "red" }, { id: A, author: "alice", createdAt: 1 }).state;
   return markFormatting(s1, span(0, 10), { color: "blue" }, { id: B, author: "bob", createdAt: 2 }).state;
 }
@@ -116,7 +116,7 @@ describe("stacked formatting suggestions — creation", () => {
   it("never coalesces into an id shadowed on a span character: re-applying it mints a fresh, newest suggestion", () => {
     // X (alice, red) on [0,10); W (bob, blue) on [2,4) accepted → X shadows color on [2,4);
     // then Alice re-applies red on [2,4): the before-neighbour X matches, but X is shadowed there.
-    const build = (): State => {
+    const build = (): Document => {
       let s = markFormatting(doc(), span(0, 10), { color: "red" }, { id: A, author: "alice", createdAt: 1 }).state;
       s = markFormatting(s, span(2, 4), { color: "blue" }, { id: B, author: "bob", createdAt: 2 }).state;
       s = acceptSuggestion(s, B).state;
@@ -199,7 +199,7 @@ describe("stacked formatting suggestions — creation", () => {
 });
 
 describe("stacked formatting suggestions — sequential resolution", () => {
-  const cases: [string, (s: State) => State, ReadonlyAttrs][] = [
+  const cases: [string, (s: Document) => Document, ReadonlyAttrs][] = [
     ["accept A then B", (s) => acceptSuggestion(acceptSuggestion(s, A).state, B).state, { bold: true, italic: true }],
     ["accept B then A", (s) => acceptSuggestion(acceptSuggestion(s, B).state, A).state, { bold: true, italic: true }],
     ["reject A then accept B", (s) => acceptSuggestion(rejectSuggestion(s, A).state, B).state, { italic: true }],
@@ -214,7 +214,7 @@ describe("stacked formatting suggestions — sequential resolution", () => {
     });
   }
 
-  const colorCases: [string, (s: State) => State, string | undefined][] = [
+  const colorCases: [string, (s: Document) => Document, string | undefined][] = [
     ["accept A, accept B", (s) => acceptSuggestion(acceptSuggestion(s, A).state, B).state, "blue"],
     ["accept B, accept A", (s) => acceptSuggestion(acceptSuggestion(s, B).state, A).state, "blue"],
     ["accept A, reject B", (s) => rejectSuggestion(acceptSuggestion(s, A).state, B).state, "red"],
@@ -239,7 +239,7 @@ describe("stacked formatting suggestions — sequential resolution", () => {
   });
 
   it("three suggestions: any accept order yields the creation-order result", () => {
-    const build = (): State => {
+    const build = (): Document => {
       let s = markFormatting(doc(), span(0, 10), { color: "red" }, { id: A, author: "a", createdAt: 1 }).state;
       s = markFormatting(s, span(0, 10), { color: "blue", bold: true }, { id: B, author: "b", createdAt: 2 }).state;
       return markFormatting(s, span(0, 10), { color: "green" }, { id: C, author: "c", createdAt: 3 }).state;
@@ -316,7 +316,7 @@ describe("stacked formatting suggestions — missing records + concurrency", () 
   it("concurrent accept of A and B on two peers converges with no visible suggestion left", () => {
     const s0 = conflictingColors();
     const update = Y.encodeStateAsUpdate(s0[STATE_INTERNAL].doc);
-    const peer = (clientID: number): State => {
+    const peer = (clientID: number): Document => {
       const d = new Y.Doc();
       d.clientID = clientID;
       Y.applyUpdate(d, update);
@@ -341,7 +341,7 @@ describe("stacked formatting suggestions — missing records + concurrency", () 
 });
 
 describe("formatting suggestions on visible embeds", () => {
-  const withTab = (): State =>
+  const withTab = (): Document =>
     buildState({
       rootId: "doc",
       blocks: [

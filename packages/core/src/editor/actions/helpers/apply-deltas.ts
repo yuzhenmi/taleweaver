@@ -8,7 +8,7 @@ export function applyDeltas(
   editor: EditorState,
   deltas: ReadonlyArray<readonly [Span, ReadonlyAttrs]>,
 ): Edit | null {
-  let state = editor.state;
+  let state = editor.document;
   const dirtyIds = new Set<BlockId>();
   for (const [span, attrs] of deltas) {
     const r = applyAttrsOrSuggest(editor, span, attrs);
@@ -16,5 +16,5 @@ export function applyDeltas(
     for (const id of r.dirtyIds) dirtyIds.add(id);
   }
   // An attr-only edit shifts no offsets: the selection is kept as-is (direction too).
-  return state === editor.state ? null : { change: { state, dirtyIds } };
+  return state === editor.document ? null : { change: { state, dirtyIds } };
 }

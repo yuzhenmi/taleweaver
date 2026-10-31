@@ -1,6 +1,6 @@
 import type { BlockKindResolver } from "../block-kinds";
 import * as Y from "yjs";
-import { createState, type State } from "../state";
+import { createState, type Document } from "../state";
 import { STATE_INTERNAL } from "../state-internal";
 import { getMetaRootId } from "../yjs-doc";
 import type { DocumentSerializer } from "./document-serializer";
@@ -32,11 +32,11 @@ export function createBinaryDocumentSerializer(deps: {
 }): DocumentSerializer<Uint8Array> {
   return {
     format: BINARY_FORMAT,
-    encode(state: State): Uint8Array {
+    encode(state: Document): Uint8Array {
       // Whole Y.Doc: blocks + embedContents + templateContents + listDefs + meta.
       return Y.encodeStateAsUpdate(state[STATE_INTERNAL].doc);
     },
-    decode(update: Uint8Array): State {
+    decode(update: Uint8Array): Document {
       const doc = new Y.Doc();
       Y.applyUpdate(doc, update);
       const rootId = getMetaRootId(doc);

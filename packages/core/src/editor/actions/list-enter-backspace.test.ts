@@ -81,12 +81,12 @@ describe("Enter-exit on an empty list-item (#L16)", () => {
 
     const next = reduceEditor(editor, { type: "SPLIT_NODE" });
 
-    const block = getBlock(next.state, "li" as BlockId);
+    const block = getBlock(next.document, "li" as BlockId);
     expect(block?.type).toBe("paragraph");
     expect(block?.attrs.listId).toBeUndefined();
     expect(block?.attrs.listLevel).toBeUndefined();
     // No new block was created (still p0 + li).
-    expect(getBlock(next.state, "li" as BlockId)?.nextSiblingId).toBeNull();
+    expect(getBlock(next.document, "li" as BlockId)?.nextSiblingId).toBeNull();
   });
 
   it("(b) Enter on an EMPTY level>0 list-item → outdents one level, stays a list-item", () => {
@@ -95,7 +95,7 @@ describe("Enter-exit on an empty list-item (#L16)", () => {
 
     const next = reduceEditor(editor, { type: "SPLIT_NODE" });
 
-    const block = getBlock(next.state, "li" as BlockId);
+    const block = getBlock(next.document, "li" as BlockId);
     expect(block?.type).toBe("list-item");
     expect(block?.attrs.listLevel).toBe(1);
     expect(block?.attrs.listId).toBe("L1");
@@ -107,7 +107,7 @@ describe("Enter-exit on an empty list-item (#L16)", () => {
 
     const next = reduceEditor(editor, { type: "SPLIT_NODE" });
 
-    const block = getBlock(next.state, "li" as BlockId);
+    const block = getBlock(next.document, "li" as BlockId);
     expect(block?.type).toBe("paragraph");
     expect(block?.attrs.listId).toBeUndefined();
     // No sibling created — still the only block.
@@ -123,11 +123,11 @@ describe("Enter-exit on an empty list-item (#L16)", () => {
     const next = reduceEditor(editor, { type: "SPLIT_NODE" });
 
     // the head [0, 3) is the new block; "li" keeps the tail.
-    const original = getBlock(next.state, "li" as BlockId);
+    const original = getBlock(next.document, "li" as BlockId);
     expect(original?.type).toBe("list-item");
     const newId = original?.prevSiblingId;
     expect(newId).not.toBeNull();
-    const newBlock = newId !== null && newId !== undefined ? getBlock(next.state, newId) : null;
+    const newBlock = newId !== null && newId !== undefined ? getBlock(next.document, newId) : null;
     expect(newBlock?.type).toBe("list-item");
     expect(newBlock?.attrs.listId).toBe("L1");
     expect(newBlock?.attrs.listLevel).toBe(1);
@@ -141,11 +141,11 @@ describe("Backspace-outdent at the start of a list-item (#L16)", () => {
 
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
-    const block = getBlock(next.state, "li" as BlockId);
+    const block = getBlock(next.document, "li" as BlockId);
     expect(block?.type).toBe("list-item");
     expect(block?.attrs.listLevel).toBe(1);
     // Not merged into p0 — both blocks still present.
-    expect(getBlock(next.state, "p0" as BlockId)?.type).toBe("paragraph");
+    expect(getBlock(next.document, "p0" as BlockId)?.type).toBe("paragraph");
   });
 
   it("(e) Backspace at offset 0 of a level-0 list-item → un-lists to a paragraph (no merge)", () => {
@@ -154,13 +154,13 @@ describe("Backspace-outdent at the start of a list-item (#L16)", () => {
 
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
-    const block = getBlock(next.state, "li" as BlockId);
+    const block = getBlock(next.document, "li" as BlockId);
     expect(block?.type).toBe("paragraph");
     expect(block?.attrs.listId).toBeUndefined();
     expect(block?.attrs.listLevel).toBeUndefined();
     // Content preserved; not merged into p0.
     expect(block?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "item" });
-    expect(getBlock(next.state, "p0" as BlockId)?.type).toBe("paragraph");
+    expect(getBlock(next.document, "p0" as BlockId)?.type).toBe("paragraph");
   });
 
   it("(e') Backspace at start of a level-0 list-item that is the doc's ONLY block → paragraph", () => {
@@ -171,7 +171,7 @@ describe("Backspace-outdent at the start of a list-item (#L16)", () => {
 
     // Un-lists rather than no-op'ing at doc start (the list-item branch fires
     // before the doc-start cross-block guard).
-    const block = getBlock(next.state, "li" as BlockId);
+    const block = getBlock(next.document, "li" as BlockId);
     expect(block?.type).toBe("paragraph");
     expect(block?.attrs.listId).toBeUndefined();
     expect(block?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "item" });
@@ -183,7 +183,7 @@ describe("Backspace-outdent at the start of a list-item (#L16)", () => {
 
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
-    const block = getBlock(next.state, "li" as BlockId);
+    const block = getBlock(next.document, "li" as BlockId);
     // Level unchanged; one char removed.
     expect(block?.attrs.listLevel).toBe(2);
     expect(block?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "a" });

@@ -23,6 +23,6 @@ export function suggestionInputForBlock(
   editor: EditorState,
   blockId: BlockId,
 ): SuggestionMintInput | null {
-  if (selectionContextOf(editor.state, blockId) === null) return null;
+  if (selectionContextOf(editor.document, blockId) === null) return null;
   return newSuggestionInput(editor);
 }

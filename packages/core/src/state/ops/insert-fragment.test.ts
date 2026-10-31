@@ -10,7 +10,7 @@ import { flowShape } from "../../test-utils/invariant-i";
 import { STATE_INTERNAL } from "../state-internal";
 import { buildStateFromBlocks } from "../build-state-from-blocks";
 import { getBlock, getEmbedContent } from "../state";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { SuggestionId } from "../suggestions";
 import {
   getSuggestions,
@@ -31,7 +31,7 @@ function collapsed(pos: ReturnType<typeof createPosition>) {
 }
 
 /** All text in a block (concatenated from TextItems). */
-function blockText(state: State, blockId: string): string {
+function blockText(state: Document, blockId: string): string {
   const block = getBlock(state, bid(blockId));
   if (block === null || block.inlineContent === null) return "";
   return block.inlineContent.items
@@ -41,7 +41,7 @@ function blockText(state: State, blockId: string): string {
 }
 
 /** Ordered text of each top-level child under root, null for containers. */
-function orderedBlockTexts(state: State): (string | null)[] {
+function orderedBlockTexts(state: Document): (string | null)[] {
   const root = getBlock(state, state.rootId);
   if (root === null) return [];
   const texts: (string | null)[] = [];
@@ -172,7 +172,7 @@ function makeEmptyFragment() {
 
 /** Fragment containing a table (container) — for the T5b stub test. */
 /** The span covering exactly object `id`: (obj, 0)–(the paragraph after it, 0). */
-function wholeObjectSpan(state: State, id: string) {
+function wholeObjectSpan(state: Document, id: string) {
   const after = getBlock(state, bid(id))?.nextSiblingId;
   if (after == null) throw new Error("no paragraph after the object");
   return createSpan(createPosition(bid(id), 0), createPosition(after, 0));
@@ -344,7 +344,7 @@ function makeFragMixed() {
 }
 
 /** Ordered types of each top-level child under root. */
-function orderedBlockTypes(state: State): string[] {
+function orderedBlockTypes(state: Document): string[] {
   const root = getBlock(state, state.rootId);
   if (root === null) return [];
   const types: string[] = [];
@@ -359,7 +359,7 @@ function orderedBlockTypes(state: State): string[] {
 }
 
 /** Walk the sibling chain and collect ids in document order. */
-function topLevelIds(state: State): BlockId[] {
+function topLevelIds(state: Document): BlockId[] {
   return topLevelBlockIds(state);
 }
 
@@ -948,7 +948,7 @@ describe("insertFragment — T6 edge behaviors", () => {
     // After flattening, the destination must NOT have any nested table.
     // Walk the entire block tree from root — no block with type "table"
     // should appear under any table-cell.
-    function hasCellDescendantOfType(state: State, type: string): boolean {
+    function hasCellDescendantOfType(state: Document, type: string): boolean {
       const root = getBlock(state, state.rootId);
       if (root === null) return false;
       // BFS over the whole tree looking for type blocks parented inside cells.
@@ -1988,7 +1988,7 @@ describe("insertFragment — M1 multi-block paste adopts first block type on emp
     });
 
     // Fragment: heading "H" followed by a table (container).
-    // Build directly as a State (not via extractFragment) so the table is a true
+    // Build directly as a Document (not via extractFragment) so the table is a true
     // top-level container item in the fragment doc — extractFragment would
     // recurse into the table and flatten it to a leaf if the span ends inside.
     const frag = buildStateFromBlocks({ resolver: TEST_RESOLVER,

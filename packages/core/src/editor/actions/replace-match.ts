@@ -13,7 +13,7 @@ import type { ActionOf } from "../editor-action";
  * end-of-content / on an embed (unreachable for a real `TextMatch`).
  */
 function attrsAtMatchStart(editor: EditorState, match: TextMatch): ReadonlyAttrs {
-  const resolved = resolveBlock(editor.state, match.blockId);
+  const resolved = resolveBlock(editor.document, match.blockId);
   const inline = resolved?.block.inlineContent ?? null;
   if (inline === null) return {};
   return attrsAtOffset(inline, match.start);
@@ -38,10 +38,10 @@ export function handleReplaceMatch(
     createPosition(match.blockId, match.end),
   );
   const attrs = attrsAtMatchStart(editor, match);
-  const result = replaceRange(editor.state, span, replacement, attrs);
+  const result = replaceRange(editor.document, span, replacement, attrs);
 
   // No-op identity contract: a no-op op returns the same state reference.
-  if (result.state === editor.state) return null;
+  if (result.state === editor.document) return null;
 
   // Cursor at the seam: start offset + replacement length (replaceRange's
   // post-op cursor).

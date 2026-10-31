@@ -18,12 +18,12 @@ import { STATE_INTERNAL } from "../state-internal";
 import { freshState, resolveBlock } from "../state";
 import { buildBlock, buildState, text, embed, inlineContent } from "../../test-utils/state-builders";
 import { relAt, survives } from "../../test-utils/relpos-survival";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { InlineContent, InlineItem } from "../inline-content";
 import type { BlockId } from "../block-id";
 
 /** doc > [ p(<items>) ] — one leaf block "p" holding the given inline content. */
-function oneBlock(content: InlineContent): State {
+function oneBlock(content: InlineContent): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -34,7 +34,7 @@ function oneBlock(content: InlineContent): State {
 }
 
 /** Apply `decisions` (aligned to block "p"'s current items) and return the post-state + items. */
-function resolveP(state: State, decisions: readonly ScanItemResult[]): { after: State; items: readonly InlineItem[] } {
+function resolveP(state: Document, decisions: readonly ScanItemResult[]): { after: Document; items: readonly InlineItem[] } {
   const doc = state[STATE_INTERNAL].doc;
   const items = resolveBlock(state, "p" as BlockId)?.block.inlineContent?.items ?? [];
   const { dirtyIds } = runTransaction(doc, () => {

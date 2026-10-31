@@ -19,16 +19,16 @@ import type { BlockId } from "../../state";
 function docWithImage() {
   let editor = createInitialEditorState(config);
   editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
-  const paraId = firstChildId(editor.state) as BlockId;
+  const paraId = firstChildId(editor.document) as BlockId;
   editor = reduceEditor(
     editor,
     { type: "INSERT_IMAGE", src: "i.png", width: 120, height: 80 },
   );
-  const imageId = getBlock(editor.state, paraId)?.nextSiblingId as BlockId;
+  const imageId = getBlock(editor.document, paraId)?.nextSiblingId as BlockId;
   // Self-validate the fixture: if INSERT_IMAGE ever stops placing the image as
   // the paragraph's next sibling, imageId would be null and the no-op tests
   // would pass vacuously. Pin it down here so a placement regression fails loud.
-  expect(getBlock(editor.state, imageId)?.type).toBe("image");
+  expect(getBlock(editor.document, imageId)?.type).toBe("image");
   return { editor, paraId, imageId };
 }
 
@@ -41,7 +41,7 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
       { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: 100 },
     );
 
-    const img = getBlock(next.state, imageId);
+    const img = getBlock(next.document, imageId);
     expect(img?.attrs.width).toBe(200);
     expect(img?.attrs.height).toBe(100);
     // src preserved (merge, not replace).
@@ -69,7 +69,7 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(next.state).toBe(editor.state);
+    expect(next.document).toBe(editor.document);
   });
 
   it("is a no-op when the target block does not exist", () => {
@@ -81,7 +81,7 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(next.state).toBe(editor.state);
+    expect(next.document).toBe(editor.document);
   });
 
   it("is a no-op when width/height are unchanged", () => {
@@ -93,7 +93,7 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
     );
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(next.state).toBe(editor.state);
+    expect(next.document).toBe(editor.document);
   });
 
   it("rejects non-positive / non-finite dimensions (no-op)", () => {
@@ -101,29 +101,29 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(
-      reduceEditor(editor, { type: "SET_IMAGE_SIZE", blockId: imageId, width: 0, height: 100 }).state,
-    ).toBe(editor.state);
+      reduceEditor(editor, { type: "SET_IMAGE_SIZE", blockId: imageId, width: 0, height: 100 }).document,
+    ).toBe(editor.document);
     expect(
-      reduceEditor(editor, { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: -5 }).state,
-    ).toBe(editor.state);
+      reduceEditor(editor, { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: -5 }).document,
+    ).toBe(editor.document);
     expect(
       reduceEditor(
         editor,
         { type: "SET_IMAGE_SIZE", blockId: imageId, width: Number.NaN, height: 100 },
-      ).state,
-    ).toBe(editor.state);
+      ).document,
+    ).toBe(editor.document);
     expect(
       reduceEditor(
         editor,
         { type: "SET_IMAGE_SIZE", blockId: imageId, width: Number.POSITIVE_INFINITY, height: 100 },
-      ).state,
-    ).toBe(editor.state);
+      ).document,
+    ).toBe(editor.document);
     expect(
       reduceEditor(
         editor,
         { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: Number.NEGATIVE_INFINITY },
-      ).state,
-    ).toBe(editor.state);
+      ).document,
+    ).toBe(editor.document);
   });
 
   it("undo restores the previous size in one step", () => {
@@ -132,10 +132,10 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
       editor,
       { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: 100 },
     );
-    expect(getBlock(resized.state, imageId)?.attrs.width).toBe(200);
+    expect(getBlock(resized.document, imageId)?.attrs.width).toBe(200);
 
     const undone = reduceEditor(resized, { type: "UNDO" });
-    expect(getBlock(undone.state, imageId)?.attrs.width).toBe(120);
-    expect(getBlock(undone.state, imageId)?.attrs.height).toBe(80);
+    expect(getBlock(undone.document, imageId)?.attrs.width).toBe(120);
+    expect(getBlock(undone.document, imageId)?.attrs.height).toBe(80);
   });
 });

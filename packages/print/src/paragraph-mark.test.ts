@@ -131,7 +131,7 @@ function twoParagraphs(): { m: ReturnType<typeof mount>; p: core.BlockId; n: cor
   const m = mount("Ab");
   m.dispatch({ type: "SPLIT_NODE" });
   m.dispatch({ type: "INSERT_TEXT", text: "Cd" });
-  const [p, n] = paragraphs(m.get().state);
+  const [p, n] = paragraphs(m.get().document);
   if (p === undefined || n === undefined) throw new Error("paragraphs");
   return { m, p, n };
 }
@@ -140,10 +140,10 @@ describe("print — Shift+Enter (soft line break)", () => {
   it("inserts a hard-break inside the paragraph: block count and attrs unchanged, the rest on the next line", () => {
     const m = mount("Hello world");
     caretAt(m, m.id, 5);
-    const before = paragraphs(m.get().state);
-    const attrs = core.getBlock(m.get().state, m.id)?.attrs;
+    const before = paragraphs(m.get().document);
+    const attrs = core.getBlock(m.get().document, m.id)?.attrs;
     key(m, "Enter", { shiftKey: true });
-    const s = m.get().state;
+    const s = m.get().document;
     expect(paragraphs(s)).toEqual(before);
     expect(core.getBlock(s, m.id)?.attrs).toEqual(attrs);
     expect(core.resolveBlock(s, m.id)?.block.inlineContent?.items.map((i) => i.kind)).toEqual(["text", "embed", "text"]);
@@ -159,7 +159,7 @@ describe("print — Shift+Enter (soft line break)", () => {
   it("plain Enter still splits the paragraph", () => {
     const m = mount("Hello");
     key(m, "Enter");
-    expect(paragraphs(m.get().state)).toHaveLength(2);
+    expect(paragraphs(m.get().document)).toHaveLength(2);
     m.controller.destroy();
   });
 });
@@ -218,11 +218,11 @@ describe("print — markers are never caret stops (core caretAfterMarkers)", () 
     m.dispatch({ type: "SPLIT_NODE" });
     const host = m.get().selection.focus.blockId;
     m.dispatch({ type: "SET_BLOCK_TYPE", blockType: "paragraph" });
-    const [t] = paragraphs(m.get().state);
+    const [t] = paragraphs(m.get().document);
     if (t === undefined || t === host) throw new Error("target");
     m.dispatch({ type: "INSERT_CROSS_REFERENCE", targetId: t, refMode: "text" });
     // [start] "Title" [end]: 7 units.
-    expect(core.resolveBlock(m.get().state, t)?.block.inlineContent?.items.map((i) => i.kind)).toEqual(["embed", "text", "embed"]);
+    expect(core.resolveBlock(m.get().document, t)?.block.inlineContent?.items.map((i) => i.kind)).toEqual(["embed", "text", "embed"]);
     return { m, t };
   }
 
@@ -234,7 +234,7 @@ describe("print — markers are never caret stops (core caretAfterMarkers)", () 
     click(m, g.x - 4, g.y + 4); // left of the line start: the raw hit is (T, 0), before the start marker
     expect(m.get().selection.focus).toEqual(pos(t, 1));
     m.dispatch({ type: "INSERT_TEXT", text: "X" });
-    const items = core.resolveBlock(m.get().state, t)?.block.inlineContent?.items ?? [];
+    const items = core.resolveBlock(m.get().document, t)?.block.inlineContent?.items ?? [];
     expect(items.map((i) => (i.kind === "text" ? i.text : i.kind))).toEqual(["embed", "XTitle", "embed"]);
     m.controller.destroy();
   });

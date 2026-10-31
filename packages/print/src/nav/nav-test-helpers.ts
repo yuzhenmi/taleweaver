@@ -85,7 +85,7 @@ export function makeNavEditor(opts: MakeNavEditorOptions = {}): NavCtx {
 }
 
 /**
- * Build a nav-test context seeded from an arbitrary `State` (e.g. one produced by
+ * Build a nav-test context seeded from an arbitrary `Document` (e.g. one produced by
  * `@taleweaver/core`'s `decodeHtml`), rather than the empty document. The initial
  * selection is the document's natural start (first content block, offset 0).
  * Everything else (config, driver, registries) matches `makeNavEditor`.
@@ -170,7 +170,7 @@ export function caretAt(ctx: NavCtx, blockId: BlockId, offset: number): NavCtx {
  */
 export function firstBlockId(ctx: NavCtx): BlockId {
   // The root holds sections only — descend to the first paragraph.
-  const id = firstLeafBlock(ctx.editor.state, ctx.editor.state.rootId);
+  const id = firstLeafBlock(ctx.editor.document, ctx.editor.document.rootId);
   if (id === null) {
     throw new Error("nav-test-helpers: editor seed has no content block");
   }

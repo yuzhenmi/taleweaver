@@ -28,27 +28,27 @@ export function handleDeleteBackward(editor: EditorState): Edit | null {
   // in BOTH direct and suggesting mode (matching deleteAdjacentAtomicLeaf, which
   // has no suggesting branch — whole-block deletion-as-suggestion does not exist
   // for any atomic block; a pre-existing change-tracking gap, not specific to object deletion).
-  const objId = isObjectSelection(editor.state, selection, config.componentRegistry);
+  const objId = isObjectSelection(editor.document, selection, config.componentRegistry);
   if (objId !== null) return deleteObjectSelection(editor, objId);
 
   // Non-collapsed: delete range. Cursor goes to spanStart.
   if (!isCollapsed(selection)) {
     // Cross-CONTEXT selection refusal (see isCrossContextSelection).
-    if (isCrossContextSelection(editor.state, selection)) return null;
+    if (isCrossContextSelection(editor.document, selection)) return null;
     // Deletable-span guard + collapse point (see expandedSpanCollapsePoint):
     // refuses an unresolvable or cross-parent span.
-    const start = expandedSpanCollapsePoint(editor.state, selection);
+    const start = expandedSpanCollapsePoint(editor.document, selection);
     if (start === null) return null;
     const result = deleteRangeOrSuggest(editor, selection);
     // A suggesting soft-delete keeps the text (struck): the caret goes to the start of
     // the span's text (a covered object stays — `clipSpanToText`).
-    const at = isSuggestingInBlock(editor, spanStart(editor.state, selection).blockId)
-      ? clipSpanToText(editor.state, selection).anchor
+    const at = isSuggestingInBlock(editor, spanStart(editor.document, selection).blockId)
+      ? clipSpanToText(editor.document, selection).anchor
       : start;
     const newCursor = createPosition(at.blockId, at.offset);
     const newSelection = createSpan(newCursor, newCursor);
     // Suggesting mode over an already-struck selection: a caret-only outcome.
-    if (result.state === editor.state) return { selection: newSelection };
+    if (result.state === editor.document) return { selection: newSelection };
     return { change: result, selection: newSelection };
   }
 
@@ -56,22 +56,22 @@ export function handleDeleteBackward(editor: EditorState): Edit | null {
 
   // Mid-block: delete one grapheme cluster going backward. Only markers before the
   // caret (not caret stops) → `prev` is in the previous block: the ¶ path below.
-  const prev = pos.offset > 0 ? moveByCharacter(editor.state, pos, "backward") : null;
+  const prev = pos.offset > 0 ? moveByCharacter(editor.document, pos, "backward") : null;
   if (prev !== null && prev.blockId === pos.blockId) {
     if (prev.offset === pos.offset) return null;
     // A character of an atomic mark deletes the whole mark.
-    const span = expandSpanOverAtomicMarks(editor.state, createSpan(prev, pos));
+    const span = expandSpanOverAtomicMarks(editor.document, createSpan(prev, pos));
     const result = deleteRangeOrSuggest(editor, span);
     const newCursor = createPosition(span.anchor.blockId, span.anchor.offset);
     const newSelection = createSpan(newCursor, newCursor);
     // Suggesting mode over an already-struck character (any author): nothing is
     // written; the caret moves across it (no history entry).
-    if (result.state === editor.state) return { selection: newSelection };
+    if (result.state === editor.document) return { selection: newSelection };
     return { change: result, selection: newSelection };
   }
 
   // The caret is at the block's first caret position: cross-block backspace.
-  const currentBlock = resolveBlock(editor.state, pos.blockId)?.block ?? null;
+  const currentBlock = resolveBlock(editor.document, pos.blockId)?.block ?? null;
   if (currentBlock === null) return null;
 
   // Backspace at the START of a list-item (Google Docs): a nested item (level>0)
@@ -86,7 +86,7 @@ export function handleDeleteBackward(editor: EditorState): Edit | null {
   // Backspace at (N, 0) removes the ¶ before N — the unit
   // before N's first caret position (its previous sibling's ¶, or across a doc-root
   // section boundary the previous section's section-end item).
-  const before = blockBefore(editor.state, currentBlock);
+  const before = blockBefore(editor.document, currentBlock);
   if (before === null) return null; // a flow's first caret position: no-op
   const prevBlock = before.block;
   const prevLen = prevBlock.inlineContent === null ? 0 : inlineContentLength(prevBlock.inlineContent);
@@ -99,8 +99,8 @@ export function handleDeleteBackward(editor: EditorState): Edit | null {
     // deleted section break) instead of the real merge.
     const sectionInput = suggestionInputForBlock(editor, currentBlock.id);
     if (sectionInput !== null) return suggestMarkDeletion(editor, prevBlock, sectionInput, createPosition(prevBlock.id, prevLen));
-    const result = deleteSectionBreak(editor.state, before.sectionBreak);
-    if (result.state === editor.state) return null;
+    const result = deleteSectionBreak(editor.document, before.sectionBreak);
+    if (result.state === editor.document) return null;
     return caretEdit(result, createPosition(currentBlock.id, prevLen));
   }
 
@@ -118,8 +118,8 @@ export function handleDeleteBackward(editor: EditorState): Edit | null {
     // keyed only when accepting would remove it (invariant I); the caret stays.
     const ownInput = suggestionInputForBlock(editor, currentBlock.id);
     if (ownInput !== null) return suggestMarkDeletion(editor, currentBlock, ownInput, pos);
-    const result = removeBlock(editor.state, currentBlock.id);
-    if (result.state === editor.state || resolveBlock(result.state, currentBlock.id) !== null) return null;
+    const result = removeBlock(editor.document, currentBlock.id);
+    if (result.state === editor.document || resolveBlock(result.state, currentBlock.id) !== null) return null;
     const lastId = lastLeafBlock(result.state, prevBlock.id);
     const last = lastId === null ? null : getBlock(result.state, lastId);
     if (last === null || last.inlineContent === null) return null;
@@ -134,8 +134,8 @@ export function handleDeleteBackward(editor: EditorState): Edit | null {
 
   // Delete ¶prev: the right paragraph N survives holding [...prev, ...N];
   // the caret sits at the seam.
-  const result = mergeAdjacentBlocks(editor.state, prevBlock.id, currentBlock.id);
-  if (result.state === editor.state) return null;
+  const result = mergeAdjacentBlocks(editor.document, prevBlock.id, currentBlock.id);
+  if (result.state === editor.document) return null;
   return caretEdit(result, createPosition(result.survivorId, prevLen));
 }
 

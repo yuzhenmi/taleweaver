@@ -10,7 +10,7 @@
  * one moved between blocks) is a different item → reported as orphaned.
  */
 import * as Y from "yjs";
-import type { State } from "../state/state";
+import type { Document } from "../state/state";
 import { getBlock, resolveBlock } from "../state/state";
 import { STATE_INTERNAL } from "../state/state-internal";
 import type { BlockId } from "../state/block-id";
@@ -19,18 +19,18 @@ import { requireBlockText, pointInRegion, type BlockText } from "../state/block-
 import { readCtx, regionOf, positionAtPieceIndex } from "../state/flow-read";
 import { isPiece } from "../state/y-flow";
 
-/** The underlying Y.Doc of a State (test-only encapsulation pierce). */
-export function docOf(state: State): Y.Doc {
+/** The underlying Y.Doc of a Document (test-only encapsulation pierce). */
+export function docOf(state: Document): Y.Doc {
   return state[STATE_INTERNAL].doc;
 }
 
 /** Block `id`'s inline text surface. */
-export function blockText(state: State, id: string): BlockText {
+export function blockText(state: Document, id: string): BlockText {
   return requireBlockText(docOf(state), id as BlockId, "blockText");
 }
 
 /** Mint a `RelativePosition` anchored to the character at block offset `offset` of block `id`. */
-export function relAt(state: State, id: string, offset: number): Y.RelativePosition {
+export function relAt(state: Document, id: string, offset: number): Y.RelativePosition {
   const doc = docOf(state);
   const ctx = readCtx(doc);
   const region = regionOf(ctx, id);
@@ -44,7 +44,7 @@ export function relAt(state: State, id: string, offset: number): Y.RelativePosit
  * True iff `rel`'s anchor character is still live, in a live block, and is
  * `expectChar`. See module docstring.
  */
-export function survives(rel: Y.RelativePosition, state: State, expectChar: string): boolean {
+export function survives(rel: Y.RelativePosition, state: Document, expectChar: string): boolean {
   const doc = docOf(state);
   const item = rel.item === null ? null : followRedoneItem(doc, rel.item);
   if (item === null || item.deleted) return false;

@@ -125,7 +125,7 @@ function typeOverAttrs(state: State, start: Position, registry: AttrRegistry): R
  */
 export function getTypingAttrs(editor: EditorState): ReadonlyAttrs {
   if (editor.storedAttrs !== undefined) return editor.storedAttrs;
-  const { state, selection } = editor;
+  const { document: state, selection } = editor;
   return isCollapsed(selection)
     ? inheritedAttrsAt(state, selection.focus)
     : typeOverAttrs(state, spanStart(state, selection), registryOf(state));

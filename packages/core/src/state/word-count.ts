@@ -1,4 +1,4 @@
-import type { State } from "./state";
+import type { Document } from "./state";
 import { getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import type { Selection } from "./block-position";
@@ -116,7 +116,7 @@ export function countText(text: string): WordCount {
  * An empty document / all-empty blocks → `{ words: 0, characters: 0,
  * charactersExcludingSpaces: 0 }`.
  */
-export function getWordCount(state: State, options?: WordCountOptions): WordCount {
+export function getWordCount(state: Document, options?: WordCountOptions): WordCount {
   let words = 0;
   let characters = 0;
   let charactersExcludingSpaces = 0;
@@ -180,7 +180,7 @@ export function getWordCount(state: State, options?: WordCountOptions): WordCoun
  * `{ words: 0, characters: 0, charactersExcludingSpaces: 0 }`.
  */
 export function getSelectionWordCount(
-  state: State,
+  state: Document,
   selection: Selection,
   suggestionView: SuggestionView = "suggesting",
 ): WordCount {
@@ -202,7 +202,7 @@ export function getSelectionWordCount(
  * content, so yielding leaves only is identical to the old behavior here.
  */
 function* iterateTargetBlocks(
-  state: State,
+  state: Document,
   blockIds: Iterable<BlockId> | undefined,
 ): Iterable<BlockId> {
   if (blockIds !== undefined) {

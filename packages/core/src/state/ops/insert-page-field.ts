@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 import { requireBlockText } from "../block-text";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { Position } from "../block-position";
@@ -45,7 +45,7 @@ interface PageFieldInsertPlan {
  * (no `inlineContent`), or `position.offset` is outside `[0, length]`.
  */
 export function insertPageField(
-  state: State,
+  state: Document,
   position: Position,
   fieldKind: PageFieldKind,
   numberStyle: PageFieldNumberStyle = "decimal",
@@ -63,7 +63,7 @@ export function insertPageField(
  * here, BEFORE the surrounding `applyOperation` opens.
  */
 function planPageFieldInsert(
-  state: State,
+  state: Document,
   position: Position,
   fieldKind: PageFieldKind,
   numberStyle: PageFieldNumberStyle,

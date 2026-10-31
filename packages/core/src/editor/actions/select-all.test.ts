@@ -155,8 +155,8 @@ describe("SELECT_ALL — context-aware span", () => {
     expect(focus.blockId).toBe(BODY_P2);
     expect(focus.offset).toBe("body two".length);
     // The whole span is in the main context.
-    expect(selectionContextOf(next.state, anchor.blockId)).toBe(next.state.rootId);
-    expect(selectionContextOf(next.state, focus.blockId)).toBe(next.state.rootId);
+    expect(selectionContextOf(next.document, anchor.blockId)).toBe(next.document.rootId);
+    expect(selectionContextOf(next.document, focus.blockId)).toBe(next.document.rootId);
     // Does NOT touch the header/footer.
     expect(anchor.blockId).not.toBe(HDR_P1);
     expect(focus.blockId).not.toBe(HDR_P2);
@@ -174,9 +174,9 @@ describe("SELECT_ALL — context-aware span", () => {
     expect(focus.blockId).toBe(HDR_P2);
     expect(focus.offset).toBe("beta".length);
     // Whole span is in the header context, NOT the main body.
-    expect(selectionContextOf(next.state, anchor.blockId)).toBe(HDR_ROOT);
-    expect(selectionContextOf(next.state, focus.blockId)).toBe(HDR_ROOT);
-    expect(selectionContextOf(next.state, anchor.blockId)).not.toBe(next.state.rootId);
+    expect(selectionContextOf(next.document, anchor.blockId)).toBe(HDR_ROOT);
+    expect(selectionContextOf(next.document, focus.blockId)).toBe(HDR_ROOT);
+    expect(selectionContextOf(next.document, anchor.blockId)).not.toBe(next.document.rootId);
     // Does NOT include the main body or the footer.
     expect(anchor.blockId).not.toBe(BODY_P1);
     expect(focus.blockId).not.toBe(BODY_P2);
@@ -192,8 +192,8 @@ describe("SELECT_ALL — context-aware span", () => {
     expect(anchor.offset).toBe(0);
     expect(focus.blockId).toBe(FTR_P1);
     expect(focus.offset).toBe("footer text".length);
-    expect(selectionContextOf(next.state, anchor.blockId)).toBe(FTR_ROOT);
-    expect(selectionContextOf(next.state, focus.blockId)).toBe(FTR_ROOT);
+    expect(selectionContextOf(next.document, anchor.blockId)).toBe(FTR_ROOT);
+    expect(selectionContextOf(next.document, focus.blockId)).toBe(FTR_ROOT);
     // Does NOT include the main body or the header.
     expect(anchor.blockId).not.toBe(BODY_P1);
     expect(focus.blockId).not.toBe(HDR_P2);

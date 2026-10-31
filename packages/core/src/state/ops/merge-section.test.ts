@@ -7,13 +7,13 @@
  */
 import { describe, it, expect } from "vitest";
 import { deleteSectionBreak } from "./merge-section";
-import { getBlock, type State } from "../state";
+import { getBlock, type Document } from "../state";
 import { buildFlowDoc } from "../../test-utils/state-builders";
 import { flowShape, assertInvariantI } from "../../test-utils/invariant-i";
 import type { BlockId } from "../block-id";
 
 const id = (s: string) => s as BlockId;
-const childIds = (s: State, parent: string): string[] => {
+const childIds = (s: Document, parent: string): string[] => {
   const out: string[] = [];
   for (let c = getBlock(s, id(parent))?.firstChildId ?? null; c !== null; c = getBlock(s, c)?.nextSiblingId ?? null) out.push(c);
   return out;

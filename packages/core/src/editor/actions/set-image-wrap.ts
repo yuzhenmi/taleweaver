@@ -31,7 +31,7 @@ export function handleSetImageWrap(
   editor: EditorState,
   { blockId, wrap }: ActionOf<"SET_IMAGE_WRAP">,
 ): Edit | null {
-  const block = getBlock(editor.state, blockId);
+  const block = getBlock(editor.document, blockId);
   if (block === null || block.type !== "image") return null;
   if (!VALID_WRAP.has(wrap)) return null;
 
@@ -39,11 +39,11 @@ export function handleSetImageWrap(
   // byte-identical state. left/right store the value.
   const incoming = wrap === "break" ? { wrap: undefined } : { wrap };
   const result = mergeBlockAttrs(
-    editor.state,
+    editor.document,
     blockId,
     incoming,
   );
-  if (result.state === editor.state) return null;
+  if (result.state === editor.document) return null;
 
   return { change: result };
 }

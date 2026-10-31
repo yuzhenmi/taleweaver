@@ -37,7 +37,7 @@ import {
  * (document replaced) or spanning several document changes is unknown.
  */
 export function transitionMapping(prev: EditorState, next: EditorState): PositionMapping {
-  if (prev.state === next.state) return IDENTITY_MAPPING;
+  if (prev.document === next.document) return IDENTITY_MAPPING;
   // `lastChange` links the recent document changes. Walk back to the one made from
   // `prev.state` (a host may batch several dispatches before handing the controller a
   // state) and diff `prev.state` → `next.state` ONCE over the union of their dirty blocks.
@@ -47,7 +47,7 @@ export function transitionMapping(prev: EditorState, next: EditorState): Positio
   const links: DocumentChange[] = [];
   for (let c = next.lastChange; c !== null; c = c.prior) {
     links.push(c);
-    if (c.from === prev.state) return mappingAcross(links.reverse(), next.state, editStart(prev), editStart(next));
+    if (c.from === prev.document) return mappingAcross(links.reverse(), next.document, editStart(prev), editStart(next));
   }
   return UNKNOWN_MAPPING;
 }
@@ -208,7 +208,7 @@ export function createDecorationLayers(): DecorationLayers {
       remerge();
     },
     advance(prev, next, given) {
-      if (prev.state === next.state) return;
+      if (prev.document === next.document) return;
       const anything =
         host !== EMPTY_DECORATION_SET ||
         find !== EMPTY_DECORATION_SET ||
@@ -220,36 +220,36 @@ export function createDecorationLayers(): DecorationLayers {
       // A text-identical change (formatting, accepting/rejecting a suggestion) moves no
       // position but can still change which runs are tracked.
       const changed = mapping.dirty ?? null;
-      const touched = mapping.identity ? (next.lastChange?.from === prev.state ? next.lastChange.dirtyIds : null) : changed;
+      const touched = mapping.identity ? (next.lastChange?.from === prev.document ? next.lastChange.dirtyIds : null) : changed;
       if (mapping.identity && touched === null) return;
-      host = mapDecorationSet(host, mapping, next.state);
-      find = mapDecorationSet(find, mapping, next.state);
+      host = mapDecorationSet(host, mapping, next.document);
+      find = mapDecorationSet(find, mapping, next.document);
       // Comment / suggestion ranges are derived from document content: re-scan only when
       // the edit touched a marker / tracked run (it may have created, split or removed
       // one); otherwise their ranges move exactly like any other positions.
       if (comments !== null) {
         // Markers are characters in the text, so unless one was added/removed/moved across
         // blocks the ranges map exactly (end inclusive — see commentHighlightDecorations).
-        commentSet = markersChanged(prev.state, next.state, touched)
-          ? deriveComments(next.state)
-          : mapDecorationSet(commentSet, mapping, next.state);
+        commentSet = markersChanged(prev.document, next.document, touched)
+          ? deriveComments(next.document)
+          : mapDecorationSet(commentSet, mapping, next.document);
       }
       // ponytail: re-scans the whole document when an edit touches a tracked run (every
       // keystroke in suggesting mode while suggestion highlights are shown); upgrade to a
       // per-block incremental suggestion range index if it shows up in profiles.
       if (suggestions !== null) {
-        suggestionSet = dirtyTouches(prev.state, next.state, touched, holdsSuggestion)
-          ? deriveSuggestions(next.state)
-          : mapDecorationSet(suggestionSet, mapping, next.state);
+        suggestionSet = dirtyTouches(prev.document, next.document, touched, holdsSuggestion)
+          ? deriveSuggestions(next.document)
+          : mapDecorationSet(suggestionSet, mapping, next.document);
       }
       // Group styling: group records live in a side table (a change to them surfaces the
       // root as dirty), runs in the blocks — re-derive when either was touched.
       if (groupStyle !== null) {
-        const records = touched === null || touched.has(next.state.rootId);
+        const records = touched === null || touched.has(next.document.rootId);
         groupStyleSet =
-          records || dirtyTouches(prev.state, next.state, touched, holdsSuggestion)
-            ? deriveGroupStyles(next.state)
-            : mapDecorationSet(groupStyleSet, mapping, next.state);
+          records || dirtyTouches(prev.document, next.document, touched, holdsSuggestion)
+            ? deriveGroupStyles(next.document)
+            : mapDecorationSet(groupStyleSet, mapping, next.document);
       }
       remerge();
     },

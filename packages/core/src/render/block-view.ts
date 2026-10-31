@@ -46,7 +46,7 @@ export type BlockView = ContainerBlockView | LeafBlockView;
 
 /**
  * Per-render-cycle context handed to every component's `render`. Carries the
- * read-only `State` and the footnote-number lookup; keeps `BlockView` focused
+ * read-only `Document` and the footnote-number lookup; keeps `BlockView` focused
  * on "this block's data."
  */
 export interface RenderContext {

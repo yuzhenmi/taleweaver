@@ -95,7 +95,7 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
     const next = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "unordered" });
 
     // The single shared def flipped — affects ALL items, not just the focus item.
-    expect(listKind(next.state, "L1")).toBe("unordered");
+    expect(listKind(next.document, "L1")).toBe("unordered");
   });
 
   it("no-op when the list is already the requested type (same editor reference)", () => {
@@ -136,10 +136,10 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
       focus: createPosition("i1" as BlockId, 0),
     });
     const changed = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "unordered" });
-    expect(listKind(changed.state, "L1")).toBe("unordered");
+    expect(listKind(changed.document, "L1")).toBe("unordered");
 
     const undone = reduceEditor(changed, { type: "UNDO" });
-    expect(listKind(undone.state, "L1")).toBe("ordered");
+    expect(listKind(undone.document, "L1")).toBe("ordered");
   });
 
   it("range selection spanning two lists changes BOTH lists' types", () => {
@@ -184,8 +184,8 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
     );
     const next = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "unordered" });
 
-    expect(listKind(next.state, "L1")).toBe("unordered");
-    expect(listKind(next.state, "L2")).toBe("unordered");
+    expect(listKind(next.document, "L1")).toBe("unordered");
+    expect(listKind(next.document, "L2")).toBe("unordered");
   });
 });
 
@@ -203,10 +203,10 @@ describe("handleSetListRestart — SET_LIST_RESTART (#L15)", () => {
     const next = reduceEditor(editor, { type: "SET_LIST_RESTART", value: 5 });
 
     // The attr is written on the focus item.
-    expect(getBlock(next.state, "i1" as BlockId)?.attrs.listCounterOverride).toBe(5);
+    expect(getBlock(next.document, "i1" as BlockId)?.attrs.listCounterOverride).toBe(5);
     // i1 restarts at 5 and i2 (the following item) renumbers to 6.
-    expect(counterValue(next.state, "i1")).toBe(5);
-    expect(counterValue(next.state, "i2")).toBe(6);
+    expect(counterValue(next.document, "i1")).toBe(5);
+    expect(counterValue(next.document, "i2")).toBe(6);
   });
 
   it("value null clears the override (item resumes the natural sequence)", () => {
@@ -217,7 +217,7 @@ describe("handleSetListRestart — SET_LIST_RESTART (#L15)", () => {
         focus: createPosition("i1" as BlockId, 0),
       }),
       { type: "SET_LIST_RESTART", value: 5 },
-    ).state;
+    ).document;
     expect(counterValue(state, "i1")).toBe(5);
 
     const editor = makeEditor(state, {
@@ -226,10 +226,10 @@ describe("handleSetListRestart — SET_LIST_RESTART (#L15)", () => {
     });
     const cleared = reduceEditor(editor, { type: "SET_LIST_RESTART", value: null });
 
-    expect(getBlock(cleared.state, "i1" as BlockId)?.attrs.listCounterOverride).toBeUndefined();
+    expect(getBlock(cleared.document, "i1" as BlockId)?.attrs.listCounterOverride).toBeUndefined();
     // Back to the natural sequence: i1=2, i2=3.
-    expect(counterValue(cleared.state, "i1")).toBe(2);
-    expect(counterValue(cleared.state, "i2")).toBe(3);
+    expect(counterValue(cleared.document, "i1")).toBe(2);
+    expect(counterValue(cleared.document, "i2")).toBe(3);
   });
 
   it("no-op when the caret is not in a list-item", () => {
@@ -261,7 +261,7 @@ describe("handleSetListRestart — SET_LIST_RESTART (#L15)", () => {
         focus: createPosition("i1" as BlockId, 0),
       }),
       { type: "SET_LIST_RESTART", value: 5 },
-    ).state;
+    ).document;
 
     const editor = makeEditor(state, {
       anchor: createPosition("i1" as BlockId, 0),

@@ -5,7 +5,7 @@ import { getBlock } from "./state";
 import type { BlockId } from "./block-id";
 
 describe("createEmptyDocument", () => {
-  it("returns a State with a non-empty rootId", () => {
+  it("returns a Document with a non-empty rootId", () => {
     const state = createEmptyDocument({ resolver: TEST_RESOLVER });
     expect(state.rootId).toBeTruthy();
   });

@@ -1,4 +1,4 @@
-import type { State } from "./state";
+import type { Document } from "./state";
 import type { Selection } from "./block-position";
 import type { BlockId } from "./block-id";
 import { resolveTableContext, buildTableGrid } from "./table-context";
@@ -36,7 +36,7 @@ export interface CellRange {
  * Word: a merge region never bisects a merged cell). Convergence: each step
  * strictly grows the box, bounded by `rowCount × columnCount`.
  */
-export function resolveCellRange(state: State, selection: Selection): CellRange | null {
+export function resolveCellRange(state: Document, selection: Selection): CellRange | null {
   const anchorCtx = resolveTableContext(state, selection.anchor.blockId);
   const focusCtx = resolveTableContext(state, selection.focus.blockId);
   if (anchorCtx === null || focusCtx === null) return null;

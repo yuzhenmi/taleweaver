@@ -30,7 +30,7 @@ const layoutMeasurer = createMockShaper(8, 16);
 
 /** Build the layout tree the backend driver would (render → cascade → layout). */
 function layoutOf(editor: EditorState, config: EditorConfig): VirtualLayoutTree | LayoutBox {
-  const rendered = render(editor.state, config.componentRegistry, config.attrRegistry);
+  const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   return layoutTree(cascaded, config.containerWidth, layoutMeasurer, config.pageConfig);
 }
@@ -253,7 +253,7 @@ describe("virtualized layout — EditorState.layoutTree is virtual-root after a 
     // Initial paginated layout is already virtual.
     expect(layoutOf(editor0, config).type).toBe("virtual-root");
 
-    const root = finalSection(editor0.state);
+    const root = finalSection(editor0.document);
     if (root === null || root.firstChildId === null) throw new Error("no first child");
     const firstId = root.firstChildId;
     const editor1 = reduceEditor(

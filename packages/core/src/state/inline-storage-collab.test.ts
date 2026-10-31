@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import { applyOperation, createState, getBlock, freshState, type State } from "./state";
+import { applyOperation, createState, getBlock, freshState, type Document } from "./state";
 import { createHistory } from "./history";
 import { insertText } from "./ops/insert-text";
 import { applyAttrsToRangeInTx, planApplyAttrsToRange } from "./ops/apply-attrs";
@@ -32,7 +32,7 @@ import { blockText, relAt, survives } from "../test-utils/relpos-survival";
 const P = "p" as BlockId;
 const UNTRACKED = Symbol("peer");
 
-function oneBlock(runs = [text("abcdef")]): State {
+function oneBlock(runs = [text("abcdef")]): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -44,18 +44,18 @@ function oneBlock(runs = [text("abcdef")]): State {
 }
 
 const span = (a: number, b: number) => createSpan(createPosition(P, a), createPosition(P, b));
-const itemsOf = (s: State) => getBlock(s, P)?.inlineContent?.items ?? [];
-const textOf = (s: State) => itemsOf(s).map((i) => (i.kind === "text" ? i.text : "￼")).join("");
+const itemsOf = (s: Document) => getBlock(s, P)?.inlineContent?.items ?? [];
+const textOf = (s: Document) => itemsOf(s).map((i) => (i.kind === "text" ? i.text : "￼")).join("");
 
 /** A second peer synced from `s`'s doc. */
-function peerOf(s: State): State {
+function peerOf(s: Document): Document {
   const doc = new Y.Doc();
   Y.applyUpdate(doc, Y.encodeStateAsUpdate(s[STATE_INTERNAL].doc));
   return createState({ resolver: TEST_RESOLVER, rootId: s.rootId, doc });
 }
 
-/** Exchange updates both ways; return fresh States over each doc. */
-function sync(a: State, b: State): [State, State] {
+/** Exchange updates both ways; return fresh Documents over each doc. */
+function sync(a: Document, b: Document): [Document, Document] {
   const da = a[STATE_INTERNAL].doc;
   const db = b[STATE_INTERNAL].doc;
   Y.applyUpdate(db, Y.encodeStateAsUpdate(da));
@@ -64,7 +64,7 @@ function sync(a: State, b: State): [State, State] {
 }
 
 /** Format `[a, b)` of block p with `attrs` as an UNTRACKED (foreign) transaction. */
-function foreignFormat(s: State, a: number, b: number, attrs: Record<string, unknown>): State {
+function foreignFormat(s: Document, a: number, b: number, attrs: Record<string, unknown>): Document {
   const plan = planApplyAttrsToRange(s, span(a, b));
   if (plan === null) throw new Error("empty format plan");
   return applyOperation(s, (doc) => applyAttrsToRangeInTx(doc, plan, attrs), { origin: UNTRACKED }).state;
@@ -113,7 +113,7 @@ describe("T6 — convergence", () => {
 });
 
 describe("T6 — no whole-block rewrite: every former rewriter keeps other characters", () => {
-  type Op = (s: State) => State;
+  type Op = (s: Document) => Document;
   const ops: [string, Op][] = [
     ["insertCommentMarkers", (s) => insertCommentMarkers(s, span(1, 4), "c1" as CommentId).state],
     [

@@ -109,7 +109,7 @@ export function useWritingAids(
   setDecorations: (decorations: readonly Decoration[], basedOn: State) => void,
   extra: () => readonly Decoration[] = () => [],
 ): void {
-  const state = editorState.state;
+  const state = editorState.document;
   useEffect(() => {
     // Computed against `state`; the editor maps the result through any edits made since.
     const compute = () => [

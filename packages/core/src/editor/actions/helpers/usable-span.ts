@@ -5,6 +5,6 @@ import { isCrossContextSelection } from "./is-cross-context-selection";
 
 export function usableSpan(editor: EditorState, span: Span | undefined): Span | null {
   const target = span ?? editor.selection;
-  if (isCollapsed(target) || isCrossContextSelection(editor.state, target)) return null;
+  if (isCollapsed(target) || isCrossContextSelection(editor.document, target)) return null;
   return target;
 }

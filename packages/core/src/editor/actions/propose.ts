@@ -39,13 +39,13 @@ export function handlePropose(
   const outcomeOf = (verdict: Verdict): ProposalOutcome => chainOutcome(editor.lastProposal, { ...verdict, proposal: input });
   const verdict = (v: Verdict): Edit => ({ proposal: outcomeOf(v) });
   let proposal = input;
-  if (basedOn !== undefined && basedOn !== editor.state) {
+  if (basedOn !== undefined && basedOn !== editor.document) {
     const mapping = mappingSince(editor, basedOn);
     const mapped = mapping === null ? null : mapProposal(input, mapping);
     if (mapped === null) return verdict({ groupId: input.groupId, outcome: "stale" });
     proposal = mapped;
   }
-  const problem = validateProposal(editor.state, proposal);
+  const problem = validateProposal(editor.document, proposal);
   if (problem !== null) return verdict({ groupId: proposal.groupId, outcome: "rejected", problem });
   // Per-instance untracked origin: wraps the dispatching host's own (ambient) origin,
   // so no History tracks it but the host's own foreign-change subscription treats it

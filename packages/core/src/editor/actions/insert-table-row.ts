@@ -20,13 +20,13 @@ export function handleInsertTableRow(
   editor: EditorState,
   { position }: ActionOf<"INSERT_TABLE_ROW">,
 ): Edit | null {
-  const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
+  const ctx = resolveTableContext(editor.document, editor.selection.focus.blockId);
   if (ctx === null || ctx.ragged) return null;
 
   const result = ctx.spanned
-    ? insertTableRowSpanAware(editor.state, ctx, position, productionAllocator)
-    : insertTableRow(editor.state, ctx, position, productionAllocator);
-  if (result.state === editor.state) return null; // defensive no-op short-circuit
+    ? insertTableRowSpanAware(editor.document, ctx, position, productionAllocator)
+    : insertTableRow(editor.document, ctx, position, productionAllocator);
+  if (result.state === editor.document) return null; // defensive no-op short-circuit
 
   return { change: { state: result.state, dirtyIds: result.dirtyIds } };
 }

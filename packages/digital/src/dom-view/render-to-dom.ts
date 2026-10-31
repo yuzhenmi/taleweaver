@@ -32,7 +32,7 @@ export interface RenderDocumentToDomOptions {
 }
 
 /**
- * Render a document `State` into real DOM the browser flows to any width — the
+ * Render a document `Document` into real DOM the browser flows to any width — the
  * read-only digital view. Pipeline: render() → cascadePass() → renderNodeToDom().
  * No engine geometry, no pages: the browser does layout. Pass `suggestionView`
  * to choose tracked-changes ("suggesting", default) vs clean ("final") output.
@@ -55,7 +55,7 @@ export interface StyledTree {
 }
 
 /**
- * render() → cascade, full or incremental (pass the previous tree + its State + the dirty
+ * render() → cascade, full or incremental (pass the previous tree + its Document + the dirty
  * set). The ONE place digital runs the pipeline, so render options such as
  * `suggestionView` can never drift between the viewer, a full rebuild and an incremental
  * reconcile.

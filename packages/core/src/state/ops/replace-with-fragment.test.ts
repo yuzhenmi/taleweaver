@@ -20,7 +20,7 @@ import {
   type SuggestionId,
 } from "../suggestions";
 import { buildState, buildBlock, inlineContent, text, finalSectionOf } from "../../test-utils/state-builders";
-import { resolveBlock, type State } from "../state";
+import { resolveBlock, type Document } from "../state";
 import { createPosition, createSpan } from "../block-position";
 import { asBlockId, createTestAllocator } from "../block-id";
 
@@ -31,15 +31,15 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 }
 
 const INPUT = (id: string) => ({ id: id as SuggestionId, author: "alice", createdAt: 1 });
-function oneBlock(s = "abcdef"): State {
+function oneBlock(s = "abcdef"): Document {
   return buildState({ rootId: "doc", blocks: [
     buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
     buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text(s)]) }) ] });
 }
-const blockText = (st: State, id: string) =>
+const blockText = (st: Document, id: string) =>
   (resolveBlock(st, asBlockId(id))?.block.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
-const breakOf = (st: State, id: string) => resolveBlock(st, asBlockId(id))?.block.breakSuggestion;
-const blockSeq = (st: State): string[] => {
+const breakOf = (st: Document, id: string) => resolveBlock(st, asBlockId(id))?.block.breakSuggestion;
+const blockSeq = (st: Document): string[] => {
   const out: string[] = [];
   let id = resolveBlock(st, finalSectionOf(st))?.block.firstChildId ?? null;
   while (id) { out.push(id); id = resolveBlock(st, id)?.block.nextSiblingId ?? null; }
@@ -161,13 +161,13 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
 const REPL = (d: string, i: string) => ({
   deletionId: d as SuggestionId, insertionId: i as SuggestionId, author: "alice", createdAt: 1,
 });
-function twoBlocks(a: string, b: string): State {
+function twoBlocks(a: string, b: string): Document {
   return buildState({ rootId: "doc", blocks: [
     buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
     buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text(a)]) }),
     buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text(b)]) }) ] });
 }
-const hasJoinTag = (st: State, id: string, sugId: string): boolean =>
+const hasJoinTag = (st: Document, id: string, sugId: string): boolean =>
   breakOf(st, id)?.deletionId === sugId;
 
 describe("replaceWithSuggestedFragment — strike + fragment (PF-2)", () => {

@@ -8,7 +8,7 @@ import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import type { BlockId } from "./block-id";
 import { createTestAllocator } from "./block-id";
-import { createState, getBlock, getEmbedContent, getTemplateContent, applyOperation, type State } from "./state";
+import { createState, getBlock, getEmbedContent, getTemplateContent, applyOperation, type Document } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 import { createEmptyDocument } from "./initial-state";
 import { splitBlockAtPosition } from "./ops/split-block";
@@ -28,22 +28,22 @@ import { assertInvariantI, flowShape } from "../test-utils/invariant-i";
 
 const id = (s: string) => s as BlockId;
 const pos = (b: string, o: number): Position => createPosition(id(b), o);
-const docOf = (s: State) => s[STATE_INTERNAL].doc;
+const docOf = (s: Document) => s[STATE_INTERNAL].doc;
 
 const build = buildFlowDoc;
 
-const shape = (s: State) => flowShape(s, "doc");
-const childIds = (s: State, parent: string): string[] => {
+const shape = (s: Document) => flowShape(s, "doc");
+const childIds = (s: Document, parent: string): string[] => {
   const out: string[] = [];
   for (let c = getBlock(s, id(parent))?.firstChildId ?? null; c !== null; c = getBlock(s, c)?.nextSiblingId ?? null) out.push(c);
   return out;
 };
-const finalSection = (s: State): string => {
+const finalSection = (s: Document): string => {
   const f = getRegistry(docOf(s)).get(s.rootId)?.get("finalSection");
   if (typeof f !== "string") throw new Error("no final section");
   return f;
 };
-const paraMark = (s: State, b: string): Y.Item => {
+const paraMark = (s: Document, b: string): Y.Item => {
   const m = [...liveMarks(docOf(s), b)].find((it) => {
     const e: unknown = it.content instanceof Y.ContentEmbed ? it.content.embed : null;
     return typeof e === "object" && e !== null && (e as { end?: unknown }).end === b;
@@ -51,7 +51,7 @@ const paraMark = (s: State, b: string): Y.Item => {
   if (m === undefined) throw new Error(`no ¶ for ${b}`);
   return m;
 };
-const op = (s: State, fn: (doc: Y.Doc) => void): State => applyOperation(s, fn).state;
+const op = (s: Document, fn: (doc: Y.Doc) => void): Document => applyOperation(s, fn).state;
 
 describe("storage — expected shapes (invariant I through the primitives)", () => {
   it("removeEntity of the flow's last paragraph keeps its ¶ (I2): [L a][P end] → [L a][P ]", () => {
@@ -162,7 +162,7 @@ describe("storage — expected shapes (invariant I through the primitives)", () 
 
   it("concurrent removal of the two paragraphs leaves one empty paragraph (structural-identity :149)", () => {
     const base = build([{ p: "P1", t: "a" }, { p: "P2", t: "b" }]);
-    const peer = (c: number): State => {
+    const peer = (c: number): Document => {
       const d = new Y.Doc();
       d.clientID = c;
       Y.applyUpdate(d, Y.encodeStateAsUpdate(docOf(base)));
@@ -180,7 +180,7 @@ describe("storage — expected shapes (invariant I through the primitives)", () 
 describe("storage: Enter keeps content identity", () => {
   it("Enter at (B, k) keeps every text item's Yjs id; the head gets the new id, the tail keeps B", () => {
     const s0 = build([{ p: "B", t: "abcdef" }]);
-    const ids = (s: State): string[] => {
+    const ids = (s: Document): string[] => {
       const out: string[] = [];
       const flow = entryFlow(getRegistry(docOf(s)).get("doc") ?? new Y.Map());
       for (let u = flow === null ? null : firstUnitOfFlow(flow); u !== null; u = nextUnit(u)) {

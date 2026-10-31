@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import { nextBlockInDocOrder, prevBlockInDocOrder, ancestorChain, firstLeafBlock, lastLeafBlock } from "./block-traversal";
 import { buildBlock, buildState, text, inlineContent } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
-import { getBlock, type State } from "./state";
+import { getBlock, type Document } from "./state";
 
 /** The document's final section: the root's child, the parent of a section-less doc's blocks. */
-const fin = (s: State): string | null => getBlock(s, s.rootId)?.firstChildId ?? null;
+const fin = (s: Document): string | null => getBlock(s, s.rootId)?.firstChildId ?? null;
 
 describe("nextBlockInDocOrder", () => {
   it("returns the first child when the block has children", () => {

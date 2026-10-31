@@ -42,7 +42,7 @@ export function handleClearFormatting(editor: EditorState): Edit | null {
   const result = applyAttrsOrSuggest(editor, selection, incoming);
   // No attr was actually present to remove → no state change → no-op
   // (also short-circuits an already-clean selection, no history entry).
-  if (result.state === editor.state) return null;
+  if (result.state === editor.document) return null;
 
   // An attr-only edit shifts no offsets, so the selection is unchanged — it is
   // committed and rebuilt AS-IS, preserving both endpoints and the anchor/focus

@@ -1,5 +1,5 @@
 import { requireBlockText } from "../block-text";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { Position } from "../block-position";
@@ -62,7 +62,7 @@ interface CrossReferenceInsertPlan {
  * `refMode`); it validates the host position and that the target is a text leaf.
  */
 export function insertCrossReference(
-  state: State,
+  state: Document,
   position: Position,
   targetId: BlockId,
   refMode: CrossReferenceMode,
@@ -119,7 +119,7 @@ function exactBookmarkOver(items: readonly InlineItem[]): string | null {
  * reads + validation happen here, BEFORE the surrounding `applyOperation` opens.
  */
 function planCrossReferenceInsert(
-  state: State,
+  state: Document,
   position: Position,
   targetId: BlockId,
   refMode: CrossReferenceMode,

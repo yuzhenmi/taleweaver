@@ -169,7 +169,7 @@ describe("resolveTableContext", () => {
 });
 
 describe("buildTableGrid", () => {
-  it("builds the occupancy grid for a uniform 2×2 table from the State tree", () => {
+  it("builds the occupancy grid for a uniform 2×2 table from the Document tree", () => {
     const state = buildTableState();
     const grid = buildTableGrid(state, "table" as BlockId);
     expect(grid).not.toBeNull();

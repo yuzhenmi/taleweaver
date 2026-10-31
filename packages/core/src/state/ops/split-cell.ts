@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -48,7 +48,7 @@ export interface SplitCellPlan {
  * already existed), so `columnWidths` is untouched.
  */
 export function splitCell(
-  state: State,
+  state: Document,
   ctx: TableContext,
   allocator: IdAllocator,
 ): OperationResult {
@@ -70,7 +70,7 @@ export function splitCell(
  * is correctly excluded, and the new cells land relative to the row's own cells.
  */
 export function planSplitCell(
-  state: State,
+  state: Document,
   ctx: TableContext,
   allocator: IdAllocator,
 ): SplitCellPlan | null {

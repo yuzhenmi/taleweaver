@@ -291,12 +291,12 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "two" });
     const two = editor.selection.focus.blockId;
-    const one = getBlock(editor.state, two)?.prevSiblingId;
+    const one = getBlock(editor.document, two)?.prevSiblingId;
     if (one === null || one === undefined) throw new Error("no first item");
-    expect(getBlock(editor.state, two)?.markAttrs).toEqual({ bold: true });
+    expect(getBlock(editor.document, two)?.markAttrs).toEqual({ bold: true });
     editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(one, 0), createPosition(two, 3)) });
     editor = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" });
-    const layout = positionTreeForTest(layoutTree(render(editor.state, componentRegistry, attrRegistry).root, 800, shaper));
+    const layout = positionTreeForTest(layoutTree(render(editor.document, componentRegistry, attrRegistry).root, 800, shaper));
     const markers: LayoutBox[] = [];
     const walk = (box: LayoutBox): void => {
       if (box.type === "marker") markers.push(box);
@@ -322,7 +322,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "color me" });
     const pId = (() => {
-      const root = finalSection(editor.state);
+      const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -335,7 +335,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     );
     editor = reduceEditor(editor, { type: "SET_TEXT_COLOR", color: "#ff0000" });
 
-    const renderOutput = render(editor.state, componentRegistry, attrRegistry);
+    const renderOutput = render(editor.document, componentRegistry, attrRegistry);
     const cascaded = cascadePass(renderOutput.root);
 
     function findFirstText(node: RenderNode): RenderNode | null {
@@ -356,7 +356,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     // paints exactly this behind the glyphs).
     editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "#ffff00" });
     const cascadedHl = cascadePass(
-      render(editor.state, componentRegistry, attrRegistry).root,
+      render(editor.document, componentRegistry, attrRegistry).root,
     );
     const hlNode = findFirstText(cascadedHl);
     expect(hlNode?.computedStyle?.backgroundColor).toBe("#ffff00");
@@ -406,7 +406,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" });
     const pId = (() => {
-      const root = finalSection(editor.state);
+      const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -439,7 +439,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       return null;
     }
 
-    function paragraphHeight(state: typeof editor.state): number {
+    function paragraphHeight(state: typeof editor.document): number {
       const layout = positionTreeForTest(
         layoutTree(render(state, componentRegistry, attrRegistry).root, 800, scalingShaper),
       );
@@ -448,13 +448,13 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       return p.blockSize;
     }
 
-    const heightBefore = paragraphHeight(editor.state);
+    const heightBefore = paragraphHeight(editor.document);
 
     editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 });
 
     // Cascade: the affected text node carries the dispatched fontSize.
     const cascaded = cascadePass(
-      render(editor.state, componentRegistry, attrRegistry).root,
+      render(editor.document, componentRegistry, attrRegistry).root,
     );
     const textNode = findFirstText(cascaded);
     expect(textNode).not.toBeNull();
@@ -462,7 +462,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
 
     // Layout reflow: the line/paragraph grew taller because the IFC
     // measured the run at the larger fontSize.
-    const heightAfter = paragraphHeight(editor.state);
+    const heightAfter = paragraphHeight(editor.document);
     expect(heightAfter).toBeGreaterThan(heightBefore);
   });
 
@@ -508,7 +508,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "space me" });
     const pId = (() => {
-      const root = finalSection(editor.state);
+      const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -540,7 +540,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       return null;
     }
 
-    function paragraphHeight(state: typeof editor.state): number {
+    function paragraphHeight(state: typeof editor.document): number {
       const layout = positionTreeForTest(
         layoutTree(render(state, componentRegistry, attrRegistry).root, 800, spacingShaper),
       );
@@ -550,15 +550,15 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     }
 
     // Baseline: default line spacing (no lineHeight attr → INITIAL ratio 1.2).
-    expect(getBlock(editor.state, pId)?.attrs.lineHeight).toBeUndefined();
-    const heightBefore = paragraphHeight(editor.state);
+    expect(getBlock(editor.document, pId)?.attrs.lineHeight).toBeUndefined();
+    const heightBefore = paragraphHeight(editor.document);
 
     editor = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 });
 
     // Cascade: the affected text node's ComputedStyle carries the dispatched
     // unitless ratio (inherits down to the run from the block attr).
     const cascaded = cascadePass(
-      render(editor.state, componentRegistry, attrRegistry).root,
+      render(editor.document, componentRegistry, attrRegistry).root,
     );
     const textNode = findFirstText(cascaded);
     expect(textNode).not.toBeNull();
@@ -568,7 +568,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
 
     // Layout reflow: the line/paragraph grew taller because the IFC measured
     // the run with the larger half-leading derived from lineHeight.
-    const heightAfter = paragraphHeight(editor.state);
+    const heightAfter = paragraphHeight(editor.document);
     expect(heightAfter).toBeGreaterThan(heightBefore);
   });
 
@@ -588,7 +588,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "indent me" });
     const pId = (() => {
-      const root = finalSection(editor.state);
+      const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -611,7 +611,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       return null;
     }
 
-    function paragraphBox(state: typeof editor.state): LayoutBox {
+    function paragraphBox(state: typeof editor.document): LayoutBox {
       const layout = positionTreeForTest(
         layoutTree(render(state, componentRegistry, attrRegistry).root, 800, shaper),
       );
@@ -621,17 +621,17 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     }
 
     // Baseline: no marginInlineStart attr → paragraph sits at the container edge.
-    expect(getBlock(editor.state, pId)?.attrs.marginInlineStart).toBeUndefined();
-    const before = paragraphBox(editor.state);
+    expect(getBlock(editor.document, pId)?.attrs.marginInlineStart).toBeUndefined();
+    const before = paragraphBox(editor.document);
 
     editor = reduceEditor(editor, { type: "INDENT" });
 
     // State: the attr landed.
-    expect(getBlock(editor.state, pId)?.attrs.marginInlineStart).toBe(48);
+    expect(getBlock(editor.document, pId)?.attrs.marginInlineStart).toBe(48);
 
     // Layout: the box moved inline by exactly 48px and its content box narrowed
     // by 48px (the BFC inset + width reduction for an in-flow inline margin).
-    const after = paragraphBox(editor.state);
+    const after = paragraphBox(editor.document);
     expect(after.x).toBe(before.x + 48);
     expect(after.inlineSize).toBe(before.inlineSize - 48);
   });
@@ -662,10 +662,10 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "second" });
 
     const [p1Id, p2Id] = (() => {
-      const root = finalSection(editor.state);
+      const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       const first = root.firstChildId;
-      const firstBlock = getBlock(editor.state, first);
+      const firstBlock = getBlock(editor.document, first);
       if (firstBlock === null || firstBlock.nextSiblingId === null) {
         throw new Error("no second para");
       }
@@ -683,7 +683,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       return null;
     }
 
-    function paraBox(state: typeof editor.state, key: string): LayoutBox {
+    function paraBox(state: typeof editor.document, key: string): LayoutBox {
       const layout = positionTreeForTest(
         layoutTree(render(state, componentRegistry, attrRegistry).root, 800, shaper),
       );
@@ -693,9 +693,9 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     }
 
     // Baseline: no marginBlockEnd attr → the default 0.5em (8px) collapsed gap.
-    expect(getBlock(editor.state, p1Id)?.attrs.marginBlockEnd).toBeUndefined();
-    const p1Before = paraBox(editor.state, p1Id);
-    const p2Before = paraBox(editor.state, p2Id);
+    expect(getBlock(editor.document, p1Id)?.attrs.marginBlockEnd).toBeUndefined();
+    const p1Before = paraBox(editor.document, p1Id);
+    const p2Before = paraBox(editor.document, p2Id);
     const gapBefore = p2Before.y - (p1Before.y + p1Before.blockSize);
 
     // Put the caret in the FIRST paragraph (typing "second" left it collapsed in
@@ -715,12 +715,12 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     );
 
     // State: the attr landed.
-    expect(getBlock(editor.state, p1Id)?.attrs.marginBlockEnd).toBe(60);
+    expect(getBlock(editor.document, p1Id)?.attrs.marginBlockEnd).toBe(60);
 
     // Layout: the second paragraph moved DOWN, and the gap grew to exactly the
     // 60px margin (collapse: max(60, para2.before=0) = 60), not the 8px default.
-    const p1After = paraBox(editor.state, p1Id);
-    const p2After = paraBox(editor.state, p2Id);
+    const p1After = paraBox(editor.document, p1Id);
+    const p2After = paraBox(editor.document, p2Id);
     const gapAfter = p2After.y - (p1After.y + p1After.blockSize);
 
     expect(p2After.y).toBeGreaterThan(p2Before.y);
@@ -737,7 +737,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "font me" });
     const pId = (() => {
-      const root = finalSection(editor.state);
+      const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -754,7 +754,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     );
 
     const cascaded = cascadePass(
-      render(editor.state, componentRegistry, attrRegistry).root,
+      render(editor.document, componentRegistry, attrRegistry).root,
     );
 
     function findFirstText(node: RenderNode): RenderNode | null {

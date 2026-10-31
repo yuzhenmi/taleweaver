@@ -68,7 +68,7 @@ export { MAX_CHANGE_CHAIN } from "./editor/document-change";
 export type { FindRefresh } from "./editor/find-session";
 export type { MappingLog } from "./editor/mapping-log";
 export { createMappingLog, composeMappings, DEFAULT_MAPPING_LOG_CAPACITY } from "./editor/mapping-log";
-// Declarative construction: lower a nested `BlockNode` tree → `State` (mints
+// Declarative construction: lower a nested `BlockNode` tree → `Document` (mints
 // ids, derives all structural links). The safe public counterpart to the
 // internal bulk constructor; the foundation importers (e.g. the HTML
 // serializer) target.
@@ -506,7 +506,7 @@ export type { EditorState } from "./editor/editor-state";
 export type { EditorConfig } from "./editor/editor-config";
 export {
   createInitialEditorState,
-  // Build an `EditorState` from an arbitrary seed `State` + initial `Selection`
+  // Build an `EditorState` from an arbitrary seed `Document` + initial `Selection`
   // (the full render → cascade → layout build). The public seam for hosts/tests
   // that need a non-default seed document (e.g. a TOC + headings doc) without an
   // editor-from-state injection.
@@ -518,7 +518,7 @@ export { findFirstContentBlock, findLastContentBlock } from "./editor/actions";
 // `subscribeForeignChanges`) to the local `EditorState` — `freshState` cache
 // invalidation + incremental `lastDirtyIds`, selection/history passthrough.
 export { reconcileForeignChange } from "./editor/reconcile-foreign-change";
-// Derive the default collapsed caret for a freshly-loaded `State` (first
+// Derive the default collapsed caret for a freshly-loaded `Document` (first
 // content block, offset 0). Pairs with `createEditorStateFromState`.
 export { initialSelectionForState } from "./editor/actions";
 // Geometry-free editor helpers the print backend's NavIntent resolver imports:

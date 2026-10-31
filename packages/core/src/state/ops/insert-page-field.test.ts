@@ -12,11 +12,11 @@ import { createPosition } from "../block-position";
 import { inlineContentLength } from "../inline-content";
 import { buildBlock, buildState, inlineContent, text } from "../../test-utils/state-builders";
 import type { BlockId } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { EmbedItem } from "../inline-content";
 
 /** doc → [paragraph `content`]. */
-function docWithParagraph(content: string): State {
+function docWithParagraph(content: string): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -26,7 +26,7 @@ function docWithParagraph(content: string): State {
   });
 }
 
-function itemsOf(state: State, blockId: string) {
+function itemsOf(state: Document, blockId: string) {
   return getBlock(state, blockId as BlockId)?.inlineContent?.items ?? [];
 }
 

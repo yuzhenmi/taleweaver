@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { deleteRange, deleteRangeInTx, planDeleteRange } from "./delete-range";
-import { getBlock, getEmbedContent, type State } from "../state";
+import { getBlock, getEmbedContent, type Document } from "../state";
 import { STATE_INTERNAL } from "../state-internal";
 import { buildBlock, buildState, buildFlowDoc, text, embed, inlineContent } from "../../test-utils/state-builders";
 import { flowShape, assertInvariantI } from "../../test-utils/invariant-i";
@@ -137,7 +137,7 @@ describe("deleteRange — same-block: item shapes and edges", () => {
 describe("deleteRange — cross-block (same-parent): the FOCUS survives (Word: ¶A and the crossed ¶s are deleted)", () => {
   const flow = (...ps: [string, string, Partial<{ type: string; attrs: Record<string, unknown> }>?][]) =>
     buildFlowDoc(ps.map(([p, t, more]) => ({ p, t, ...(more ?? {}) })));
-  const fin = (s: State): BlockId => {
+  const fin = (s: Document): BlockId => {
     const f = getBlock(s, "doc" as BlockId)?.lastChildId;
     if (f === null || f === undefined) throw new Error("no final section");
     return f;
@@ -589,7 +589,7 @@ describe("deleteRange — error cases", () => {
   });
 
   it("an OBJECT focus covers its whole block at offset 0 (removed, no join); any other offset is out of range", () => {
-    const state = (): State => buildState({
+    const state = (): Document => buildState({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "q" }),

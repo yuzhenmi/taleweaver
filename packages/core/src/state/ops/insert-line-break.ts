@@ -1,5 +1,5 @@
 import { requireBlockText } from "../block-text";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { Position } from "../block-position";
 import { inlineContentLength, type EmbedItem } from "../inline-content";
@@ -14,7 +14,7 @@ import { HARD_BREAK_EMBED_TYPE } from "../hard-break";
  * Throws when the block does not exist, is not a text block, or `position.offset` is
  * out of range.
  */
-export function insertLineBreak(state: State, position: Position): OperationResult {
+export function insertLineBreak(state: Document, position: Position): OperationResult {
   const block = resolveBlock(state, position.blockId)?.block ?? null;
   if (block === null) throw new Error(`insertLineBreak: block "${position.blockId}" not found`);
   if (block.inlineContent === null) {

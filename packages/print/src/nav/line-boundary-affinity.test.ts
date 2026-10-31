@@ -45,7 +45,7 @@ function shiftEnd(ctx: NavCtx): NavCtx {
 /** Rendered caret X for the editor's current focus, using its current affinity. */
 function caretX(ctx: NavCtx): number {
   const r = resolvePixelPosition(
-    ctx.editor.state,
+    ctx.editor.document,
     ctx.editor.selection.focus,
     layoutOf(ctx),
     ctx.measurer,

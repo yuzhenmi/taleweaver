@@ -61,9 +61,9 @@ export interface EditorViewProps {
    */
   decorations?: readonly Decoration[];
   /**
-   * The document `State` `decorations` were computed against (default: the current one).
+   * The document `Document` `decorations` were computed against (default: the current one).
    * Pass it when decorations are computed asynchronously: the controller maps them through
-   * the edits made since, or drops them when that State is too old to map.
+   * the edits made since, or drops them when that Document is too old to map.
    */
   decorationsBasedOn?: State;
   /** Hover / click on decorated content (built-in highlights included). */
@@ -204,7 +204,7 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
     // The controller is the source of truth: a replacement it refused (legacy storage
     // still / again) halts the hook again.
     if (ctrl.halted && link !== undefined && !link.halted()) {
-      reportIncompatible({ reason: "legacy-schema", legacyBlocks: inspectDocument(getYDoc(next.state)).legacyBlocks, legacyText: {} });
+      reportIncompatible({ reason: "legacy-schema", legacyBlocks: inspectDocument(getYDoc(next.document)).legacyBlocks, legacyText: {} });
     } else if (wasHalted && !ctrl.halted) {
       // A resume replaced the document and dropped every layer: set this view's again.
       const props = decorationsRef.current;

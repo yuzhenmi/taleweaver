@@ -18,7 +18,7 @@ export function unlistBlock(
   block: Block,
 ): Edit | null {
   const typeResult = setBlockType(
-    editor.state,
+    editor.document,
     block.id,
     "paragraph",
     editor.config.componentRegistry,
@@ -28,7 +28,7 @@ export function unlistBlock(
     block.id,
     { listId: undefined, listLevel: undefined, listCounterOverride: undefined },
   );
-  if (attrResult.state === editor.state) return null;
+  if (attrResult.state === editor.document) return null;
 
   const dirtyIds = new Set<BlockId>([
     ...typeResult.dirtyIds,

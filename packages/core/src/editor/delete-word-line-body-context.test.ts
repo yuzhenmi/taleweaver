@@ -58,7 +58,7 @@ function withFootnoteBodyText(text: string): {
   const withFn = reduceEditor(typed, { type: "INSERT_FOOTNOTE" });
   const bodyTyped = reduceEditor(withFn, { type: "INSERT_TEXT", text });
   const bodyId = bodyTyped.selection.focus.blockId;
-  const block = resolveBlock(bodyTyped.state, bodyId)?.block ?? null;
+  const block = resolveBlock(bodyTyped.document, bodyId)?.block ?? null;
   if (block === null || block.inlineContent === null) {
     throw new Error("test setup: footnote body block missing inline content");
   }
@@ -91,7 +91,7 @@ function selectInBlock(
 describe("#430 — DELETE_WORD deletes a non-collapsed range inside a footnote body", () => {
   it("DELETE_WORD with a selection inside the footnote body deletes the selected text", () => {
     let { editor, bodyId, bodyLength } = withFootnoteBodyText("hello world");
-    expect(bodyTextOf(editor.state, bodyId)).toBe("hello world");
+    expect(bodyTextOf(editor.document, bodyId)).toBe("hello world");
 
     // Select "hello " (offsets 0..6).
     editor = selectInBlock(editor, bodyId, 0, 6);
@@ -102,12 +102,12 @@ describe("#430 — DELETE_WORD deletes a non-collapsed range inside a footnote b
 
     // The selected range is deleted (NOT extended by word — a selection delete
     // just removes the selection). Body shrinks from "hello world" → "world".
-    expect(bodyTextOf(editor.state, bodyId)).toBe("world");
+    expect(bodyTextOf(editor.document, bodyId)).toBe("world");
     // Caret collapses to the deletion point in the body.
     expect(editor.selection.anchor).toEqual(editor.selection.focus);
     expect(editor.selection.focus).toEqual({ blockId: bodyId, offset: 0 });
     // Body length dropped by the deleted length.
-    const block = resolveBlock(editor.state, bodyId)?.block ?? null;
+    const block = resolveBlock(editor.document, bodyId)?.block ?? null;
     if (block === null || block.inlineContent === null) {
       throw new Error("expected a resolvable body block");
     }
@@ -125,7 +125,7 @@ describe("#430 — main-tree DELETE_WORD selection delete unchanged", () => {
       selected,
       { type: "DELETE_WORD", direction: "backward" },
     );
-    expect(bodyTextOf(after.state, blockId)).toBe("world");
+    expect(bodyTextOf(after.document, blockId)).toBe("world");
     expect(after.selection.anchor).toEqual(after.selection.focus);
     expect(after.selection.focus).toEqual({ blockId, offset: 0 });
   });

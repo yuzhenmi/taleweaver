@@ -86,13 +86,13 @@ function makeEditor(
 
 /** Ordered list of the document root's direct children (its sections). */
 function rootChildren(editor: EditorState): BlockId[] {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.document, editor.document.rootId);
   if (root === null) return [];
   const ids: BlockId[] = [];
   let cur: BlockId | null = root.firstChildId;
   while (cur !== null) {
     ids.push(cur);
-    const b = getBlock(editor.state, cur);
+    const b = getBlock(editor.document, cur);
     if (b === null) break;
     cur = b.nextSiblingId;
   }
@@ -101,13 +101,13 @@ function rootChildren(editor: EditorState): BlockId[] {
 
 /** Ordered list of a block's direct children. */
 function childrenOf(editor: EditorState, parentId: BlockId): BlockId[] {
-  const parent = getBlock(editor.state, parentId);
+  const parent = getBlock(editor.document, parentId);
   if (parent === null) return [];
   const ids: BlockId[] = [];
   let cur: BlockId | null = parent.firstChildId;
   while (cur !== null) {
     ids.push(cur);
-    const b = getBlock(editor.state, cur);
+    const b = getBlock(editor.document, cur);
     if (b === null) break;
     cur = b.nextSiblingId;
   }
@@ -117,13 +117,13 @@ function childrenOf(editor: EditorState, parentId: BlockId): BlockId[] {
 /** Count of doc-root `section` children. */
 function sectionCount(editor: EditorState): number {
   return rootChildren(editor).filter(
-    (id) => getBlock(editor.state, id)?.type === "section",
+    (id) => getBlock(editor.document, id)?.type === "section",
   ).length;
 }
 
 /** Plain text of a block. */
 function textOf(editor: EditorState, blockId: BlockId): string {
-  const b = getBlock(editor.state, blockId);
+  const b = getBlock(editor.document, blockId);
   if (b === null || b.inlineContent === null) return "";
   return b.inlineContent.items
     .map((it) => (it.kind === "text" ? it.text : ""))
@@ -178,10 +178,10 @@ describe("section-break removal — Backspace at the section boundary", () => {
 
     // The break is gone in ONE step: its item (¶H) is deleted, H's empty content
     // merges into p3 (survivor R), and the content joins the final section.
-    expect(next.state).not.toBe(editor.state);
+    expect(next.document).not.toBe(editor.document);
     expect(sectionCount(next)).toBe(1);
-    expect(getBlock(next.state, secA)).toBeNull();
-    expect(getBlock(next.state, head)).toBeNull();
+    expect(getBlock(next.document, secA)).toBeNull();
+    expect(getBlock(next.document, head)).toBeNull();
     expect(bodyBlocks(next)).toEqual([
       "p1" as BlockId,
       "p2" as BlockId,
@@ -193,7 +193,7 @@ describe("section-break removal — Backspace at the section boundary", () => {
     // distinct blocks, not merged.
     expect(textOf(next, "p2" as BlockId)).toBe("two");
     expect(textOf(next, "p3" as BlockId)).toBe("three");
-    expect(getBlock(next.state, "p2" as BlockId)?.nextSiblingId).toBe("p3");
+    expect(getBlock(next.document, "p2" as BlockId)?.nextSiblingId).toBe("p3");
 
     // Cursor unchanged — p3 kept its id.
     expect(next.selection.focus).toEqual({
@@ -224,7 +224,7 @@ describe("section-break removal — Backspace at the section boundary", () => {
 
     // Now the two boundary paragraphs merge into one: ¶p2 goes and the right
     // paragraph p3 survives, holding "twothree".
-    expect(getBlock(merged.state, "p2" as BlockId)).toBeNull();
+    expect(getBlock(merged.document, "p2" as BlockId)).toBeNull();
     expect(textOf(merged, "p3" as BlockId)).toBe("twothree");
     // Cursor at the join ("two".length === 3).
     expect(merged.selection.focus).toEqual({
@@ -249,9 +249,9 @@ describe("section-break removal — Delete (forward) at the section boundary", (
     const next = reduceEditor(positioned, { type: "DELETE_FORWARD" });
 
     // Same one-step result as Backspace: one (final) section, H merged into p3.
-    expect(next.state).not.toBe(positioned.state);
+    expect(next.document).not.toBe(positioned.document);
     expect(sectionCount(next)).toBe(1);
-    expect(getBlock(next.state, secA)).toBeNull();
+    expect(getBlock(next.document, secA)).toBeNull();
     expect(bodyBlocks(next)).toEqual([
       "p1" as BlockId,
       "p2" as BlockId,
@@ -279,7 +279,7 @@ describe("section-break removal — Delete (forward) at the section boundary", (
 
     // ¶p2 is a plain ¶: p2 merges into H, which keeps the section end.
     expect(sectionCount(next)).toBe(2);
-    expect(getBlock(next.state, "p2" as BlockId)).toBeNull();
+    expect(getBlock(next.document, "p2" as BlockId)).toBeNull();
     expect(textOf(next, head)).toBe("two");
     expect(childrenOf(next, secA)).toEqual(["p1" as BlockId, head]);
   });
@@ -288,7 +288,7 @@ describe("section-break removal — Delete (forward) at the section boundary", (
 describe("section-break removal — non-section-boundary cases unchanged", () => {
   it("Backspace at the start of the FIRST section's first block is a no-op", () => {
     const { editor, secA } = brokenEditor();
-    const secABlock = getBlock(editor.state, secA);
+    const secABlock = getBlock(editor.document, secA);
     if (secABlock === null || secABlock.firstChildId === null) {
       throw new Error("test fixture: secA missing firstChildId");
     }
@@ -322,7 +322,7 @@ describe("section-break removal — non-section-boundary cases unchanged", () =>
 
     // ¶p1 removed; the right paragraph p2 survives holding "onetwo";
     // section count unchanged.
-    expect(getBlock(next.state, "p1" as BlockId)).toBeNull();
+    expect(getBlock(next.document, "p1" as BlockId)).toBeNull();
     expect(textOf(next, "p2" as BlockId)).toBe("onetwo");
     expect(sectionCount(next)).toBe(2);
     expect(childrenOf(next, secA)).toEqual(["p2" as BlockId, head]);
@@ -349,10 +349,10 @@ describe("section-break removal — undo", () => {
     // The break is back: two sections, the original structure restored.
     expect(sectionCount(undone)).toBe(2);
     const [secA, secB] = rootChildren(undone);
-    expect(getBlock(undone.state, "p1" as BlockId)?.parentId).toBe(secA);
-    expect(getBlock(undone.state, "p2" as BlockId)?.parentId).toBe(secA);
-    expect(getBlock(undone.state, "p3" as BlockId)?.parentId).toBe(secB);
-    expect(getBlock(undone.state, "p4" as BlockId)?.parentId).toBe(secB);
+    expect(getBlock(undone.document, "p1" as BlockId)?.parentId).toBe(secA);
+    expect(getBlock(undone.document, "p2" as BlockId)?.parentId).toBe(secA);
+    expect(getBlock(undone.document, "p3" as BlockId)?.parentId).toBe(secB);
+    expect(getBlock(undone.document, "p4" as BlockId)?.parentId).toBe(secB);
   });
 });
 
@@ -364,7 +364,7 @@ describe("section-break removal — section-less doc unaffected", () => {
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     // Normal merge: ¶p1 removed, survivor R = p2.
-    expect(getBlock(next.state, "p1" as BlockId)).toBeNull();
+    expect(getBlock(next.document, "p1" as BlockId)).toBeNull();
     expect(textOf(next, "p2" as BlockId)).toBe("onetwo");
     expect(next.selection.focus).toEqual({
       blockId: "p2" as BlockId,
@@ -383,7 +383,7 @@ describe("section-break removal — section-less doc unaffected", () => {
     const editor = makeEditor("p1" as BlockId, 3);
     const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
     // ¶p1 removed, survivor R = p2.
-    expect(getBlock(next.state, "p1" as BlockId)).toBeNull();
+    expect(getBlock(next.document, "p1" as BlockId)).toBeNull();
     expect(textOf(next, "p2" as BlockId)).toBe("onetwo");
     expect(next.selection.focus).toEqual({
       blockId: "p2" as BlockId,

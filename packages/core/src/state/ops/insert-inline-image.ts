@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 import { requireBlockText } from "../block-text";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { Position } from "../block-position";
@@ -56,7 +56,7 @@ interface InlineImageInsertPlan {
  * (no `inlineContent`), or `position.offset` is outside `[0, length]`.
  */
 export function insertInlineImage(
-  state: State,
+  state: Document,
   position: Position,
   properties: InlineImageProperties,
 ): OperationResult {
@@ -73,7 +73,7 @@ export function insertInlineImage(
  * here, BEFORE the surrounding `applyOperation` opens.
  */
 function planInlineImageInsert(
-  state: State,
+  state: Document,
   position: Position,
   properties: InlineImageProperties,
 ): InlineImageInsertPlan {

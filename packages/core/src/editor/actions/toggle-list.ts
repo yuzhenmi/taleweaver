@@ -48,7 +48,7 @@ export function handleToggleList(editor: EditorState, { listType }: ActionOf<"TO
 
   // Classify against the PRE-edit defs (they only change when we write one,
   // which this handler controls). Fetch the map once rather than per lookup.
-  const defs = getListDefsForState(editor.state);
+  const defs = getListDefsForState(editor.document);
   const typeOfList = (listId: string): ListType | undefined => {
     const def = defs.get(listId);
     return def === undefined ? undefined : classifyListDef(def);
@@ -67,7 +67,7 @@ export function handleToggleList(editor: EditorState, { listType }: ActionOf<"TO
   };
   const turningOff = targets.every(isAlreadyThisType);
 
-  let state: State = editor.state;
+  let state: State = editor.document;
   const dirtyIds = new Set<BlockId>();
   const apply = (r: OperationResult): void => {
     state = r.state;
@@ -96,7 +96,7 @@ export function handleToggleList(editor: EditorState, { listType }: ActionOf<"TO
       );
     }
     const joinId = adjacentSameTypeListId(
-      editor.state,
+      editor.document,
       firstTarget,
       lastTarget,
       listType,
@@ -128,14 +128,14 @@ export function handleToggleList(editor: EditorState, { listType }: ActionOf<"TO
     }
   }
 
-  if (state === editor.state) return null;
+  if (state === editor.document) return null;
 
   return { change: { state, dirtyIds } };
 }
 
 /** The text-leaf blocks the toggle applies to (paragraph or list-item). */
 function eligibleTargets(editor: EditorState): Block[] {
-  const { state, selection } = editor;
+  const { document: state, selection } = editor;
   if (positionsEqual(selection.anchor, selection.focus)) {
     const focus = getBlock(state, selection.focus.blockId);
     return focus !== null && isEligible(focus) ? [focus] : [];

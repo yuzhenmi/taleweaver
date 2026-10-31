@@ -8,5 +8,5 @@ import { selectionContextOf, type BlockId } from "../../../state";
  *  (See `suggestionInputForBlock` for the all-context tracking rule.) */
 export function isSuggestingInBlock(editor: EditorState, blockId: BlockId): boolean {
   if ((editor.config.suggestingAuthor ?? null) === null) return false;
-  return selectionContextOf(editor.state, blockId) !== null;
+  return selectionContextOf(editor.document, blockId) !== null;
 }

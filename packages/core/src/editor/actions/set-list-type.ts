@@ -31,13 +31,13 @@ export function handleSetListType(editor: EditorState, { listType }: ActionOf<"S
   const listIds = distinctSelectedListIds(editor);
   if (listIds.size === 0) return null;
 
-  const defs = getListDefsForState(editor.state);
+  const defs = getListDefsForState(editor.document);
   const currentType = (listId: string): ListType | undefined => {
     const def = defs.get(listId);
     return def === undefined ? undefined : classifyListDef(def);
   };
 
-  let state: State = editor.state;
+  let state: State = editor.document;
   const dirtyIds = new Set<BlockId>();
   for (const listId of listIds) {
     // Skip lists already of the requested type — avoids a redundant def rewrite
@@ -49,14 +49,14 @@ export function handleSetListType(editor: EditorState, { listType }: ActionOf<"S
     for (const id of result.dirtyIds) dirtyIds.add(id);
   }
 
-  if (state === editor.state) return null;
+  if (state === editor.document) return null;
 
   return { change: { state, dirtyIds } };
 }
 
 /** The distinct `listId`s of list-items the selection touches. */
 function distinctSelectedListIds(editor: EditorState): Set<string> {
-  const { state, selection } = editor;
+  const { document: state, selection } = editor;
   const ids = new Set<string>();
   const addFrom = (block: Block | null): void => {
     if (block !== null && block.type === "list-item") {

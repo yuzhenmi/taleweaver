@@ -1,4 +1,4 @@
-import type { State } from "./state";
+import type { Document } from "./state";
 import { resolveBlock, createWalkGuard } from "./state";
 import type { Span } from "./block-position";
 import { comparePositions, selectionContextOf } from "./block-compare";
@@ -28,7 +28,7 @@ export function isObjectBlock(block: Block): boolean {
  * comparePositions throws via compareBlocksInDocOrder if they have no
  * common ancestor (different roots).
  */
-export function normalizeSpan(state: State, span: Span): Span {
+export function normalizeSpan(state: Document, span: Span): Span {
   if (comparePositions(state, span.anchor, span.focus) <= 0) return span;
   return createSpan(span.focus, span.anchor);
 }
@@ -71,7 +71,7 @@ export interface BlockRange {
  *     model; the action-handler layer is responsible for rejecting or
  *     collapsing them, but this function defends against bad input.
  */
-export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
+export function* iterateSpan(state: Document, span: Span): Iterable<BlockRange> {
   // Pre-normalize precondition checks (validate raw endpoints before
   // normalizeSpan does cross-block compare, which itself requires same-context).
   const anchorBlockRaw = resolveBlock(state, span.anchor.blockId)?.block ?? null;
@@ -184,7 +184,7 @@ export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
  * tracking is not built, so a covered object stays in place (its strike still
  * covers a table's cell text — `iterateSpan`). O(span).
  */
-export function clipSpanToText(state: State, span: Span): Span {
+export function clipSpanToText(state: Document, span: Span): Span {
   const n = normalizeSpan(state, span);
   const start = resolveBlock(state, n.anchor.blockId)?.block ?? null;
   const end = resolveBlock(state, n.focus.blockId)?.block ?? null;
@@ -212,7 +212,7 @@ export function clipSpanToText(state: State, span: Span): Span {
 }
 
 /** The start of the first text block after `blockId`'s subtree (objects skipped), or null. */
-export function firstTextAfter(state: State, blockId: BlockId): Position | null {
+export function firstTextAfter(state: Document, blockId: BlockId): Position | null {
   const guard = createWalkGuard(state);
   for (let id = nextBlockAfterSubtree(state, blockId); id !== null; ) {
     if (guard.step()) throw new Error(`firstTextAfter: step bound exceeded — block tree may be corrupt`);
@@ -241,7 +241,7 @@ export function firstTextAfter(state: State, blockId: BlockId): Position | null 
  *
  * The span is normalized first.
  */
-export function* iterateBlocksInSpan(state: State, span: Span): Iterable<Block> {
+export function* iterateBlocksInSpan(state: Document, span: Span): Iterable<Block> {
   // Pre-normalize precondition checks (must validate before normalizeSpan
   // runs cross-block compare, which itself requires same-context).
   if (resolveBlock(state, span.anchor.blockId) === null) {

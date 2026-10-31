@@ -1,4 +1,4 @@
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { attrRegistryOf } from "../mark-attrs";
 import { requireBlockText } from "../block-text";
 import { applyOperation, resolveBlock } from "../state";
@@ -73,10 +73,10 @@ export interface ReplaceAllPlan {
  * non-overlapping (the `findMatches` contract). The within-block ascending /
  * non-overlapping property is asserted.
  *
- * Pure — no mutation; reads the immutable `State` snapshot.
+ * Pure — no mutation; reads the immutable `Document` snapshot.
  */
 export function planReplaceMatches(
-  state: State,
+  state: Document,
   matches: readonly TextMatch[],
   replacement: string,
 ): ReplaceAllPlan {
@@ -170,7 +170,7 @@ export function planReplaceMatches(
  * an empty transaction, so the identity contract holds.
  */
 export function replaceAllMatches(
-  state: State,
+  state: Document,
   matches: readonly TextMatch[],
   replacement: string,
 ): OperationResult {
@@ -187,7 +187,7 @@ export function replaceAllMatches(
  * (reading the result for cursor placement) and apply.
  */
 export function applyReplaceAllPlan(
-  state: State,
+  state: Document,
   plan: ReplaceAllPlan,
 ): OperationResult {
   return applyOperation(state, (doc) => {

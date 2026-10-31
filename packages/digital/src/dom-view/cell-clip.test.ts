@@ -98,19 +98,19 @@ describe("cell clip triggers (ResizeObserver on blocks hosting a glyph in a <td>
     const leaves: BlockId[] = [];
     const walk = (id: BlockId | null): void => {
       for (let cur = id; cur !== null; ) {
-        const b = getBlock(e.state, cur);
+        const b = getBlock(e.document, cur);
         if (b === null) return;
         if (b.inlineContent !== null) leaves.push(b.id);
         else walk(b.firstChildId);
         cur = b.nextSiblingId;
       }
     };
-    walk(getBlock(e.state, e.state.rootId)?.firstChildId ?? null);
-    const c1 = leaves.find((id) => getBlock(e.state, id)?.parentId !== null && getBlock(e.state, getBlock(e.state, id)?.parentId ?? id)?.type === "table-cell");
+    walk(getBlock(e.document, e.document.rootId)?.firstChildId ?? null);
+    const c1 = leaves.find((id) => getBlock(e.document, id)?.parentId !== null && getBlock(e.document, getBlock(e.document, id)?.parentId ?? id)?.type === "table-cell");
     const c2 = c1 === undefined ? undefined : leaves[leaves.indexOf(c1) + 1];
     const after = leaves[leaves.length - 1];
     if (c1 === undefined || c2 === undefined || after === undefined) throw new Error("setup");
-    return { state: e.state, c1, c2, after };
+    return { state: e.document, c1, c2, after };
   }
 
   it("a selected ¶ in a cell is observed and measured; a stale element is dropped; a font load re-observes; destroy disconnects", () => {

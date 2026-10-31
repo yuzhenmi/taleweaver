@@ -25,9 +25,9 @@ function makeConfig(): EditorConfig {
 function textItems(
   editor: ReturnType<typeof createInitialEditorState>,
 ): TextItem[] {
-  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
+  const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
   if (root === null || root.firstChildId === null) return [];
-  const p = getBlock(editor.state, root.firstChildId);
+  const p = getBlock(editor.document, root.firstChildId);
   if (p === null || p.inlineContent === null) return [];
   return p.inlineContent.items.filter(
     (i): i is TextItem => i.kind === "text",
@@ -38,7 +38,7 @@ function selectAll(
   editor: ReturnType<typeof createInitialEditorState>,
   length: number,
 ): ReturnType<typeof createInitialEditorState> {
-  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
+  const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
   if (root === null || root.firstChildId === null) throw new Error("no para");
   const pId = root.firstChildId;
   return reduceEditor(
@@ -103,7 +103,7 @@ describe("handleClearFormatting", () => {
     // Collapsed at end of insert.
     editor = reduceEditor(editor, { type: "CLEAR_FORMATTING" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(editor.state).toBe(before.state);
+    expect(editor.document).toBe(before.document);
   });
 
   it("undo restores all the cleared formatting in one step", () => {

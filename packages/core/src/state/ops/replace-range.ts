@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation } from "../state";
 import type { BlockId } from "../block-id";
 import type { Span } from "../block-position";
@@ -103,7 +103,7 @@ export interface ReplaceRangePlan {
  * deep-value compare.
  */
 export function replaceRange(
-  state: State,
+  state: Document,
   span: Span,
   text: string,
   attrs: ReadonlyAttrs,
@@ -173,7 +173,7 @@ export function replaceRangeInTx(doc: Y.Doc, plan: ReplaceRangePlan): void {
  * in `planDeleteRange`, which runs after normalize.
  */
 export function planReplaceRange(
-  state: State,
+  state: Document,
   span: Span,
   text: string,
   attrs: ReadonlyAttrs,

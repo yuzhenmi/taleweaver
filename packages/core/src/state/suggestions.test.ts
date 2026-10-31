@@ -35,7 +35,7 @@ import {
   text,
 } from "../test-utils/state-builders";
 import { asBlockId } from "./block-id";
-import { applyOperation, type State } from "./state";
+import { applyOperation, type Document } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 import { createHistory } from "./history";
 import { insertText } from "./ops/insert-text";
@@ -127,7 +127,7 @@ describe("suggestions — 6th Y.UndoManager tracked scope (slice 1.4)", () => {
   const ROOT = asBlockId("doc");
   const PARA = asBlockId("p");
 
-  function freshDoc(): State {
+  function freshDoc(): Document {
     return buildState({
       rootId: ROOT,
       blocks: [
@@ -210,7 +210,7 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
    * doc > [ p("AB" tagged s1, "C") ] — the first text item carries the
    * insertion suggestion id `s1`, the second is untagged.
    */
-  function oneTaggedRun(): State {
+  function oneTaggedRun(): Document {
     return buildState({
       rootId: "doc",
       blocks: [
@@ -467,7 +467,7 @@ describe("suggestions — applyOperation origin opt-out (non-null origin is not 
   const ROOT = asBlockId("doc");
   const PARA = asBlockId("p");
 
-  function freshDoc(): State {
+  function freshDoc(): Document {
     return buildState({
       rootId: ROOT,
       blocks: [

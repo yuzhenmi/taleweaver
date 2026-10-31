@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { Position } from "../block-position";
@@ -43,7 +43,7 @@ export type SectionBreakPlan =
  * it (Word). A caret inside a top-level object (a table cell) breaks before that block.
  */
 export function applySectionBreak(
-  state: State,
+  state: Document,
   cursor: Position,
   allocator: IdAllocator,
 ): SectionBreakResult {
@@ -62,7 +62,7 @@ export function applySectionBreak(
  * merge, `deleteParagraphMarkInTx`); accept drops the key.
  */
 export function applySectionBreakAsSuggestion(
-  state: State,
+  state: Document,
   cursor: Position,
   allocator: IdAllocator,
   input: SuggestionMintInput,
@@ -84,7 +84,7 @@ export function applySectionBreakAsSuggestion(
  * block is not under the document root.
  */
 export function buildSectionBreakPlan(
-  state: State,
+  state: Document,
   cursor: Position,
   allocator: IdAllocator,
 ): SectionBreakPlan {

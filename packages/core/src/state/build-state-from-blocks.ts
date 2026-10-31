@@ -2,7 +2,7 @@ import type { BlockKindResolver } from "./block-kinds";
 import type { Block } from "./block";
 import type { ReadonlyAttrs } from "./attrs";
 import type { BlockId } from "./block-id";
-import { createState, type State } from "./state";
+import { createState, type Document } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 import { writeRoot, type TreeNode } from "./flow-ops";
 import type { TreeKind } from "./registry";
@@ -30,7 +30,7 @@ export interface BuildStateFromBlocksArgs {
 }
 
 /**
- * Build a `State` by writing whole-document fixtures directly into the
+ * Build a `Document` by writing whole-document fixtures directly into the
  * underlying `Y.Doc`, id-PRESERVING (every provided `block.id` /
  * list id / record id is written verbatim — nothing is minted). Writes all
  * three block trees (main `blocks`, `embedContents`, `templateContents`) plus
@@ -43,7 +43,7 @@ export interface BuildStateFromBlocksArgs {
  * encapsulation boundary; external test fixtures call through
  * `test-utils/state-builders.buildState`, which delegates here.
  */
-export function buildStateFromBlocks(args: BuildStateFromBlocksArgs): State {
+export function buildStateFromBlocks(args: BuildStateFromBlocksArgs): Document {
   const state = createState({ rootId: args.rootId, resolver: args.resolver });
   const doc = state[STATE_INTERNAL].doc;
   doc.transact(() => {
@@ -145,7 +145,7 @@ export interface BuildStateWithListDefsArgs {
  */
 export function buildStateWithListDefs(
   args: BuildStateWithListDefsArgs,
-): State {
+): Document {
   return buildStateFromBlocks({
     rootId: args.rootId,
     blocks: args.blocks,

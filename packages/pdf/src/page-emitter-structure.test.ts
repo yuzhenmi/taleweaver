@@ -241,7 +241,7 @@ describe("emitPageContent — change-tracking ¶ and section-break label are art
     let e = createEditorStateFromState(s, at("p1", 0), alice);
     e = reduceEditor(e, { type: "DELETE_BACKWARD" });
     e = reduceEditor(reduceEditor(e, { type: "SET_SELECTION", selection: at("p2", 0) }), { type: "SECTION_BREAK" });
-    return e.state;
+    return e.document;
   };
 
   it("wraps the ¶ glyph and the section-break label (double rule + label) in /Artifact; the text spans exclude them", () => {

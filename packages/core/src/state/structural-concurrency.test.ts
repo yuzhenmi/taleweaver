@@ -9,7 +9,7 @@ import * as Y from "yjs";
 // Minimal Node surface (the core tsconfig omits `@types/node`; see encapsulation.test.ts).
 declare function require(id: "node:module"): { createRequire(url: string): (id: string) => unknown };
 const { createRequire } = require("node:module");
-import { createState, getBlock, type State } from "./state";
+import { createState, getBlock, type Document } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 import { insertText } from "./ops/insert-text";
 import { removeBlock } from "./ops/remove-block";
@@ -43,9 +43,9 @@ import { embed } from "../test-utils/state-builders";
 
 const id = (s: string) => s as BlockId;
 /** The final section: the parent of a section-less document's top-level blocks. */
-const fin = (s: State): BlockId => getBlock(s, s.rootId)?.lastChildId ?? id("doc");
+const fin = (s: Document): BlockId => getBlock(s, s.rootId)?.lastChildId ?? id("doc");
 
-function docOf(blocks: ReadonlyArray<{ id: string; type?: string; text?: string }>): State {
+function docOf(blocks: ReadonlyArray<{ id: string; type?: string; text?: string }>): Document {
   const ids = blocks.map((b) => b.id);
   return buildState({
     rootId: "doc",
@@ -65,14 +65,14 @@ function docOf(blocks: ReadonlyArray<{ id: string; type?: string; text?: string 
   });
 }
 
-function peer(s: State, clientID: number): State {
+function peer(s: Document, clientID: number): Document {
   const doc = new Y.Doc();
   doc.clientID = clientID;
   Y.applyUpdate(doc, Y.encodeStateAsUpdate(s[STATE_INTERNAL].doc));
   return createState({ resolver: TEST_RESOLVER, rootId: s.rootId, doc });
 }
 
-function sync(a: State, b: State): [State, State] {
+function sync(a: Document, b: Document): [Document, Document] {
   const da = a[STATE_INTERNAL].doc;
   const db = b[STATE_INTERNAL].doc;
   Y.applyUpdate(db, Y.encodeStateAsUpdate(da), "remote");
@@ -84,7 +84,7 @@ const textOf = (b: Block | null): string =>
   (b?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "￼")).join("");
 
 /** Every leaf in document order as `id:text` (objects as `id`). */
-function read(s: State): string {
+function read(s: Document): string {
   const out: string[] = [];
   const walk = (start: BlockId | null): void => {
     for (let cur = start; cur !== null; ) {
@@ -105,8 +105,8 @@ describe("implicit paragraphs: materialization, joins, collapse", () => {
    * [img][P "abc"][Q "q"][img2][Z]: peer A removes P (¶Q then follows the image) while
    * peer B types in P and removes Q (¶P then follows it) → content with no ¶ before img2.
    */
-  function strayAfterImage(stray = "X"): [State, State] {
-    let [a, b] = [peer(docOf([{ id: "img", type: "image" }, { id: "P", text: "abc" }, { id: "Q", text: "q" }, { id: "img2", type: "image" }, { id: "Z", text: "z" }]), 1), null as State | null];
+  function strayAfterImage(stray = "X"): [Document, Document] {
+    let [a, b] = [peer(docOf([{ id: "img", type: "image" }, { id: "P", text: "abc" }, { id: "Q", text: "q" }, { id: "img2", type: "image" }, { id: "Z", text: "z" }]), 1), null as Document | null];
     b = peer(a, 2);
     a = removeBlock(a, id("P")).state;
     b = removeBlock(insertText(b, createPosition(id("P"), 2), stray, {}).state, id("Q")).state;
@@ -122,7 +122,7 @@ describe("implicit paragraphs: materialization, joins, collapse", () => {
   it("removing a table that follows a holder-start stray run (`doc#i`) reports the run gone: it joins the next paragraph", () => {
     // [P "abc"][Q "q"][table][Z]: A removes P, B types in P and removes Q → "X" with no ¶ before the table.
     const base = createTable(docOf([{ id: "P", text: "abc" }, { id: "Q", text: "q" }, { id: "Z", text: "z" }]), createPosition(id("Z"), 0), 1, 1, createTestAllocator("t"));
-    let [a, b] = [peer(base.state, 1), null as State | null];
+    let [a, b] = [peer(base.state, 1), null as Document | null];
     b = peer(a, 2);
     a = removeBlock(a, id("P")).state;
     b = removeBlock(insertText(b, createPosition(id("P"), 2), "X", {}).state, id("Q")).state;
@@ -221,7 +221,7 @@ describe("MOVE (same ids, re-minted content)", () => {
   const four = () => docOf([{ id: "A", text: "a" }, { id: "B", text: "b" }, { id: "C", text: "c" }, { id: "D", text: "d" }]);
 
   it("a move keeps the id and attrs; undo-free read on a peer matches", () => {
-    let [a, b] = [peer(setBlockAttrs(four(), id("B"), { align: "center" }).state, 1), null as State | null];
+    let [a, b] = [peer(setBlockAttrs(four(), id("B"), { align: "center" }).state, 1), null as Document | null];
     b = peer(a, 2);
     a = reparentChildren(a, [id("B")], fin(a), null).state;
     [a, b] = sync(a, b);
@@ -314,19 +314,19 @@ describe("MOVE (same ids, re-minted content)", () => {
 });
 
 describe("tables are a grid", () => {
-  function withTable(): { s: State; tableId: BlockId } {
+  function withTable(): { s: Document; tableId: BlockId } {
     const base = docOf([{ id: "P", text: "x" }]);
     const r = createTable(base, createPosition(id("P"), 1), 2, 2, createTestAllocator("t"));
     return { s: r.state, tableId: r.newTableId };
   }
-  const cellPara = (s: State, tableId: BlockId, r: number, c: number): BlockId => {
+  const cellPara = (s: Document, tableId: BlockId, r: number, c: number): BlockId => {
     const row = getChildIds(s, tableId)[r];
     const cell = row === undefined ? undefined : getChildIds(s, row)[c];
     const p = cell === undefined ? null : (getBlock(s, cell)?.firstChildId ?? null);
     if (p === null) throw new Error(`no cell paragraph at ${r},${c}`);
     return p;
   };
-  const shape = (s: State, tableId: BlockId) => getChildIds(s, tableId).map((r) => getChildIds(s, r).length);
+  const shape = (s: Document, tableId: BlockId) => getChildIds(s, tableId).map((r) => getChildIds(s, r).length);
 
   it("concurrent row × column inserts converge to a full grid (no ragged row)", () => {
     const { s, tableId } = withTable();
@@ -547,7 +547,7 @@ describe("schema 3 upgrade and the compatibility gate", () => {
 
 describe("duplicate bookmark ids under concurrency", () => {
   /** A one-paragraph clip holding a bookmark pair `b` around "X" (a cut's fragment). */
-  const clip = (): State =>
+  const clip = (): Document =>
     buildState({
       rootId: "doc",
       blocks: [
@@ -558,7 +558,7 @@ describe("duplicate bookmark ids under concurrency", () => {
         }),
       ],
     });
-  const paste = (s: State, at: string, offset: number, tag: string): State => {
+  const paste = (s: Document, at: string, offset: number, tag: string): Document => {
     const pos = createPosition(id(at), offset);
     return insertFragment(s, createSpan(pos, pos), clip(), createTestAllocator(tag)).state;
   };

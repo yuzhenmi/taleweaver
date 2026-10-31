@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -82,7 +82,7 @@ export interface InsertBlockPlan {
  * single Y.Doc transaction (one undo entry / one collab event).
  */
 export function insertBlock(
-  state: State,
+  state: Document,
   parentId: BlockId,
   beforeSiblingId: BlockId | null,
   args: InsertBlockArgs,
@@ -107,7 +107,7 @@ export function insertBlock(
  * When `resolver` is provided, validates the parent is a container kind.
  */
 export function planInsertBlock(
-  state: State,
+  state: Document,
   parentId: BlockId,
   beforeSiblingId: BlockId | null,
   args: InsertBlockArgs,

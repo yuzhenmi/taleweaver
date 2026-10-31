@@ -9,7 +9,7 @@ import { resolveTableContext, splitCell, productionAllocator } from "../../state
  * (`resolveTableContext` null) OR the table is `ragged` (a degenerate shape the
  * span-aware ops leave gated — the ragged carve-out wins even over a span).
  * Unlike the no-span row/column ops this is NOT gated on `ctx.hasSpans`: split only
- * makes sense ON a spanned table, and `splitCell` itself no-ops (same `State` ref)
+ * makes sense ON a spanned table, and `splitCell` itself no-ops (same `Document` ref)
  * when the caret cell is a plain 1×1, so a spanned-table-but-caret-on-a-1×1-cell
  * is a clean no-op too.
  *
@@ -18,11 +18,11 @@ import { resolveTableContext, splitCell, productionAllocator } from "../../state
  * is a single transaction; classified `"command"`).
  */
 export function handleSplitCell(editor: EditorState): Edit | null {
-  const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
+  const ctx = resolveTableContext(editor.document, editor.selection.focus.blockId);
   if (ctx === null || ctx.ragged) return null;
 
-  const result = splitCell(editor.state, ctx, productionAllocator);
-  if (result.state === editor.state) return null; // caret cell is not a real span
+  const result = splitCell(editor.document, ctx, productionAllocator);
+  if (result.state === editor.document) return null; // caret cell is not a real span
 
   return { change: { state: result.state, dirtyIds: result.dirtyIds } };
 }

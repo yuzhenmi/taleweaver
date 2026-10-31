@@ -13,7 +13,7 @@ export function handleAddReply(
   { commentId, replyId, author, body, createdAt }: ActionOf<"ADD_REPLY">,
 ): Edit | null {
   return {
-    change: addReply(editor.state, commentId, {
+    change: addReply(editor.document, commentId, {
       replyId,
       author,
       body,

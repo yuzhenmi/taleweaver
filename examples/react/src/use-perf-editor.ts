@@ -125,7 +125,7 @@ export interface UsePerfEditorResult {
   hyphenator: Hyphenator;
   focus: () => void;
   isPerfFixture: boolean;
-  /** The live core `State` — read at a tab-bar switch to hand off the document. */
+  /** The live core `Document` — read at a tab-bar switch to hand off the document. */
   getState: () => State;
 }
 
@@ -320,7 +320,7 @@ export function usePerfEditor(initialState?: State, extensions?: EditorExtension
 
   // Reads the live state via the always-current `latestState` ref so a tab-bar
   // switch hands off the latest document, not a render-time snapshot.
-  const getState = useCallback(() => latestState.current.state, []);
+  const getState = useCallback(() => latestState.current.document, []);
 
   return {
     editorState,

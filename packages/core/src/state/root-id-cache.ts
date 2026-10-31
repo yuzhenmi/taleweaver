@@ -10,7 +10,7 @@ import { getRegistry, entryTree } from "./registry";
  * Recomputed lazily, only after a ROOT entry was added / removed (a flat
  * `observe` flags staleness), so the per-keystroke render path never scans the
  * registry: O(1) per keystroke for footnote/header-heavy documents. Keyed by the
- * shared Y.Doc (States minted by ops share it), WeakMap so a discarded doc is
+ * shared Y.Doc (Documents minted by ops share it), WeakMap so a discarded doc is
  * collected.
  */
 interface Holder {

@@ -6,10 +6,10 @@ import { flowShape, assertInvariantI } from "../../test-utils/invariant-i";
 import { createTestAllocator } from "../block-id";
 import { createPosition } from "../block-position";
 import type { BlockId } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../state";
 
 /** doc > single paragraph carrying `content`. */
-function paraDoc(content: string): State {
+function paraDoc(content: string): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -25,7 +25,7 @@ function paraDoc(content: string): State {
 }
 
 /** doc > p0("first") , p1("second"). */
-function twoParaDoc(): State {
+function twoParaDoc(): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -37,7 +37,7 @@ function twoParaDoc(): State {
 }
 
 /** The table block reachable from the doc's first/last child after an insert. */
-function tableBlocks(state: State, tableId: BlockId) {
+function tableBlocks(state: Document, tableId: BlockId) {
   const table = getBlock(state, tableId);
   if (table === null) throw new Error("table missing");
   const rows: ReturnType<typeof getBlock>[] = [];
@@ -113,7 +113,7 @@ describe("createTable", () => {
   // Placement: at (P, 0) only the table item is written,
   // before P; at (P, k > 0) a ¶ ends the head at the caret, then the table: head H
   // (new id), table, tail P (empty at k = len). A paragraph always follows the table.
-  const shapeOf = (s: State, tableId: BlockId) => flowShape(s, "doc").replace(`[${tableId}]`, "[T]");
+  const shapeOf = (s: Document, tableId: BlockId) => flowShape(s, "doc").replace(`[${tableId}]`, "[T]");
 
   it("START (offset 0): the table goes BEFORE the caret's block", () => {
     const { state: next, newTableId } = createTable(paraDoc("hello"), createPosition("p" as BlockId, 0), 1, 1, createTestAllocator("t"));

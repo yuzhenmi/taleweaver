@@ -1,6 +1,6 @@
 import type { Block } from "./block";
 import type { BlockId } from "./block-id";
-import type { State } from "./state";
+import type { Document } from "./state";
 import { resolveBlock } from "./state";
 
 /**
@@ -15,18 +15,18 @@ export interface ParagraphNeighbour {
   readonly sectionBreak: BlockId | null;
 }
 
-function blockOf(state: State, id: BlockId | null): Block | null {
+function blockOf(state: Document, id: BlockId | null): Block | null {
   return id === null ? null : (resolveBlock(state, id)?.block ?? null);
 }
 
 /** The doc-root section holding `b`, or null (`b` is in a cell / body / not top-level). */
-function rootSectionOf(state: State, b: Block): Block | null {
+function rootSectionOf(state: Document, b: Block): Block | null {
   const s = blockOf(state, b.parentId);
   return s !== null && s.type === "section" && s.parentId === state.rootId ? s : null;
 }
 
 /** The unit before `current`'s first caret position (Backspace at (current, 0)). */
-export function blockBefore(state: State, current: Block): ParagraphNeighbour | null {
+export function blockBefore(state: Document, current: Block): ParagraphNeighbour | null {
   const prev = blockOf(state, current.prevSiblingId);
   if (prev !== null) return { block: prev, sectionBreak: null };
   const section = rootSectionOf(state, current);
@@ -36,7 +36,7 @@ export function blockBefore(state: State, current: Block): ParagraphNeighbour | 
 }
 
 /** The unit after ¶`current` (Delete at (current, len)). */
-export function blockAfter(state: State, current: Block): ParagraphNeighbour | null {
+export function blockAfter(state: Document, current: Block): ParagraphNeighbour | null {
   const next = blockOf(state, current.nextSiblingId);
   if (next !== null) return { block: next, sectionBreak: null };
   const section = rootSectionOf(state, current);

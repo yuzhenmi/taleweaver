@@ -199,7 +199,7 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
   // ancestor" on such a span. This mirrors the INSERT_TEXT / SPLIT_NODE guard order
   // (SET_SELECTION already rejects cross-context spans, so this is defense-in-depth)
   // and is mode-independent: a cross-context span is equally a no-op on the direct path.
-  if (isCrossContextSelection(editor.state, selection)) return null;
+  if (isCrossContextSelection(editor.document, selection)) return null;
 
   // ── Step 1: resolve fragment by priority (clip → html → text → nothing) ────
   const fragment = resolveFragment(editor, action);
@@ -208,7 +208,7 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
     // ── Rich path: clip or html decoded to a fragment State ─────────────────
 
     // Determine suggesting mode.
-    const startBlockId = spanStart(editor.state, selection).blockId;
+    const startBlockId = spanStart(editor.document, selection).blockId;
     const replaceInput = replaceSuggestionInputForBlock(editor, startBlockId);
 
     if (replaceInput !== null) {
@@ -216,25 +216,25 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
       // Carried suggestion state is IGNORED; re-track the whole paste as
       // ONE new insertion by the current author. Containers are flattened to their
       // leaf paragraphs (structural-insertion tracking is not built).
-      const sourceBlock = resolveBlock(editor.state, startBlockId)?.block ?? null;
+      const sourceBlock = resolveBlock(editor.document, startBlockId)?.block ?? null;
       const sourceType = sourceBlock?.type ?? "paragraph";
       const sourceAttrs: ReadonlyAttrs = sourceBlock?.attrs ?? {};
       const lines = linearizeFragmentForSuggesting(fragment, sourceType, sourceAttrs);
       const result = replaceWithSuggestedFragment(
-        editor.state,
+        editor.document,
         selection,
         lines,
         replaceInput,
         productionAllocator,
       );
-      if (result.state === editor.state) return null;
+      if (result.state === editor.document) return null;
       const newSelection = createSpan(result.endPosition, result.endPosition);
       return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: newSelection };
     }
 
     // ── Direct mode: insertFragment ──────────────────────────────────────────
-    const result = insertFragment(editor.state, selection, fragment, productionAllocator);
-    if (result.state === editor.state) return null;
+    const result = insertFragment(editor.document, selection, fragment, productionAllocator);
+    if (result.state === editor.document) return null;
     const newSelection = createSpan(result.endPosition, result.endPosition);
     return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: newSelection };
   }
@@ -258,7 +258,7 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
   // paste, reject restores the document. Tracking is ALL-CONTEXT (main + footnote /
   // header / footer bodies) via `replaceSuggestionInputForBlock`. When NOT suggesting
   // / no editing context, `replaceInput` is null → fall through to the direct path.
-  const startBlockIdForText = spanStart(editor.state, selection).blockId;
+  const startBlockIdForText = spanStart(editor.document, selection).blockId;
   const replaceInputForText = replaceSuggestionInputForBlock(editor, startBlockIdForText);
   if (replaceInputForText !== null) {
     // New blocks inherit the caret block's TYPE + ATTRS (resolveBlock → all-tree, so a
@@ -266,26 +266,26 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
     // `sourceAttrs` clone — so accepting a multi-line paste into a heading keeps the
     // heading type AND level. (Only fragment[1..] are materialized as new blocks; the
     // first line merges into the existing block, which keeps its own type/attrs.)
-    const sourceBlock = resolveBlock(editor.state, startBlockIdForText)?.block ?? null;
+    const sourceBlock = resolveBlock(editor.document, startBlockIdForText)?.block ?? null;
     const sourceType = sourceBlock?.type ?? "paragraph";
     const sourceAttrs = sourceBlock?.attrs ?? {};
     const fragment: SiblingBlockInit[] = text
       .split("\n")
       .map((line) => ({ type: sourceType, attrs: sourceAttrs, inlineContent: lineToInlineContent(line, attrs) }));
     const result = replaceWithSuggestedFragment(
-      editor.state,
+      editor.document,
       selection,
       fragment,
       replaceInputForText,
       productionAllocator,
     );
-    if (result.state === editor.state) return null;
+    if (result.state === editor.document) return null;
     const newSelection = createSpan(result.endPosition, result.endPosition);
     return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: newSelection };
   }
 
   // Collapse selection (delete the existing range first).
-  let state: State = editor.state;
+  let state: State = editor.document;
   let pos: Position = editor.selection.focus;
 
   // Accumulate dirtyIds across every chained op so commit reflects the
@@ -396,9 +396,9 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
 
   // Chained ops accumulate dirtyIds manually. Use
   // state-equality check (the identity-no-op contract) for consistency with
-  // other handlers — `state` remains === editor.state iff every chained
+  // other handlers — `state` remains === editor.document iff every chained
   // op was a no-op.
-  if (state === editor.state) return null;
+  if (state === editor.document) return null;
 
   const newSelection = createSpan(pos, pos);
   return { change: { state, dirtyIds: accumulatedDirtyIds }, selection: newSelection };

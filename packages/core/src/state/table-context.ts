@@ -1,4 +1,4 @@
-import type { State } from "./state";
+import type { Document } from "./state";
 import { getBlock, createWalkGuard } from "./state";
 import type { BlockId } from "./block-id";
 import { ancestorChain } from "./block-traversal";
@@ -52,7 +52,7 @@ export interface TableContext {
 
 /** The main-tree child ids of `parentId` in document order (sibling-chain walk).
  *  Empty when the block is absent (e.g. not in the main tree) or childless. */
-export function getChildIds(state: State, parentId: BlockId): BlockId[] {
+export function getChildIds(state: Document, parentId: BlockId): BlockId[] {
   const parent = getBlock(state, parentId);
   if (parent === null) return [];
   const out: BlockId[] = [];
@@ -80,7 +80,7 @@ export function getChildIds(state: State, parentId: BlockId): BlockId[] {
  * header/footer/footnote body resolves to `null` (the structural ops the handlers
  * call are main-tree-only), so the handler no-ops on those tables.
  */
-export function resolveTableContext(state: State, blockId: BlockId): TableContext | null {
+export function resolveTableContext(state: Document, blockId: BlockId): TableContext | null {
   // Walk up to the nearest table-cell. `ancestorChain` resolves across ALL trees
   // (resolveBlock), but the type check uses `getBlock` (MAIN-TREE-ONLY) — so a
   // table-cell living in a header/footer/footnote body never matches and the
@@ -159,7 +159,7 @@ export function resolveTableContext(state: State, blockId: BlockId): TableContex
  * Build the occupancy grid (`TableGrid`) for a main-tree `table` block from
  * the STATE Block tree — the state-side counterpart of the layout Table FC's grid
  * pass, so the span-aware editing ops can reason in grid coordinates
- * (gridRow/gridCol/occupancy) from the PRE-mutation `State`.
+ * (gridRow/gridCol/occupancy) from the PRE-mutation `Document`.
  *
  * Spans are read as `spanValue(attrs.rowSpan/colSpan) ?? 1` — the SAME predicate
  * `table-cell.ts` stamps into layout metadata — so the state-built grid is
@@ -170,7 +170,7 @@ export function resolveTableContext(state: State, blockId: BlockId): TableContex
  * filtered to `table-row`/`table-cell` types (anonymous-row/cell synthesis is a
  * layout concern, not present in the state tree).
  */
-export function buildTableGrid(state: State, tableId: BlockId): TableGrid | null {
+export function buildTableGrid(state: Document, tableId: BlockId): TableGrid | null {
   if (getBlock(state, tableId)?.type !== "table") return null;
   const rows: GridCell[][] = getChildIds(state, tableId)
     .filter((rid) => getBlock(state, rid)?.type === "table-row")

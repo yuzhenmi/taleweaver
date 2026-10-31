@@ -10,5 +10,5 @@ export function handleApplyForeignChange(
 ): Edit | null {
   // A peer's change is already in the Y.Doc: re-read its blocks (`freshState`), rebase
   // the selection through it, and let history follow it — it is not ours to undo.
-  return { change: { state: freshState(editor.state, dirtyIds), dirtyIds }, selection: "rebase", undoable: false };
+  return { change: { state: freshState(editor.document, dirtyIds), dirtyIds }, selection: "rebase", undoable: false };
 }

@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import { requireBlockText } from "../block-text";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import { iterateBlocksInDocumentOrder } from "../document-order";
 import { STATE_INTERNAL } from "../state-internal";
@@ -67,7 +67,7 @@ export interface AddReplyInput {
  * responsible for the collapsed / cross-context / non-main-body guards.)
  */
 export function addComment(
-  state: State,
+  state: Document,
   span: Span,
   input: AddCommentInput,
 ): OperationResult {
@@ -105,7 +105,7 @@ export function addComment(
  * `comments` map is excluded from dirty-capture) so the op advances state and
  * lands a committable, undoable entry — see {@link setResolved}.
  */
-export function resolveComment(state: State, id: CommentId): OperationResult {
+export function resolveComment(state: Document, id: CommentId): OperationResult {
   return setResolved(state, id, true);
 }
 
@@ -113,11 +113,11 @@ export function resolveComment(state: State, id: CommentId): OperationResult {
  * Reopen a resolved comment. Tracked op. Identity no-op if the comment is
  * absent or already open.
  */
-export function reopenComment(state: State, id: CommentId): OperationResult {
+export function reopenComment(state: Document, id: CommentId): OperationResult {
   return setResolved(state, id, false);
 }
 
-function setResolved(state: State, id: CommentId, resolved: boolean): OperationResult {
+function setResolved(state: Document, id: CommentId, resolved: boolean): OperationResult {
   const doc = state[STATE_INTERNAL].doc;
   const yRecord = getCommentsMap(doc).get(id);
   if (yRecord === undefined) return { state, dirtyIds: NO_DIRTY };
@@ -166,7 +166,7 @@ function setResolved(state: State, id: CommentId, resolved: boolean): OperationR
  * affected dirtyId via the op-contributed `extra` channel (mirrors how
  * `setListType` surfaces affected block ids for its side-table-only write).
  */
-export function deleteComment(state: State, id: CommentId): OperationResult {
+export function deleteComment(state: Document, id: CommentId): OperationResult {
   const doc = state[STATE_INTERNAL].doc;
   const hasRecord = getCommentsMap(doc).get(id) !== undefined;
   const writes = planMarkerStrip(state, id);
@@ -197,7 +197,7 @@ export function deleteComment(state: State, id: CommentId): OperationResult {
  * lands a committable, undoable entry — mirrors {@link setResolved}.
  */
 export function addReply(
-  state: State,
+  state: Document,
   id: CommentId,
   input: AddReplyInput,
 ): OperationResult {
@@ -249,7 +249,7 @@ interface StripWrite {
  * `resolveBlock` for each owning block — so every marker for `id` is stripped,
  * not only the range index's two first-seen endpoint blocks (see below).
  */
-function planMarkerStrip(state: State, id: CommentId): StripWrite[] {
+function planMarkerStrip(state: Document, id: CommentId): StripWrite[] {
   // Scan EVERY block (the SAME full-document walk `buildCommentRangeIndex` uses)
   // and strip markers for `id` wherever they appear — NOT only the range index's
   // two first-seen endpoint blocks. The index records only the first start and

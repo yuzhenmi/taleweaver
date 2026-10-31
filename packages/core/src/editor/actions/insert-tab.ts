@@ -29,7 +29,7 @@ export function handleInsertTab(editor: EditorState): Edit | null {
   // Delete a non-collapsed selection first (Google Docs replaces the selection),
   // then splice the tab at the collapse point. A cross-context / cross-parent
   // expanded selection is un-deletable → no-op.
-  const prep = prepareEmbedInsertPoint(editor.state, editor.selection);
+  const prep = prepareEmbedInsertPoint(editor.document, editor.selection);
   if (!prep.ok) return null;
 
   const result = insertTab(prep.state, prep.position);

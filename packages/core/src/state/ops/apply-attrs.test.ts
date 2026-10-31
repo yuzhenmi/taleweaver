@@ -48,7 +48,7 @@ describe("applyAttrsToRange — single-block sub-range (splits one item into pre
     const beforeDoc = getBlock(state, "doc" as BlockId);
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
     const result = applyAttrsToRange(state, span, { bold: true });
-    // Y.Doc op produces a fresh State (new snapshot cache).
+    // Y.Doc op produces a fresh Document (new snapshot cache).
     expect(result.state).not.toBe(state);
     // Modified block produces a fresh snapshot.
     expect(getBlock(result.state, "p" as BlockId)).not.toBe(beforeP);
@@ -722,7 +722,7 @@ describe("applyAttrsToRange — plan/InTx split (composition primitive)", () => 
     expect(plan).not.toBeNull();
     if (plan === null) return;
     // Drive the InTx primitive through applyOperation so reading back the
-    // result sees a fresh State snapshot (a raw runTransaction mutates Yjs but
+    // result sees a fresh Document snapshot (a raw runTransaction mutates Yjs but
     // does not refresh the original state's lazy snapshot cache).
     const result = applyOperation(state, () =>
       applyAttrsToRangeInTx(state[STATE_INTERNAL].doc, plan, { bold: true }),

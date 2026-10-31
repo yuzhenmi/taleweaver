@@ -10,7 +10,7 @@ import { contentLengthForState } from "./content-length-for-state";
  * `moveOffObject` so the print backend's NavIntent resolver (which owns the
  * geometric ArrowLeft/Right/Up/Down handlers) computes the IDENTICAL
  * object-nav selection without an `EditorState`, then dispatches it as a
- * `SET_SELECTION`. Takes a bare `State` (not `EditorState`) so it is reusable
+ * `SET_SELECTION`. Takes a bare `Document` (not `EditorState`) so it is reusable
  * across the seam.
  */
 export function objectMoveSelection(

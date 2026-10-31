@@ -5,11 +5,11 @@ import { getBlock, getEmbedContent } from "../state";
 import { createPosition } from "../block-position";
 import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
 import type { BlockId } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { EmbedItem } from "../inline-content";
 
 /** doc → [paragraph "Hello", heading "Title"]. The heading is the reference target. */
-function docWithTarget(): State {
+function docWithTarget(): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -33,7 +33,7 @@ function docWithTarget(): State {
   });
 }
 
-function itemsOf(state: State, blockId: string) {
+function itemsOf(state: Document, blockId: string) {
   return getBlock(state, blockId as BlockId)?.inlineContent?.items ?? [];
 }
 

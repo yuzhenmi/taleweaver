@@ -17,14 +17,14 @@ import { insertText } from "./ops/insert-text";
 import { deleteRange } from "./ops/delete-range";
 import { splitBlockAtPosition } from "./ops/split-block";
 import { mergeAdjacentBlocks } from "./ops/merge-blocks";
-import type { State } from "./state";
+import type { Document } from "./state";
 import { buildBlock, buildState, text, inlineContent } from "../test-utils/state-builders";
 import { relAt, survives } from "../test-utils/relpos-survival";
 import { createPosition, createSpan } from "./block-position";
 import { createTestAllocator, type BlockId } from "./block-id";
 
 /** doc > [ p("hello world") ] */
-function oneBlock(): State {
+function oneBlock(): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -35,7 +35,7 @@ function oneBlock(): State {
 }
 
 /** doc > [ p1("hello"), p2("world") ] (two blocks; "world" lives in p2's own Y.Text). */
-function twoBlocks(): State {
+function twoBlocks(): Document {
   return buildState({
     rootId: "doc",
     blocks: [

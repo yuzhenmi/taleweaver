@@ -7,7 +7,7 @@
  * mutation; (2) a comment is UNDOABLE AS A UNIT (markers + record revert
  * together) because the `comments` Y.Map is in the UndoManager's tracked scopes;
  * (3) per-transaction tracking means a pure text edit's undo never touches a
- * comment; (4) identity no-ops short-circuit (return the same State reference).
+ * comment; (4) identity no-ops short-circuit (return the same Document reference).
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -29,7 +29,7 @@ import { getBlock } from "../state";
 import { createPosition, createSpan } from "../block-position";
 import type { BlockId } from "../block-id";
 import { buildBlock, buildState, text, inlineContent, embed } from "../../test-utils/state-builders";
-import type { State } from "../state";
+import type { Document } from "../state";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -40,7 +40,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 const CID = "c1" as CommentId;
 
 /** doc > [ p("hello world") ] */
-function oneBlock(): State {
+function oneBlock(): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -64,13 +64,13 @@ function worldSpan() {
 }
 
 /** Reconstruct p's text from its inline items (embeds — incl. markers — omit). */
-function pText(s: State): string {
+function pText(s: Document): string {
   const items = getBlock(s, "p" as BlockId)?.inlineContent?.items ?? [];
   return items.map((it) => (it.kind === "text" ? it.text : "")).join("");
 }
 
 /** Count comment-start/-end markers carrying `cid` in a block's inline content. */
-function markerCount(s: State, blockId: string, cid: CommentId): number {
+function markerCount(s: Document, blockId: string, cid: CommentId): number {
   const items = getBlock(s, blockId as BlockId)?.inlineContent?.items ?? [];
   return items.filter(
     (it) =>
@@ -141,7 +141,7 @@ describe("resolveComment / reopenComment", () => {
     expect(nth(getComments(s), 0, "comment").resolved).toBe(false);
   });
 
-  it("resolving an already-resolved comment is an identity no-op (same State ref)", () => {
+  it("resolving an already-resolved comment is an identity no-op (same Document ref)", () => {
     const s = resolveComment(addComment(oneBlock(), worldSpan(), ADD).state, CID).state;
     const r = resolveComment(s, CID);
     expect(r.state).toBe(s);

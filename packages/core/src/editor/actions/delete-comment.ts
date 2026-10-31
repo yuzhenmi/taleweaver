@@ -18,8 +18,8 @@ import type { ActionOf } from "../editor-action";
  * the identity, so the supported path is unchanged.
  */
 export function handleDeleteComment(editor: EditorState, { id }: ActionOf<"DELETE_COMMENT">): Edit | null {
-  const result = deleteComment(editor.state, id);
-  if (result.state === editor.state) return null;
+  const result = deleteComment(editor.document, id);
+  if (result.state === editor.document) return null;
   const remap = (p: Position): Position => {
     const stripped = strippedMarkersBefore(editor, id, p);
     return stripped === 0 ? p : createPosition(p.blockId, p.offset - stripped);
@@ -36,7 +36,7 @@ export function handleDeleteComment(editor: EditorState, { id }: ActionOf<"DELET
  * block with no markers for `id` yields 0 (identity remap).
  */
 function strippedMarkersBefore(editor: EditorState, id: CommentId, pos: Position): number {
-  const items = getBlock(editor.state, pos.blockId)?.inlineContent?.items ?? [];
+  const items = getBlock(editor.document, pos.blockId)?.inlineContent?.items ?? [];
   let running = 0;
   let stripped = 0;
   for (const it of items) {

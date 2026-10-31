@@ -26,7 +26,7 @@ import { getSuggestions, type SuggestionId } from "../suggestions";
 import { createHistory } from "../history";
 import { finalSectionOf } from "../../test-utils/state-builders";
 import { getBlock } from "../state";
-import type { State } from "../state";
+import type { Document } from "../state";
 import {
   buildBlock,
   buildState,
@@ -46,7 +46,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 }
 
 /** doc > [ p("ABCD") ] — one text run, the base for the consecutive-split cascade. */
-function oneBlock(): State {
+function oneBlock(): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -62,7 +62,7 @@ function oneBlock(): State {
 }
 
 /** doc > [ p1("abc"), p2("def") ] — two linked blocks, the base for JOIN cases. */
-function twoBlocks(): State {
+function twoBlocks(): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -86,12 +86,12 @@ function twoBlocks(): State {
 }
 
 /** The inline items of a block, or []. */
-function itemsOf(s: State, id: string) {
+function itemsOf(s: Document, id: string) {
   return getBlock(s, id as BlockId)?.inlineContent?.items ?? [];
 }
 
 /** The concatenated text of a block's text runs (embeds contribute nothing). */
-function textOf(s: State, id: string): string {
+function textOf(s: Document, id: string): string {
   let out = "";
   for (const it of itemsOf(s, id)) {
     if (it.kind === "text") out += it.text;
@@ -100,12 +100,12 @@ function textOf(s: State, id: string): string {
 }
 
 /** True iff the block carries ANY paragraph-break suggestion tag. */
-function hasBreakTag(s: State, id: string): boolean {
+function hasBreakTag(s: Document, id: string): boolean {
   return getBlock(s, id as BlockId)?.breakSuggestion !== undefined;
 }
 
 /** The body paragraph ids (children of the final section), in document order. */
-function bodyBlockIds(s: State): BlockId[] {
+function bodyBlockIds(s: Document): BlockId[] {
   const out: BlockId[] = [];
   let id: BlockId | null = getBlock(s, finalSectionOf(s))?.firstChildId ?? null;
   for (let guard = 0; id !== null && guard < 100; guard++) {
@@ -116,12 +116,12 @@ function bodyBlockIds(s: State): BlockId[] {
 }
 
 /** True iff ANY body block carries a paragraph-break suggestion tag. */
-function anyBreakTag(s: State): boolean {
+function anyBreakTag(s: Document): boolean {
   return bodyBlockIds(s).some((id) => hasBreakTag(s, id));
 }
 
 /** The total inline-content length (text chars + embeds) of a block. */
-function inlineLen(s: State, id: string): number {
+function inlineLen(s: Document, id: string): number {
   let n = 0;
   for (const it of itemsOf(s, id)) n += it.kind === "text" ? it.text.length : 1;
   return n;
@@ -136,7 +136,7 @@ function inlineLen(s: State, id: string): number {
  *
  * with the FIRST THREE blocks' own ¶s keyed. Returns the seeded state + the ids in order.
  */
-function threeConsecutiveSplits(): { state: State; ids: BlockId[] } {
+function threeConsecutiveSplits(): { state: Document; ids: BlockId[] } {
   const alloc = createTestAllocator("p2");
   let s = oneBlock();
   s = splitWithSuggestion(s, createPosition("p" as BlockId, 1), alloc, {

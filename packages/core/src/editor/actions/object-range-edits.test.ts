@@ -84,9 +84,9 @@ function show(state: State): string {
 function caret(editor: EditorState): string {
   const { anchor, focus } = editor.selection;
   if (anchor.blockId !== focus.blockId || anchor.offset !== focus.offset) return `range ${anchor.blockId}:${anchor.offset}→${focus.blockId}:${focus.offset}`;
-  const block = getBlock(editor.state, focus.blockId);
+  const block = getBlock(editor.document, focus.blockId);
   if (block?.inlineContent == null) return `INVALID ${focus.blockId}:${focus.offset}`;
-  return `"${runs(editor.state, focus.blockId)}"@${focus.offset}`;
+  return `"${runs(editor.document, focus.blockId)}"@${focus.offset}`;
 }
 
 /** The three ranges: across the object, starting on / in it, ending on / in it. */
@@ -125,7 +125,7 @@ function run(state: State, selection: Selection, mode: "direct" | "suggest", act
   const act = ACTIONS[action];
   if (act === undefined) throw new Error(action);
   const next = reduceEditor(selected, act);
-  return `${show(next.state)}  ${caret(next)}`;
+  return `${show(next.document)}  ${caret(next)}`;
 }
 
 // prettier-ignore

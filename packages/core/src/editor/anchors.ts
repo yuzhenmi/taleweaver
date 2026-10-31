@@ -217,7 +217,7 @@ export function createAnchorSet(): AnchorSet {
       if (f === null || t === null) return null;
       if (!positionsEqual(from, to) && positionsEqual(f, t)) return null; // content removed
       const anchor = make(current, f, t, options);
-      // The text at `version` cannot be re-read (that State's Y.Doc has moved on), so an
+      // The text at `version` cannot be re-read (that Document's Y.Doc has moved on), so an
       // edit inside the range since then marks the anchor changed outright.
       if (mapping.touches(from, to)) anchor.changed = true;
       return anchor;

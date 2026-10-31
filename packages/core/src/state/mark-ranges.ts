@@ -1,4 +1,4 @@
-import type { State } from "./state";
+import type { Document } from "./state";
 import type { Position } from "./block-position";
 import { createPosition } from "./block-position";
 import type { InlineContent } from "./inline-content";
@@ -85,7 +85,7 @@ export function blockMarkRanges(
  * reported once per block. A mark type with a custom `equals` in the attr registry
  * bound to the doc groups ranges exactly as runs merge.
  */
-export function getMarkRanges(state: State, type: string): MarkRange[] {
+export function getMarkRanges(state: Document, type: string): MarkRange[] {
   const equality = markEqualityOf(attrRegistryOf(state[STATE_INTERNAL].doc));
   const prefix = `${type}#`; // `#` = MARK_INSTANCE_SEPARATOR (cascade/attr-registry)
   const match = (key: string): boolean => key === type || key.startsWith(prefix);

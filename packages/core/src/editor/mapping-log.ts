@@ -9,7 +9,7 @@ import { IDENTITY_MAPPING, composeMappings, type PositionMapping } from "../stat
  * has aged out of the log — callers must then treat their positions as unmappable.
  */
 export interface MappingLog {
-  /** Record the transition `from → to` (a no-op when the States are equal). */
+  /** Record the transition `from → to` (a no-op when the Documents are equal). */
   record(from: State, to: State, mapping: PositionMapping): void;
   /** The mapping from `state` to the latest recorded State; IDENTITY when `state` is the
    *  latest; null when `state` is not in the log. */

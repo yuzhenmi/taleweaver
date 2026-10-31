@@ -129,7 +129,7 @@ function paintedBands(container: HTMLElement, act: () => void): { bands: number;
 }
 
 const textOf = (e: core.EditorState, id: core.BlockId): string =>
-  (core.getBlock(e.state, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
+  (core.getBlock(e.document, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
 const at = (id: core.BlockId, o: number) => core.createPosition(id, o);
 
 const swiftProposal = (id: core.BlockId, groupId = core.newSuggestionGroupId()): core.Proposal => ({
@@ -156,14 +156,14 @@ describe("print — host proposals", () => {
     expect(m.get().lastProposal).toMatchObject({ groupId, outcome: "applied" });
     expect(m.get().selection.focus).toEqual(at(m.id, 19)); // caret stays after "fox"
     expect(landed.bands).toBe(ONE_GROUP);
-    const runs = core.getBlock(m.get().state, m.id)?.inlineContent?.items;
+    const runs = core.getBlock(m.get().document, m.id)?.inlineContent?.items;
 
     const accepted = paintedBands(m.container, () => m.run({ type: "ACCEPT_SUGGESTION_GROUP", groupId }));
     expect(textOf(m.get(), m.id)).toBe("The swift fox");
     expect(accepted).toEqual({ bands: 0, painted: true });
     const undone = paintedBands(m.container, () => m.undo());
-    expect(core.getBlock(m.get().state, m.id)?.inlineContent?.items).toEqual(runs);
-    expect(core.getSuggestionGroups(m.get().state).map((g) => g.id)).toEqual([groupId]);
+    expect(core.getBlock(m.get().document, m.id)?.inlineContent?.items).toEqual(runs);
+    expect(core.getSuggestionGroups(m.get().document).map((g) => g.id)).toEqual([groupId]);
     expect(undone.bands).toBe(ONE_GROUP);
     m.redo();
     expect(textOf(m.get(), m.id)).toBe("The swift fox");
@@ -173,11 +173,11 @@ describe("print — host proposals", () => {
     expect(textOf(m.get(), m.id)).toBe("The  quick fox");
     expect(rejected).toEqual({ bands: 0, painted: true });
     const restored = paintedBands(m.container, () => m.undo());
-    expect(core.getBlock(m.get().state, m.id)?.inlineContent?.items).toEqual(runs);
+    expect(core.getBlock(m.get().document, m.id)?.inlineContent?.items).toEqual(runs);
     expect(restored.bands).toBe(ONE_GROUP);
     m.redo();
     expect(textOf(m.get(), m.id)).toBe("The  quick fox");
-    expect(core.getSuggestions(m.get().state)).toHaveLength(0);
+    expect(core.getSuggestions(m.get().document)).toHaveLength(0);
     m.controller.destroy();
   });
 
@@ -203,11 +203,11 @@ describe("print — host proposals", () => {
     m.run({ type: "SET_SELECTION", selection: core.createSpan(at(m.id, 5), at(m.id, 5)) });
     m.textarea.value = "Z"; // inside "hello"
     m.textarea.dispatchEvent(new Event("input", { bubbles: true }));
-    const before = m.get().state;
+    const before = m.get().document;
     const hello = p(3, 8);
     expect(await m.controller.propose(hello, { basedOn: v1 })).toEqual({ ok: false, reason: "stale" });
     expect(m.get().lastProposal).toMatchObject({ groupId: hello.groupId, outcome: "stale" });
-    expect(m.get().state).toBe(before);
+    expect(m.get().document).toBe(before);
     expect(await m.controller.propose(p(0, 2))).toEqual({ ok: true });
     const clash = await m.controller.propose(p(1, 2));
     expect(clash.ok === false && clash.reason === "rejected" ? clash.problem.kind : null).toBe("conflict");

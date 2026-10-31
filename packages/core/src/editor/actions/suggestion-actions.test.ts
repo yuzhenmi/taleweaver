@@ -4,7 +4,7 @@
  * REJECT_ALL_SUGGESTIONS) wired through `reduceEditor`.
  *
  * Behavior-level tests through the real reducer. Suggestions are seeded by
- * applying a CREATE op (`markFormatting`) to a `State`, then building the editor
+ * applying a CREATE op (`markFormatting`) to a `Document`, then building the editor
  * from the seeded state. The resolve ops run a `SUGGESTION_RESOLVE_ORIGIN`
  * (non-undoable) transaction, so the key assertion (beyond resolution) is that
  * accept/reject add NO undo step (Ctrl+Z cannot revert them).
@@ -49,11 +49,11 @@ function bodyParaId(state: State): BlockId {
   return id;
 }
 
-/** Build a State with a single paragraph of `text`, return it + the para id. */
+/** Build a Document with a single paragraph of `text`, return it + the para id. */
 function stateWithText(text: string): { state: State; paraId: BlockId } {
   const initial = createInitialEditorState(config);
   const typed = reduceEditor(initial, { type: "INSERT_TEXT", text });
-  return { state: typed.state, paraId: bodyParaId(typed.state) };
+  return { state: typed.document, paraId: bodyParaId(typed.document) };
 }
 
 /** A collapsed caret selection at the start of `paraId`. */
@@ -82,13 +82,13 @@ describe("handleAcceptSuggestion — ACCEPT_SUGGESTION", () => {
     const { state, paraId } = stateWithText("abcdef");
     const seeded = seedFormatting(state, paraId, 1, 4, { bold: true }, SID);
     const editor = createEditorStateFromState(seeded, caretAt(paraId, 0), config);
-    expect(getSuggestions(editor.state)).toHaveLength(1);
+    expect(getSuggestions(editor.document)).toHaveLength(1);
 
     const next = reduceEditor(editor, { type: "ACCEPT_SUGGESTION", id: SID });
 
-    expect(getSuggestions(next.state)).toHaveLength(0);
+    expect(getSuggestions(next.document)).toHaveLength(0);
     // The proposal is now live on the formerly-suggested run ("bcd").
-    const block = getBlock(next.state, paraId);
+    const block = getBlock(next.document, paraId);
     if (block === null || block.inlineContent === null) {
       throw new Error("paragraph vanished");
     }
@@ -101,12 +101,12 @@ describe("handleRejectSuggestion — REJECT_SUGGESTION", () => {
     const { state, paraId } = stateWithText("abcdef");
     const seeded = seedFormatting(state, paraId, 1, 4, { bold: true }, SID);
     const editor = createEditorStateFromState(seeded, caretAt(paraId, 0), config);
-    expect(getSuggestions(editor.state)).toHaveLength(1);
+    expect(getSuggestions(editor.document)).toHaveLength(1);
 
     const next = reduceEditor(editor, { type: "REJECT_SUGGESTION", id: SID });
 
-    expect(getSuggestions(next.state)).toHaveLength(0);
-    const block = getBlock(next.state, paraId);
+    expect(getSuggestions(next.document)).toHaveLength(0);
+    const block = getBlock(next.document, paraId);
     if (block === null || block.inlineContent === null) {
       throw new Error("paragraph vanished");
     }
@@ -125,20 +125,20 @@ describe("ACCEPT_ALL_SUGGESTIONS / REJECT_ALL_SUGGESTIONS", () => {
 
   it("ACCEPT_ALL resolves every suggestion", () => {
     const editor = seedTwo();
-    expect(getSuggestions(editor.state)).toHaveLength(2);
+    expect(getSuggestions(editor.document)).toHaveLength(2);
 
     const next = reduceEditor(editor, { type: "ACCEPT_ALL_SUGGESTIONS" });
 
-    expect(getSuggestions(next.state)).toHaveLength(0);
+    expect(getSuggestions(next.document)).toHaveLength(0);
   });
 
   it("REJECT_ALL resolves every suggestion", () => {
     const editor = seedTwo();
-    expect(getSuggestions(editor.state)).toHaveLength(2);
+    expect(getSuggestions(editor.document)).toHaveLength(2);
 
     const next = reduceEditor(editor, { type: "REJECT_ALL_SUGGESTIONS" });
 
-    expect(getSuggestions(next.state)).toHaveLength(0);
+    expect(getSuggestions(next.document)).toHaveLength(0);
   });
 });
 
@@ -148,31 +148,31 @@ describe("resolve actions are UNDOABLE (one history entry each)", () => {
     const initial = createInitialEditorState(config);
     let s = reduceEditor(initial, { type: "INSERT_TEXT", text: "first" });
     s = reduceEditor(s, { type: "SPLIT_NODE" });
-    const root = getBlock(s.state, finalSectionOf(s.state));
+    const root = getBlock(s.document, finalSectionOf(s.document));
     const paraA = root?.firstChildId;
     if (paraA === undefined || paraA === null) throw new Error("no para A");
-    const seeded = seedFormatting(s.state, paraA, 0, 3, { bold: true }, SID);
+    const seeded = seedFormatting(s.document, paraA, 0, 3, { bold: true }, SID);
     const paraB = getBlock(seeded, finalSectionOf(seeded))?.lastChildId;
     if (paraB === undefined || paraB === null) throw new Error("no para B");
     let editor = createEditorStateFromState(seeded, caretAt(paraB, 0), config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "typed" });
-    const beforeAccept = getBlock(editor.state, paraA)?.inlineContent?.items;
+    const beforeAccept = getBlock(editor.document, paraA)?.inlineContent?.items;
 
     editor = reduceEditor(editor, { type: "ACCEPT_SUGGESTION", id: SID });
-    expect(getSuggestions(editor.state)).toHaveLength(0);
+    expect(getSuggestions(editor.document)).toHaveLength(0);
 
     // UNDO restores the suggestion: record + the tagged run, exactly.
     const undone = reduceEditor(editor, { type: "UNDO" });
-    expect(getSuggestions(undone.state).map((x) => x.id)).toEqual([SID]);
-    expect(getBlock(undone.state, paraA)?.inlineContent?.items).toEqual(beforeAccept);
+    expect(getSuggestions(undone.document).map((x) => x.id)).toEqual([SID]);
+    expect(getBlock(undone.document, paraA)?.inlineContent?.items).toEqual(beforeAccept);
     // The typing is still there; a second UNDO reverts it.
-    const blockB = (st: typeof undone) => getBlock(st.state, paraB)?.inlineContent?.items ?? [];
+    const blockB = (st: typeof undone) => getBlock(st.document, paraB)?.inlineContent?.items ?? [];
     expect(blockB(undone).some((it) => it.kind === "text" && it.text.includes("typed"))).toBe(true);
     const undone2 = reduceEditor(undone, { type: "UNDO" });
     expect(blockB(undone2).some((it) => it.kind === "text" && it.text.includes("typed"))).toBe(false);
     // REDO twice re-applies the typing and the accept.
     const redone = reduceEditor(reduceEditor(undone2, { type: "REDO" }), { type: "REDO" });
-    expect(getSuggestions(redone.state)).toHaveLength(0);
+    expect(getSuggestions(redone.document)).toHaveLength(0);
   });
 });
 
@@ -180,11 +180,11 @@ describe("same-block resolve then undo (S1 — identity-preserving, #484)", () =
   it("type-as-suggestion → accept → undo restores the suggestion → undo reverts the typing", () => {
     const suggesting: EditorConfig = { ...config, suggestingAuthor: "alice" };
     const initial = createInitialEditorState(config);
-    const paraId = bodyParaId(initial.state);
+    const paraId = bodyParaId(initial.document);
 
     // Type "hi" in suggesting mode → one insertion suggestion in THIS block.
     const typed = reduceEditor({ ...initial, config: suggesting }, { type: "INSERT_TEXT", text: "hi" });
-    const sugg = getSuggestions(typed.state);
+    const sugg = getSuggestions(typed.document);
     expect(sugg).toHaveLength(1);
 
     // Accept it (surgical in-place strip, #484) — one undoable entry.
@@ -192,16 +192,16 @@ describe("same-block resolve then undo (S1 — identity-preserving, #484)", () =
       typed,
       { type: "ACCEPT_SUGGESTION", id: nth(sugg, 0, "suggestion").id },
     );
-    expect(getSuggestions(accepted.state)).toHaveLength(0);
-    expect(getTextOf(accepted.state, paraId)).toBe("hi");
+    expect(getSuggestions(accepted.document)).toHaveLength(0);
+    expect(getTextOf(accepted.document, paraId)).toBe("hi");
 
     // UNDO restores the pending insertion; a second UNDO reverts the typing (its
     // StackItem survived the identity-preserving resolve).
     const restored = reduceEditor(accepted, { type: "UNDO" });
-    expect(getSuggestions(restored.state)).toHaveLength(1);
-    expect(getTextOf(restored.state, paraId)).toBe("hi");
+    expect(getSuggestions(restored.document)).toHaveLength(1);
+    expect(getTextOf(restored.document, paraId)).toBe("hi");
     const undone = reduceEditor(restored, { type: "UNDO" });
-    expect(getTextOf(undone.state, paraId)).toBe("");
+    expect(getTextOf(undone.document, paraId)).toBe("");
     expect(() => reduceEditor(undone, { type: "UNDO" })).not.toThrow();
   });
 });
@@ -218,7 +218,7 @@ describe("absent-id resolve is a safe no-op", () => {
     );
 
     // The one seeded suggestion is unchanged; the doc is intact.
-    expect(getSuggestions(next.state)).toHaveLength(1);
-    expect(next.state).toBe(editor.state);
+    expect(getSuggestions(next.document)).toHaveLength(1);
+    expect(next.document).toBe(editor.document);
   });
 });

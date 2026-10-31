@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { applySectionBreak, buildSectionBreakPlan, applySectionBreakInTx } from "./section-break";
-import { getBlock, type State } from "../state";
+import { getBlock, type Document } from "../state";
 import { STATE_INTERNAL } from "../state-internal";
 import { createHistory } from "../history";
 import { buildBlock, buildState, buildFlowDoc, inlineContent } from "../../test-utils/state-builders";
@@ -17,12 +17,12 @@ import { createPosition, createSpan } from "../block-position";
 import { createTestAllocator, type BlockId } from "../block-id";
 
 const id = (s: string) => s as BlockId;
-const childIds = (s: State, parent: string): string[] => {
+const childIds = (s: Document, parent: string): string[] => {
   const out: string[] = [];
   for (let c = getBlock(s, id(parent))?.firstChildId ?? null; c !== null; c = getBlock(s, c)?.nextSiblingId ?? null) out.push(c);
   return out;
 };
-const fin = (s: State): string => {
+const fin = (s: Document): string => {
   const f = getBlock(s, id("doc"))?.lastChildId;
   if (f === null || f === undefined) throw new Error("no final section");
   return f;

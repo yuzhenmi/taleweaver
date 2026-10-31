@@ -71,7 +71,7 @@ function standardDoc(): State {
 function objectEditor(): EditorState {
   const sel = createSpan(createPosition(IMAGE_ID, 0), createPosition(IMAGE_ID, 0));
   const editor = createEditorStateFromState(standardDoc(), sel, config);
-  expect(isObjectSelection(editor.state, editor.selection, componentRegistry)).toBe(IMAGE_ID);
+  expect(isObjectSelection(editor.document, editor.selection, componentRegistry)).toBe(IMAGE_ID);
   return editor;
 }
 
@@ -92,21 +92,21 @@ describe("object-selection action-handler guards (#525 T6)", () => {
     if (next === null) throw new Error("unreachable");
     const result: EditorState = next;
 
-    expect(getBlock(result.state, IMAGE_ID)).toBeNull();
-    expect(textOf(result.state, TRAILING_ID).startsWith("x")).toBe(true);
+    expect(getBlock(result.document, IMAGE_ID)).toBeNull();
+    expect(textOf(result.document, TRAILING_ID).startsWith("x")).toBe(true);
     expect(result.selection.focus.blockId).toBe(TRAILING_ID);
     expect(result.selection.focus.offset).toBe(1);
 
     // ONE undo entry: a single UNDO restores the image AND drops the text.
     const undone = reduceEditor(result, { type: "UNDO" });
-    expect(getBlock(undone.state, IMAGE_ID)?.type).toBe("image");
-    expect(textOf(undone.state, TRAILING_ID)).toBe("");
+    expect(getBlock(undone.document, IMAGE_ID)?.type).toBe("image");
+    expect(textOf(undone.document, TRAILING_ID)).toBe("");
   });
 
   it("DELETE_WORD removes the selected object (routed to object-delete)", () => {
     const editor = objectEditor();
     const next = reduceEditor(editor, { type: "DELETE_WORD", direction: "forward" });
-    expect(getBlock(next.state, IMAGE_ID)).toBeNull();
+    expect(getBlock(next.document, IMAGE_ID)).toBeNull();
     expect(next.selection.focus.blockId).toBe(TRAILING_ID);
     expect(next.selection.focus.offset).toBe(0);
   });
@@ -115,7 +115,7 @@ describe("object-selection action-handler guards (#525 T6)", () => {
     const editor = objectEditor();
     const next = reduceEditor(editor, { type: "SPLIT_NODE" });
     expect(next).toBe(editor);
-    expect(getBlock(next.state, IMAGE_ID)?.type).toBe("image");
+    expect(getBlock(next.document, IMAGE_ID)?.type).toBe("image");
   });
 
   it("DELETE_RANGE over the collapsed object span is a no-op (same editor reference)", () => {
@@ -126,13 +126,13 @@ describe("object-selection action-handler guards (#525 T6)", () => {
     const editor = objectEditor();
     const next = reduceEditor(editor, { type: "DELETE_RANGE", span: editor.selection });
     expect(next).toBe(editor);
-    expect(getBlock(next.state, IMAGE_ID)?.type).toBe("image");
+    expect(getBlock(next.document, IMAGE_ID)?.type).toBe("image");
   });
 
   it("MOVE_WORD forward places the caret AFTER the image (start of the following block)", () => {
     const editor = objectEditor();
     const next = reduceEditor(editor, { type: "MOVE_WORD", direction: "forward" });
-    expect(getBlock(next.state, IMAGE_ID)?.type).toBe("image");
+    expect(getBlock(next.document, IMAGE_ID)?.type).toBe("image");
     expect(next.selection.focus.blockId).toBe(TRAILING_ID);
     expect(next.selection.focus.offset).toBe(0);
     expect(next.selection.anchor).toEqual(next.selection.focus);
@@ -141,7 +141,7 @@ describe("object-selection action-handler guards (#525 T6)", () => {
   it("MOVE_WORD backward places the caret BEFORE the image (end of the preceding block)", () => {
     const editor = objectEditor();
     const next = reduceEditor(editor, { type: "MOVE_WORD", direction: "backward" });
-    expect(getBlock(next.state, IMAGE_ID)?.type).toBe("image");
+    expect(getBlock(next.document, IMAGE_ID)?.type).toBe("image");
     expect(next.selection.focus.blockId).toBe(PARA_ID);
     expect(next.selection.focus.offset).toBe("above".length);
     expect(next.selection.anchor).toEqual(next.selection.focus);

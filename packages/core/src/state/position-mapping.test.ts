@@ -12,9 +12,9 @@ import { asBlockId } from "./block-id";
 import { removeBlock } from "./ops/remove-block";
 import { insertText } from "./ops/insert-text";
 
-/** Read every leaf (what a backend render does), so the State's cache is warm. */
+/** Read every leaf (what a backend render does), so the Document's cache is warm. */
 function warm(editor: EditorState): void {
-  for (const b of iterateLeafBlocksInDocumentOrder(editor.state)) void b;
+  for (const b of iterateLeafBlocksInDocumentOrder(editor.document)) void b;
 }
 
 function step(editor: EditorState, action: EditorAction) {
@@ -22,13 +22,13 @@ function step(editor: EditorState, action: EditorAction) {
   const next = reduceEditor(editor, action);
   const dirty = next.lastDirtyIds;
   const mapping =
-    dirty === null ? IDENTITY_MAPPING : createPositionMapping(editor.state, next.state, dirty, editor.selection.focus, next.selection.focus);
+    dirty === null ? IDENTITY_MAPPING : createPositionMapping(editor.document, next.document, dirty, editor.selection.focus, next.selection.focus);
   return { next, mapping };
 }
 
 function firstBlock(editor: EditorState): BlockId {
   // The document's first paragraph (the root holds its final section).
-  for (const b of iterateLeafBlocksInDocumentOrder(editor.state)) return b.id;
+  for (const b of iterateLeafBlocksInDocumentOrder(editor.document)) return b.id;
   throw new Error("no block");
 }
 
@@ -40,7 +40,7 @@ function at(editor: EditorState, blockId: BlockId, offset: number): EditorState 
 function textAt(editor: EditorState, pos: Position | null, length: number): string {
   if (pos === null) throw new Error("unmapped");
   const end = createPosition(pos.blockId, pos.offset + length);
-  return extractText(editor.state, createSpan(pos, end));
+  return extractText(editor.document, createSpan(pos, end));
 }
 
 /** A one-paragraph editor holding `text`, caret at the end. */

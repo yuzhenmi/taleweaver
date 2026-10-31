@@ -126,7 +126,7 @@ function buildTaggedInput(): {
     throw new Error("tagged-pdf test: expected a paginated VirtualLayoutTree");
   }
 
-  const mapped = mapAccessibilityTree(core.buildAccessibilityTree(editor.state));
+  const mapped = mapAccessibilityTree(core.buildAccessibilityTree(editor.document));
   if (mapped === null) throw new Error("tagged-pdf test: structureTree mapped to null");
 
   // A real image provider so the labeled figure draws an XObject (the structRef

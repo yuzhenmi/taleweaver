@@ -34,7 +34,7 @@ function setup(decorations?: readonly Decoration[], onDecorationPointer?: (e: De
 }
 
 function leaves(controller: ReturnType<typeof setup>["controller"]): BlockId[] {
-  const state = controller.editorState.state;
+  const state = controller.editorState.document;
   const out: BlockId[] = [];
   const walk = (id: BlockId | null): void => {
     for (let cur = id; cur !== null; ) {
@@ -71,7 +71,7 @@ const blockEl = (container: HTMLElement, id: BlockId): HTMLElement => {
   return el;
 };
 function expectMatchesFullRender(env: ReturnType<typeof setup>): void {
-  const expected = renderDocumentToDom(env.controller.editorState.state, env.componentRegistry, env.attrRegistry, document, {
+  const expected = renderDocumentToDom(env.controller.editorState.document, env.componentRegistry, env.attrRegistry, document, {
     stampBlockIds: true,
     decorations: env.controller.decorations,
   });
@@ -105,7 +105,7 @@ describe("digital decorations", () => {
     // The caret at the end of p2 lands BEFORE the widget, and typing goes into the document only.
     controller.dispatch(caret(p2, 9));
     controller.dispatch({ type: "INSERT_TEXT", text: "!" });
-    const p2Block = getBlock(controller.editorState.state, p2);
+    const p2Block = getBlock(controller.editorState.document, p2);
     const text = p2Block?.inlineContent?.items.map((i) => (i.kind === "text" ? i.text : "")).join("");
     expect(text).toBe("in Berlin!");
     // The widget (side 1 at the old end) stays after the typed text? No — typing AT its
@@ -269,7 +269,7 @@ describe("digital decorations", () => {
 
   it("decorations computed against an older State are mapped onto the current one", () => {
     const { controller, container, p1 } = twoParas();
-    const basedOn = controller.editorState.state; // host snapshots, computes asynchronously…
+    const basedOn = controller.editorState.document; // host snapshots, computes asynchronously…
     controller.dispatch(caret(p1, 0));
     controller.dispatch({ type: "INSERT_TEXT", text: "So " }); // …while the user types
     controller.setDecorations([{ kind: "inline", id: "rosa", from: createPosition(p1, 9), to: createPosition(p1, 13) }], basedOn);
@@ -278,7 +278,7 @@ describe("digital decorations", () => {
 
   it("built-in find and comment highlights draw through the same layer", () => {
     const { controller, container } = twoParas();
-    const matches = findMatches(controller.editorState.state, "e");
+    const matches = findMatches(controller.editorState.document, "e");
     controller.setFindHighlights(matches, 1);
     expect(container.querySelectorAll(".tw-find").length).toBe(matches.length);
     expect(container.querySelectorAll(".tw-find-active").length).toBe(1);
@@ -376,7 +376,7 @@ describe("digital decorations", () => {
       const ids = leaves(controller);
       const target = ids[rand(ids.length)];
       if (target !== undefined && rand(3) === 0) {
-        const block = getBlock(controller.editorState.state, target);
+        const block = getBlock(controller.editorState.document, target);
         const len = (block?.inlineContent?.items ?? []).reduce((n, it) => n + (it.kind === "text" ? it.text.length : 1), 0);
         controller.dispatch(caret(target, rand(len + 1)));
       }
@@ -384,7 +384,7 @@ describe("digital decorations", () => {
       if (make !== undefined) controller.dispatch(make());
       if (i % 10 === 0) {
         const decos: Decoration[] = leaves(controller).flatMap((id, k) => {
-          const block = getBlock(controller.editorState.state, id);
+          const block = getBlock(controller.editorState.document, id);
           const len = (block?.inlineContent?.items ?? []).reduce((n, it) => n + (it.kind === "text" ? it.text.length : 1), 0);
           const out: Decoration[] = [];
           if (len >= 2) out.push({ kind: "inline", id: `d${k}`, from: createPosition(id, 0), to: createPosition(id, 2), class: "c" });
@@ -395,7 +395,7 @@ describe("digital decorations", () => {
         });
         controller.setDecorations(decos);
       }
-      const expected = renderDocumentToDom(controller.editorState.state, componentRegistry, attrRegistry, document, {
+      const expected = renderDocumentToDom(controller.editorState.document, componentRegistry, attrRegistry, document, {
         stampBlockIds: true,
         decorations: controller.decorations,
       });
@@ -422,13 +422,13 @@ describe("digital — stacked formatting suggestions", () => {
     const select = (a: number, b: number): EditorAction => ({ type: "SET_SELECTION", selection: createSpan(createPosition(p, a), createPosition(p, b)) });
     editor = reduceEditor(reduceEditor({ ...editor, config: alice }, select(0, 4)), { type: "TOGGLE_STYLE", style: "bold" });
     editor = reduceEditor(reduceEditor({ ...editor, config: bob }, select(2, 6)), { type: "TOGGLE_STYLE", style: "italic" });
-    const ids = getSuggestions(editor.state).map((s) => s.id);
+    const ids = getSuggestions(editor.document).map((s) => s.id);
     const [a, b] = ids;
     if (a === undefined || b === undefined) throw new Error("expected two suggestions");
 
     const container = document.createElement("div");
     document.body.replaceChildren(container);
-    const controller = createDigitalController({ container, componentRegistry, attrRegistry, doc: document, initialState: editor.state });
+    const controller = createDigitalController({ container, componentRegistry, attrRegistry, doc: document, initialState: editor.document });
     controller.setSuggestionHighlights(ids.map((suggestionId) => ({ suggestionId, active: false })));
     /** [text, font-weight, font-style, color] of the styled text-run spans. */
     const looks = (): string[][] =>
@@ -486,12 +486,12 @@ describe("digital — stacked formatting suggestions", () => {
     const p = editor.selection.focus.blockId;
     editor = reduceEditor({ ...editor, config: alice }, { type: "SET_SELECTION", selection: createSpan(createPosition(p, 2), createPosition(p, 3)) });
     editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
-    const [only] = getSuggestions(editor.state);
+    const [only] = getSuggestions(editor.document);
     if (only === undefined) throw new Error("expected a suggestion");
 
     const container = document.createElement("div");
     document.body.replaceChildren(container);
-    const controller = createDigitalController({ container, componentRegistry, attrRegistry, doc: document, initialState: editor.state });
+    const controller = createDigitalController({ container, componentRegistry, attrRegistry, doc: document, initialState: editor.document });
     controller.setSuggestionHighlights([{ suggestionId: only.id, active: false }]);
     const deco = container.querySelector<HTMLElement>(`[data-tw-deco="tw-suggestion:${only.id}"]`);
     expect(deco).not.toBeNull();

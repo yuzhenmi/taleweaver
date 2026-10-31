@@ -21,9 +21,9 @@ import { caretEdit } from "./helpers/caret-edit";
  */
 export function handleInsertLineBreak(editor: EditorState): Edit | null {
   const { selection } = editor;
-  const input = replaceSuggestionInputForBlock(editor, spanStart(editor.state, selection).blockId);
+  const input = replaceSuggestionInputForBlock(editor, spanStart(editor.document, selection).blockId);
   if (input !== null) return suggestLineBreak(editor, input);
-  let state: State = editor.state;
+  let state: State = editor.document;
   let at = selection.focus;
   const dirtyIds = new Set<BlockId>();
   if (!isCollapsed(selection)) {
@@ -50,14 +50,14 @@ export function handleInsertLineBreak(editor: EditorState): Edit | null {
  */
 function suggestLineBreak(editor: EditorState, input: ReplaceSuggestionInput): Edit | null {
   const { selection } = editor;
-  if (!isCollapsed(selection) && isCrossContextSelection(editor.state, selection)) return null;
+  if (!isCollapsed(selection) && isCrossContextSelection(editor.document, selection)) return null;
   // The break goes at the start of the span's TEXT (after an object start — a covered
   // object stays in place; `clipSpanToText`); the strike covers the whole span.
-  const start = isCollapsed(selection) ? selection.anchor : clipSpanToText(editor.state, selection).anchor;
-  const spanFrom = spanStart(editor.state, selection);
-  const spanTo = spanEnd(editor.state, selection);
+  const start = isCollapsed(selection) ? selection.anchor : clipSpanToText(editor.document, selection).anchor;
+  const spanFrom = spanStart(editor.document, selection);
+  const spanTo = spanEnd(editor.document, selection);
   const meta = { author: input.author, createdAt: input.createdAt, order: input.order };
-  const ins = mintLineBreak(editor.state, start, { ...meta, id: input.insertionId });
+  const ins = mintLineBreak(editor.document, start, { ...meta, id: input.insertionId });
   const dirtyIds = new Set<BlockId>(ins.dirtyIds);
   let state = ins.state;
   const startBlock = resolveBlock(state, start.blockId)?.block ?? null;

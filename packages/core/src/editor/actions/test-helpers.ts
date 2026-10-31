@@ -1,7 +1,7 @@
 /**
  * Test-only fixtures shared by `actions/*.test.ts`. Editor states are built from the new pipeline
  * (createEmptyDocument → render → layout). Tests assert against
- * `editor.state` (new State + getBlock) rather than the legacy
+ * `editor.document` (new Document + getBlock) rather than the legacy
  * `editor.stateLegacy`.
  */
 import { createMockShaper } from "../../layout/mock-shaper";

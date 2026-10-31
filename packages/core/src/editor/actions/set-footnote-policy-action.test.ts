@@ -65,14 +65,14 @@ function twoSectionDocWithFootnotes(): EditorState {
 
 /** The sorted footnote VALUES from an editor's render-derived numbering map. */
 function numberValues(editor: EditorState): number[] {
-  return [...footnoteNumbersOf(editor.state).values()]
+  return [...footnoteNumbersOf(editor.document).values()]
     .map((n) => n.value)
     .sort((x, y) => x - y);
 }
 
 /** The sorted footnote FORMATTED strings from an editor's render-derived map. */
 function numberFormats(editor: EditorState): string[] {
-  return [...footnoteNumbersOf(editor.state).values()]
+  return [...footnoteNumbersOf(editor.document).values()]
     .map((n) => n.formatted)
     .sort();
 }
@@ -81,7 +81,7 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
   it("reset: restart-per-section writes the policy AND restarts numbering at the section boundary", () => {
     const editor = twoSectionDocWithFootnotes();
     // Baseline: continuous default → 1, 2 across both sections.
-    expect(documentFootnotePolicy(editor.state).reset).toBe("continuous");
+    expect(documentFootnotePolicy(editor.document).reset).toBe("continuous");
     expect(numberValues(editor)).toEqual([1, 2]);
 
     const next = reduceEditor(
@@ -91,10 +91,10 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
 
     // The policy attr is now on the root, and numbering restarts: each
     // section's footnote is "1".
-    expect(documentFootnotePolicy(next.state).reset).toBe("restart-per-section");
+    expect(documentFootnotePolicy(next.document).reset).toBe("restart-per-section");
     expect(numberValues(next)).toEqual([1, 1]);
     // A real change happened (new state reference).
-    expect(next.state).not.toBe(editor.state);
+    expect(next.document).not.toBe(editor.document);
   });
 
   it("format: lower-roman changes only the format; numbers render i, ii", () => {
@@ -104,9 +104,9 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
       { type: "SET_FOOTNOTE_POLICY", format: "lower-roman" },
     );
 
-    expect(documentFootnotePolicy(next.state).format).toBe("lower-roman");
+    expect(documentFootnotePolicy(next.document).format).toBe("lower-roman");
     // reset untouched (still continuous): values 1, 2 formatted i, ii.
-    expect(documentFootnotePolicy(next.state).reset).toBe("continuous");
+    expect(documentFootnotePolicy(next.document).reset).toBe("continuous");
     expect(numberFormats(next)).toEqual(["i", "ii"]);
   });
 
@@ -121,10 +121,10 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
       withReset,
       { type: "SET_FOOTNOTE_POLICY", format: "upper-alpha" },
     );
-    expect(documentFootnotePolicy(withFormat.state).reset).toBe(
+    expect(documentFootnotePolicy(withFormat.document).reset).toBe(
       "restart-per-section",
     );
-    expect(documentFootnotePolicy(withFormat.state).format).toBe("upper-alpha");
+    expect(documentFootnotePolicy(withFormat.document).format).toBe("upper-alpha");
   });
 
   it("undo restores the prior policy AND the prior numbering", () => {
@@ -133,12 +133,12 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
       editor,
       { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" },
     );
-    expect(documentFootnotePolicy(next.state).reset).toBe("restart-per-section");
+    expect(documentFootnotePolicy(next.document).reset).toBe("restart-per-section");
     expect(numberValues(next)).toEqual([1, 1]);
 
     const undone = reduceEditor(next, { type: "UNDO" });
     // Policy back to the default (continuous), numbering back to 1, 2.
-    expect(documentFootnotePolicy(undone.state).reset).toBe("continuous");
+    expect(documentFootnotePolicy(undone.document).reset).toBe("continuous");
     expect(numberValues(undone)).toEqual([1, 2]);
   });
 
@@ -156,8 +156,8 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
     // no history commit). The editor WRAPPER may differ only by the reducer's
     // Phase 0b entry-clear of `lastDirtyIds` — so assert on `state` identity, the
     // real "nothing was written" signal, not the wrapper reference.
-    expect(next.state).toBe(editor.state);
-    expect(documentFootnotePolicy(next.state).reset).toBe("continuous");
+    expect(next.document).toBe(editor.document);
+    expect(documentFootnotePolicy(next.document).reset).toBe("continuous");
   });
 
   it("setting the SAME value already on the root is a no-op (same editor reference)", () => {
@@ -173,7 +173,7 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
     // mergeBlockAttrs is a no-op → no document mutation, no history commit. The
     // `state` reference is preserved; the editor wrapper may differ only by the
     // reducer's Phase 0b entry-clear of `lastDirtyIds`.
-    expect(again.state).toBe(withReset.state);
+    expect(again.document).toBe(withReset.document);
   });
 
   it("selection is unchanged across a policy change", () => {

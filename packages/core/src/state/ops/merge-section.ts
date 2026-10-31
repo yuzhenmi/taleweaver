@@ -1,4 +1,4 @@
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId } from "../block-id";
 import { deleteUnits, joinWithNext } from "../flow-ops";
@@ -17,7 +17,7 @@ import { liveMarks } from "../mark-index";
  * break) and when invariant I keeps the break. Throws when `sectionId` does not exist
  * or is not a doc-root section.
  */
-export function deleteSectionBreak(state: State, sectionId: BlockId): OperationResult {
+export function deleteSectionBreak(state: Document, sectionId: BlockId): OperationResult {
   const section = getBlock(state, sectionId);
   if (section === null) throw new Error(`deleteSectionBreak: section "${sectionId}" not found`);
   if (section.type !== "section" || section.parentId !== state.rootId) {

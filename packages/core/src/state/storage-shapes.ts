@@ -38,7 +38,7 @@ export function bindStorageResolver(doc: Y.Doc, resolver: BlockKindResolver): vo
 /** The resolver bound to `doc`. Throws when none is (a doc no `createState` bound). */
 export function storageResolverOf(doc: Y.Doc): BlockKindResolver {
   const b = bindings.get(doc);
-  if (b === undefined) throw new Error("storage: no BlockKindResolver bound to this document (create its State with `resolver`)");
+  if (b === undefined) throw new Error("storage: no BlockKindResolver bound to this document (create its Document with `resolver`)");
   return b.resolver;
 }
 

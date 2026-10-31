@@ -36,7 +36,7 @@ import type { LayoutConfig } from "./layout-config";
  */
 export interface LayoutDriver {
   /**
-   * Rebuild the layout tree for `editor.state` at `editor.containerWidth`, with the
+   * Rebuild the layout tree for `editor.document` at `editor.containerWidth`, with the
    * component / attr registries and page setup of `editor.config`. A registry or page
    * setup different from the previous rebuild's drops every retained tree (a fresh
    * full build).
@@ -256,7 +256,7 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
   }
 
   function rebuild(editor: EditorState): LayoutBox | VirtualLayoutTree {
-    const { state, containerWidth, lastDirtyIds, config } = editor;
+    const { document: state, containerWidth, lastDirtyIds, config } = editor;
     // The retained trees were built with the previous registries / page setup: a change
     // to any of them invalidates all of it.
     if (

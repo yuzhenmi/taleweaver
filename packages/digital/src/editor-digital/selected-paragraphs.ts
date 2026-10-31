@@ -77,13 +77,13 @@ export function createSelectedParagraphs(
   }
 
   function sync(editor: EditorState): void {
-    const { state, selection } = editor;
+    const { document: state, selection } = editor;
     const anchor = selection.anchor.blockId;
     const focus = selection.focus.blockId;
     const prev = last;
     last = { state, anchor, focus };
     if (prev !== null && prev.state === state && prev.anchor === anchor && prev.focus === focus) return;
-    // A document change with a known extent (the last sync saw the State it was made from).
+    // A document change with a known extent (the last sync saw the Document it was made from).
     const dirty = prev !== null && prev.state !== state && editor.lastChange?.from === prev.state ? editor.lastChange.dirtyIds : null;
     if (prev !== null && (prev.state === state || dirty !== null)) {
       // Toggle between(old, new) endpoint on each side. A long walk that cancels out (a far

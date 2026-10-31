@@ -10,7 +10,7 @@
  */
 import { TEST_RESOLVER } from "../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
-import type { State } from "./state";
+import type { Document } from "./state";
 import { createState } from "./state";
 import { createYDoc, getMetaMap } from "./yjs-doc";
 import type { BlockId } from "./block-id";
@@ -49,7 +49,7 @@ const { join, resolve } = require("path");
 // be type errors; if doc / snapshotCache ever leaked back onto the public
 // type surface, the directives would become "unused suppressions" and
 // `tsc` would fail. That is the encapsulation guard.
-declare const __phantom_state__: State;
+declare const __phantom_state__: Document;
 // @ts-expect-error — doc is not part of State's public type surface;
 // it lives behind STATE_INTERNAL and is reachable only from inside state/.
 type _ProvesDocIsPrivate = typeof __phantom_state__.doc;
@@ -77,7 +77,7 @@ describe("State encapsulation (runtime)", () => {
 
 // --- A13: `freshStateFromDoc` is an escape hatch with NO production callers.
 //
-// `freshStateFromDoc` (state.ts) mints a State with a completely empty
+// `freshStateFromDoc` (state.ts) mints a Document with a completely empty
 // snapshot cache and no overlay continuity — using it in production defeats
 // the per-State view-stability + structural-sharing properties of the
 // snapshot cache (the production undo/redo path uses `freshState(state,
@@ -199,9 +199,9 @@ const DOC_META_WHITELIST = ["rootId", "schemaVersion"];
 
 describe("A14: doc-meta immutability whitelist", () => {
   it("a freshly constructed State's doc-meta holds only rootId + schemaVersion", () => {
-    // Build the doc explicitly so we can reach its meta map (the State's
+    // Build the doc explicitly so we can reach its meta map (the Document's
     // Y.Doc is private behind STATE_INTERNAL; createState reuses the doc we
-    // pass in, so the meta map we inspect is exactly the State's).
+    // pass in, so the meta map we inspect is exactly the Document's).
     const doc = createYDoc({ rootId: "root" as BlockId });
     createState({ resolver: TEST_RESOLVER, rootId: "root" as BlockId, doc });
 

@@ -1,4 +1,4 @@
-import type { State } from "../state";
+import type { Document } from "../state";
 
 /** A serialized document: binary (Yjs update) or text (a human-friendly format). */
 export type SerializedDocument = Uint8Array | string;
@@ -14,9 +14,9 @@ export interface DocumentSerializer<TWire extends SerializedDocument = Serialize
   /** Stable format id, e.g. "taleweaver-binary". The registry key. */
   readonly format: string;
   /** Serialize a document State to the wire format. */
-  encode(state: State): TWire;
+  encode(state: Document): TWire;
   /** Reconstruct a document State from the wire format. */
-  decode(source: TWire): State;
+  decode(source: TWire): Document;
 }
 
 /** Thrown by serializeDocument/deserializeDocument when no serializer is registered for `format`. */

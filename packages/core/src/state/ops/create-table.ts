@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { Position } from "../block-position";
@@ -122,7 +122,7 @@ export function buildTableSubtreePlan(
  * `rows < 1` / `cols < 1`.
  */
 export function createTable(
-  state: State,
+  state: Document,
   caretPosition: Position,
   rows: number,
   cols: number,
@@ -142,7 +142,7 @@ export function createTable(
  * any transaction, so the allocator is bumped exactly once.
  */
 export function planCreateTable(
-  state: State,
+  state: Document,
   caretPosition: Position,
   rows: number,
   cols: number,

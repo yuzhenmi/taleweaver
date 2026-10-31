@@ -1,4 +1,4 @@
-import type { State } from "./state";
+import type { Document } from "./state";
 import { getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import type { InlineItem } from "./inline-content";
@@ -130,7 +130,7 @@ function isWordChar(ch: string | undefined): boolean {
  *   `i + query.length`, so "aa" in "aaa" yields ONE match.
  */
 export function findMatches(
-  state: State,
+  state: Document,
   query: string,
   options?: FindMatchesOptions,
 ): TextMatch[] {
@@ -225,7 +225,7 @@ function isWholeWordMatch(text: string, start: number, end: number): boolean {
  * an explicit `blockIds` list is honored verbatim.
  */
 function* iterateTargetBlocks(
-  state: State,
+  state: Document,
   blockIds: Iterable<BlockId> | undefined,
 ): Iterable<BlockId> {
   if (blockIds !== undefined) {

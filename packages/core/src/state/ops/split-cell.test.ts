@@ -5,11 +5,11 @@ import { resolveTableContext, getChildIds, buildTableGrid } from "../table-conte
 import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
 import { createTestAllocator } from "../block-id";
 import type { BlockId } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { Block } from "../block";
 
 /** Resolve a context with the caret in the given block. */
-function ctxAt(state: State, blockId: string) {
+function ctxAt(state: Document, blockId: string) {
   const ctx = resolveTableContext(state, blockId as BlockId);
   if (ctx === null) throw new Error("expected a table context");
   return ctx;

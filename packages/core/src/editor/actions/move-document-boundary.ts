@@ -20,16 +20,16 @@ export function handleMoveDocumentBoundary(
   editor: EditorState,
   { boundary }: ActionOf<"MOVE_DOCUMENT_BOUNDARY">,
 ): Edit | null {
-  const ctxRoot = selectionContextOf(editor.state, editor.selection.focus.blockId);
+  const ctxRoot = selectionContextOf(editor.document, editor.selection.focus.blockId);
   if (ctxRoot === null) return null;
 
   const targetId =
     boundary === "start"
-      ? firstBoundaryBlock(editor.state, ctxRoot)
-      : lastBoundaryBlock(editor.state, ctxRoot);
+      ? firstBoundaryBlock(editor.document, ctxRoot)
+      : lastBoundaryBlock(editor.document, ctxRoot);
   if (targetId === null) return null;
 
-  const offset = boundary === "start" ? 0 : endOffsetOf(editor.state, targetId);
+  const offset = boundary === "start" ? 0 : endOffsetOf(editor.document, targetId);
   if (offset === null) return null;
 
   const pos = createPosition(targetId, offset);

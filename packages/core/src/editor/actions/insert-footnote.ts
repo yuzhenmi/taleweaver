@@ -46,14 +46,14 @@ export function handleInsertFootnote(editor: EditorState): Edit | null {
 
   // Refuse a footnote inside a footnote / header / footer body — only main
   // document body text (which resolves to `state.rootId`) may carry an anchor.
-  if (selectionContextOf(editor.state, focus.blockId) !== editor.state.rootId) {
+  if (selectionContextOf(editor.document, focus.blockId) !== editor.document.rootId) {
     return null;
   }
 
   // Delete a non-collapsed selection first (Google Docs replaces the selection
   // when you insert a footnote), then splice the anchor at the collapse point. A
   // cross-context / cross-parent expanded selection is un-deletable → no-op.
-  const prep = prepareEmbedInsertPoint(editor.state, editor.selection);
+  const prep = prepareEmbedInsertPoint(editor.document, editor.selection);
   if (!prep.ok) return null;
 
   const result = insertFootnote(prep.state, prep.position, productionAllocator);

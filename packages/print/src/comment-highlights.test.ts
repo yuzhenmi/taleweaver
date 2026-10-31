@@ -82,7 +82,7 @@ function seededEditorState(text: string): { editor: core.EditorState; blockId: c
   };
   let editor = core.createInitialEditorState(config);
   editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text });
-  const block = finalSection(editor.state);
+  const block = finalSection(editor.document);
   const blockId = block?.firstChildId;
   if (blockId === null || blockId === undefined) throw new Error("no paragraph block");
   return { editor, blockId };
@@ -168,7 +168,7 @@ describe("controller setCommentHighlights / clearCommentHighlights (comments sli
     const { editor, blockId } = seededEditorState("hello world foo");
     const withComment = addComment(editor, blockId, 0, 5, "c1");
     // The comment is live (not orphaned).
-    expect(core.resolveCommentRange(withComment.state, "c1" as core.CommentId)?.orphaned).toBe(false);
+    expect(core.resolveCommentRange(withComment.document, "c1" as core.CommentId)?.orphaned).toBe(false);
 
     const { container, lastCtx } = mount();
     const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
@@ -211,7 +211,7 @@ describe("controller setCommentHighlights / clearCommentHighlights (comments sli
     // Delete the comment's start marker by deleting the whole range that contains
     // it (offsets [0, 1) — the comment-start embed sits at the leading edge). The
     // resulting range has only the end marker → orphaned.
-    const range = core.resolveCommentRange(withComment.state, "c1" as core.CommentId);
+    const range = core.resolveCommentRange(withComment.document, "c1" as core.CommentId);
     expect(range).not.toBeNull();
     if (range === null) throw new Error("no range");
     let e = core.reduceEditor(
@@ -225,7 +225,7 @@ describe("controller setCommentHighlights / clearCommentHighlights (comments sli
       },
     );
     e = core.reduceEditor(e, { type: "DELETE_FORWARD" });
-    expect(core.resolveCommentRange(e.state, "c1" as core.CommentId)?.orphaned).toBe(true);
+    expect(core.resolveCommentRange(e.document, "c1" as core.CommentId)?.orphaned).toBe(true);
 
     const { container, lastCtx } = mount();
     const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
@@ -274,7 +274,7 @@ describe("controller setCommentHighlights / clearCommentHighlights (comments sli
     const { editor, blockId } = seededEditorState(text);
     // Comment from offset 40 to 120 — guaranteed to straddle at least one wrap.
     const withComment = addComment(editor, blockId, 40, 120, "c1");
-    expect(core.resolveCommentRange(withComment.state, "c1" as core.CommentId)?.orphaned).toBe(false);
+    expect(core.resolveCommentRange(withComment.document, "c1" as core.CommentId)?.orphaned).toBe(false);
 
     const { container, lastCtx } = mount();
     const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
@@ -298,7 +298,7 @@ describe("controller setCommentHighlights / clearCommentHighlights (comments sli
     e = core.reduceEditor(e, { type: "INSERT_TEXT", text: "second paragraph" });
 
     // The split head is the original block's previous sibling.
-    const block1 = core.getBlock(e.state, block2)?.prevSiblingId;
+    const block1 = core.getBlock(e.document, block2)?.prevSiblingId;
     if (block1 === null || block1 === undefined) throw new Error("no first paragraph block");
 
     // Select from inside paragraph 1 (offset 6) to inside paragraph 2 (offset 6),
@@ -317,7 +317,7 @@ describe("controller setCommentHighlights / clearCommentHighlights (comments sli
       e,
       { type: "ADD_COMMENT", id: "cx" as core.CommentId, author: "tester", body: "note", createdAt: 1 },
     );
-    const range = core.resolveCommentRange(e.state, "cx" as core.CommentId);
+    const range = core.resolveCommentRange(e.document, "cx" as core.CommentId);
     expect(range?.orphaned).toBe(false);
     expect(range?.start.blockId).not.toBe(range?.end.blockId);
 

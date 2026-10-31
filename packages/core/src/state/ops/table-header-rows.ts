@@ -1,4 +1,4 @@
-import type { State } from "../state";
+import type { Document } from "../state";
 import { getBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -86,7 +86,7 @@ export function adjustHeaderRowCount(count: number, op: RowEditOp, rowIndex: num
  * table ops compute their `columnWidths` attr the same plan-time way.
  */
 export function headerRowAttrsAfterRowEdit(
-  state: State,
+  state: Document,
   tableId: BlockId,
   op: RowEditOp,
   rowIndex: number,

@@ -12,12 +12,12 @@ import { buildBlock, buildState, text, embed, inlineContent, withTestAttrs } fro
 import { relAt, survives } from "../../test-utils/relpos-survival";
 import { AttrRegistry } from "../../cascade/attr-registry";
 import { freshState } from "../state";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { InlineContent, InlineItem } from "../inline-content";
 import type { BlockId } from "../block-id";
 
 /** doc > [ p(<items>) ] — one leaf block "p" holding the given inline content. */
-function oneBlock(content: InlineContent): State {
+function oneBlock(content: InlineContent): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -27,7 +27,7 @@ function oneBlock(content: InlineContent): State {
   });
 }
 
-function apply(state: State, plan: ReturnType<typeof planInsertItemsAt>): ReadonlyArray<InlineItem> {
+function apply(state: Document, plan: ReturnType<typeof planInsertItemsAt>): ReadonlyArray<InlineItem> {
   const doc = state[STATE_INTERNAL].doc;
   const { dirtyIds } = runTransaction(doc, () => insertItemsInTx(doc, plan));
   const after = freshState(state, dirtyIds);

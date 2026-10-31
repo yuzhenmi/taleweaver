@@ -151,39 +151,39 @@ describe("C.2c T7e — cross-context selection is REFUSED (no-op)", () => {
 
   it("DELETE_BACKWARD over a cross-context selection no-ops (document byte-identical)", () => {
     const editor = buildEditorWithSelection(buildStateWithHeaderBody(), crossAnchor(), crossFocus());
-    const before = docSnapshot(editor.state);
+    const before = docSnapshot(editor.document);
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
-    expect(next.state).toBe(editor.state); // identity: state object unchanged
-    expect(docSnapshot(next.state)).toBe(before);
+    expect(next.document).toBe(editor.document); // identity: state object unchanged
+    expect(docSnapshot(next.document)).toBe(before);
     expect(next.selection).toBe(editor.selection);
   });
 
   it("DELETE_FORWARD over a cross-context selection no-ops (document byte-identical)", () => {
     const editor = buildEditorWithSelection(buildStateWithHeaderBody(), crossAnchor(), crossFocus());
-    const before = docSnapshot(editor.state);
+    const before = docSnapshot(editor.document);
     const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
 
-    expect(next.state).toBe(editor.state);
-    expect(docSnapshot(next.state)).toBe(before);
+    expect(next.document).toBe(editor.document);
+    expect(docSnapshot(next.document)).toBe(before);
   });
 
   it("SPLIT_NODE (Enter) over a cross-context selection no-ops (document byte-identical)", () => {
     const editor = buildEditorWithSelection(buildStateWithHeaderBody(), crossAnchor(), crossFocus());
-    const before = docSnapshot(editor.state);
+    const before = docSnapshot(editor.document);
     const next = reduceEditor(editor, { type: "SPLIT_NODE" });
 
-    expect(next.state).toBe(editor.state);
-    expect(docSnapshot(next.state)).toBe(before);
+    expect(next.document).toBe(editor.document);
+    expect(docSnapshot(next.document)).toBe(before);
   });
 
   it("INSERT_TEXT (typing over a cross-context selection) no-ops (document byte-identical)", () => {
     const editor = buildEditorWithSelection(buildStateWithHeaderBody(), crossAnchor(), crossFocus());
-    const before = docSnapshot(editor.state);
+    const before = docSnapshot(editor.document);
     const next = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" });
 
-    expect(next.state).toBe(editor.state);
-    expect(docSnapshot(next.state)).toBe(before);
+    expect(next.document).toBe(editor.document);
+    expect(docSnapshot(next.document)).toBe(before);
   });
 
   it("is refused regardless of anchor/focus order (focus in header, anchor in body)", () => {
@@ -193,11 +193,11 @@ describe("C.2c T7e — cross-context selection is REFUSED (no-op)", () => {
       createPosition(BODY_P1, 3),
       createPosition(HDR_P1, 2),
     );
-    const before = docSnapshot(editor.state);
+    const before = docSnapshot(editor.document);
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
-    expect(next.state).toBe(editor.state);
-    expect(docSnapshot(next.state)).toBe(before);
+    expect(next.document).toBe(editor.document);
+    expect(docSnapshot(next.document)).toBe(before);
   });
 });
 
@@ -217,12 +217,12 @@ describe("C.2c T7e — same-context expanded selections are NOT refused", () => 
     // The selected range across the two header paragraphs is deleted and they
     // merge: "al" + "ta" = "alta". ¶c1 is in the range, so the focus paragraph c2
     // survives and c1 is consumed.
-    expect(headerText(next.state, HDR_P2)).toBe("alta");
-    expect(getTemplateContent(next.state, HDR_P1)).toBeNull();
-    expect(next.state).not.toBe(editor.state);
+    expect(headerText(next.document, HDR_P2)).toBe("alta");
+    expect(getTemplateContent(next.document, HDR_P1)).toBeNull();
+    expect(next.document).not.toBe(editor.document);
     // Main body untouched.
-    expect(bodyText(next.state, BODY_P1)).toBe("body text");
-    expect(bodyText(next.state, BODY_P2)).toBe("more body");
+    expect(bodyText(next.document, BODY_P1)).toBe("body text");
+    expect(bodyText(next.document, BODY_P2)).toBe("more body");
   });
 
   it("expanded selection WHOLLY within the header body accepts typing (replaceRange)", () => {
@@ -233,8 +233,8 @@ describe("C.2c T7e — same-context expanded selections are NOT refused", () => 
     );
     // "alpha", replace offsets 1..4 ("lph") with "X" → "aXa".
     const next = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" });
-    expect(headerText(next.state, HDR_P1)).toBe("aXa");
-    expect(next.state).not.toBe(editor.state);
+    expect(headerText(next.document, HDR_P1)).toBe("aXa");
+    expect(next.document).not.toBe(editor.document);
   });
 
   it("expanded selection WHOLLY within the main body deletes (no-regression)", () => {
@@ -248,12 +248,12 @@ describe("C.2c T7e — same-context expanded selections are NOT refused", () => 
 
     // Cross-block delete + merge: "body " + " body" = "body  body"; the focus
     // paragraph p2 survives, p is consumed.
-    expect(bodyText(next.state, BODY_P2)).toBe("body  body");
-    expect(getBlock(next.state, BODY_P1)).toBeNull();
-    expect(next.state).not.toBe(editor.state);
+    expect(bodyText(next.document, BODY_P2)).toBe("body  body");
+    expect(getBlock(next.document, BODY_P1)).toBeNull();
+    expect(next.document).not.toBe(editor.document);
     // Header untouched.
-    expect(headerText(next.state, HDR_P1)).toBe("alpha");
-    expect(headerText(next.state, HDR_P2)).toBe("beta");
+    expect(headerText(next.document, HDR_P1)).toBe("alpha");
+    expect(headerText(next.document, HDR_P2)).toBe("beta");
   });
 });
 
@@ -263,28 +263,28 @@ describe("C.2c T7e — same-context expanded selections are NOT refused", () => 
 describe("C.2c T7e — header-body boundary collapses are no-ops", () => {
   it("Backspace at offset 0 of the header body's FIRST block is a no-op (no merge into main)", () => {
     const editor = buildEditor(buildStateWithHeaderBody(), createPosition(HDR_P1, 0));
-    const before = docSnapshot(editor.state);
+    const before = docSnapshot(editor.document);
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
-    expect(next.state).toBe(editor.state);
-    expect(docSnapshot(next.state)).toBe(before);
+    expect(next.document).toBe(editor.document);
+    expect(docSnapshot(next.document)).toBe(before);
     // Header body intact, NOT merged into any main block.
-    expect(headerText(next.state, HDR_P1)).toBe("alpha");
-    expect(headerText(next.state, HDR_P2)).toBe("beta");
-    expect(bodyText(next.state, BODY_P1)).toBe("body text");
+    expect(headerText(next.document, HDR_P1)).toBe("alpha");
+    expect(headerText(next.document, HDR_P2)).toBe("beta");
+    expect(bodyText(next.document, BODY_P1)).toBe("body text");
   });
 
   it("Forward-delete at END of the header body's LAST block is a no-op (does not pull main content in)", () => {
     // caret at end of "beta" (offset 4 of c2).
     const editor = buildEditor(buildStateWithHeaderBody(), createPosition(HDR_P2, 4));
-    const before = docSnapshot(editor.state);
+    const before = docSnapshot(editor.document);
     const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
 
-    expect(next.state).toBe(editor.state);
-    expect(docSnapshot(next.state)).toBe(before);
-    expect(headerText(next.state, HDR_P1)).toBe("alpha");
-    expect(headerText(next.state, HDR_P2)).toBe("beta");
-    expect(bodyText(next.state, BODY_P1)).toBe("body text");
+    expect(next.document).toBe(editor.document);
+    expect(docSnapshot(next.document)).toBe(before);
+    expect(headerText(next.document, HDR_P1)).toBe("alpha");
+    expect(headerText(next.document, HDR_P2)).toBe("beta");
+    expect(bodyText(next.document, BODY_P1)).toBe("body text");
   });
 });
 
@@ -294,10 +294,10 @@ describe("C.2c T7e — header-body boundary collapses are no-ops", () => {
 describe("C.2c T7e — main-tree boundary no-regression", () => {
   it("Backspace at offset 0 of the main doc's FIRST block is a no-op", () => {
     const editor = buildEditor(buildStateWithHeaderBody(), createPosition(BODY_P1, 0));
-    const before = docSnapshot(editor.state);
+    const before = docSnapshot(editor.document);
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
-    expect(next.state).toBe(editor.state);
-    expect(docSnapshot(next.state)).toBe(before);
+    expect(next.document).toBe(editor.document);
+    expect(docSnapshot(next.document)).toBe(before);
   });
 });

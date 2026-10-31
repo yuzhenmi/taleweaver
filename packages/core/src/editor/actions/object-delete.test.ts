@@ -104,7 +104,7 @@ function imageLastDoc(): State {
 /** Wrap a state into an editor with the image object-selected (active config). */
 function editorFrom(state: State, cfg: EditorConfig): EditorState {
   const editor = createEditorStateFromState(state, objectSelection(), cfg);
-  expect(isObjectSelection(editor.state, editor.selection, componentRegistry)).toBe(IMAGE_ID);
+  expect(isObjectSelection(editor.document, editor.selection, componentRegistry)).toBe(IMAGE_ID);
   return editor;
 }
 
@@ -114,7 +114,7 @@ describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection", () => {
 
     const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
 
-    expect(getBlock(next.state, IMAGE_ID)).toBeNull();
+    expect(getBlock(next.document, IMAGE_ID)).toBeNull();
     expect(next.selection.focus.blockId).toBe(TRAILING_ID);
     expect(next.selection.focus.offset).toBe(0);
     expect(next.selection.anchor).toEqual(next.selection.focus);
@@ -123,17 +123,17 @@ describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection", () => {
   it("DELETE_FORWARD is one undo entry; undo restores the image AND the object selection", () => {
     const editor = editorFrom(standardDoc(), config);
     const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
-    expect(getBlock(next.state, IMAGE_ID)).toBeNull();
+    expect(getBlock(next.document, IMAGE_ID)).toBeNull();
 
     const undone = reduceEditor(next, { type: "UNDO" });
-    expect(getBlock(undone.state, IMAGE_ID)?.type).toBe("image");
-    expect(isObjectSelection(undone.state, undone.selection, componentRegistry)).toBe(IMAGE_ID);
+    expect(getBlock(undone.document, IMAGE_ID)?.type).toBe("image");
+    expect(isObjectSelection(undone.document, undone.selection, componentRegistry)).toBe(IMAGE_ID);
 
     // A SECOND undo is a no-op (history exhausted — the delete was ONE entry):
     // the image and the object selection stay put.
     const undoneAgain = reduceEditor(undone, { type: "UNDO" });
-    expect(getBlock(undoneAgain.state, IMAGE_ID)?.type).toBe("image");
-    expect(isObjectSelection(undoneAgain.state, undoneAgain.selection, componentRegistry)).toBe(
+    expect(getBlock(undoneAgain.document, IMAGE_ID)?.type).toBe("image");
+    expect(isObjectSelection(undoneAgain.document, undoneAgain.selection, componentRegistry)).toBe(
       IMAGE_ID,
     );
   });
@@ -143,7 +143,7 @@ describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection", () => {
 
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
-    expect(getBlock(next.state, IMAGE_ID)).toBeNull();
+    expect(getBlock(next.document, IMAGE_ID)).toBeNull();
     expect(next.selection.focus.blockId).toBe(TRAILING_ID);
     expect(next.selection.focus.offset).toBe(0);
   });
@@ -152,12 +152,12 @@ describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection", () => {
     // Invariant I: a paragraph always follows an object, so an image is
     // never the body's last block — the caret goes to that paragraph's start.
     const editor = editorFrom(imageLastDoc(), config);
-    const after = getBlock(editor.state, IMAGE_ID)?.nextSiblingId ?? null;
+    const after = getBlock(editor.document, IMAGE_ID)?.nextSiblingId ?? null;
     expect(after).not.toBeNull();
 
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
-    expect(getBlock(next.state, IMAGE_ID)).toBeNull();
+    expect(getBlock(next.document, IMAGE_ID)).toBeNull();
     expect(next.selection.focus).toEqual({ blockId: after, offset: 0 });
   });
 
@@ -168,7 +168,7 @@ describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection", () => {
 
     // The image is genuinely gone — whole-block deletion-as-suggestion does not
     // exist for an atomic block (matches deleteAdjacentAtomicLeaf).
-    expect(getBlock(next.state, IMAGE_ID)).toBeNull();
+    expect(getBlock(next.document, IMAGE_ID)).toBeNull();
   });
 
   it("SUGGESTING MODE: object DELETE_FORWARD HARD-removes the image (not soft-deleted)", () => {
@@ -178,7 +178,7 @@ describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection", () => {
 
     // Symmetric to DELETE_BACKWARD: hard removal, no deletion-as-suggestion for
     // a whole atomic block.
-    expect(getBlock(next.state, IMAGE_ID)).toBeNull();
+    expect(getBlock(next.document, IMAGE_ID)).toBeNull();
   });
 
   it("REGRESSION: a normal text caret (not an object selection) still deletes a char on DELETE_BACKWARD", () => {
@@ -193,11 +193,11 @@ describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection", () => {
     );
     s = reduceEditor(s, { type: "DELETE_BACKWARD" });
 
-    const para = getBlock(s.state, PARA_ID);
+    const para = getBlock(s.document, PARA_ID);
     const txt = (para?.inlineContent?.items ?? [])
       .map((it) => (it.kind === "text" ? it.text : ""))
       .join("");
     expect(txt).toBe("abov"); // "above" → backspace at offset 5 → "abov"
-    expect(getBlock(s.state, IMAGE_ID)?.type).toBe("image");
+    expect(getBlock(s.document, IMAGE_ID)?.type).toBe("image");
   });
 });

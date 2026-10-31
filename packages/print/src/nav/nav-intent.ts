@@ -118,7 +118,7 @@ function extendOffObject(
   direction: "forward" | "backward",
   anchorAffinity: CaretAffinity | undefined,
 ): EditorAction | null | undefined {
-  const focus = stepOffObject(editor.state, editor.selection.focus, direction);
+  const focus = stepOffObject(editor.document, editor.selection.focus, direction);
   if (focus === undefined) return undefined;
   if (focus === null) return null;
   return {
@@ -132,8 +132,8 @@ function extendOffObject(
 
 /** Arrow on a range: its edge in `direction`, or past it when that edge is an object (core `stepOffObject`). */
 function collapseOffObject(editor: EditorState, direction: "forward" | "backward"): Position | null {
-  const edge = direction === "forward" ? spanEnd(editor.state, editor.selection) : spanStart(editor.state, editor.selection);
-  const off = stepOffObject(editor.state, edge, direction);
+  const edge = direction === "forward" ? spanEnd(editor.document, editor.selection) : spanStart(editor.document, editor.selection);
+  const off = stepOffObject(editor.document, edge, direction);
   return off === undefined ? edge : off;
 }
 
@@ -152,9 +152,9 @@ function resolveMoveCursor(
 ): EditorAction | null {
   const { selection } = editor;
 
-  const objId = isObjectSelection(editor.state, selection, componentRegistry);
+  const objId = isObjectSelection(editor.document, selection, componentRegistry);
   if (objId !== null) {
-    const sel = objectMoveSelection(editor.state, objId, direction);
+    const sel = objectMoveSelection(editor.document, objId, direction);
     return sel === null ? null : { type: "SET_SELECTION", selection: sel, targetX: null };
   }
 
@@ -166,7 +166,7 @@ function resolveMoveCursor(
   }
 
   const line = resolveLineForPosition(
-    editor.state,
+    editor.document,
     selection.focus,
     layoutTree,
     toMeasurer(measurer),
@@ -174,16 +174,16 @@ function resolveMoveCursor(
     editor.caretAffinity,
   );
   if (line === null) {
-    const newFocus = moveByCharacter(editor.state, selection.focus, direction);
+    const newFocus = moveByCharacter(editor.document, selection.focus, direction);
     return setCaret(newFocus, undefined, null);
   }
 
   const view = buildLineBidiView(line);
-  const step = buildBlockGraphemeStepper(editor.state, selection.focus.blockId);
+  const step = buildBlockGraphemeStepper(editor.document, selection.focus.blockId);
   const result = stepPastMarkers(editor, view, visualDir, step);
 
   if ("exit" in result) {
-    const newFocus = moveByCharacter(editor.state, selection.focus, result.exitLogicalDir);
+    const newFocus = moveByCharacter(editor.document, selection.focus, result.exitLogicalDir);
     return setCaret(newFocus, undefined, null);
   }
 
@@ -208,7 +208,7 @@ function stepPastMarkers(
   const seen = new Set<number>([focus.offset]);
   let result = moveVisually(view, focus.offset, editor.caretAffinity, visualDir, step);
   while (!("exit" in result)) {
-    const landed = caretAfterMarkers(editor.state, createPosition(focus.blockId, result.offset)).offset;
+    const landed = caretAfterMarkers(editor.document, createPosition(focus.blockId, result.offset)).offset;
     if (landed !== focus.offset) return landed === result.offset ? result : { offset: landed, caretAffinity: "after" };
     if (seen.has(result.offset)) return result;
     seen.add(result.offset);
@@ -232,7 +232,7 @@ function resolveExpandSelection(
   if (offObject !== undefined) return offObject;
 
   const line = resolveLineForPosition(
-    editor.state,
+    editor.document,
     selection.focus,
     layoutTree,
     toMeasurer(measurer),
@@ -244,7 +244,7 @@ function resolveExpandSelection(
   }
 
   const view = buildLineBidiView(line);
-  const step = buildBlockGraphemeStepper(editor.state, selection.focus.blockId);
+  const step = buildBlockGraphemeStepper(editor.document, selection.focus.blockId);
   const result = stepPastMarkers(editor, view, visualDir, step);
 
   if ("exit" in result) {
@@ -266,7 +266,7 @@ function logicalExtend(
   direction: "forward" | "backward",
   newAnchorAffinity: CaretAffinity | undefined,
 ): EditorAction {
-  const newSelection = expandSelection(editor.state, editor.selection, direction);
+  const newSelection = expandSelection(editor.document, editor.selection, direction);
   return {
     type: "SET_SELECTION",
     selection: newSelection,
@@ -287,23 +287,23 @@ function resolveMoveLine(
 ): EditorAction | null {
   const { selection } = editor;
 
-  const objId = isObjectSelection(editor.state, selection, componentRegistry);
+  const objId = isObjectSelection(editor.document, selection, componentRegistry);
   if (objId !== null) {
-    const sel = objectMoveSelection(editor.state, objId, direction === "up" ? "backward" : "forward");
+    const sel = objectMoveSelection(editor.document, objId, direction === "up" ? "backward" : "forward");
     return sel === null ? null : { type: "SET_SELECTION", selection: sel, targetX: null };
   }
 
   const moveFocus = isCollapsed(selection)
     ? selection.focus
     : direction === "up"
-      ? spanStart(editor.state, selection)
-      : spanEnd(editor.state, selection);
+      ? spanStart(editor.document, selection)
+      : spanEnd(editor.document, selection);
   // A range ending on an object collapses past it (there is no line inside it to move from).
-  const off = isCollapsed(selection) ? undefined : stepOffObject(editor.state, moveFocus, direction === "up" ? "backward" : "forward");
+  const off = isCollapsed(selection) ? undefined : stepOffObject(editor.document, moveFocus, direction === "up" ? "backward" : "forward");
   if (off !== undefined) return off === null ? null : setCaret(off, undefined, null);
 
   const result = moveToLine(
-    editor.state,
+    editor.document,
     moveFocus,
     layoutTree,
     measurer,
@@ -327,7 +327,7 @@ function resolveExpandLine(
   const offObject = extendOffObject(editor, direction === "up" ? "backward" : "forward", newAnchorAffinity);
   if (offObject !== undefined) return offObject;
   const result = moveToLine(
-    editor.state,
+    editor.document,
     editor.selection.focus,
     layoutTree,
     measurer,
@@ -354,7 +354,7 @@ function resolveMoveLineBoundary(
   measurer: TextShaper | TextMeasurer,
 ): EditorAction | null {
   const pos = moveToLineBoundary(
-    editor.state,
+    editor.document,
     editor.selection.focus,
     layoutTree,
     measurer,
@@ -363,7 +363,7 @@ function resolveMoveLineBoundary(
   );
   if (pos === null) return null;
   const caretAffinity: CaretAffinity = boundary === "start" ? "after" : "before";
-  return setCaret(caretAfterMarkers(editor.state, pos), caretAffinity, null);
+  return setCaret(caretAfterMarkers(editor.document, pos), caretAffinity, null);
 }
 
 // ── EXPAND_LINE_BOUNDARY (was expand-line-boundary.ts) ─────────────────────
@@ -378,7 +378,7 @@ function resolveExpandLineBoundary(
   const offObject = extendOffObject(editor, boundary === "start" ? "backward" : "forward", newAnchorAffinity);
   if (offObject !== undefined) return offObject;
   const pos = moveToLineBoundary(
-    editor.state,
+    editor.document,
     editor.selection.focus,
     layoutTree,
     measurer,
@@ -389,7 +389,7 @@ function resolveExpandLineBoundary(
   const caretAffinity: CaretAffinity = boundary === "start" ? "after" : "before";
   return {
     type: "SET_SELECTION",
-    selection: createSpan(editor.selection.anchor, caretAfterMarkers(editor.state, pos)),
+    selection: createSpan(editor.selection.anchor, caretAfterMarkers(editor.document, pos)),
     caretAffinity,
     anchorAffinity: newAnchorAffinity,
     targetX: null,
@@ -407,21 +407,21 @@ function resolveDeleteLine(
   const { selection } = editor;
 
   // Object selection: delete-to-line-start on a selected atomic-leaf is a no-op.
-  if (isObjectSelection(editor.state, selection, componentRegistry) !== null) {
+  if (isObjectSelection(editor.document, selection, componentRegistry) !== null) {
     return null;
   }
 
   if (!isCollapsed(selection)) {
     // A non-collapsed selection deletes the selection via the same context-aware
     // guards the lifted handler used; core's DELETE_RANGE normalizes + commits.
-    if (isCrossContextSelection(editor.state, selection)) return null;
-    const start = expandedSpanCollapsePoint(editor.state, selection);
+    if (isCrossContextSelection(editor.document, selection)) return null;
+    const start = expandedSpanCollapsePoint(editor.document, selection);
     if (start === null) return null;
     return { type: "DELETE_RANGE", span: selection };
   }
 
   const pos = selection.focus;
-  const lineStart = moveToLineBoundary(editor.state, pos, layoutTree, measurer, "start");
+  const lineStart = moveToLineBoundary(editor.document, pos, layoutTree, measurer, "start");
   if (lineStart === null) return null;
   if (lineStart.blockId === pos.blockId && lineStart.offset === pos.offset) return null;
   // Only within-block line deletion (line boundaries stay inside one block).

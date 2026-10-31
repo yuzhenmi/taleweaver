@@ -4,7 +4,7 @@ import type { BreakSuggestion } from "../break-tags";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { BlockKind, BlockKindResolver } from "../block-kinds";
 import type { InlineContent, InlineItem } from "../inline-content";
-import type { State } from "../state";
+import type { Document } from "../state";
 import { getBlock, getEmbedContent, getTemplateContent } from "../state";
 import { getEmbedContentIds, getTemplateContentIds } from "../state";
 import { getListDefsForState, type ListDef, type ListLevelConfig } from "../list-defs";
@@ -125,12 +125,12 @@ export function createJsonDocumentSerializer(deps: {
   return {
     format: JSON_FORMAT,
 
-    encode(state: State): string {
+    encode(state: Document): string {
       const doc: JsonDocument = encodeDocument(state, blockKindResolver);
       return JSON.stringify(doc, null, 2);
     },
 
-    decode(source: string): State {
+    decode(source: string): Document {
       return decodeDocument(source, allocator, blockKindResolver);
     },
   };
@@ -141,7 +141,7 @@ export function createJsonDocumentSerializer(deps: {
 // ─────────────────────────────────────────────────────────────────────────
 
 function encodeDocument(
-  state: State,
+  state: Document,
   resolver: BlockKindResolver,
 ): JsonDocument {
   const root = encodeNode(
@@ -195,9 +195,9 @@ function encodeDocument(
  * emitted in the underlying map's key order (deterministic).
  */
 function encodeForestRoots(
-  state: State,
+  state: Document,
   ids: ReadonlyArray<BlockId>,
-  read: (s: State, id: BlockId) => Block | null,
+  read: (s: Document, id: BlockId) => Block | null,
   resolver: BlockKindResolver,
 ): JsonNode[] {
   const roots: JsonNode[] = [];
@@ -217,9 +217,9 @@ function encodeForestRoots(
  * type (the lossless escape is the binary serializer).
  */
 function encodeNode(
-  state: State,
+  state: Document,
   id: BlockId,
-  read: (s: State, id: BlockId) => Block | null,
+  read: (s: Document, id: BlockId) => Block | null,
   resolver: BlockKindResolver,
 ): JsonNode {
   const block = read(state, id);
@@ -272,9 +272,9 @@ function encodeNode(
 
 /** Walk a container's `firstChildId` → `nextSiblingId` chain, encoding each child. */
 function encodeChildren(
-  state: State,
+  state: Document,
   parent: Block,
-  read: (s: State, id: BlockId) => Block | null,
+  read: (s: Document, id: BlockId) => Block | null,
   resolver: BlockKindResolver,
 ): JsonNode[] {
   const out: JsonNode[] = [];
@@ -312,7 +312,7 @@ function encodeInlineItem(item: InlineItem): JsonInlineItem {
   return out;
 }
 
-function encodeListDefs(state: State): Record<string, ListDef> | undefined {
+function encodeListDefs(state: Document): Record<string, ListDef> | undefined {
   const defs = getListDefsForState(state);
   if (defs.size === 0) return undefined;
   const out: Record<string, ListDef> = {};
@@ -330,7 +330,7 @@ function encodeListDefs(state: State): Record<string, ListDef> | undefined {
  * marker embeds in inline content, so it is NEVER serialized.
  */
 function encodeComments(
-  state: State,
+  state: Document,
 ): Record<string, BareCommentRecord> | undefined {
   const comments = getComments(state);
   if (comments.length === 0) return undefined;
@@ -355,7 +355,7 @@ function encodeComments(
  * range is reconstructed on decode from the suggestion-id-tagged inline items).
  */
 function encodeSuggestions(
-  state: State,
+  state: Document,
 ): Record<string, BareSuggestionRecord> | undefined {
   const suggestions = getSuggestions(state);
   if (suggestions.length === 0) return undefined;
@@ -404,7 +404,7 @@ function decodeDocument(
   source: string,
   allocator: IdAllocator,
   resolver: BlockKindResolver,
-): State {
+): Document {
   let parsed: unknown;
   try {
     parsed = JSON.parse(source);

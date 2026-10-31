@@ -1,4 +1,4 @@
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import { writeBlockType } from "../flow-ops";
@@ -40,7 +40,7 @@ import type { BlockKindResolver } from "../block-kinds";
  * (typically the editor's `ComponentRegistry`).
  */
 export function setBlockType(
-  state: State,
+  state: Document,
   blockId: BlockId,
   type: string,
   resolver: BlockKindResolver,

@@ -1,7 +1,7 @@
 import type * as Y from "yjs";
 import { requireBlockText, blockText } from "../block-text";
 import { HARD_BREAK_EMBED_TYPE } from "../hard-break";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { Block } from "../block";
@@ -118,7 +118,7 @@ const NO_DIRTY: ReadonlySet<BlockId> = new Set<BlockId>();
  * two guards atop `applyAttrsToRange`.
  */
 export function markFormatting(
-  state: State,
+  state: Document,
   span: Span,
   proposedAttrs: ReadonlyAttrs,
   input: SuggestionMintInput,
@@ -274,7 +274,7 @@ function formattingRecordsInSegments(
  * deletion record.
  */
 export function markDeletion(
-  state: State,
+  state: Document,
   span: Span,
   input: SuggestionMintInput,
 ): OperationResult {
@@ -327,7 +327,7 @@ interface MarkDeletionStep {
  * The ¶s a suggested deletion over `span` acts on (`paragraphMarksInSpan`: every ¶
  * inside the span that accepting would delete), minus those already deletion-keyed.
  */
-function planMarkSteps(state: State, span: Span, author: string): MarkDeletionStep[] {
+function planMarkSteps(state: Document, span: Span, author: string): MarkDeletionStep[] {
   const out: MarkDeletionStep[] = [];
   for (const b of paragraphMarksInSpan(state, span)) {
     const rule = markDeletionOf(state, b, author);
@@ -373,7 +373,7 @@ function applyMarkStepsInTx(doc: Y.Doc, marks: readonly MarkDeletionStep[], id: 
  * yields nothing) so the caller short-circuits with the identity contract.
  */
 function planMarkDeletion(
-  state: State,
+  state: Document,
   span: Span,
   input: SuggestionMintInput,
 ): MarkDeletionPlan | null {
@@ -563,7 +563,7 @@ interface MarkDeletionPlan {
  * validates the caret first, so no redundant guard here.
  */
 export function mintInsertion(
-  state: State,
+  state: Document,
   position: Position,
   text: string,
   attrs: ReadonlyAttrs,
@@ -619,7 +619,7 @@ export function mintInsertion(
  * does. Reject drops the break; accept strips the id. Throws as `insertLineBreak` on a
  * bad position.
  */
-export function mintLineBreak(state: State, position: Position, input: SuggestionMintInput): OperationResult {
+export function mintLineBreak(state: Document, position: Position, input: SuggestionMintInput): OperationResult {
   const block = resolveBlock(state, position.blockId)?.block ?? null;
   if (block === null || block.inlineContent === null) {
     throw new Error(`mintLineBreak: block "${position.blockId}" is not a text block`);
@@ -710,7 +710,7 @@ export interface ReplaceSuggestionInput {
  * attr registry bound to the doc; none bound → deep-value compare.
  */
 export function replaceWithSuggestion(
-  state: State,
+  state: Document,
   rawSpan: Span,
   text: string,
   attrs: ReadonlyAttrs,
@@ -824,7 +824,7 @@ export function replaceWithSuggestion(
  * (start backward, end forward; a collapsed span snaps backward) — computed ONCE by a
  * planner so the strike, the cut and the insert all use the same offsets.
  */
-function snapSpanOut(state: State, span: Span): Span {
+function snapSpanOut(state: Document, span: Span): Span {
   const start = spanStart(state, span);
   const end = spanEnd(state, span);
   const itemsOf = (id: BlockId): ReadonlyArray<InlineItem> => resolveBlock(state, id)?.block.inlineContent?.items ?? [];
@@ -885,7 +885,7 @@ function snapSpanOut(state: State, span: Span): Span {
  * {@link planSplitBlockAtPosition} unchanged.
  */
 export function splitWithSuggestionOverSelection(
-  state: State,
+  state: Document,
   rawSpan: Span,
   allocator: IdAllocator,
   input: ReplaceSuggestionInput,
@@ -1049,7 +1049,7 @@ function fragmentLineLength(line: SiblingBlockInit): number {
 }
 
 export function planReplaceWithSuggestedFragment(
-  state: State,
+  state: Document,
   rawSpan: Span,
   fragment: readonly SiblingBlockInit[],
   input: ReplaceSuggestionInput,
@@ -1298,7 +1298,7 @@ export interface FragmentHead {
  * records. Returns the standard `OperationResult` plus the post-op `endPosition`.
  */
 export function replaceWithSuggestedFragment(
-  state: State,
+  state: Document,
   span: Span,
   fragment: readonly SiblingBlockInit[],
   input: ReplaceSuggestionInput,
@@ -1350,7 +1350,7 @@ export function replaceWithSuggestedFragment(
  * (no strike). `deletionId` is unused on this path.
  */
 export function insertFragmentAsSuggestion(
-  state: State,
+  state: Document,
   at: Position,
   fragment: readonly SiblingBlockInit[],
   input: SuggestionMintInput,
@@ -1390,7 +1390,7 @@ export function insertFragmentAsSuggestion(
  * identity-no-op contract) when no record exists for `id`.
  */
 export function acceptSuggestion(
-  state: State,
+  state: Document,
   id: SuggestionId,
 ): OperationResult {
   return resolve(state, id, "accept");
@@ -1409,7 +1409,7 @@ export function acceptSuggestion(
  * Identity no-op when no record exists for `id`.
  */
 export function rejectSuggestion(
-  state: State,
+  state: Document,
   id: SuggestionId,
 ): OperationResult {
   return resolve(state, id, "reject");
@@ -1522,7 +1522,7 @@ export function applyResolveDecisionsInTx(doc: Y.Doc, writes: readonly ResolveDe
  * of ids OTHER than the resolved ones (co-tenant cleanup).
  */
 function resolveBlockScan(
-  state: State,
+  state: Document,
   classify: (item: InlineItem) => ScanItemResult,
   resolved: (id: SuggestionId) => boolean,
 ): { writes: ResolveDecisionWrite[]; occ: Occurrences } {
@@ -1601,7 +1601,7 @@ function deletesBoundary(doc: Y.Doc, id: SuggestionId, mode: "accept" | "reject"
  * level): a paragraph follows, or — before an object — `b` is empty and does not follow
  * an object. False at a flow's last ¶.
  */
-function markDeletableNow(state: State, b: Block): boolean {
+function markDeletableNow(state: Document, b: Block): boolean {
   const after = blockAfter(state, b)?.block ?? null;
   if (after === null) return false;
   if (after.inlineContent !== null) return true;
@@ -1617,7 +1617,7 @@ function markDeletableNow(state: State, b: Block): boolean {
  * concurrency-born key) keeps the ¶ and drops the key. Undecided keys removed with their
  * ¶ are recorded in `occ.dropped`, the others in `occ.survivors`.
  */
-function planBoundaryResolution(state: State, decide: Decide, occ: Occurrences): PlannedBoundary {
+function planBoundaryResolution(state: Document, decide: Decide, occ: Occurrences): PlannedBoundary {
   const doc = state[STATE_INTERNAL].doc;
   const ops: BoundaryOp[] = [];
   for (const b of iterateAllBlocksInDocumentOrder(state)) {
@@ -1663,7 +1663,7 @@ function applyBoundaryOpsInTx(doc: Y.Doc, plan: PlannedBoundary): void {
  *   4. surfaces `state.rootId` when no block was touched (record-only change).
  */
 function runResolve(
-  state: State,
+  state: Document,
   resolvedIds: ReadonlySet<SuggestionId>,
   decide: Decide,
   classify: (item: InlineItem) => ScanItemResult,
@@ -1703,7 +1703,7 @@ function runResolve(
  * {@link acceptSuggestion} / {@link rejectSuggestion}.
  */
 function resolve(
-  state: State,
+  state: Document,
   id: SuggestionId,
   mode: "accept" | "reject",
 ): OperationResult {
@@ -1751,7 +1751,7 @@ interface Carriers {
 }
 
 /** One O(document) pass: the record carriers (see {@link Carriers}). */
-function carriersOf(state: State): Carriers {
+function carriersOf(state: Document): Carriers {
   const visible = new Set(buildSuggestionRangeIndex(state).keys());
   const carrierless = new Set<SuggestionId>();
   for (const key of getSuggestionsMap(state[STATE_INTERNAL].doc).keys()) {
@@ -1799,7 +1799,7 @@ function attrsWithout(attrs: ReadonlyAttrs, key: string): ReadonlyAttrs {
  * Undoable (one history entry), exactly as {@link acceptSuggestion}. Identity no-op (same `state` ref +
  * empty dirtyIds) when the document has no suggestions.
  */
-export function acceptAll(state: State): OperationResult {
+export function acceptAll(state: Document): OperationResult {
   return resolveAll(state, "accept");
 }
 
@@ -1812,7 +1812,7 @@ export function acceptAll(state: State): OperationResult {
  *
  * Undoable, same identity no-op contract as {@link acceptAll}.
  */
-export function rejectAll(state: State): OperationResult {
+export function rejectAll(state: Document): OperationResult {
   return resolveAll(state, "reject");
 }
 
@@ -1922,7 +1922,7 @@ function resolveFormattingInSet(
  * in-place in their body tree.
  */
 function resolveAll(
-  state: State,
+  state: Document,
   mode: "accept" | "reject",
   only: ReadonlySet<SuggestionId> | null = null,
 ): OperationResult {
@@ -1966,17 +1966,17 @@ function resolveAll(
  * suggestion outside the group survives (or is cleaned up if it loses all its content).
  * Identity no-op when the group has no records.
  */
-export function acceptSuggestionGroup(state: State, groupId: string): OperationResult {
+export function acceptSuggestionGroup(state: Document, groupId: string): OperationResult {
   return resolveAll(state, "accept", groupMemberIds(state, groupId));
 }
 
 /** REJECT every suggestion of one group in one transaction (inverse of {@link acceptSuggestionGroup}). */
-export function rejectSuggestionGroup(state: State, groupId: string): OperationResult {
+export function rejectSuggestionGroup(state: Document, groupId: string): OperationResult {
   return resolveAll(state, "reject", groupMemberIds(state, groupId));
 }
 
 /** The record ids of group `groupId` (`suggestionGroupOf(record) === groupId`). */
-function groupMemberIds(state: State, groupId: string): Set<SuggestionId> {
+function groupMemberIds(state: Document, groupId: string): Set<SuggestionId> {
   const doc = state[STATE_INTERNAL].doc;
   const out = new Set<SuggestionId>();
   for (const key of getSuggestionsMap(doc).keys()) {
@@ -2191,7 +2191,7 @@ type CoalescePredicate = (
  * otherwise → mint via `mintId` (`reusing: false`).
  */
 function resolveCoalesce(
-  state: State,
+  state: Document,
   span: Span,
   mintId: SuggestionId,
   attrKey: string,
@@ -2221,7 +2221,7 @@ function resolveCoalesce(
  * attr. Used for the BEFORE neighbor (the run holding `start.offset - 1`).
  */
 function neighborSuggestionIds(
-  state: State,
+  state: Document,
   blockId: BlockId,
   containedOffset: number,
   attrKey: string,
@@ -2250,7 +2250,7 @@ function neighborSuggestionIds(
  * `end.offset`).
  */
 function neighborSuggestionIdsAfter(
-  state: State,
+  state: Document,
   blockId: BlockId,
   startOffset: number,
   attrKey: string,
@@ -2287,7 +2287,7 @@ function textItemSuggestionIds(
  * per-op coalesce predicate). Shared by `markFormatting` (same-author /
  * same-proposal) and `markDeletion` (same-author).
  */
-function coalesces(state: State, id: SuggestionId, matches: CoalescePredicate): boolean {
+function coalesces(state: Document, id: SuggestionId, matches: CoalescePredicate): boolean {
   const record = readSuggestionRecord(state[STATE_INTERNAL].doc, id);
   // A grouped suggestion (a host proposal) is a closed reviewable unit: never extended.
   return record !== null && record.groupId === undefined && matches(record);
@@ -2299,7 +2299,7 @@ function coalesces(state: State, id: SuggestionId, matches: CoalescePredicate): 
  * tracked transaction. Ids without a record are skipped; identity no-op when none.
  */
 export function assignSuggestionGroup(
-  state: State,
+  state: Document,
   ids: ReadonlyArray<SuggestionId>,
   groupId: string,
   metadata: Readonly<Record<string, unknown>> | undefined,

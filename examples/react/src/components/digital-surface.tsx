@@ -14,7 +14,7 @@ import { useWritingAids, WritingAidPopover, WritingAidsToggle, type AidPointerEv
  * The DIGITAL editing surface: the `@taleweaver/digital` contenteditable backend
  * — the browser flows the styled tree to the container width; NO print geometry,
  * NO pagination. Shares the same chrome (the toolbar dispatches the same
- * `EditorAction`s). Exposes its live `State` via `registerGetState` for the
+ * `EditorAction`s). Exposes its live `Document` via `registerGetState` for the
  * tab-bar hand-off. Find/replace and the writing-aids demo are shared with the print tab.
  *
  * Notion-style canvas: there is NO "page" (page chrome is a print-only concept).

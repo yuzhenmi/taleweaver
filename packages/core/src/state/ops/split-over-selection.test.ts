@@ -31,7 +31,7 @@ import {
 } from "../suggestions";
 import { createHistory } from "../history";
 import { applyOperation, getBlock } from "../state";
-import type { State } from "../state";
+import type { Document } from "../state";
 import { createPosition, createSpan } from "../block-position";
 import type { Span } from "../block-position";
 import { createTestAllocator, type BlockId } from "../block-id";
@@ -60,7 +60,7 @@ const INPUT = {
 } as const;
 
 /** doc > [ p(items) ] — one leaf paragraph "p". */
-function oneBlock(items: InlineContent = inlineContent([text("abcdef")])): State {
+function oneBlock(items: InlineContent = inlineContent([text("abcdef")])): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -76,12 +76,12 @@ function span(start: number, end: number): Span {
 }
 
 /** The inline items of a block by id. */
-function itemsOf(s: State, id: string) {
+function itemsOf(s: Document, id: string) {
   return getBlock(s, id as BlockId)?.inlineContent?.items ?? [];
 }
 
 /** Concatenated text of a block's text runs (embeds contribute nothing). */
-function textOf(s: State, id: string): string {
+function textOf(s: Document, id: string): string {
   let out = "";
   for (const it of itemsOf(s, id)) {
     if (it.kind === "text") out += it.text;
@@ -93,7 +93,7 @@ function textOf(s: State, id: string): string {
  * True iff `id` (the split block, which keeps the tail) has no key and
  * its previous sibling — the NEW head H — carries the split's insertion key on its ¶.
  */
-function splitKeyedBefore(s: State, id: string): boolean {
+function splitKeyedBefore(s: Document, id: string): boolean {
   const b = getBlock(s, id as BlockId);
   const prev = b?.prevSiblingId ?? null;
   return (
@@ -104,14 +104,14 @@ function splitKeyedBefore(s: State, id: string): boolean {
 }
 
 /** The new head H of the split of `p` (its previous sibling). */
-function head(s: State): BlockId {
+function head(s: Document): BlockId {
   const prev = getBlock(s, "p" as BlockId)?.prevSiblingId ?? null;
   if (prev === null) throw new Error("expected a split head before p");
   return prev;
 }
 
 /** Seed an insertion `SuggestionRecord` (id `insId`, by `author`). */
-function seedInsertionRecord(state: State, insId: string, author: string): State {
+function seedInsertionRecord(state: Document, insId: string, author: string): Document {
   const record: SuggestionRecord = {
     id: insId as SuggestionId,
     kind: "insertion",

@@ -122,7 +122,7 @@ export interface DigitalControllerOptions {
    * action and further remote change ignored, the last good render kept, every member a
    * defined no-op that never touches the Y.Doc. Called once per halt — and again, while
    * still halted, when a legacy write lands after `onDocumentCompatible` was reported.
-   * Do not keep reading the halted State with core read functions. While halted, setters
+   * Do not keep reading the halted Document with core read functions. While halted, setters
    * and clears of decorations / highlights / styles are no-ops (`decorations` keeps the
    * last good set). Exit: the host calls {@link DigitalController.replaceDocument} with a
    * State holding no legacy storage (same Y.Doc or another).
@@ -131,7 +131,7 @@ export interface DigitalControllerOptions {
   /**
    * While HALTED on a NOT-YET-UPGRADED document ("legacy-schema"), it was upgraded (by
    * this host or an upgraded peer — any transaction is re-checked): the host can now
-   * resume with {@link DigitalController.replaceDocument} and a fresh State over the same
+   * resume with {@link DigitalController.replaceDocument} and a fresh Document over the same
    * Y.Doc (`createState({ rootId, doc })`). Called once per halt; never for a sticky halt.
    */
   readonly onDocumentCompatible?: () => void;
@@ -157,9 +157,9 @@ export interface DigitalController {
    * until replaced; a decoration whose range is deleted disappears. Only blocks whose drawn
    * decorations change are re-rendered.
    *
-   * `basedOn` is the document `State` the decorations were computed against (default: the
+   * `basedOn` is the document `Document` the decorations were computed against (default: the
    * current one). A host that computes asynchronously passes it so its result is mapped
-   * through the edits made meanwhile; if that State is too old to map (outside the
+   * through the edits made meanwhile; if that Document is too old to map (outside the
    * controller's mapping log) the decorations are dropped rather than drawn on the wrong text.
    */
   setDecorations(decorations: readonly Decoration[], basedOn?: State): void;
@@ -276,10 +276,10 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   const selected = createSelectedParagraphs((id) => reconciler.blockElement(id), (el) => cellClip.watch(el));
 
   let layers = createDecorationLayers();
-  if (options.decorations !== undefined) layers.setHost(editorState.state, options.decorations);
+  if (options.decorations !== undefined) layers.setHost(editorState.document, options.decorations);
   const find = createFindSession();
   const log = createMappingLog();
-  log.reset(editorState.state);
+  log.reset(editorState.document);
   const anchors = createAnchorSet();
 
   // HALTED (a peer update carried legacy inline storage): controller-local runtime state
@@ -314,7 +314,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   /** Run a decoration-layer setter now (and redraw); a no-op while halted. */
   function layerOp(op: (s: State) => void): void {
     if (halted) return;
-    op(editorState.state);
+    op(editorState.document);
     redraw();
   }
 
@@ -322,19 +322,19 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     if (halted) return;
     const prev = editorState;
     editorState = reduceEditor(editorState, action);
-    if (prev.state !== editorState.state) {
+    if (prev.document !== editorState.document) {
       const mapping = transitionMapping(prev, editorState);
-      log.record(prev.state, editorState.state, mapping);
+      log.record(prev.document, editorState.document, mapping);
       layers.advance(prev, editorState, mapping);
-      anchors.advance(prev.state, editorState.state, mapping);
+      anchors.advance(prev.document, editorState.document, mapping);
       if (find.active) {
         // Re-find only in the edited blocks; redraw only the blocks whose matches changed.
-        const { changedBlocks } = find.refresh(editorState.state, mapping);
-        if (changedBlocks === null) layers.setFind(editorState.state, find.matches(), find.activeIndex());
-        else layers.patchFind(editorState.state, find.matches(), find.activeIndex(), changedBlocks);
+        const { changedBlocks } = find.refresh(editorState.document, mapping);
+        if (changedBlocks === null) layers.setFind(editorState.document, find.matches(), find.activeIndex());
+        else layers.patchFind(editorState.document, find.matches(), find.activeIndex(), changedBlocks);
       }
     }
-    if (prev.state !== editorState.state) followRemoteDoc();
+    if (prev.document !== editorState.document) followRemoteDoc();
     reconciler.reconcile(prev, editorState, isComposing, layers.merged);
     selected.sync(editorState);
     pointer?.sync();
@@ -410,7 +410,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     }
     // Tab routing is context-sensitive: tell the mapper whether the caret's focus block is a
     // list-item so Tab nests the list (LIST_INDENT) rather than inserting a tab.
-    const focusBlock = getBlock(editorState.state, editorState.selection.focus.blockId);
+    const focusBlock = getBlock(editorState.document, editorState.selection.focus.blockId);
     const action = mapDigitalKey(e, { mac, inListItem: focusBlock?.type === "list-item" });
     if (action === null) return;
     // Claim Escape only when it dismisses something (an object selection or a host
@@ -431,9 +431,9 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     const bridge = reconciler.getBridge();
     const focus = editorState.selection.focus;
     const el = reconciler.blockElement(focus.blockId);
-    const content = getBlock(editorState.state, focus.blockId)?.inlineContent ?? null;
+    const content = getBlock(editorState.document, focus.blockId)?.inlineContent ?? null;
     if (bridge === null || el === null || content === null) return;
-    const before = caretBeforeMarkers(editorState.state, focus);
+    const before = caretBeforeMarkers(editorState.document, focus);
     let point: DomPoint | null = null;
     if (!forward) {
       if (before.offset < focus.offset) point = bridge.pointAt(before);
@@ -483,10 +483,10 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     e.preventDefault();
     if (halted) return; // empty clipboard: copying reads the (incompatible) document
     // copy:"drop" marks are stripped from what leaves the editor.
-    const frag = extractFragment(editorState.state, editorState.selection);
+    const frag = extractFragment(editorState.document, editorState.selection);
     e.clipboardData?.setData(
       "text/plain",
-      extractText(editorState.state, editorState.selection, builtinEmbedSerializer, "suggesting"),
+      extractText(editorState.document, editorState.selection, builtinEmbedSerializer, "suggesting"),
     );
     e.clipboardData?.setData("text/html", encodeHtml(frag));
     e.clipboardData?.setData(TALEWEAVER_CLIP_MIME, encodeFragmentClip(frag));
@@ -521,7 +521,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   let unsubscribeRemote: (() => void) | null = null;
   // Every controller shape-checks peer updates (legacy storage halts it), whether or
   // not it applies them (`remoteChanges: "ignore"`).
-  function followRemoteDoc(force = false, watched: State = editorState.state, startHalted = false): void {
+  function followRemoteDoc(force = false, watched: State = editorState.document, startHalted = false): void {
     const doc = getYDoc(watched);
     if (doc === remoteDoc && !force) return;
     unsubscribeRemote?.();
@@ -561,7 +561,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
 
   /** Show the session's matches and scroll the active one into view (never moves the caret). */
   function showFind(scroll: boolean): FindStatus {
-    layers.setFind(editorState.state, find.matches(), find.activeIndex());
+    layers.setFind(editorState.document, find.matches(), find.activeIndex());
     redraw();
     if (scroll) {
       const match = find.matches()[find.activeIndex()];
@@ -604,8 +604,8 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     container.contentEditable = "true";
     // Older versions can no longer be mapped: the log restarts and anchors see an unknown
     // transition; every layer and the find session are dropped (the host sets them again).
-    log.reset(editorState.state);
-    anchors.advance(prev.state, editorState.state, UNKNOWN_MAPPING);
+    log.reset(editorState.document);
+    anchors.advance(prev.document, editorState.document, UNKNOWN_MAPPING);
     layers = createDecorationLayers();
     find.close();
     followRemoteDoc(true); // afresh, even on the same Y.Doc
@@ -648,9 +648,9 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     setDecorations(decorations, basedOn) {
       if (halted) return; // a no-op: `decorations` keeps the last good set
       let current: readonly Decoration[] = decorations;
-      if (basedOn !== undefined && basedOn !== editorState.state) {
+      if (basedOn !== undefined && basedOn !== editorState.document) {
         const mapping = log.mappingFrom(basedOn);
-        current = mapping === null ? [] : mapDecorations(decorations, mapping, editorState.state);
+        current = mapping === null ? [] : mapDecorations(decorations, mapping, editorState.document);
       }
       layerOp((s) => layers.setHost(s, current));
     },
@@ -674,13 +674,13 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     },
     suggestionRects(suggestionId) {
       if (halted) return [];
-      const range = resolveSuggestionRange(editorState.state, suggestionId);
+      const range = resolveSuggestionRange(editorState.document, suggestionId);
       const bridge = reconciler.getBridge();
       if (range === null || bridge === null) return [];
       // The tracked ¶ glyphs naming the suggestion (a ¶'s range covers no character), in
       // the range's blocks: O(its blocks).
       const generated: DOMRect[] = [];
-      const blocks = [...(between(editorState.state, range.start.blockId, range.end.blockId, { steps: Infinity }) ?? []), range.end.blockId];
+      const blocks = [...(between(editorState.document, range.start.blockId, range.end.blockId, { steps: Infinity }) ?? []), range.end.blockId];
       for (const id of blocks) {
         const glyph = reconciler.blockElement(id)?.querySelector(":scope > .tw-break-mark")?.firstElementChild ?? null;
         if (glyph === null || !(glyph.parentElement?.getAttribute("data-tw-suggestion-id") ?? "").split(" ").includes(suggestionId)) continue;
@@ -709,7 +709,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     },
     findStart(query, findOptions) {
       if (halted) return EMPTY_FIND;
-      find.start(editorState.state, editorState.selection.focus, query, findOptions);
+      find.start(editorState.document, editorState.selection.focus, query, findOptions);
       return showFind(true);
     },
     findNext() {
@@ -725,7 +725,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     findClose() {
       if (halted) return;
       find.close();
-      layers.setFind(editorState.state, [], -1);
+      layers.setFind(editorState.document, [], -1);
       redraw();
     },
     findStatus: () => (halted ? EMPTY_FIND : find.status()),
@@ -742,16 +742,16 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
       return find.status();
     },
     get version() {
-      return editorState.state;
+      return editorState.document;
     },
     mapPosition(position, version, assoc) {
       if (halted) return null;
-      return mapPositionFrom(log, editorState.state, version, position, assoc);
+      return mapPositionFrom(log, editorState.document, version, position, assoc);
     },
     createAnchor(from, to, anchorOptions = {}) {
       if (halted) return null;
       const { basedOn, ...rest } = anchorOptions;
-      return anchors.createAt(log, editorState.state, basedOn ?? editorState.state, from, to, rest);
+      return anchors.createAt(log, editorState.document, basedOn ?? editorState.document, from, to, rest);
     },
     propose(proposal, proposeOptions = {}) {
       if (destroyed) return Promise.resolve({ ok: false, reason: "rejected", problem: { kind: "invalid", message: "controller destroyed" } });

@@ -223,7 +223,7 @@ describe("DigitalReconciler.reconcile — selection-only no-op (full-rebuild pat
     const caret = createPosition(asBlockId(blockId), 1);
     const next = reduceEditor(st, { type: "SET_SELECTION", selection: createSpan(caret, caret) });
     expect(next.lastDirtyIds).toBeNull();
-    expect(next.state).toBe(st.state);
+    expect(next.document).toBe(st.document);
 
     // Clear the live selection so we can prove positionToDom re-establishes it.
     window.getSelection()?.removeAllRanges();
@@ -252,18 +252,18 @@ describe("DigitalReconciler.reconcile — host-hidden blocks", () => {
     let st = type(createInitialEditorState(config), "ab");
     st = reduceEditor(st, { type: "SPLIT_NODE" });
     st = type(st, "cd");
-    const root = getBlock(st.state, st.state.rootId);
-    const second = getBlock(st.state, root?.lastChildId ?? st.state.rootId)?.lastChildId; // root → final section → paragraphs
+    const root = getBlock(st.document, st.document.rootId);
+    const second = getBlock(st.document, root?.lastChildId ?? st.document.rootId)?.lastChildId; // root → final section → paragraphs
     if (second == null) throw new Error("setup");
-    const hide = setBlockAttrs(st.state, second, { hidden: true });
-    const hidden: EditorState = { ...st, state: hide.state, lastDirtyIds: hide.dirtyIds };
+    const hide = setBlockAttrs(st.document, second, { hidden: true });
+    const hidden: EditorState = { ...st, document: hide.state, lastDirtyIds: hide.dirtyIds };
     const container = document.createElement("div");
     document.body.appendChild(container);
     const r = createDigitalReconciler(config.componentRegistry, config.attrRegistry, document);
     r.mount(container, hidden);
     expect(container.querySelector(`[data-block-id="${second}"]`)).toBeNull();
-    const show = setBlockAttrs(hidden.state, second, { hidden: false });
-    r.reconcile(hidden, { ...hidden, state: show.state, lastDirtyIds: show.dirtyIds }, false);
+    const show = setBlockAttrs(hidden.document, second, { hidden: false });
+    r.reconcile(hidden, { ...hidden, document: show.state, lastDirtyIds: show.dirtyIds }, false);
     expect(container.querySelector(`[data-block-id="${second}"]`)?.textContent).toBe("cd");
   });
 });

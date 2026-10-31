@@ -44,16 +44,16 @@ function withFootnote(): { editor: EditorState; bodyId: BlockId } {
  * stale/cross-context selection throws here via `iterateSpan`).
  */
 function expectSelectionValidAndInContext(editor: EditorState): void {
-  const anchorCtx = selectionContextOf(editor.state, editor.selection.anchor.blockId);
-  const focusCtx = selectionContextOf(editor.state, editor.selection.focus.blockId);
+  const anchorCtx = selectionContextOf(editor.document, editor.selection.anchor.blockId);
+  const focusCtx = selectionContextOf(editor.document, editor.selection.focus.blockId);
   expect(anchorCtx).not.toBeNull();
   expect(focusCtx).not.toBeNull();
   expect(anchorCtx).toBe(focusCtx);
   // The block the restored selection points at still exists.
-  expect(resolveBlock(editor.state, editor.selection.focus.blockId)).not.toBeNull();
-  expect(resolveBlock(editor.state, editor.selection.anchor.blockId)).not.toBeNull();
+  expect(resolveBlock(editor.document, editor.selection.focus.blockId)).not.toBeNull();
+  expect(resolveBlock(editor.document, editor.selection.anchor.blockId)).not.toBeNull();
   // The actual throwing primitive: a stale/cross-context span would crash here.
-  expect(() => getActiveFormatting(editor.state, editor.selection)).not.toThrow();
+  expect(() => getActiveFormatting(editor.document, editor.selection)).not.toThrow();
 }
 
 describe("#419 — undo of a mid-line split restores a valid in-context selection", () => {
@@ -78,7 +78,7 @@ describe("#419 — undo of a mid-line split restores a valid in-context selectio
     // Sanity: the split actually produced a second block — the head (new id) before
     // the caret's block, which keeps its id.
     expect(split.selection.focus.blockId).toBe(blockId);
-    expect(resolveBlock(split.state, blockId)?.block.prevSiblingId ?? null).not.toBeNull();
+    expect(resolveBlock(split.document, blockId)?.block.prevSiblingId ?? null).not.toBeNull();
 
     const undone = reduceEditor(split, { type: "UNDO" });
     expectSelectionValidAndInContext(undone);
@@ -88,7 +88,7 @@ describe("#419 — undo of a mid-line split restores a valid in-context selectio
     const { editor } = withFootnote();
     const typed = reduceEditor(editor, { type: "INSERT_TEXT", text: "note body" });
     const bodyBlockId = typed.selection.focus.blockId;
-    const bodyCtx = selectionContextOf(typed.state, bodyBlockId);
+    const bodyCtx = selectionContextOf(typed.document, bodyBlockId);
     expect(bodyCtx).not.toBeNull();
 
     // Caret mid-body, between "note" and " body".
@@ -108,7 +108,7 @@ describe("#419 — undo of a mid-line split restores a valid in-context selectio
 
     expectSelectionValidAndInContext(undone);
     // The restored selection stays in the SAME footnote-body context.
-    expect(selectionContextOf(undone.state, undone.selection.focus.blockId)).toBe(bodyCtx);
+    expect(selectionContextOf(undone.document, undone.selection.focus.blockId)).toBe(bodyCtx);
   });
 
   it("split → undo → redo → undo keeps the selection valid + consumer safe at each step", () => {

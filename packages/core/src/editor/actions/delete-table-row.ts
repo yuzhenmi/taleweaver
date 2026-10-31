@@ -21,7 +21,7 @@ import { deleteWholeTable } from "./helpers/delete-whole-table";
  * delete; its first paragraph is read from the POST-op state. One undo (`"command"`).
  */
 export function handleDeleteTableRow(editor: EditorState): Edit | null {
-  const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
+  const ctx = resolveTableContext(editor.document, editor.selection.focus.blockId);
   if (ctx === null || ctx.ragged) return null;
 
   // Last remaining row → deleting it collapses the whole table.
@@ -38,8 +38,8 @@ export function handleDeleteTableRow(editor: EditorState): Edit | null {
     const caretCell = grid === null ? undefined : grid.cells.find((c) => c.cellId === ctx.cellId);
     if (grid === null || caretCell === undefined) return null;
 
-    const result = deleteTableRowSpanAware(editor.state, ctx);
-    if (result.state === editor.state) return null;
+    const result = deleteTableRowSpanAware(editor.document, ctx);
+    if (result.state === editor.document) return null;
 
     const rowCount = grid.occupancy.length;
     const targetGridRow = caretCell.gridRow < rowCount - 1 ? caretCell.gridRow + 1 : caretCell.gridRow - 1;
@@ -62,8 +62,8 @@ export function handleDeleteTableRow(editor: EditorState): Edit | null {
 
   // The plain delete composes `removeBlock` + a `headerRowCount` re-derive in
   // ONE transaction, so deleting a header row keeps the count valid (one undo entry).
-  const result = deleteTableRow(editor.state, ctx);
-  if (result.state === editor.state) return null;
+  const result = deleteTableRow(editor.document, ctx);
+  if (result.state === editor.document) return null;
 
   // Read the target cell's first paragraph from the POST-op state.
   const targetCell = targetCellId !== null ? getBlock(result.state, targetCellId) : null;

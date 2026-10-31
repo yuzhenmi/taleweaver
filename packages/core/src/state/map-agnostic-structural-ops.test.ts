@@ -33,7 +33,7 @@ import { createPosition, createSpan } from "./block-position";
 import { createTestAllocator } from "./block-id";
 import type { BlockId } from "./block-id";
 import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
-import type { State } from "./state";
+import type { Document } from "./state";
 
 const HDR_ROOT = "hdr-root" as BlockId;
 const HDR_P1 = "hdr-c1" as BlockId;
@@ -45,7 +45,7 @@ const BODY_P = "p" as BlockId;
 // material for split (Enter), merge (join), and cross-block delete inside the
 // body. Main document is a single body paragraph. Same fixture shape as
 // map-agnostic-ops.test.ts / map-agnostic-helpers.test.ts.
-function buildWithHeaderBody(): State {
+function buildWithHeaderBody(): Document {
   return buildState({
     rootId: "doc",
     blocks: [

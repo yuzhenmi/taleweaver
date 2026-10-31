@@ -5,7 +5,7 @@ import { encodeFragmentClip, decodeFragmentClip, TALEWEAVER_CLIP_MIME } from "./
 import { extractFragment } from "../ops/extract-fragment";
 import { createSpan, createPosition } from "../block-position";
 import type { BlockId } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../state";
 import { getBlock, getEmbedContent } from "../state";
 import { TEST_RESOLVER, buildBlock, inlineContent, text, embed } from "../../test-utils/state-builders";
 import { buildStateFromBlocks } from "../build-state-from-blocks";
@@ -24,7 +24,7 @@ function bid(s: string): BlockId {
 }
 
 /** Top-level block types under the fragment's root. */
-function fragTopLevelTypes(frag: State): string[] {
+function fragTopLevelTypes(frag: Document): string[] {
   // The fragment's blocks sit in its final section.
   return topLevelBlockIds(frag).map((id) => getBlock(frag, id)?.type ?? "?");
 }
@@ -35,7 +35,7 @@ function fragTopLevelTypes(frag: State): string[] {
  * `properties.suggestionId` + embed FORMATTING_SUGGESTION_ATTR), then reads
  * each record back out of the state's suggestions side-table.
  */
-function suggestionRecordsOf(frag: State): readonly SuggestionRecord[] {
+function suggestionRecordsOf(frag: Document): readonly SuggestionRecord[] {
   const root = getBlock(frag, frag.rootId);
   if (root === null) return [];
   const ids = new Set<string>();
@@ -56,7 +56,7 @@ function suggestionRecordsOf(frag: State): readonly SuggestionRecord[] {
 }
 
 /** True iff the fragment has any embed content (footnote bodies etc.) */
-function fragHasEmbedContent(frag: State): boolean {
+function fragHasEmbedContent(frag: Document): boolean {
   const root = getBlock(frag, frag.rootId);
   if (root === null) return false;
   let cur: BlockId | null = topLevelBlockIds(frag)[0] ?? null; // the fragment's final section
@@ -85,7 +85,7 @@ const FOOTNOTE_EMBED_TYPE = "footnote-anchor";
  * A rich state with a paragraph containing a footnote anchor + embed content
  * AND a text run carrying a pending insertion suggestion.
  */
-function buildRichState(): State {
+function buildRichState(): Document {
   return buildStateFromBlocks({ resolver: TEST_RESOLVER,
     rootId: bid("doc"),
     blocks: [
@@ -140,7 +140,7 @@ describe("fragment-clip codec", () => {
 
     const back = decodeFragmentClip(clip, TEST_RESOLVER, attrRegistry);
     expect(back).not.toBeNull();
-    const backState = back as State;
+    const backState = back as Document;
 
     // Same top-level block types
     expect(fragTopLevelTypes(backState)).toEqual(fragTopLevelTypes(frag));

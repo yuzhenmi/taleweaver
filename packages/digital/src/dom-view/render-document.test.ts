@@ -68,15 +68,15 @@ describe("renderDocumentToDom (end-to-end)", () => {
     editor = reduceEditor(editor, { type: "SPLIT_NODE" });
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "c" });
     const c = editor.selection.focus.blockId;
-    const two = getBlock(editor.state, c)?.prevSiblingId;
+    const two = getBlock(editor.document, c)?.prevSiblingId;
     if (two === null || two === undefined) throw new Error("no empty paragraph");
-    const plain = renderDocumentToDom(editor.state, components, attrs, document, { stampBlockIds: true });
+    const plain = renderDocumentToDom(editor.document, components, attrs, document, { stampBlockIds: true });
     expect(plain.querySelector(`[data-block-id="${two}"] > br[data-tw-empty-line]`)?.hasAttribute("style")).toBe(false);
     // Formatting over the empty paragraph's ¶ — (E, 0)–(C, 0) — writes its markAttrs.
     editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(two, 0), createPosition(c, 0)) });
     editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 40 });
-    expect(getBlock(editor.state, two)?.markAttrs).toBeDefined();
-    const root = renderDocumentToDom(editor.state, components, attrs, document, { stampBlockIds: true });
+    expect(getBlock(editor.document, two)?.markAttrs).toBeDefined();
+    const root = renderDocumentToDom(editor.document, components, attrs, document, { stampBlockIds: true });
     const br = root.querySelector(`[data-block-id="${two}"] > br[data-tw-empty-line]`);
     expect(br?.getAttribute("style")).toContain("font-size: 40px");
   });
@@ -89,11 +89,11 @@ describe("renderDocumentToDom (end-to-end)", () => {
     editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "two" });
     const two = editor.selection.focus.blockId;
-    const one = getBlock(editor.state, two)?.prevSiblingId;
+    const one = getBlock(editor.document, two)?.prevSiblingId;
     if (one === null || one === undefined) throw new Error("no first item");
     editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(one, 0), createPosition(two, 3)) });
     editor = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" });
-    const root = renderDocumentToDom(editor.state, components, attrs, document);
+    const root = renderDocumentToDom(editor.document, components, attrs, document);
     const markers = Array.from(root.querySelectorAll("[data-tw-marker]")).map((m) => m.getAttribute("style") ?? "");
     expect(markers).toHaveLength(2);
     expect(markers[0]).not.toContain("font-weight");

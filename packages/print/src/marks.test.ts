@@ -105,7 +105,7 @@ const span = (id: core.BlockId, a: number, b: number): core.Span =>
   core.createSpan(core.createPosition(id, a), core.createPosition(id, b));
 
 function runsOf(editor: core.EditorState, id: core.BlockId): Array<[string, Record<string, unknown>]> {
-  return (core.resolveBlock(editor.state, id)?.block.inlineContent?.items ?? []).map((it) => [it.kind === "text" ? it.text : "", { ...it.attrs }]);
+  return (core.resolveBlock(editor.document, id)?.block.inlineContent?.items ?? []).map((it) => [it.kind === "text" ? it.text : "", { ...it.attrs }]);
 }
 
 function type(textarea: HTMLTextAreaElement, text: string): void {

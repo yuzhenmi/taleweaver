@@ -22,7 +22,7 @@ import type { EditorState } from "./editor-state";
  * rebases the local selection through the change.
  */
 
-/** The Y.Doc behind a document `State` — what a Yjs provider syncs. */
+/** The Y.Doc behind a document `Document` — what a Yjs provider syncs. */
 export function getYDoc(state: State): Y.Doc {
   return state[STATE_INTERNAL].doc;
 }
@@ -116,16 +116,16 @@ export function rebaseSelection(before: EditorState, after: EditorState): Select
   const collapsed = positionsEqual(anchor, focus);
   const map = (p: Position, assoc: Assoc): Position => {
     const mapped = mapping.map(p, assoc).position;
-    return mapped === null ? nearestValid(before.state, after.state, p) : (clampInto(after.state, mapped.blockId, mapped.offset) ?? mapped);
+    return mapped === null ? nearestValid(before.document, after.document, p) : (clampInto(after.document, mapped.blockId, mapped.offset) ?? mapped);
   };
   if (collapsed) {
     const caret = map(focus, -1);
     return createSpan(caret, caret);
   }
-  const forward = isForward(before.state, anchor, focus);
+  const forward = isForward(before.document, anchor, focus);
   const a = map(anchor, forward ? 1 : -1);
   const f = map(focus, forward ? -1 : 1);
-  const ctxA = selectionContextOf(after.state, a.blockId);
-  if (ctxA === null || ctxA !== selectionContextOf(after.state, f.blockId)) return createSpan(f, f);
+  const ctxA = selectionContextOf(after.document, a.blockId);
+  if (ctxA === null || ctxA !== selectionContextOf(after.document, f.blockId)) return createSpan(f, f);
   return createSpan(a, f);
 }

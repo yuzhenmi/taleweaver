@@ -12,10 +12,10 @@ import { describe, it, expect } from "vitest";
 import { assertSameTree } from "./assert-same-tree";
 import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
-import type { State } from "./state";
+import type { Document } from "./state";
 
 // Two trees: a main doc (doc > p) and a header body (hdr-root > hdr-c1, hdr-c2).
-function buildMixed(): State {
+function buildMixed(): Document {
   return buildState({
     rootId: "doc",
     blocks: [

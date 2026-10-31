@@ -19,7 +19,7 @@
  */
 import * as Y from "yjs";
 import type { BlockId } from "../state/block-id";
-import { getBlock, resolveBlock, type State } from "../state/state";
+import { getBlock, resolveBlock, type Document } from "../state/state";
 import { STATE_INTERNAL } from "../state/state-internal";
 import { inlineContentLength } from "../state/inline-content";
 import { getRegistry, entryFlow } from "../state/registry";
@@ -44,7 +44,7 @@ function tokensOf(ctx: ReadCtx, flow: Y.Array<Y.Text>): Token[] {
 }
 
 /** Ids of every holder whose flow is read (visible), with its flow. */
-function visibleFlows(state: State): { id: string; flow: Y.Array<Y.Text> }[] {
+function visibleFlows(state: Document): { id: string; flow: Y.Array<Y.Text> }[] {
   const doc = state[STATE_INTERNAL].doc;
   const ctx = readCtx(doc);
   const out: { id: string; flow: Y.Array<Y.Text> }[] = [];
@@ -58,7 +58,7 @@ function visibleFlows(state: State): { id: string; flow: Y.Array<Y.Text> }[] {
 }
 
 /** The first storage violation of I (and the state check), or null. */
-export function storageViolation(state: State, stateCheck = true): string | null {
+export function storageViolation(state: Document, stateCheck = true): string | null {
   const doc = state[STATE_INTERNAL].doc;
   const ctx = readCtx(doc);
   for (const { id, flow } of visibleFlows(state)) {
@@ -80,7 +80,7 @@ export function storageViolation(state: State, stateCheck = true): string | null
 }
 
 /** The first read-model violation of I (or a lost character), or null. */
-export function readViolation(state: State): string | null {
+export function readViolation(state: Document): string | null {
   const doc = state[STATE_INTERNAL].doc;
   const ctx = readCtx(doc);
   for (const { id, flow } of visibleFlows(state)) {
@@ -118,7 +118,7 @@ export function readViolation(state: State): string | null {
   return null;
 }
 
-function getBlockAny(state: State, id: BlockId) {
+function getBlockAny(state: Document, id: BlockId) {
   return getBlock(state, id) ?? resolveBlock(state, id)?.block ?? null;
 }
 
@@ -126,7 +126,7 @@ function getBlockAny(state: State, id: BlockId) {
  * The storage of `holderId`'s flow as a string: each ¶ as `id:"text"` (a section-end
  * as `id:"text"/S`), each object as `[id]`, an unterminated tail as `~"text"`.
  */
-export function flowShape(state: State, holderId: string): string {
+export function flowShape(state: Document, holderId: string): string {
   const doc = state[STATE_INTERNAL].doc;
   const ctx = readCtx(doc);
   const entry = getRegistry(doc).get(holderId);
@@ -159,7 +159,7 @@ export function flowShape(state: State, holderId: string): string {
  * Assert invariant I: in STORAGE (+ the plain-¶ state check) after a local
  * primitive op, in the READ MODEL after a remote transaction / undo / redo.
  */
-export function assertInvariantI(state: State, mode: "storage" | "read", label = ""): void {
+export function assertInvariantI(state: Document, mode: "storage" | "read", label = ""): void {
   const bad = mode === "storage" ? (storageViolation(state) ?? readViolation(state)) : readViolation(state);
   if (bad !== null) throw new Error(`invariant I (${mode}) ${label}: ${bad}`);
 }

@@ -63,7 +63,7 @@ describe("digital HTML paste — end-to-end through real core", () => {
   it("decodes and inserts a single rich paragraph (marks preserved)", () => {
     const { ctrl, container } = mountController();
     container.dispatchEvent(makePasteEvent({ html: "<p>world <strong>bold</strong></p>", text: "world bold" }));
-    expect(blockTexts(ctrl.editorState.state).join("")).toContain("world bold");
+    expect(blockTexts(ctrl.editorState.document).join("")).toContain("world bold");
     // The reconciler rendered it into the live contentEditable DOM.
     expect(container.textContent).toContain("world bold");
     ctrl.destroy();
@@ -75,7 +75,7 @@ describe("digital HTML paste — end-to-end through real core", () => {
     const html =
       "<h1>Title</h1><p>First para with <em>italic</em>.</p><p>Second.</p><ul><li>one</li><li>two</li></ul>";
     container.dispatchEvent(makePasteEvent({ html, text: "Title\nFirst para with italic.\nSecond.\none\ntwo" }));
-    const joined = blockTexts(ctrl.editorState.state).join("|");
+    const joined = blockTexts(ctrl.editorState.document).join("|");
     expect(joined).toContain("Title");
     expect(joined).toContain("First para with italic.");
     expect(joined).toContain("Second.");

@@ -28,7 +28,7 @@ import { acceptSuggestion, rejectSuggestion, mintInsertion } from "./suggestion-
 import { getSuggestions, type SuggestionId } from "../suggestions";
 import { createHistory } from "../history";
 import { getBlock } from "../state";
-import type { State } from "../state";
+import type { Document } from "../state";
 import {
   buildBlock,
   buildState,
@@ -53,7 +53,7 @@ const INS_ID = "ins-1" as SuggestionId;
 const INS_INPUT = { id: INS_ID, author: "alice", createdAt: 3000 } as const;
 
 /** doc > [ p("abcdef") ] — one text run, used for the suggested-SPLIT cases. */
-function oneBlock(): State {
+function oneBlock(): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -69,7 +69,7 @@ function oneBlock(): State {
 }
 
 /** doc > [ p1("abc"), p2("def") ] — two linked blocks, used for the suggested-JOIN cases. */
-function twoBlocks(): State {
+function twoBlocks(): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -93,12 +93,12 @@ function twoBlocks(): State {
 }
 
 /** The inline items of a block, or []. */
-function itemsOf(s: State, id: string) {
+function itemsOf(s: Document, id: string) {
   return getBlock(s, id as BlockId)?.inlineContent?.items ?? [];
 }
 
 /** The concatenated text of a block's text runs (embeds contribute nothing). */
-function textOf(s: State, id: string): string {
+function textOf(s: Document, id: string): string {
   let out = "";
   for (const it of itemsOf(s, id)) {
     if (it.kind === "text") out += it.text;
@@ -107,12 +107,12 @@ function textOf(s: State, id: string): string {
 }
 
 /** True iff the block carries ANY paragraph-break suggestion tag. */
-function hasBreakTag(s: State, id: string): boolean {
+function hasBreakTag(s: Document, id: string): boolean {
   return getBlock(s, id as BlockId)?.breakSuggestion !== undefined;
 }
 
 /** The count of body paragraphs (children of the final section). */
-function bodyBlockCount(s: State): number {
+function bodyBlockCount(s: Document): number {
   let count = 0;
   let id: BlockId | null = getBlock(s, finalSectionOf(s))?.firstChildId ?? null;
   for (let guard = 0; id !== null && guard < 100; guard++) {

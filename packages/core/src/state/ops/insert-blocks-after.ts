@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -84,7 +84,7 @@ export interface InsertBlocksAfterPlan {
  * inside a single Y.Doc transaction (one undo entry / one collab event).
  */
 export function insertBlocksAfter(
-  state: State,
+  state: Document,
   afterBlockId: BlockId,
   inits: readonly SiblingBlockInit[],
   allocator: IdAllocator,
@@ -117,7 +117,7 @@ export function insertBlocksAfter(
  * the allocator is bumped exactly once even if the transaction body re-runs.
  */
 export function planInsertBlocksAfter(
-  state: State,
+  state: Document,
   afterBlockId: BlockId,
   inits: readonly SiblingBlockInit[],
   allocator: IdAllocator,

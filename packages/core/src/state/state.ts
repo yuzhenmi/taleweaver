@@ -53,7 +53,7 @@ const CHAIN_DEPTH_COMPACT_THRESHOLD = 64;
  * `getTemplateContent` (or `resolveBlock` when the owning tree is unknown).
  * `rootId` is a stable BlockId — the entry point to the main document tree.
  *
- * Snapshots are cached per State instance; ops that produce a new State
+ * Snapshots are cached per State instance; ops that produce a new Document
  * inherit the underlying Y.Doc but get a fresh snapshot cache.
  *
  * **Encapsulation contract.** The underlying `Y.Doc` and the per-State
@@ -64,7 +64,7 @@ const CHAIN_DEPTH_COMPACT_THRESHOLD = 64;
  * Y.Doc / cache via `state[STATE_INTERNAL].doc` /
  * `state[STATE_INTERNAL].snapshotCache`.
  */
-export interface State {
+export interface Document {
   readonly rootId: BlockId;
   readonly [STATE_INTERNAL]: {
     readonly doc: Y.Doc;
@@ -80,7 +80,7 @@ export function createState(args: {
    * `resolver.getStorageShape(type)` (bound to the doc, see `storage-shapes.ts`).
    */
   resolver: BlockKindResolver;
-}): State {
+}): Document {
   const doc = args.doc ?? createYDoc({ rootId: args.rootId });
   bindStorageResolver(doc, args.resolver);
   // Legacy inline storage is never loaded: the host upgrades it first
@@ -106,7 +106,7 @@ export function createState(args: {
       doc,
       snapshotCache: createSnapshotCache(),
     }),
-  }) as State;
+  }) as Document;
 }
 
 /**
@@ -114,7 +114,7 @@ export function createState(args: {
  * for unknown ids. Subsequent reads with no intervening mutation return
  * the same reference (cache hit).
  */
-export function getBlock(state: State, id: BlockId): Block | null {
+export function getBlock(state: Document, id: BlockId): Block | null {
   const internal = state[STATE_INTERNAL];
   return getBlockSnapshot(internal.doc, id, internal.snapshotCache);
 }
@@ -124,7 +124,7 @@ export function getBlock(state: State, id: BlockId): Block | null {
  * Returns null for unknown ids. The embed-contents tree is initially
  * empty; embed operations populate it as embed nodes are created.
  */
-export function getEmbedContent(state: State, id: BlockId): Block | null {
+export function getEmbedContent(state: Document, id: BlockId): Block | null {
   const internal = state[STATE_INTERNAL];
   return getEmbedContentSnapshot(internal.doc, id, internal.snapshotCache);
 }
@@ -135,7 +135,7 @@ export function getEmbedContent(state: State, id: BlockId): Block | null {
  * header/footer template bodies; it is initially empty and is populated
  * as template definitions are created.
  */
-export function getTemplateContent(state: State, id: BlockId): Block | null {
+export function getTemplateContent(state: Document, id: BlockId): Block | null {
   const internal = state[STATE_INTERNAL];
   return getTemplateContentSnapshot(internal.doc, id, internal.snapshotCache);
 }
@@ -177,7 +177,7 @@ export interface ResolvedBlock {
  * Precedence on id collision is main tree → embedContents →
  * templateContents. Returns null if the id is absent from every tree.
  */
-export function resolveBlock(state: State, id: BlockId): ResolvedBlock | null {
+export function resolveBlock(state: Document, id: BlockId): ResolvedBlock | null {
   const b = getBlock(state, id);
   if (b !== null) return { block: b, kind: "block" };
   const e = getEmbedContent(state, id);
@@ -189,10 +189,10 @@ export function resolveBlock(state: State, id: BlockId): ResolvedBlock | null {
 
 /**
  * Cache-only block read (all trees) — see `peekSnapshot`. `undefined` means "not
- * known to this State without reading the live Y.Doc", NOT "absent". State-module
+ * known to this Document without reading the live Y.Doc", NOT "absent". State-module
  * internal; position mapping uses it to read a superseded State safely.
  */
-export function peekBlock(state: State, id: BlockId): Block | undefined {
+export function peekBlock(state: Document, id: BlockId): Block | undefined {
   return peekSnapshot(state[STATE_INTERNAL].snapshotCache, id);
 }
 
@@ -207,7 +207,7 @@ const CYCLE_CHECK_THRESHOLD = 4096;
  * {@link CYCLE_CHECK_THRESHOLD} steps — and at most ONCE per walk. A normal walk pays O(1)
  * per step; an eager per-step bound made every document-order walk quadratic.
  */
-export function createWalkGuard(state: State): { step(): boolean } {
+export function createWalkGuard(state: Document): { step(): boolean } {
   let steps = 0;
   let bound = -1;
   return {
@@ -232,7 +232,7 @@ export function createWalkGuard(state: State): { step(): boolean } {
  * tree's blocks, not just the main map. Not re-exported from the barrel; it is
  * a state-module-internal helper consumed via direct sibling import.
  */
-export function blockCount(state: State): number {
+export function blockCount(state: Document): number {
   return allTreeBlockCount(state[STATE_INTERNAL].doc);
 }
 
@@ -249,7 +249,7 @@ export function blockCount(state: State): number {
  * Order is the underlying Y.Map iteration order; callers must not rely
  * on a particular sort.
  */
-export function* getEmbedContentIds(state: State): IterableIterator<BlockId> {
+export function* getEmbedContentIds(state: Document): IterableIterator<BlockId> {
   // Yields from the doc-keyed root-id cache: the common render path,
   // including the per-keystroke incremental path, no longer scans the whole
   // embedContents map (roots + body children). The cache recomputes its root
@@ -278,7 +278,7 @@ export function* getEmbedContentIds(state: State): IterableIterator<BlockId> {
  * never wrong-in-the-skipping-direction: a true return never skips footnote
  * work; revisit this accessor when non-footnote embed types land.
  */
-export function docHasFootnotes(state: State): boolean {
+export function docHasFootnotes(state: Document): boolean {
   return getEmbedContentRootIds(state[STATE_INTERNAL].doc).size > 0;
 }
 
@@ -293,7 +293,7 @@ export function docHasFootnotes(state: State): boolean {
  * on a particular sort.
  */
 export function* getTemplateContentIds(
-  state: State,
+  state: Document,
 ): IterableIterator<BlockId> {
   // Yields from the doc-keyed root-id cache; mirrors
   // `getEmbedContentIds`. See that accessor for the cache rationale and the
@@ -313,16 +313,16 @@ export function* getTemplateContentIds(
  * getEmbedContent.
  */
 export interface OperationResult {
-  readonly state: State;
+  readonly state: Document;
   readonly dirtyIds: ReadonlySet<BlockId>;
 }
 
 /**
- * Mint a State referencing the same Y.Doc as `state` but with a
+ * Mint a Document referencing the same Y.Doc as `state` but with a
  * different snapshot cache, after Y.Doc was mutated outside of
  * `applyOperation` (e.g., `Y.UndoManager.undo` / `.redo`).
  *
- * The new State's cache is an overlay on top of `state`'s cache with
+ * The new Document's cache is an overlay on top of `state`'s cache with
  * `dirtyIds` invalidated. Sibling snapshots (and any other unchanged
  * block) stay warm via fall-through, so a single-block undo on a
  * hundred-page document doesn't force the renderer to re-snapshot every
@@ -344,9 +344,9 @@ export interface OperationResult {
  * just collapsed to one root layer.
  */
 export function freshState(
-  state: State,
+  state: Document,
   dirtyIds: ReadonlySet<BlockId>,
-): State {
+): Document {
   const { doc, snapshotCache } = state[STATE_INTERNAL];
   const newCache =
     chainDepth(snapshotCache) >= CHAIN_DEPTH_COMPACT_THRESHOLD
@@ -358,11 +358,11 @@ export function freshState(
       doc,
       snapshotCache: newCache,
     }),
-  }) as State;
+  }) as Document;
 }
 
 /**
- * Mint a fresh State referencing the same Y.Doc but with a completely
+ * Mint a fresh Document referencing the same Y.Doc but with a completely
  * empty snapshot cache — no overlay continuity from `state`'s prior
  * cache. The next read on any block hits the live Y.Doc and snapshots
  * it into the new (initially empty) cache.
@@ -381,7 +381,7 @@ export function freshState(
  * signature is deliberate — production callers can't accidentally
  * reach for the escape hatch by omitting an argument.
  */
-export function freshStateFromDoc(state: State): State {
+export function freshStateFromDoc(state: Document): Document {
   const { doc } = state[STATE_INTERNAL];
   return Object.freeze({
     rootId: state.rootId,
@@ -389,7 +389,7 @@ export function freshStateFromDoc(state: State): State {
       doc,
       snapshotCache: createSnapshotCache(),
     }),
-  }) as State;
+  }) as Document;
 }
 
 /**
@@ -436,7 +436,7 @@ export function freshStateFromDoc(state: State): State {
  * branch.
  */
 export function applyOperation(
-  state: State,
+  state: Document,
   fn: (doc: Y.Doc) => void | ReadonlySet<BlockId>,
   options?: { readonly origin?: unknown },
 ): OperationResult {
@@ -487,7 +487,7 @@ export function applyOperation(
       doc: internal.doc,
       snapshotCache: newCache,
     }),
-  }) as State;
+  }) as Document;
   // Dev-mode post-op invariant: every EmbedItem.properties.contentBlockId
   // reference must resolve to an existing embedContent root. Catches future
   // ops that drop EmbedItems (or embedContent bodies) without going through

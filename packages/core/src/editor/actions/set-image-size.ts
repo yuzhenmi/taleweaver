@@ -27,7 +27,7 @@ export function handleSetImageSize(
   editor: EditorState,
   { blockId, width, height }: ActionOf<"SET_IMAGE_SIZE">,
 ): Edit | null {
-  const block = getBlock(editor.state, blockId);
+  const block = getBlock(editor.document, blockId);
   if (block === null || block.type !== "image") return null;
   if (
     !Number.isFinite(width) ||
@@ -39,11 +39,11 @@ export function handleSetImageSize(
   }
 
   const result = mergeBlockAttrs(
-    editor.state,
+    editor.document,
     blockId,
     { width, height },
   );
-  if (result.state === editor.state) return null;
+  if (result.state === editor.document) return null;
 
   return { change: result };
 }

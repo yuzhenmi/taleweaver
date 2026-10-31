@@ -1,5 +1,5 @@
 /**
- * `taleweaver-html` ENCODE: a pure `State` → HTML-string serialization (no
+ * `taleweaver-html` ENCODE: a pure `Document` → HTML-string serialization (no
  * parser). Walks the main tree in document order, mapping each block to its
  * HTML element per the block-type table.
  *
@@ -23,7 +23,7 @@ import { INLINE_IMAGE_EMBED_TYPE, type EmbedItem } from "../inline-content";
 import { BOOKMARK_START_EMBED_TYPE, BOOKMARK_END_EMBED_TYPE, collectBookmarks, type BookmarkRange } from "../bookmarks";
 import { extractText, captionEmbedSerializer } from "../extract-text";
 import { createSpan } from "../block-position";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { Block } from "../block";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -367,7 +367,7 @@ type Counters = ReadonlyMap<BlockId, CounterValue>;
  * and cells it has — export never throws.
  */
 function encodeTable(
-  state: State,
+  state: Document,
   table: Block,
   listDefs: ListDefMap,
   counters: Counters,
@@ -412,7 +412,7 @@ function encodeTable(
 
 /** Encode one `table-cell` → `<td>` with optional span attrs + recursive content. */
 function encodeCell(
-  state: State,
+  state: Document,
   cell: Block,
   listDefs: ListDefMap,
   counters: Counters,
@@ -440,7 +440,7 @@ function encodeCell(
  * via `encodeTable` → `encodeCell`, so nested structures serialize.
  */
 function encodeBlockSequence(
-  state: State,
+  state: Document,
   ids: readonly BlockId[],
   listDefs: ListDefMap,
   counters: Counters,
@@ -499,7 +499,7 @@ function encodeBlockSequence(
  * blocks (root → sections → blocks; sections are transparent, as in Word's HTML
  * output) in document order via {@link encodeBlockSequence}.
  */
-export function encodeHtml(state: State): string {
+export function encodeHtml(state: Document): string {
   const listDefs = getListDefsForState(state);
   // Resolve list ordinals via the SAME numbering engine the render path uses
   // (single source of truth — never re-derived here), so `<ol start>` / `<li value>`

@@ -56,12 +56,12 @@ describe("reconcileForeignChange (live-collab P1)", () => {
     const editor = createEditorStateFromState(state, collapsedAtP1Start(), config);
 
     // Warm the local cache: the stale snapshot of p1 is "paragraph".
-    expect(getBlock(editor.state, asBlockId("p1"))?.type).toBe("paragraph");
+    expect(getBlock(editor.document, asBlockId("p1"))?.type).toBe("paragraph");
 
     // Capture the foreign dirty ids exactly as the host would (via the observer).
     const dirty: BlockId[] = [];
     const unsub = subscribeForeignChanges(
-      editor.state,
+      editor.document,
       "self",
       (ids) => dirty.push(...ids),
       () => {
@@ -69,7 +69,7 @@ describe("reconcileForeignChange (live-collab P1)", () => {
       },
     );
     applyOperation(
-      editor.state,
+      editor.document,
       (doc) => {
         getYBlock(doc, asBlockId("p1"), "collab-test").set("type", "heading");
       },
@@ -82,8 +82,8 @@ describe("reconcileForeignChange (live-collab P1)", () => {
     const reconciled = reconcileForeignChange(editor, dirtyIds);
 
     // Stale local state still reads the pre-edit snapshot; reconciled reads live.
-    expect(getBlock(editor.state, asBlockId("p1"))?.type).toBe("paragraph");
-    expect(getBlock(reconciled.state, asBlockId("p1"))?.type).toBe("heading");
+    expect(getBlock(editor.document, asBlockId("p1"))?.type).toBe("paragraph");
+    expect(getBlock(reconciled.document, asBlockId("p1"))?.type).toBe("heading");
   });
 
   it("keeps an untouched sibling block reference-equal (structural sharing)", () => {
@@ -91,11 +91,11 @@ describe("reconcileForeignChange (live-collab P1)", () => {
     const editor = createEditorStateFromState(state, collapsedAtP1Start(), config);
 
     // Warm p2's snapshot in the local cache.
-    const p2Before = getBlock(editor.state, asBlockId("p2"));
+    const p2Before = getBlock(editor.document, asBlockId("p2"));
     expect(p2Before?.type).toBe("paragraph");
 
     applyOperation(
-      editor.state,
+      editor.document,
       (doc) => {
         getYBlock(doc, asBlockId("p1"), "collab-test").set("type", "heading");
       },
@@ -105,7 +105,7 @@ describe("reconcileForeignChange (live-collab P1)", () => {
     const reconciled = reconcileForeignChange(editor, new Set([asBlockId("p1")]));
 
     // p2 was not in dirtyIds → falls through the overlay to the same snapshot object.
-    expect(getBlock(reconciled.state, asBlockId("p2"))).toBe(p2Before);
+    expect(getBlock(reconciled.document, asBlockId("p2"))).toBe(p2Before);
   });
 
   it("sets lastDirtyIds to the foreign set and passes selection + history through", () => {
@@ -159,7 +159,7 @@ describe("clearTransientViewState (shared stale-on-mutation home)", () => {
     expect(cleared.caretAffinity).toBeUndefined();
     expect(cleared.anchorAffinity).toBeUndefined();
     expect(cleared.selection).toBe(dirty.selection);
-    expect(cleared.state).toBe(dirty.state);
+    expect(cleared.document).toBe(dirty.document);
   });
 
   it("returns the SAME reference when nothing is stale (allocation guard)", () => {

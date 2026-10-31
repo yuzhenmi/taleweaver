@@ -5,7 +5,7 @@ import { resolveTableContext, getChildIds, buildTableGrid } from "../table-conte
 import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
 import { createTestAllocator } from "../block-id";
 import type { BlockId } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { Block } from "../block";
 import type { ColumnPosition } from "./insert-table-column";
 
@@ -17,7 +17,7 @@ function cell(id: string, rowId: string, attrs: Record<string, unknown> | undefi
 }
 
 /** row0=[A(colSpan 2)], row1=[C, D]. occupancy [[A,A],[C,D]] (A spans both cols of row0). */
-function buildColSpanTable(tableAttrs?: Record<string, unknown>): State {
+function buildColSpanTable(tableAttrs?: Record<string, unknown>): Document {
   const blocks: Block[] = [
     buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
     buildBlock({ id: "table", type: "table", parentId: "doc", attrs: tableAttrs, firstChildId: "r0", lastChildId: "r1" }),
@@ -30,13 +30,13 @@ function buildColSpanTable(tableAttrs?: Record<string, unknown>): State {
   return buildState({ rootId: "doc", blocks });
 }
 
-function ctxAt(state: State, blockId: string) {
+function ctxAt(state: Document, blockId: string) {
   const ctx = resolveTableContext(state, blockId as BlockId);
   if (ctx === null) throw new Error("expected table context");
   return ctx;
 }
 
-const run = (state: State, caretBlock: string, pos: ColumnPosition) =>
+const run = (state: Document, caretBlock: string, pos: ColumnPosition) =>
   insertTableColumnSpanAware(state, ctxAt(state, caretBlock), pos, createTestAllocator("nc"));
 
 describe("insertTableColumnSpanAware", () => {

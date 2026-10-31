@@ -1,6 +1,6 @@
 import type { BlockId } from "./block-id";
 import type { Block } from "./block";
-import { resolveBlock, blockCount, createWalkGuard, type State } from "./state";
+import { resolveBlock, blockCount, createWalkGuard, type Document } from "./state";
 import type { Position, Span } from "./block-position";
 import { ancestorChain } from "./block-traversal";
 
@@ -24,7 +24,7 @@ import { ancestorChain } from "./block-traversal";
  *
  * Throws if either id does not exist, or if blocks have no common ancestor.
  */
-export function compareBlocksInDocOrder(state: State, idA: BlockId, idB: BlockId): number {
+export function compareBlocksInDocOrder(state: Document, idA: BlockId, idB: BlockId): number {
   if (idA === idB) return 0;
 
   const chainA = ancestorChain(state, idA);
@@ -83,7 +83,7 @@ export function compareBlocksInDocOrder(state: State, idA: BlockId, idB: BlockId
  * Same block: compare offsets.
  * Different blocks: delegate to compareBlocksInDocOrder.
  */
-export function comparePositions(state: State, a: Position, b: Position): number {
+export function comparePositions(state: Document, a: Position, b: Position): number {
   if (a.blockId === b.blockId) return a.offset - b.offset;
   return compareBlocksInDocOrder(state, a.blockId, b.blockId);
 }
@@ -97,7 +97,7 @@ export function comparePositions(state: State, a: Position, b: Position): number
  * compare). Constant-time when anchor and focus share a blockId;
  * O(depth + LCA-fanout) when they don't.
  */
-export function spanStart(state: State, span: Span): Position {
+export function spanStart(state: Document, span: Span): Position {
   return comparePositions(state, span.anchor, span.focus) <= 0
     ? span.anchor
     : span.focus;
@@ -107,7 +107,7 @@ export function spanStart(state: State, span: Span): Position {
  * Return the later position of a Span in document order. Mirror of
  * `spanStart`. Collapsed spans return focus.
  */
-export function spanEnd(state: State, span: Span): Position {
+export function spanEnd(state: Document, span: Span): Position {
   return comparePositions(state, span.anchor, span.focus) <= 0
     ? span.focus
     : span.anchor;
@@ -136,7 +136,7 @@ export function spanEnd(state: State, span: Span): Position {
  *
  * Returns null if blockId does not exist in any tree.
  */
-export function selectionContextOf(state: State, blockId: BlockId): BlockId | null {
+export function selectionContextOf(state: Document, blockId: BlockId): BlockId | null {
   let cursor: Block | null = resolveBlock(state, blockId)?.block ?? null;
   if (cursor === null) return null;
   // Cycle-detection bound: see nextBlockInDocOrder in block-traversal.ts

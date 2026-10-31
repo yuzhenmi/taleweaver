@@ -21,12 +21,12 @@ export function handleSetListRestart(
   { value }: ActionOf<"SET_LIST_RESTART">,
 ): Edit | null {
   const blockId = editor.selection.focus.blockId;
-  const block = getBlock(editor.state, blockId);
+  const block = getBlock(editor.document, blockId);
   if (block === null || block.type !== "list-item") return null;
 
   // `null` clears the override; `mergeAttrs` deletes the key on `undefined`.
-  const result = setListRestart(editor.state, blockId, value ?? undefined);
-  if (result.state === editor.state) return null;
+  const result = setListRestart(editor.document, blockId, value ?? undefined);
+  if (result.state === editor.document) return null;
 
   return { change: { state: result.state, dirtyIds: result.dirtyIds } };
 }

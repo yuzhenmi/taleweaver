@@ -15,7 +15,7 @@ import { runTransaction } from "../yjs-doc";
 import { STATE_INTERNAL } from "../state-internal";
 import { createPosition, createSpan } from "../block-position";
 import { buildBlock, buildState, inlineContent, text } from "../../test-utils/state-builders";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { BlockId } from "../block-id";
 import type { CommentId } from "../comments";
 import { DELETION_SUGGESTION_ATTR, INSERTION_SUGGESTION_ATTR, writeSuggestionRecordInTx, type SuggestionId } from "../suggestions";
@@ -23,7 +23,7 @@ import type { InlineContent } from "../inline-content";
 
 const P = "p" as BlockId;
 
-function oneBlock(content: InlineContent): State {
+function oneBlock(content: InlineContent): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -34,7 +34,7 @@ function oneBlock(content: InlineContent): State {
 }
 
 /** `BlockText#toDelta` reads (= block read-model builds) made INSIDE `doc`'s transactions while `run` runs. */
-function readsInTransaction(state: State, run: () => void): number {
+function readsInTransaction(state: Document, run: () => void): number {
   const doc = state[STATE_INTERNAL].doc;
   const spy = vi.spyOn(BlockText.prototype, "toDelta");
   let reads = 0;

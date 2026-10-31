@@ -85,18 +85,18 @@ describe("handleInsertPageField — INSERT_PAGE_NUMBER / INSERT_PAGE_COUNT (head
     const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P1, offset: 5 }); // after "Page "
     const out = reduceEditor(editor, { type: "INSERT_PAGE_NUMBER" });
 
-    const fields = headerPageFields(out.state, HDR_P1);
+    const fields = headerPageFields(out.document, HDR_P1);
     expect(fields.length).toBe(1);
     expect((fields[0] as { properties?: { fieldKind?: string } }).properties?.fieldKind).toBe("page-number");
     // caret stayed in the header paragraph, advanced past the one-offset field
     expect(out.selection.focus.blockId).toBe(HDR_P1);
     expect(out.selection.focus.offset).toBe(6);
     expect(out.selection.anchor).toEqual(out.selection.focus); // collapsed
-    expect(out.state).not.toBe(editor.state);
+    expect(out.document).not.toBe(editor.document);
     // A caret before a marker inserts after it (inside a bookmark at its start), as typing.
     for (const type of ["INSERT_PAGE_NUMBER", "INSERT_PAGE_COUNT"] as const) {
       const marked = buildEditor(buildStateWithHeaderBody([embed("bookmark-start", { bookmarkId: "b" }), text("Page ")]), { blockId: HDR_P1, offset: 0 });
-      const items = getTemplateContent(reduceEditor(marked, { type }).state, HDR_P1)?.inlineContent?.items ?? [];
+      const items = getTemplateContent(reduceEditor(marked, { type }).document, HDR_P1)?.inlineContent?.items ?? [];
       expect(items.map((i) => (i.kind === "embed" ? i.embedType : i.text))).toEqual(["bookmark-start", PAGE_FIELD_EMBED_TYPE, "Page "]);
     }
   });
@@ -104,18 +104,18 @@ describe("handleInsertPageField — INSERT_PAGE_NUMBER / INSERT_PAGE_COUNT (head
   it("INSERT_PAGE_COUNT in a header inserts a page-count field; UNDO removes it (its own undo unit)", () => {
     const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P1, offset: 5 });
     const inserted = reduceEditor(editor, { type: "INSERT_PAGE_COUNT" });
-    const fields = headerPageFields(inserted.state, HDR_P1);
+    const fields = headerPageFields(inserted.document, HDR_P1);
     expect(fields.length).toBe(1);
     expect((fields[0] as { properties?: { fieldKind?: string } }).properties?.fieldKind).toBe("page-count");
 
     const undone = reduceEditor(inserted, { type: "UNDO" });
-    expect(headerPageFields(undone.state, HDR_P1).length).toBe(0);
+    expect(headerPageFields(undone.document, HDR_P1).length).toBe(0);
   });
 
   it("threads a non-default numberStyle through to the inserted field", () => {
     const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P1, offset: 5 });
     const out = reduceEditor(editor, { type: "INSERT_PAGE_NUMBER", numberStyle: "lower-roman" });
-    const fields = headerPageFields(out.state, HDR_P1);
+    const fields = headerPageFields(out.document, HDR_P1);
     expect(fields.length).toBe(1);
     expect((fields[0] as { properties?: { numberStyle?: string } }).properties?.numberStyle).toBe("lower-roman");
   });
@@ -124,7 +124,7 @@ describe("handleInsertPageField — INSERT_PAGE_NUMBER / INSERT_PAGE_COUNT (head
     const editor = buildEditor(buildStateWithHeaderBody(), { blockId: BODY_P, offset: 4 }); // inside "body text"
     const out = reduceEditor(editor, { type: "INSERT_PAGE_NUMBER" });
     expect(out).toBe(editor); // unchanged editor reference
-    expect(bodyPageFields(out.state, BODY_P).length).toBe(0);
+    expect(bodyPageFields(out.document, BODY_P).length).toBe(0);
   });
 
   it("is a NO-OP in a footnote body (embedContent context — only the template host is allowed)", () => {

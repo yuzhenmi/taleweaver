@@ -22,7 +22,7 @@ import { deleteWholeTable } from "./helpers/delete-whole-table";
  * (`"command"`).
  */
 export function handleDeleteTableColumn(editor: EditorState): Edit | null {
-  const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
+  const ctx = resolveTableContext(editor.document, editor.selection.focus.blockId);
   if (ctx === null || ctx.ragged) return null;
 
   // The PRE-op occupancy grid — `resolveTableContext` already built it (for `ragged`).
@@ -43,8 +43,8 @@ export function handleDeleteTableColumn(editor: EditorState): Edit | null {
     const caretCell = grid.cells.find((c) => c.cellId === ctx.cellId);
     if (caretCell === undefined) return null;
 
-    const result = deleteTableColumnSpanAware(editor.state, ctx);
-    if (result.state === editor.state) return null;
+    const result = deleteTableColumnSpanAware(editor.document, ctx);
+    if (result.state === editor.document) return null;
 
     const targetGridCol = caretCell.gridCol < columnCount - 1 ? caretCell.gridCol + 1 : caretCell.gridCol - 1;
     const targetCellId = grid.occupancy[caretCell.gridRow]?.[targetGridCol] ?? null;
@@ -71,8 +71,8 @@ export function handleDeleteTableColumn(editor: EditorState): Edit | null {
   }
   const targetCellId = row[ctx.colIndex + 1] ?? row[ctx.colIndex - 1] ?? null;
 
-  const result = deleteTableColumn(editor.state, ctx);
-  if (result.state === editor.state) return null;
+  const result = deleteTableColumn(editor.document, ctx);
+  if (result.state === editor.document) return null;
 
   // Read the target cell's first paragraph from the POST-op state.
   const targetCell = targetCellId !== null ? getBlock(result.state, targetCellId) : null;

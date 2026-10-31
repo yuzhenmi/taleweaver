@@ -14,12 +14,12 @@ export function deleteWholeTable(
   editor: EditorState,
   tableId: BlockId,
 ): Edit | null {
-  const table = getBlock(editor.state, tableId);
+  const table = getBlock(editor.document, tableId);
   if (table === null) return null; // defensive
   const siblingId = table.nextSiblingId ?? table.prevSiblingId; // pre-op; survives the delete
 
-  const result = deleteTable(editor.state, tableId);
-  if (result.state === editor.state) return null;
+  const result = deleteTable(editor.document, tableId);
+  if (result.state === editor.document) return null;
 
   const caretBlockId = siblingId;
   if (caretBlockId === null) return null; // unreachable: a paragraph follows every table (invariant I)

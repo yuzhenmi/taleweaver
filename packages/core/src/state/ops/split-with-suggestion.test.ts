@@ -20,7 +20,7 @@ import { splitWithSuggestion } from "./split-block";
 import { getSuggestions, type SuggestionId } from "../suggestions";
 import { createHistory } from "../history";
 import { getBlock } from "../state";
-import type { State } from "../state";
+import type { Document } from "../state";
 import { relAt, survives } from "../../test-utils/relpos-survival";
 import { inlineContentLength } from "../inline-content";
 import {
@@ -42,7 +42,7 @@ const SID = "split-1" as SuggestionId;
 const INPUT = { id: SID, author: "alice", createdAt: 1000 } as const;
 
 /** doc > [ p("abcdef") ] — one text run. */
-function oneBlock(): State {
+function oneBlock(): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -58,17 +58,17 @@ function oneBlock(): State {
 }
 
 /** The inline items of a block, or []. */
-function itemsOf(s: State, id: string) {
+function itemsOf(s: Document, id: string) {
   return getBlock(s, id as BlockId)?.inlineContent?.items ?? [];
 }
 
 /** The block's paragraph-break suggestion tags (read model), or undefined. */
-function breakOf(s: State, id: string) {
+function breakOf(s: Document, id: string) {
   return getBlock(s, id as BlockId)?.breakSuggestion;
 }
 
 /** The concatenated text of a block's text runs (embeds contribute nothing). */
-function textOf(s: State, id: string): string {
+function textOf(s: Document, id: string): string {
   let out = "";
   for (const it of itemsOf(s, id)) {
     if (it.kind === "text") out += it.text;

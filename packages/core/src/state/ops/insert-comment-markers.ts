@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 import { requireBlockText } from "../block-text";
-import type { State, OperationResult } from "../state";
+import type { Document, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { Position, Span } from "../block-position";
@@ -62,7 +62,7 @@ export interface LeafWrite {
  * offset is out of range.
  */
 export function insertCommentMarkers(
-  state: State,
+  state: Document,
   span: Span,
   commentId: CommentId,
 ): OperationResult {
@@ -89,7 +89,7 @@ export function insertCommentMarkers(
  * either endpoint.
  */
 export function planCommentMarkers(
-  state: State,
+  state: Document,
   start: Position,
   end: Position,
   commentId: CommentId,
@@ -147,7 +147,7 @@ function makeMarker(
 
 /** Resolve a leaf block, throwing if missing or not a leaf. */
 function resolveLeaf(
-  state: State,
+  state: Document,
   blockId: BlockId,
 ): { content: InlineContent; kind: BlockTreeKind } {
   const resolved = resolveBlock(state, blockId);

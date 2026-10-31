@@ -15,5 +15,5 @@ import type { ActionOf } from "../editor-action";
  * selection equals the `before` selection.
  */
 export function handleResolveComment(editor: EditorState, { id }: ActionOf<"RESOLVE_COMMENT">): Edit | null {
-  return { change: resolveComment(editor.state, id) };
+  return { change: resolveComment(editor.document, id) };
 }

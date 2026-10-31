@@ -126,7 +126,7 @@ describe("insertBlocksAfter — order preserved", () => {
 });
 
 describe("insertBlocksAfter — empty inits", () => {
-  it("(d) returns same State ref, empty newBlockIds, empty dirtyIds, no transaction", () => {
+  it("(d) returns same Document ref, empty newBlockIds, empty dirtyIds, no transaction", () => {
     const state = fixture();
     const allocator = createTestAllocator("new");
     const result = insertBlocksAfter(state, "p1" as BlockId, [], allocator);
@@ -239,7 +239,7 @@ describe("planInsertBlocksAfter / insertBlocksAfterInTx — composition primitiv
     expect(plan.entries.map((e) => e.id)).toEqual(["new-0", "new-1"]);
 
     // Drive the InTx primitive directly through applyOperation (which opens
-    // the surrounding transaction and yields a fresh State snapshot to read
+    // the surrounding transaction and yields a fresh Document snapshot to read
     // back from) — the same harness the public op uses internally.
     const { state: next } = applyOperation(state, () => {
       insertBlocksAfterInTx(state[STATE_INTERNAL].doc, plan);

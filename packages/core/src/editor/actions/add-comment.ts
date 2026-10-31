@@ -48,23 +48,23 @@ export function handleAddComment(
   // A comment needs a range, not a caret.
   if (isCollapsed(editor.selection)) return null;
   // The span ops cannot place markers across a tree boundary.
-  if (isCrossContextSelection(editor.state, editor.selection)) return null;
+  if (isCrossContextSelection(editor.document, editor.selection)) return null;
   // Body-text only: refuse a comment whose focus is inside a footnote / header /
   // footer body (a non-root context). The cross-context guard alone misses a
   // fully-in-footnote selection (both endpoints share that body's context).
   if (
-    selectionContextOf(editor.state, editor.selection.focus.blockId) !==
-    editor.state.rootId
+    selectionContextOf(editor.document, editor.selection.focus.blockId) !==
+    editor.document.rootId
   ) {
     return null;
   }
 
   // Resolve the range ends on the PRE-op state — the marker offsets are derived
   // against these positions, so they must be captured before `addComment`.
-  const start = spanStart(editor.state, editor.selection);
-  const end = spanEnd(editor.state, editor.selection);
+  const start = spanStart(editor.document, editor.selection);
+  const end = spanEnd(editor.document, editor.selection);
 
-  const result = addComment(editor.state, editor.selection, {
+  const result = addComment(editor.document, editor.selection, {
     id,
     author,
     body,
@@ -72,7 +72,7 @@ export function handleAddComment(
   });
   // Identity invariant: a valid expanded range always mutates, but keep the
   // "no change → same reference" contract robust against a surprise no-op.
-  if (result.state === editor.state) return null;
+  if (result.state === editor.document) return null;
 
   // Re-derive the visible selection against the +2 marker offsets (markers
   // OUTSIDE the selection), preserving the originally-selected characters.
@@ -83,7 +83,7 @@ export function handleAddComment(
   // anchors at the new start (forward); otherwise it anchors at the new end
   // (backward). `createSpan(a, b)` sets `{ anchor: a, focus: b }`.
   const anchoredAtStart =
-    comparePositions(editor.state, editor.selection.anchor, start) === 0;
+    comparePositions(editor.document, editor.selection.anchor, start) === 0;
   const selectionAfter = anchoredAtStart
     ? createSpan(newStart, newEnd)
     : createSpan(newEnd, newStart);

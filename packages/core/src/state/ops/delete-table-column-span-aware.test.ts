@@ -4,7 +4,7 @@ import { getBlock } from "../state";
 import { resolveTableContext, getChildIds, buildTableGrid } from "../table-context";
 import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
 import type { BlockId } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { Block } from "../block";
 
 function cell(id: string, rowId: string, attrs: Record<string, unknown> | undefined, prev: string | null, next: string | null): Block[] {
@@ -14,20 +14,20 @@ function cell(id: string, rowId: string, attrs: Record<string, unknown> | undefi
   ];
 }
 
-function ctxAt(state: State, blockId: string) {
+function ctxAt(state: Document, blockId: string) {
   const ctx = resolveTableContext(state, blockId as BlockId);
   if (ctx === null) throw new Error("expected table context");
   return ctx;
 }
 
-const run = (state: State, caretBlock: string) =>
+const run = (state: Document, caretBlock: string) =>
   deleteTableColumnSpanAware(state, ctxAt(state, caretBlock));
 
 /**
  * row0=[A(colSpan n)]; row1=[C, D, …] (n 1×1 cells). occupancy: A tiles row0 across
  * all n columns; row1 is one 1×1 cell per column. Optional `columnWidths` on the table.
  */
-function buildHorizontalSpan(n: number, columnWidths?: number[]): State {
+function buildHorizontalSpan(n: number, columnWidths?: number[]): Document {
   const lastRow1 = String.fromCharCode(67 + n - 1); // 'C' = 67
   const blocks: Block[] = [
     buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),

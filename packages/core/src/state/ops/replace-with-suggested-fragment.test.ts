@@ -19,7 +19,7 @@ import {
   type ReplaceSuggestionInput,
 } from "./suggestion-ops";
 import { type SuggestionId } from "../suggestions";
-import { resolveBlock, type State } from "../state";
+import { resolveBlock, type Document } from "../state";
 import { relAt, survives } from "../../test-utils/relpos-survival";
 import {
   buildState,
@@ -52,7 +52,7 @@ function fourBlocks(
   i1: InlineContent,
   i2: InlineContent,
   e: InlineContent,
-): State {
+): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -66,7 +66,7 @@ function fourBlocks(
 }
 
 /** Serialize a block's inline content to a stable plain shape for equality. */
-function serializeBlock(st: State, id: string): unknown {
+function serializeBlock(st: Document, id: string): unknown {
   const items = resolveBlock(st, asBlockId(id))?.block.inlineContent?.items ?? [];
   return items.map((it) =>
     it.kind === "text"
@@ -75,7 +75,7 @@ function serializeBlock(st: State, id: string): unknown {
   );
 }
 
-const blockSeq = (st: State): string[] => {
+const blockSeq = (st: Document): string[] => {
   const out: string[] = [];
   let id = resolveBlock(st, finalSectionOf(st))?.block.firstChildId ?? null;
   while (id) {
@@ -90,7 +90,7 @@ interface CharAnchor {
   readonly rel: ReturnType<typeof relAt>;
   readonly ch: string;
 }
-function yTextAt(st: State, id: string, index: number): CharAnchor {
+function yTextAt(st: Document, id: string, index: number): CharAnchor {
   const items = resolveBlock(st, id as BlockId)?.block.inlineContent?.items ?? [];
   let offset = 0;
   for (let k = 0; k < index; k++) {
@@ -102,7 +102,7 @@ function yTextAt(st: State, id: string, index: number): CharAnchor {
   return { rel: relAt(st, id, offset), ch: item.text.charAt(0) };
 }
 /** True iff the anchored character survived (same CRDT item, still live). */
-function kept(a: CharAnchor, st: State): boolean {
+function kept(a: CharAnchor, st: Document): boolean {
   return survives(a.rel, st, a.ch);
 }
 
@@ -173,7 +173,7 @@ describe("replaceWithSuggestedFragment — S2 surgical interveners + E + n===0 B
 // ────────────────────────────────────────────────────────────────────────────
 
 /** doc > [ P ] — a single paragraph block, for within-block n===1 cases. */
-function oneBlock(p: InlineContent): State {
+function oneBlock(p: InlineContent): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -189,7 +189,7 @@ function oneBlock(p: InlineContent): State {
  * for an arbitrary fixture (generalizes {@link oracleBlock}).
  */
 function oracleForState(
-  mkState: () => State,
+  mkState: () => Document,
   span: ReturnType<typeof createSpan>,
   fragment: readonly SiblingBlockInit[],
   blockId: string,
@@ -277,7 +277,7 @@ describe("replaceWithSuggestedFragment — S3 surgical START block for n===1", (
 // ────────────────────────────────────────────────────────────────────────────
 
 /** doc > [ B | T ] — B then a trailing sibling, so n>1 relocation has a place. */
-function twoBlocks(b: InlineContent, t: InlineContent): State {
+function twoBlocks(b: InlineContent, t: InlineContent): Document {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -297,7 +297,7 @@ function twoBlocks(b: InlineContent, t: InlineContent): State {
  * allocates the SAME ids on the re-plan as on the live op.
  */
 function oracleNewBlockForState(
-  mkState: () => State,
+  mkState: () => Document,
   span: ReturnType<typeof createSpan>,
   fragment: readonly SiblingBlockInit[],
   blockId: string,
@@ -414,7 +414,7 @@ import { embed, finalSectionOf } from "../../test-utils/state-builders";
 
 describe("replaceWithSuggestedFragment — T9 rich inline + embed filtering", () => {
   /** Single-block doc with one paragraph P. */
-  function singlePara(p: InlineContent): State {
+  function singlePara(p: InlineContent): Document {
     return buildState({
       rootId: "doc",
       blocks: [
@@ -430,7 +430,7 @@ describe("replaceWithSuggestedFragment — T9 rich inline + embed filtering", ()
   }
 
   /** Two-block doc: paragraph P1 then P2. */
-  function twoParagraphs(p1: InlineContent, p2: InlineContent): State {
+  function twoParagraphs(p1: InlineContent, p2: InlineContent): Document {
     return buildState({
       rootId: "doc",
       blocks: [
@@ -500,7 +500,7 @@ describe("replaceWithSuggestedFragment — T9 rich inline + embed filtering", ()
     const fragment: SiblingBlockInit[] = [
       { type: "paragraph", inlineContent: inlineContent([text("a"), embed("image", { src: "x.png" })]) },
     ];
-    const mkSuggested = (): State =>
+    const mkSuggested = (): Document =>
       replaceWithSuggestedFragment(
         singlePara(inlineContent([text("hello")])),
         sp,
@@ -602,7 +602,7 @@ function oracleBlock(
 
 describe("replaceWithSuggestedFragment — span endpoint inside a surrogate pair", () => {
   // "ab😀cd": the emoji occupies [2,4); offset 3 is inside the pair.
-  const oneBlock = (): State =>
+  const oneBlock = (): Document =>
     buildState({
       rootId: "doc",
       blocks: [
@@ -615,7 +615,7 @@ describe("replaceWithSuggestedFragment — span endpoint inside a surrogate pair
     { type: "paragraph", inlineContent: inlineContent([text("Y")]) },
   ];
   /** Per block: its text and the struck (deletion-tagged) text. */
-  const view = (st: State) =>
+  const view = (st: Document) =>
     blockSeq(st).map((id) => {
       const items = resolveBlock(st, id as BlockId)?.block.inlineContent?.items ?? [];
       const runs = items.filter((i): i is Extract<InlineItem, { kind: "text" }> => i.kind === "text");

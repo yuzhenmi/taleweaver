@@ -41,7 +41,7 @@ import { getBlock, getSuggestions, type BlockId } from "../../state";
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, finalSectionOf(editor.state));
+  const root = getBlock(editor.document, finalSectionOf(editor.document));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -86,7 +86,7 @@ function deletionIdAt(
   paraId: BlockId,
   idx: number,
 ): unknown {
-  const items = getBlock(editor.state, paraId)?.inlineContent?.items ?? [];
+  const items = getBlock(editor.document, paraId)?.inlineContent?.items ?? [];
   let offset = 0;
   for (const it of items) {
     if (it.kind !== "text") continue;
@@ -119,8 +119,8 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
     );
 
     // Text intact; "world" (indices 6..10) carries the deletion id.
-    expect(getTextOf(next.state, paraId)).toBe("hello world");
-    const suggestions = getSuggestions(next.state);
+    expect(getTextOf(next.document, paraId)).toBe("hello world");
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
     expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
@@ -146,7 +146,7 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
     );
 
     // "hello" (0..4) struck, text intact; caret advanced to the word END (5).
-    expect(getTextOf(once.state, paraId)).toBe("hello world");
+    expect(getTextOf(once.document, paraId)).toBe("hello world");
     expect(deletionIdAt(once, paraId, 0)).toBeDefined();
     expect(deletionIdAt(once, paraId, 4)).toBeDefined();
     expect(deletionIdAt(once, paraId, 5)).toBeUndefined();
@@ -160,12 +160,12 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
       once,
       { type: "DELETE_WORD", direction: "forward" },
     );
-    expect(getTextOf(twice.state, paraId)).toBe("hello world");
+    expect(getTextOf(twice.document, paraId)).toBe("hello world");
     expect(deletionIdAt(twice, paraId, 6)).toBeDefined();
     expect(deletionIdAt(twice, paraId, 10)).toBeDefined();
     // Two ADJACENT same-author deletions coalesce into ONE record (reused id).
     expect(deletionIdAt(twice, paraId, 6)).toBe(deletionIdAt(twice, paraId, 0));
-    const suggestions = getSuggestions(twice.state);
+    const suggestions = getSuggestions(twice.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
     // Caret advanced to the end of "world" (offset 11).
@@ -184,9 +184,9 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
     expect(struck.history.canUndo()).toBe(true);
 
     const undone = reduceEditor(struck, { type: "UNDO" });
-    expect(getTextOf(undone.state, paraId)).toBe("hello world");
+    expect(getTextOf(undone.document, paraId)).toBe("hello world");
     expect(deletionIdAt(undone, paraId, 6)).toBeUndefined();
-    expect(getSuggestions(undone.state)).toHaveLength(0);
+    expect(getSuggestions(undone.document)).toHaveLength(0);
   });
 
   it("direct mode (regression): the SAME word-delete REMOVES the word, caret per the existing rule, no suggestion", () => {
@@ -205,9 +205,9 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
         placed,
         { type: "DELETE_WORD", direction: "backward" },
       );
-      expect(getTextOf(next.state, paraId)).toBe("hello ");
+      expect(getTextOf(next.document, paraId)).toBe("hello ");
       expect(next.selection.focus.offset).toBe(6);
-      expect(getSuggestions(next.state)).toHaveLength(0);
+      expect(getSuggestions(next.document)).toHaveLength(0);
     }
 
     // Forward direct delete: removes "hello", caret STAYS at pos (0).
@@ -225,9 +225,9 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
         placed,
         { type: "DELETE_WORD", direction: "forward" },
       );
-      expect(getTextOf(next.state, paraId)).toBe(" world");
+      expect(getTextOf(next.document, paraId)).toBe(" world");
       expect(next.selection.focus.offset).toBe(0);
-      expect(getSuggestions(next.state)).toHaveLength(0);
+      expect(getSuggestions(next.document)).toHaveLength(0);
     }
   });
 
@@ -241,8 +241,8 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
         selected,
         { type: "DELETE_WORD", direction: "forward" },
       );
-      expect(getTextOf(next.state, paraId)).toBe("abcdef");
-      const suggestions = getSuggestions(next.state);
+      expect(getTextOf(next.document, paraId)).toBe("abcdef");
+      const suggestions = getSuggestions(next.document);
       expect(suggestions).toHaveLength(1);
       expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
       expect(deletionIdAt(next, paraId, 1)).toBe(nth(suggestions, 0, "suggestion").id);
@@ -262,7 +262,7 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
         selected,
         { type: "DELETE_WORD", direction: "backward" },
       );
-      expect(getTextOf(next.state, paraId)).toBe("abcdef");
+      expect(getTextOf(next.document, paraId)).toBe("abcdef");
       expect(deletionIdAt(next, paraId, 1)).toBeDefined();
       expect(deletionIdAt(next, paraId, 3)).toBeDefined();
       // Caret at the selection START (offset 1 = span start).
@@ -277,7 +277,7 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
     s = reduceEditor(s, { type: "SPLIT_NODE" });
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" });
 
-    const root = getBlock(s.state, finalSectionOf(s.state));
+    const root = getBlock(s.document, finalSectionOf(s.document));
     const secondId = root?.lastChildId ?? null;
     if (secondId === null) {
       throw new Error("expected a second paragraph");
@@ -304,6 +304,6 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
       { type: "DELETE_WORD", direction: "backward" },
     );
     expect(suggestNext).toBe(placedSuggest);
-    expect(getSuggestions(suggestNext.state)).toHaveLength(0);
+    expect(getSuggestions(suggestNext.document)).toHaveLength(0);
   });
 });

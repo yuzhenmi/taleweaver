@@ -4,7 +4,7 @@
  *
  * This is the CSS Tables 3 §17.5 cell-placement scan, extracted so STATE code
  * (span-aware editing ops, which must reason in grid coordinates over a
- * `State` Block tree) can build the SAME grid layout builds — without depending
+ * `Document` Block tree) can build the SAME grid layout builds — without depending
  * on `LayoutBoxMetadata`. The input is a NEUTRAL `GridCell` whose spans are
  * already resolved to integers ≥ 1 by the caller.
  *

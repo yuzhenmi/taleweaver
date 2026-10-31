@@ -34,7 +34,7 @@ export function resolveActiveSection(
   editor: EditorState,
   focusBlockId: BlockId,
 ): BlockId | null {
-  const state = editor.state;
+  const state = editor.document;
   let current = getBlock(state, focusBlockId);
   if (current === null) return null;
 

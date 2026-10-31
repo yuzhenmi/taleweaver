@@ -11,6 +11,6 @@ export function replaceSuggestionInputForBlock(
   editor: EditorState,
   blockId: BlockId,
 ): ReplaceSuggestionInput | null {
-  if (selectionContextOf(editor.state, blockId) === null) return null;
+  if (selectionContextOf(editor.document, blockId) === null) return null;
   return newReplaceSuggestionInput(editor);
 }

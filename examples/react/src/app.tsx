@@ -9,12 +9,12 @@ import { CollabSurface } from "@/components/collab-surface";
 import "./app.css";
 
 export function App() {
-  // The print/digital fork is DOWNSTREAM of the core `State`: both backends drive
+  // The print/digital fork is DOWNSTREAM of the core `Document`: both backends drive
   // the same document, render the same styled tree, and reduce the same
   // `EditorAction`s — they differ only in how they realize the view (print computes
   // pixel geometry → canvas; digital hands the styled tree to the browser to flow).
   // Switching tabs swaps the backend and HANDS THE LIVE DOCUMENT OFF: the active
-  // surface's current `State` seeds the incoming one (keyed remount).
+  // surface's current `Document` seeds the incoming one (keyed remount).
   const [mode, setMode] = useState<EditorMode>("print");
   const [handoff, setHandoff] = useState<State | null>(null);
 

@@ -3,7 +3,7 @@
  * controller (contenteditable, browser-flowed DOM — NO print geometry) into a
  * ref'd container and mirrors its `editorState` into React so the toolbar/menu
  * can bind to it. Counterpart to `usePerfEditor` (the print/canvas backend); the
- * tab-bar swaps between the two, handing the live `State` off on switch.
+ * tab-bar swaps between the two, handing the live `Document` off on switch.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -39,7 +39,7 @@ export interface UseDigitalEditorResult {
   dispatch: React.Dispatch<EditorAction>;
   containerRef: React.RefObject<HTMLDivElement | null>;
   focus: () => void;
-  /** The live core `State` — read at a tab-bar switch to hand off the document. */
+  /** The live core `Document` — read at a tab-bar switch to hand off the document. */
   getState: () => State;
   /** Replace the host decoration layer (view-only; mapped through edits). */
   setDecorations: (decorations: readonly Decoration[], basedOn?: State) => void;
@@ -126,7 +126,7 @@ export function useDigitalEditor(
   // fallback (first-render seed) is only reached before the controller mounts.
   const initialStateRef = useRef(editorState);
   const getState = useCallback(
-    () => controllerRef.current?.editorState.state ?? initialStateRef.current.state,
+    () => controllerRef.current?.editorState.document ?? initialStateRef.current.document,
     [],
   );
 

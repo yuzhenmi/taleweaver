@@ -288,7 +288,7 @@ describe("print decorations — paint", () => {
     controller.update(editor);
     controller.setDecorations([inline("h", p, 0, 3, { backgroundColor: BAND })]);
     ctxOf(container)._ops.length = 0;
-    controller.setFindHighlights(core.findMatches(editor.state, "foo"), 0);
+    controller.setFindHighlights(core.findMatches(editor.document, "foo"), 0);
     const ctx = ctxOf(container);
     const find = fills(ctx, core.ACTIVE_FIND_HIGHLIGHT_FILL)[0];
     const host = fills(ctx, BAND)[0];
@@ -405,7 +405,7 @@ describe("print decorations — paginated", () => {
     const events: PrintDecorationPointerEvent[] = [];
     const { container, controller } = mount((e) => events.push(e), TWO_PAGES);
     controller.update(editor);
-    controller.setFindHighlights(core.findMatches(editor.state, "alpha"), 0);
+    controller.setFindHighlights(core.findMatches(editor.document, "alpha"), 0);
     const band = fills(ctxOf(container, 0), core.ACTIVE_FIND_HIGHLIGHT_FILL)[0];
     const page0 = container.querySelector('canvas[data-page-index="0"]');
     if (band === undefined || !(page0 instanceof HTMLCanvasElement)) throw new Error("setup");
@@ -741,7 +741,7 @@ describe("print decorations — find highlights through edits", () => {
     if (p === undefined) throw new Error("setup");
     const { container, controller } = mount();
     controller.update(editor);
-    controller.setFindHighlights(core.findMatches(editor.state, "foo"), 0);
+    controller.setFindHighlights(core.findMatches(editor.document, "foo"), 0);
     const before = fills(ctxOf(container), core.FIND_HIGHLIGHT_FILL).at(-1)?.x ?? NaN;
     const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) });
     controller.update(at0);
@@ -857,9 +857,9 @@ describe("print decorations — geometry across pages and regions", () => {
     editor = core.reduceEditor(editor, { type: "INSERT_TABLE", rows: 1, cols: 1 });
     editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "cell" });
     const para = editor.selection.focus.blockId;
-    const cell = core.getBlock(editor.state, para)?.parentId ?? null;
+    const cell = core.getBlock(editor.document, para)?.parentId ?? null;
     let table: core.BlockId | null = cell;
-    while (table !== null && core.getBlock(editor.state, table)?.type !== "table") table = core.getBlock(editor.state, table)?.parentId ?? null;
+    while (table !== null && core.getBlock(editor.document, table)?.type !== "table") table = core.getBlock(editor.document, table)?.parentId ?? null;
     if (cell === null || table === null) throw new Error("no table");
     const { container, controller } = mount(undefined, SLOTTED);
     controller.update(editor);
@@ -1089,7 +1089,7 @@ describe("print decorations — async host (basedOn)", () => {
     if (p === undefined) throw new Error("setup");
     const { container, controller } = mount();
     controller.update(editor);
-    const old = editor.state;
+    const old = editor.document;
     const decos = [inline("m", p, 6, 11, { backgroundColor: BAND })]; // "world" in `old`
     const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) });
     controller.update(at0);
@@ -1101,7 +1101,7 @@ describe("print decorations — async host (basedOn)", () => {
     expect(d?.kind === "inline" ? [d.from.offset, d.to.offset] : null).toEqual([8, 13]);
     expect(fills(ctxOf(container), BAND)[0]?.x).toBe(glyph(ctxOf(container), "w").x);
 
-    const unknown = seeded(["other"], cfg).editor.state;
+    const unknown = seeded(["other"], cfg).editor.document;
     controller.setDecorations(decos, unknown);
     expect(controller.decorations.decorations).toHaveLength(0);
     controller.destroy();

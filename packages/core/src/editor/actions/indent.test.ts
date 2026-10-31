@@ -48,29 +48,29 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
   it("INDENT on a fresh block: sets marginInlineStart to one step", () => {
     const initial = createInitialEditorState(config);
     const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.state) as BlockId;
+    const paraId = firstChildId(editor.document) as BlockId;
 
     // Baseline: no marginInlineStart attr.
-    expect(getBlock(editor.state, paraId)?.attrs.marginInlineStart).toBeUndefined();
+    expect(getBlock(editor.document, paraId)?.attrs.marginInlineStart).toBeUndefined();
 
     const next = reduceEditor(editor, { type: "INDENT" });
 
-    expect(getBlock(next.state, paraId)?.attrs.marginInlineStart).toBe(INDENT_STEP);
+    expect(getBlock(next.document, paraId)?.attrs.marginInlineStart).toBe(INDENT_STEP);
     expect(INDENT_STEP).toBe(48);
     // A real change → new state reference.
-    expect(next.state).not.toBe(editor.state);
+    expect(next.document).not.toBe(editor.document);
   });
 
   it("INDENT twice: accumulates to two steps", () => {
     const initial = createInitialEditorState(config);
     let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.state) as BlockId;
+    const paraId = firstChildId(editor.document) as BlockId;
 
     editor = reduceEditor(editor, { type: "INDENT" });
-    expect(getBlock(editor.state, paraId)?.attrs.marginInlineStart).toBe(48);
+    expect(getBlock(editor.document, paraId)?.attrs.marginInlineStart).toBe(48);
 
     editor = reduceEditor(editor, { type: "INDENT" });
-    expect(getBlock(editor.state, paraId)?.attrs.marginInlineStart).toBe(96);
+    expect(getBlock(editor.document, paraId)?.attrs.marginInlineStart).toBe(96);
   });
 
   it("INDENT caps at containerWidth - MIN_INDENT_CONTENT_WIDTH (can't push content off the page)", () => {
@@ -79,46 +79,46 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
     const maxIndent = 200 - MIN_INDENT_CONTENT_WIDTH; // 104
     const initial = createInitialEditorState(narrow);
     let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.state) as BlockId;
+    const paraId = firstChildId(editor.document) as BlockId;
 
     // Indent well past the cap (10 × 48 = 480 ≫ 104).
     for (let i = 0; i < 10; i++) {
       editor = reduceEditor(editor, { type: "INDENT" });
     }
     // Capped exactly at maxIndent — never exceeds it (no off-page push).
-    expect(getBlock(editor.state, paraId)?.attrs.marginInlineStart).toBe(maxIndent);
+    expect(getBlock(editor.document, paraId)?.attrs.marginInlineStart).toBe(maxIndent);
 
     // OUTDENT still works from the cap (reduces by one step).
     editor = reduceEditor(editor, { type: "OUTDENT" });
-    expect(getBlock(editor.state, paraId)?.attrs.marginInlineStart).toBe(maxIndent - INDENT_STEP);
+    expect(getBlock(editor.document, paraId)?.attrs.marginInlineStart).toBe(maxIndent - INDENT_STEP);
   });
 
   it("OUTDENT from one step: clears the attr (back to 0 / undefined)", () => {
     const initial = createInitialEditorState(config);
     let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.state) as BlockId;
+    const paraId = firstChildId(editor.document) as BlockId;
 
     editor = reduceEditor(editor, { type: "INDENT" });
-    expect(getBlock(editor.state, paraId)?.attrs.marginInlineStart).toBe(48);
+    expect(getBlock(editor.document, paraId)?.attrs.marginInlineStart).toBe(48);
 
     editor = reduceEditor(editor, { type: "OUTDENT" });
     // Outdent to 0 removes the attr entirely (renders like a never-indented block).
-    expect(getBlock(editor.state, paraId)?.attrs.marginInlineStart).toBeUndefined();
+    expect(getBlock(editor.document, paraId)?.attrs.marginInlineStart).toBeUndefined();
   });
 
   it("OUTDENT from 0: no-op (clamped — same editor reference via the identity guard)", () => {
     const initial = createInitialEditorState(config);
     const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.state) as BlockId;
+    const paraId = firstChildId(editor.document) as BlockId;
 
-    expect(getBlock(editor.state, paraId)?.attrs.marginInlineStart).toBeUndefined();
+    expect(getBlock(editor.document, paraId)?.attrs.marginInlineStart).toBeUndefined();
 
     const next = reduceEditor(editor, { type: "OUTDENT" });
 
     // Already at 0 → clamped → nothing changed. Phase 0b: the no-op identity is
     // `state` reference equality — the editor OBJECT differs because the dispatch
     // entry-clear strips the prior mutating INSERT_TEXT's stale `lastDirtyIds` hint.
-    expect(next.state).toBe(editor.state);
+    expect(next.document).toBe(editor.document);
     expect(next.lastDirtyIds).toBeNull();
   });
 
@@ -172,14 +172,14 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
     const next = reduceEditor(editor, { type: "INDENT" });
 
     // p0: 0 → 48; p2: 0 → 48 (each paragraph steps from its own start).
-    expect(getBlock(next.state, "p0" as BlockId)?.attrs.marginInlineStart).toBe(48);
-    expect(getBlock(next.state, "p2" as BlockId)?.attrs.marginInlineStart).toBe(48);
+    expect(getBlock(next.document, "p0" as BlockId)?.attrs.marginInlineStart).toBe(48);
+    expect(getBlock(next.document, "p2" as BlockId)?.attrs.marginInlineStart).toBe(48);
 
     // The list-item is SKIPPED (I5) — its marginInlineStart stays at 48.
-    expect(getBlock(next.state, "li" as BlockId)?.attrs.marginInlineStart).toBe(48);
+    expect(getBlock(next.document, "li" as BlockId)?.attrs.marginInlineStart).toBe(48);
 
     // Containers are NOT indented.
-    expect(getBlock(next.state, "sec" as BlockId)?.attrs.marginInlineStart).toBeUndefined();
+    expect(getBlock(next.document, "sec" as BlockId)?.attrs.marginInlineStart).toBeUndefined();
   });
 
   it("INDENT on a collapsed caret IN a list-item is a no-op (list-items are skipped)", () => {
@@ -205,13 +205,13 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
 
     // Skipped → no marginInlineStart written, same editor reference (identity guard).
     expect(next).toBe(editor);
-    expect(getBlock(next.state, "li" as BlockId)?.attrs.marginInlineStart).toBeUndefined();
+    expect(getBlock(next.document, "li" as BlockId)?.attrs.marginInlineStart).toBeUndefined();
   });
 
   it("preserves the selection (indent does not move the caret)", () => {
     const initial = createInitialEditorState(config);
     const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.state) as BlockId;
+    const paraId = firstChildId(editor.document) as BlockId;
     const selection = createSpan(createPosition(paraId, 0), createPosition(paraId, 2));
     const selected = reduceEditor(
       editor,
@@ -226,16 +226,16 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
   it("undo restores the prior indent", () => {
     const initial = createInitialEditorState(config);
     let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.state) as BlockId;
+    const paraId = firstChildId(editor.document) as BlockId;
 
     editor = reduceEditor(editor, { type: "INDENT" });
-    expect(getBlock(editor.state, paraId)?.attrs.marginInlineStart).toBe(48);
+    expect(getBlock(editor.document, paraId)?.attrs.marginInlineStart).toBe(48);
 
     const indented = reduceEditor(editor, { type: "INDENT" });
-    expect(getBlock(indented.state, paraId)?.attrs.marginInlineStart).toBe(96);
+    expect(getBlock(indented.document, paraId)?.attrs.marginInlineStart).toBe(96);
 
     const undone = reduceEditor(indented, { type: "UNDO" });
-    expect(getBlock(undone.state, paraId)?.attrs.marginInlineStart).toBe(48);
+    expect(getBlock(undone.document, paraId)?.attrs.marginInlineStart).toBe(48);
   });
 
   it("a list-item composes its level padding with a user marginInlineStart in layout", () => {

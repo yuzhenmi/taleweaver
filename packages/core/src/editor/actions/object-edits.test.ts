@@ -48,7 +48,7 @@ function objectSelection(): Selection {
 
 function editorFrom(state: State): EditorState {
   const editor = createEditorStateFromState(state, objectSelection(), config);
-  expect(isObjectSelection(editor.state, editor.selection, componentRegistry)).toBe(IMAGE_ID);
+  expect(isObjectSelection(editor.document, editor.selection, componentRegistry)).toBe(IMAGE_ID);
   return editor;
 }
 
@@ -137,7 +137,7 @@ describe("deleteObjectSelection (#525)", () => {
     const editor = editorFrom(standardDoc());
     const next = applyEdit(editor, deleteObjectSelection(editor, IMAGE_ID));
 
-    expect(getBlock(next.state, IMAGE_ID)).toBeNull();
+    expect(getBlock(next.document, IMAGE_ID)).toBeNull();
     expect(next.selection.focus.blockId).toBe(TRAILING_ID);
     expect(next.selection.focus.offset).toBe(0);
     expect(next.selection.anchor).toEqual(next.selection.focus);
@@ -146,21 +146,21 @@ describe("deleteObjectSelection (#525)", () => {
   it("is one undo entry: undo restores the image AND the object selection", () => {
     const editor = editorFrom(standardDoc());
     const next = applyEdit(editor, deleteObjectSelection(editor, IMAGE_ID));
-    expect(getBlock(next.state, IMAGE_ID)).toBeNull();
+    expect(getBlock(next.document, IMAGE_ID)).toBeNull();
 
     const undone = reduceEditor(next, { type: "UNDO" });
-    expect(getBlock(undone.state, IMAGE_ID)?.type).toBe("image");
-    expect(isObjectSelection(undone.state, undone.selection, componentRegistry)).toBe(IMAGE_ID);
+    expect(getBlock(undone.document, IMAGE_ID)?.type).toBe("image");
+    expect(isObjectSelection(undone.document, undone.selection, componentRegistry)).toBe(IMAGE_ID);
   });
 
   it("an image authored LAST still has a paragraph after it (invariant I): the caret lands at its start", () => {
     const editor = editorFrom(imageLastDoc());
-    const after = getBlock(editor.state, IMAGE_ID)?.nextSiblingId ?? null;
+    const after = getBlock(editor.document, IMAGE_ID)?.nextSiblingId ?? null;
     expect(after).not.toBeNull();
 
     const next = applyEdit(editor, deleteObjectSelection(editor, IMAGE_ID));
 
-    expect(getBlock(next.state, IMAGE_ID)).toBeNull();
+    expect(getBlock(next.document, IMAGE_ID)).toBeNull();
     expect(next.selection.focus).toEqual({ blockId: after, offset: 0 });
   });
 
@@ -168,13 +168,13 @@ describe("deleteObjectSelection (#525)", () => {
     const editor = editorFrom(imageOnlyDoc());
     const next = applyEdit(editor, deleteObjectSelection(editor, IMAGE_ID));
 
-    expect(getBlock(next.state, IMAGE_ID)).toBeNull();
+    expect(getBlock(next.document, IMAGE_ID)).toBeNull();
     // The caret must land on a real content-bearing leaf (a freshly seeded
     // paragraph), never the container root.
-    const caretBlock = getBlock(next.state, next.selection.focus.blockId);
+    const caretBlock = getBlock(next.document, next.selection.focus.blockId);
     expect(caretBlock).not.toBeNull();
     expect(caretBlock?.inlineContent).not.toBeNull();
-    expect(next.selection.focus.blockId).not.toBe(next.state.rootId);
+    expect(next.selection.focus.blockId).not.toBe(next.document.rootId);
     expect(next.selection.focus.offset).toBe(0);
   });
 });
@@ -184,8 +184,8 @@ describe("replaceObjectWithText (#525)", () => {
     const editor = editorFrom(standardDoc());
     const next = applyEdit(editor, replaceObjectWithText(editor, IMAGE_ID, "x"));
 
-    expect(getBlock(next.state, IMAGE_ID)).toBeNull();
-    expect(textOf(next.state, TRAILING_ID).startsWith("x")).toBe(true);
+    expect(getBlock(next.document, IMAGE_ID)).toBeNull();
+    expect(textOf(next.document, TRAILING_ID).startsWith("x")).toBe(true);
     expect(next.selection.focus.blockId).toBe(TRAILING_ID);
     expect(next.selection.focus.offset).toBe(1);
     expect(next.selection.anchor).toEqual(next.selection.focus);
@@ -194,12 +194,12 @@ describe("replaceObjectWithText (#525)", () => {
   it("is one undo entry restoring the image", () => {
     const editor = editorFrom(standardDoc());
     const next = applyEdit(editor, replaceObjectWithText(editor, IMAGE_ID, "x"));
-    expect(getBlock(next.state, IMAGE_ID)).toBeNull();
+    expect(getBlock(next.document, IMAGE_ID)).toBeNull();
 
     const undone = reduceEditor(next, { type: "UNDO" });
-    expect(getBlock(undone.state, IMAGE_ID)?.type).toBe("image");
+    expect(getBlock(undone.document, IMAGE_ID)?.type).toBe("image");
     // After ONE undo the typed text is gone too (single entry).
-    expect(textOf(undone.state, TRAILING_ID)).toBe("");
+    expect(textOf(undone.document, TRAILING_ID)).toBe("");
   });
 });
 
@@ -210,30 +210,30 @@ describe("moveOffObject (#525)", () => {
 
     const next = applyEdit(editor, moveOffObject(editor, IMAGE_ID, "forward"));
 
-    expect(getBlock(next.state, IMAGE_ID)?.type).toBe("image");
+    expect(getBlock(next.document, IMAGE_ID)?.type).toBe("image");
     expect(next.selection.focus.blockId).toBe(TRAILING_ID);
     expect(next.selection.focus.offset).toBe(0);
     expect(next.selection.anchor).toEqual(next.selection.focus);
     // Pure selection move: history + state reference untouched.
     expect(next.history.canUndo()).toBe(canUndoBefore);
-    expect(next.state).toBe(editor.state);
+    expect(next.document).toBe(editor.document);
   });
 
   it("backward: caret at the previous content block's end", () => {
     const editor = editorFrom(standardDoc());
-    const prevLen = blockLength(editor.state, PARA_ID);
+    const prevLen = blockLength(editor.document, PARA_ID);
 
     const next = applyEdit(editor, moveOffObject(editor, IMAGE_ID, "backward"));
 
-    expect(getBlock(next.state, IMAGE_ID)?.type).toBe("image");
+    expect(getBlock(next.document, IMAGE_ID)?.type).toBe("image");
     expect(next.selection.focus.blockId).toBe(PARA_ID);
     expect(next.selection.focus.offset).toBe(prevLen);
-    expect(next.state).toBe(editor.state);
+    expect(next.document).toBe(editor.document);
   });
 
   it("forward from an image authored last: the paragraph invariant I put after it takes the caret", () => {
     const editor = editorFrom(imageLastDoc());
-    const after = getBlock(editor.state, IMAGE_ID)?.nextSiblingId ?? null;
+    const after = getBlock(editor.document, IMAGE_ID)?.nextSiblingId ?? null;
     const next = applyEdit(editor, moveOffObject(editor, IMAGE_ID, "forward"));
     expect(next.selection.focus).toEqual({ blockId: after, offset: 0 });
   });
