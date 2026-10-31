@@ -7,7 +7,6 @@ CLAUDE.md
 # Machine / tooling cruft (recurring)
 .DS_Store
 .playwright-mcp/
-.superpowers/
 
 # copied in by each package's prepack
 packages/*/LICENSE
