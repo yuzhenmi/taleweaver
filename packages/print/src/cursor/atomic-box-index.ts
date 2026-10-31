@@ -1,6 +1,6 @@
 import type { LayoutBox } from "../layout/layout-box";
 import { resolveBlock, coerceBlockId, isObjectBlock } from "@taleweaver/core";
-import type { State, BlockId, BlockKindResolver } from "@taleweaver/core";
+import type { Document, BlockId, BlockKindResolver } from "@taleweaver/core";
 
 /**
  * Object-selection geometry. An ABSOLUTE physical pixel rect for an
@@ -47,14 +47,14 @@ const _atomicBoxIndexCache: WeakMap<LayoutBox, AtomicBoxIndex> = new WeakMap();
 export function getAtomicBoxIndex(
   layoutTree: LayoutBox,
   resolver: BlockKindResolver,
-  state: State,
+  document: Document,
 ): AtomicBoxIndex {
   const cached = _atomicBoxIndexCache.get(layoutTree);
   if (cached !== undefined) return cached;
   const out = new Map<BlockId, AbsoluteRect>();
   collect(layoutTree, 0, 0, 0, (box, rect) => {
     if (box.type !== "block") return false;
-    const atomicId = atomicLeafBlockFor(box.key, resolver, state);
+    const atomicId = atomicLeafBlockFor(box.key, resolver, document);
     if (atomicId === null) return false;
     out.set(atomicId, rect);
     // An atomic leaf has no atomic-leaf descendants; nothing to walk into.
@@ -79,14 +79,14 @@ const _objectBoxesCache: WeakMap<LayoutBox, readonly ObjectBox[]> = new WeakMap(
  * columns) contributes one entry per fragment; objects nested in a table's cells are
  * included too. The geometry a range selection highlights a covered object with.
  */
-export function getObjectBoxes(layoutTree: LayoutBox, state: State): readonly ObjectBox[] {
+export function getObjectBoxes(layoutTree: LayoutBox, document: Document): readonly ObjectBox[] {
   const cached = _objectBoxesCache.get(layoutTree);
   if (cached !== undefined) return cached;
   const out: ObjectBox[] = [];
   collect(layoutTree, 0, 0, 0, (box, rect) => {
     if (box.type !== "block" && box.type !== "table") return false;
     const id = coerceBlockId(box.key);
-    const block = id === undefined ? null : resolveBlock(state, id)?.block ?? null;
+    const block = id === undefined ? null : resolveBlock(document, id)?.block ?? null;
     if (block === null || !isObjectBlock(block)) return false;
     out.push({ blockId: block.id, rect });
     // A table's cells can hold further objects; an atomic leaf holds none.
@@ -109,11 +109,11 @@ export function getObjectBoxes(layoutTree: LayoutBox, state: State): readonly Ob
 function atomicLeafBlockFor(
   key: string,
   resolver: BlockKindResolver,
-  state: State,
+  document: Document,
 ): BlockId | null {
   const id = coerceBlockId(key);
   if (id === undefined) return null;
-  const resolved = resolveBlock(state, id);
+  const resolved = resolveBlock(document, id);
   if (resolved === null) return null;
   return resolver.getBlockKind(resolved.block.type) === "atomic-leaf"
     ? resolved.block.id

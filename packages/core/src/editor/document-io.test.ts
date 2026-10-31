@@ -2,11 +2,11 @@
  * Editor document load/save convenience surface (`document-io.ts`): the
  * editor-level "open / save" operations over the engine's
  * `serializeDocument` / `deserializeDocument`. `exportDocument` serializes the
- * editor's current `State`; `loadDocument` deserializes bytes into a FRESH
+ * editor's current `Document`; `loadDocument` deserializes bytes into a FRESH
  * `EditorState` (fresh `History` + a valid initial caret + full
  * render/cascade/layout).
  *
- * Also covers the shared `initialSelectionForState` caret-derivation helper:
+ * Also covers the shared `initialSelectionForDocument` caret-derivation helper:
  * both `createInitialEditorState` (empty doc) and `loadDocument` (arbitrary
  * deserialized doc) derive the initial collapsed caret through it, on the first
  * CONTENT-bearing leaf (robust against a first child that is a container, e.g.
@@ -17,10 +17,10 @@ import * as Y from "yjs";
 import { config, reduceEditor } from "./actions/test-helpers";
 import {
   createInitialEditorState,
-  createEditorStateFromState,
+  createEditorStateFromDocument,
 } from "./editor-state";
 import { exportDocument, loadDocument } from "./document-io";
-import { initialSelectionForState } from "./actions";
+import { initialSelectionForDocument } from "./actions";
 import {
   getBlock,
   createPosition,
@@ -33,23 +33,23 @@ import {
   MalformedDocumentError,
   asBlockId,
 } from "../state";
-import type { State, BlockId } from "../state";
-import { TEST_RESOLVER, buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
+import type { Document, BlockId } from "../state";
+import { TEST_RESOLVER, buildDocument, buildBlock, inlineContent, text } from "../test-utils/document-builders";
 
 const ID = (s: string): BlockId => asBlockId(s);
 
 /** Extract the full document's plain text (whole-doc span over the root). */
-function docText(state: State): string {
-  const root = getBlock(state, state.rootId);
+function docText(document: Document): string {
+  const root = getBlock(document, document.rootId);
   if (root === null) return "";
   // Walk every content leaf in document order; join their text with "\n".
   const parts: string[] = [];
-  collectText(state, state.rootId, parts);
+  collectText(document, document.rootId, parts);
   return parts.join("\n");
 }
 
-function collectText(state: State, blockId: BlockId, out: string[]): void {
-  const block = getBlock(state, blockId);
+function collectText(document: Document, blockId: BlockId, out: string[]): void {
+  const block = getBlock(document, blockId);
   if (block === null) return;
   if (block.inlineContent !== null) {
     out.push(
@@ -61,8 +61,8 @@ function collectText(state: State, blockId: BlockId, out: string[]): void {
   }
   let child = block.firstChildId;
   while (child !== null) {
-    collectText(state, child, out);
-    const childBlock = getBlock(state, child);
+    collectText(document, child, out);
+    const childBlock = getBlock(document, child);
     child = childBlock === null ? null : childBlock.nextSiblingId;
   }
 }
@@ -72,8 +72,8 @@ function collectText(state: State, blockId: BlockId, out: string[]): void {
  * directly so the round-trip has real content without depending on the editor
  * pipeline to seed it.
  */
-function twoParagraphState(): State {
-  return buildState({
+function twoParagraphDocument(): Document {
+  return buildDocument({
     rootId: "root",
     blocks: [
       buildBlock({
@@ -103,11 +103,11 @@ function twoParagraphState(): State {
 /**
  * A document whose root's FIRST child is a CONTAINER (a `section`, which has
  * `display:contents` and no inline content) wrapping a `paragraph` content
- * leaf. The robustness case `initialSelectionForState` must handle: the caret
+ * leaf. The robustness case `initialSelectionForDocument` must handle: the caret
  * lands on the inner paragraph (the content leaf), NOT the section container.
  */
-function sectionWrappedState(): State {
-  return buildState({
+function sectionWrappedDocument(): Document {
+  return buildDocument({
     rootId: "sw-root",
     blocks: [
       buildBlock({
@@ -135,26 +135,26 @@ function sectionWrappedState(): State {
 
 describe("document-io — exportDocument / loadDocument", () => {
   it("export → load round-trip preserves the document", () => {
-    const state = twoParagraphState();
-    const editor = createEditorStateFromState(
-      state,
-      initialSelectionForState(state),
+    const document = twoParagraphDocument();
+    const editor = createEditorStateFromDocument(
+      document,
+      initialSelectionForDocument(document),
       config,
     );
     const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
     const bytes = exportDocument(editor, BINARY_FORMAT, reg);
     const loaded = loadDocument(bytes, BINARY_FORMAT, reg, config);
 
-    expect(loaded.state.rootId).toBe(editor.state.rootId);
-    expect(docText(loaded.state)).toBe(docText(editor.state));
-    expect(docText(loaded.state)).toBe("alpha\nbeta");
+    expect(loaded.document.rootId).toBe(editor.document.rootId);
+    expect(docText(loaded.document)).toBe(docText(editor.document));
+    expect(docText(loaded.document)).toBe("alpha\nbeta");
   });
 
   it("loadDocument places a valid collapsed initial caret on a content leaf", () => {
-    const state = twoParagraphState();
-    const editor = createEditorStateFromState(
-      state,
-      initialSelectionForState(state),
+    const document = twoParagraphDocument();
+    const editor = createEditorStateFromDocument(
+      document,
+      initialSelectionForDocument(document),
       config,
     );
     const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
@@ -167,7 +167,7 @@ describe("document-io — exportDocument / loadDocument", () => {
     expect(anchor.offset).toBe(focus.offset);
     expect(anchor.offset).toBe(0);
     // The caret block is a real content-bearing leaf.
-    const caretBlock = getBlock(loaded.state, anchor.blockId);
+    const caretBlock = getBlock(loaded.document, anchor.blockId);
     expect(caretBlock).not.toBeNull();
     expect(caretBlock?.inlineContent).not.toBeNull();
   });
@@ -189,10 +189,10 @@ describe("document-io — exportDocument / loadDocument", () => {
   });
 
   it("loadDocument yields a live, editable editor (INSERT_TEXT round-trips through the full pipeline)", () => {
-    const state = twoParagraphState();
-    const editor = createEditorStateFromState(
-      state,
-      initialSelectionForState(state),
+    const document = twoParagraphDocument();
+    const editor = createEditorStateFromDocument(
+      document,
+      initialSelectionForDocument(document),
       config,
     );
     const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
@@ -201,7 +201,7 @@ describe("document-io — exportDocument / loadDocument", () => {
 
     const caretBlockId = loaded.selection.anchor.blockId;
     const edited = reduceEditor(loaded, { type: "INSERT_TEXT", text: "X" });
-    const editedBlock = getBlock(edited.state, caretBlockId);
+    const editedBlock = getBlock(edited.document, caretBlockId);
     expect(editedBlock).not.toBeNull();
     const text = editedBlock?.inlineContent?.items
       .map((it) => (it.kind === "text" ? it.text : ""))
@@ -222,7 +222,7 @@ describe("document-io — exportDocument / loadDocument", () => {
     // an empty one — the format lookup fails before any decode.
     const editor = createInitialEditorState(config);
     const fullReg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
-    const bytes = serializeDocument(editor.state, BINARY_FORMAT, fullReg);
+    const bytes = serializeDocument(editor.document, BINARY_FORMAT, fullReg);
     const emptyReg = createSerializerRegistry();
     expect(() => loadDocument(bytes, BINARY_FORMAT, emptyReg, config)).toThrow(
       UnknownSerializerFormatError,
@@ -243,34 +243,34 @@ describe("document-io — exportDocument / loadDocument", () => {
   });
 });
 
-describe("initialSelectionForState — robust caret derivation", () => {
+describe("initialSelectionForDocument — robust caret derivation", () => {
   it("empty document: caret on the seeded paragraph (a content leaf)", () => {
     const editor = createInitialEditorState(config);
     const sel = editor.selection;
     expect(sel.anchor.blockId).toBe(sel.focus.blockId);
     expect(sel.anchor.offset).toBe(0);
-    const block = getBlock(editor.state, sel.anchor.blockId);
+    const block = getBlock(editor.document, sel.anchor.blockId);
     expect(block).not.toBeNull();
     expect(block?.inlineContent).not.toBeNull();
   });
 
   it("collapsed caret on the first content leaf of a two-paragraph doc", () => {
-    const state = twoParagraphState();
-    const sel = initialSelectionForState(state);
+    const document = twoParagraphDocument();
+    const sel = initialSelectionForDocument(document);
     expect(sel.anchor.blockId).toBe(sel.focus.blockId);
     expect(sel.anchor.blockId).toBe(ID("p1"));
     expect(sel.anchor.offset).toBe(0);
   });
 
   it("caret lands on the inner paragraph, NOT a container first child (section-wrapped)", () => {
-    const state = sectionWrappedState();
-    const sel = initialSelectionForState(state);
+    const document = sectionWrappedDocument();
+    const sel = initialSelectionForDocument(document);
     // Robustness over the old `firstChildId` derivation: the root's first child
     // is the `section` CONTAINER; the caret must land on the inner paragraph.
     expect(sel.anchor.blockId).toBe(ID("sw-para"));
     expect(sel.anchor.blockId).not.toBe(ID("sw-section"));
     expect(sel.anchor.offset).toBe(0);
-    const block = getBlock(state, sel.anchor.blockId);
+    const block = getBlock(document, sel.anchor.blockId);
     expect(block?.inlineContent).not.toBeNull();
     // Round-trips equal selections (anchor === focus, collapsed).
     expect(sel).toEqual(

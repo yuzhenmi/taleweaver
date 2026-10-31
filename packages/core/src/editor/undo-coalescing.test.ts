@@ -25,9 +25,9 @@ function makeClock() {
 
 /** First leaf block's text. */
 function textOf(editor: EditorState): string {
-  const id = firstChildId(editor.state);
+  const id = firstChildId(editor.document);
   if (id === null) return "";
-  return getTextOf(editor.state, id);
+  return getTextOf(editor.document, id);
 }
 
 describe("undo coalescing through the reducer (#420)", () => {
@@ -120,7 +120,7 @@ describe("undo coalescing through the reducer (#420)", () => {
     const config: EditorConfig = { ...baseConfig, now: clock.now };
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
-    const id = firstChildId(editor.state);
+    const id = firstChildId(editor.document);
     if (id === null) throw new Error("no block");
     // Select the typed "a" so TOGGLE_STYLE actually commits an undo entry
     // (bold on a collapsed cursor is a no-op). The SET_SELECTION itself breaks
@@ -182,7 +182,7 @@ describe("undo coalescing through the reducer (#420)", () => {
     const config: EditorConfig = { ...baseConfig, now: clock.now };
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
-    const id = firstChildId(editor.state);
+    const id = firstChildId(editor.document);
     if (id === null) throw new Error("no block");
     clock.advance(5);
     editor = reduceEditor(

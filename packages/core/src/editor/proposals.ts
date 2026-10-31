@@ -20,7 +20,7 @@ import type {
   BlockId,
   Position,
   ReadonlyAttrs,
-  State,
+  Document,
   SuggestionId,
   SiblingBlockInit,
   OperationResult,
@@ -29,7 +29,6 @@ import { suggestionIdsOnItem } from "../state/ops/suggestion-ops";
 import { nextSuggestionOrder } from "../state/suggestions";
 import { mappingAcross, type ChangeLink, type PositionMapping } from "../state/position-mapping";
 import { recordSample } from "../perf/perf-trace";
-import { type EditorConfig } from "./editor-config";
 import { type EditorState } from "./editor-state";
 import type { Edit } from "./edit";
 import { replacementAttrs } from "./typing-attrs";
@@ -89,14 +88,14 @@ export type ProposalProblem =
   | { readonly kind: "conflict"; readonly suggestionIds: readonly SuggestionId[] };
 
 /** `[from, to]` ordered, or null when the ends are not in one selection context. */
-function ordered(state: State, from: Position, to: Position): [Position, Position] | null {
-  const a = selectionContextOf(state, from.blockId);
-  if (a === null || a !== selectionContextOf(state, to.blockId)) return null;
-  return comparePositions(state, from, to) <= 0 ? [from, to] : [to, from];
+function ordered(document: Document, from: Position, to: Position): [Position, Position] | null {
+  const a = selectionContextOf(document, from.blockId);
+  if (a === null || a !== selectionContextOf(document, to.blockId)) return null;
+  return comparePositions(document, from, to) <= 0 ? [from, to] : [to, from];
 }
 
-function validPosition(state: State, p: Position): boolean {
-  const content = resolveBlock(state, p.blockId)?.block.inlineContent ?? null;
+function validPosition(document: Document, p: Position): boolean {
+  const content = resolveBlock(document, p.blockId)?.block.inlineContent ?? null;
   if (content === null || p.offset < 0) return false;
   let len = 0;
   for (const item of content.items) len += item.kind === "text" ? item.text.length : 1;
@@ -104,11 +103,11 @@ function validPosition(state: State, p: Position): boolean {
 }
 
 /** Pending suggestion ids on the content an edit covers (or strictly around its point). */
-function suggestionsUnder(state: State, from: Position, to: Position): SuggestionId[] {
+function suggestionsUnder(document: Document, from: Position, to: Position): SuggestionId[] {
   const out = new Set<SuggestionId>();
   if (positionsEqual(from, to)) {
     // An insertion point strictly inside a suggested run would split it.
-    const content = resolveBlock(state, from.blockId)?.block.inlineContent ?? null;
+    const content = resolveBlock(document, from.blockId)?.block.inlineContent ?? null;
     if (content !== null && from.offset > 0) {
       const { itemIndex, withinItem } = findItemAtOffset(content, from.offset);
       const item = content.items[itemIndex];
@@ -116,7 +115,7 @@ function suggestionsUnder(state: State, from: Position, to: Position): Suggestio
     }
     return [...out];
   }
-  for (const seg of iterateSpan(state, createSpan(from, to))) {
+  for (const seg of iterateSpan(document, createSpan(from, to))) {
     const content = seg.block.inlineContent;
     if (content === null) continue;
     let pos = 0;
@@ -135,14 +134,14 @@ function suggestionsUnder(state: State, from: Position, to: Position): Suggestio
  * two edits at one point) — O(n log n): per editing context, sort by start (points first
  * at a tie), then sweep keeping the furthest end seen so far.
  */
-function selfOverlap(state: State, ranges: ReadonlyArray<[Position, Position]>): boolean {
+function selfOverlap(document: Document, ranges: ReadonlyArray<[Position, Position]>): boolean {
   const cmp = (x: Position, y: Position): number => {
     recordSample("proposal.validateCompare", 0); // deterministic perf counter (no-op unless tracing)
-    return comparePositions(state, x, y);
+    return comparePositions(document, x, y);
   };
   const byContext = new Map<BlockId, Array<[Position, Position]>>();
   for (const r of ranges) {
-    const ctx = selectionContextOf(state, r[0].blockId);
+    const ctx = selectionContextOf(document, r[0].blockId);
     if (ctx === null) continue;
     let list = byContext.get(ctx);
     if (list === undefined) byContext.set(ctx, (list = []));
@@ -170,18 +169,18 @@ function selfOverlap(state: State, ranges: ReadonlyArray<[Position, Position]>):
 }
 
 /**
- * Check a proposal against `state` before applying it. Proposals never overlap pending
+ * Check a proposal against `document` before applying it. Proposals never overlap pending
  * suggestions (a predictable, atomic rule: the whole proposal is refused and the
  * conflicting suggestion ids reported) and never overlap themselves. Null = OK.
  */
-export function validateProposal(state: State, proposal: Proposal): ProposalProblem | null {
+export function validateProposal(document: Document, proposal: Proposal): ProposalProblem | null {
   if (proposal.edits.length === 0) return { kind: "invalid", message: "a proposal needs at least one edit" };
   const ranges: Array<[Position, Position]> = [];
   for (const edit of proposal.edits) {
-    if (!validPosition(state, edit.from) || !validPosition(state, edit.to)) {
+    if (!validPosition(document, edit.from) || !validPosition(document, edit.to)) {
       return { kind: "invalid", message: "an edit position is outside the document" };
     }
-    const r = ordered(state, edit.from, edit.to);
+    const r = ordered(document, edit.from, edit.to);
     if (r === null) return { kind: "invalid", message: "an edit spans two editing contexts" };
     if (edit.kind === "format" && positionsEqual(r[0], r[1])) {
       return { kind: "invalid", message: "a format edit needs a non-empty range" };
@@ -191,9 +190,9 @@ export function validateProposal(state: State, proposal: Proposal): ProposalProb
     }
     ranges.push(r);
   }
-  if (selfOverlap(state, ranges)) return { kind: "overlap" };
+  if (selfOverlap(document, ranges)) return { kind: "overlap" };
   const ids = new Set<SuggestionId>();
-  for (const [from, to] of ranges) for (const id of suggestionsUnder(state, from, to)) ids.add(id);
+  for (const [from, to] of ranges) for (const id of suggestionsUnder(document, from, to)) ids.add(id);
   return ids.size > 0 ? { kind: "conflict", suggestionIds: [...ids] } : null;
 }
 
@@ -216,8 +215,8 @@ export function mapProposal(proposal: Proposal, mapping: PositionMapping): Propo
 }
 
 /** The lines of a multi-paragraph replacement, shaped like the paragraph at `at`. */
-function linesFor(state: State, at: Position, text: string, attrs: ReadonlyAttrs): SiblingBlockInit[] {
-  const block = resolveBlock(state, at.blockId)?.block;
+function linesFor(document: Document, at: Position, text: string, attrs: ReadonlyAttrs): SiblingBlockInit[] {
+  const block = resolveBlock(document, at.blockId)?.block;
   const type = block?.type ?? "paragraph";
   const blockAttrs = block?.attrs ?? {};
   return text.split("\n").map((line) => ({
@@ -230,11 +229,10 @@ function linesFor(state: State, at: Position, text: string, attrs: ReadonlyAttrs
 export function applyProposal(
   editor: EditorState,
   proposal: Proposal,
-  config: EditorConfig,
   outcomeOf: (verdict: Verdict) => ProposalOutcome,
 ): Edit {
-  const createdAt = (config.now ?? Date.now)();
-  let state = editor.state;
+  const createdAt = (editor.config.now ?? Date.now)();
+  let document = editor.document;
   // Each step is its own change, keeping its exact position mapping.
   const steps: OperationResult[] = [];
   const minted: SuggestionId[] = [];
@@ -242,10 +240,10 @@ export function applyProposal(
   let pending = proposal.edits.map((e) => ({ ...e }));
 
   const step = (result: OperationResult, ids: readonly SuggestionId[], meta: Readonly<Record<string, unknown>> | undefined): void => {
-    if (result.state === state) return;
-    const mapping = createPositionMapping(state, result.state, result.dirtyIds);
+    if (result.document === document) return;
+    const mapping = createPositionMapping(document, result.document, result.dirtyIds);
     steps.push(result);
-    state = result.state;
+    document = result.document;
     for (const id of ids) {
       minted.push(id);
       if (meta !== undefined) perId.set(id, meta);
@@ -263,36 +261,36 @@ export function applyProposal(
     const [edit, ...rest] = pending;
     pending = rest;
     if (edit === undefined) break;
-    const range = ordered(state, edit.from, edit.to);
+    const range = ordered(document, edit.from, edit.to);
     if (range === null) continue;
     const [from, to] = range;
     const span = createSpan(from, to);
     if (edit.kind === "format") {
       const id = newSuggestionId();
-      step(markFormatting(state, span, edit.attrs, { id, author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true }), [id], edit.metadata);
+      step(markFormatting(document, span, edit.attrs, { id, author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true }), [id], edit.metadata);
       continue;
     }
-    const attrs = replacementAttrs(state, from, to);
+    const attrs = replacementAttrs(document, from, to);
     const point = positionsEqual(from, to);
     if (edit.text === "") {
       const id = newSuggestionId();
-      step(markDeletion(state, span, { id, author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true }), [id], edit.metadata);
+      step(markDeletion(document, span, { id, author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true }), [id], edit.metadata);
     } else if (edit.text.includes("\n")) {
       const input = { deletionId: newSuggestionId(), insertionId: newSuggestionId(), author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true };
-      const result = replaceWithSuggestedFragment(state, span, linesFor(state, from, edit.text, attrs), input, productionAllocator);
+      const result = replaceWithSuggestedFragment(document, span, linesFor(document, from, edit.text, attrs), input, productionAllocator);
       step(result, [input.deletionId, input.insertionId], edit.metadata);
     } else if (point) {
       const id = newSuggestionId();
-      step(mintInsertion(state, from, edit.text, attrs, { id, author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true }), [id], edit.metadata);
+      step(mintInsertion(document, from, edit.text, attrs, { id, author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true }), [id], edit.metadata);
     } else {
       const input = { deletionId: newSuggestionId(), insertionId: newSuggestionId(), author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true };
-      step(replaceWithSuggestion(state, span, edit.text, attrs, input), [input.deletionId, input.insertionId], edit.metadata);
+      step(replaceWithSuggestion(document, span, edit.text, attrs, input), [input.deletionId, input.insertionId], edit.metadata);
     }
   }
   if (minted.length === 0) {
     return { proposal: outcomeOf({ groupId: proposal.groupId, outcome: "rejected", problem: { kind: "invalid", message: "nothing to propose" } }) };
   }
-  const grouped = assignSuggestionGroup(state, minted, proposal.groupId, proposal.metadata, perId);
+  const grouped = assignSuggestionGroup(document, minted, proposal.groupId, proposal.metadata, perId);
   steps.push(grouped);
   // Another author's change: not an undo step of this editor; the selection is rebased.
   return { change: steps, selection: "rebase", undoable: false, proposal: outcomeOf({ groupId: proposal.groupId, outcome: "applied" }) };
@@ -360,15 +358,15 @@ export function proposeResultOf(outcome: ProposalOutcome | undefined): ProposeRe
 }
 
 /**
- * The mapping from an older document version `basedOn` to `editor.state`, walking the
+ * The mapping from an older document version `basedOn` to `editor.document`, walking the
  * editor's change chain (`lastChange`) — null when `basedOn` is not on it (aged out of the
  * bounded chain, or the document was replaced).
  */
-export function mappingSince(editor: EditorState, basedOn: State): PositionMapping | null {
+export function mappingSince(editor: EditorState, basedOn: Document): PositionMapping | null {
   const links: ChangeLink[] = [];
   for (let c = editor.lastChange; c !== null; c = c.prior) {
     links.push(c);
-    if (c.from === basedOn) return mappingAcross(links.reverse(), editor.state);
+    if (c.from === basedOn) return mappingAcross(links.reverse(), editor.document);
   }
   return null;
 }

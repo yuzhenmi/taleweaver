@@ -35,13 +35,13 @@ export function handleSetTabStops(
   editor: EditorState,
   { blockId, tabStops }: ActionOf<"SET_TAB_STOPS">,
 ): Edit | null {
-  if (getBlock(editor.state, blockId) === null) return null;
+  if (getBlock(editor.document, blockId) === null) return null;
 
-  const result = mergeBlockAttrs(editor.state, blockId, { tabStops });
+  const result = mergeBlockAttrs(editor.document, blockId, { tabStops });
   // No-op merge (identical stops already present): same state ref → return the
   // input editor unchanged so the "no change → same reference" contract holds.
-  if (result.state === editor.state) return null;
+  if (result.document === editor.document) return null;
 
   const dirtyIds = new Set<BlockId>(result.dirtyIds);
-  return { change: { state: result.state, dirtyIds } };
+  return { change: { document: result.document, dirtyIds } };
 }

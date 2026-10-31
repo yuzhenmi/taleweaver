@@ -1,5 +1,5 @@
 import { resolveBlock, deleteRangeSeam } from "../../../state";
-import type { State, Span, Position } from "../../../state";
+import type { Document, Span, Position } from "../../../state";
 
 /**
  * Resolve the collapse point for an expanded (non-collapsed) selection that is
@@ -30,11 +30,11 @@ import type { State, Span, Position } from "../../../state";
  * editor`, so the order is not observable).
  */
 export function expandedSpanCollapsePoint(
-  state: State,
+  document: Document,
   span: Span,
 ): Position | null {
-  const anchorBlock = resolveBlock(state, span.anchor.blockId)?.block ?? null;
-  const focusBlock = resolveBlock(state, span.focus.blockId)?.block ?? null;
+  const anchorBlock = resolveBlock(document, span.anchor.blockId)?.block ?? null;
+  const focusBlock = resolveBlock(document, span.focus.blockId)?.block ?? null;
   if (anchorBlock === null || focusBlock === null) return null;
   // deleteRange throws on cross-parent — refuse with no-op if so.
   if (
@@ -43,5 +43,5 @@ export function expandedSpanCollapsePoint(
   ) {
     return null;
   }
-  return deleteRangeSeam(state, span);
+  return deleteRangeSeam(document, span);
 }

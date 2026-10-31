@@ -26,7 +26,7 @@
 import { describe, it, expect } from "vitest";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import type { WritingMode } from "@taleweaver/core";
-import { buildBlock, buildState, inlineContent, text } from "@taleweaver/core";
+import { buildBlock, buildDocument, inlineContent, text } from "@taleweaver/core";
 import { render } from "@taleweaver/core";
 import { cascadePass } from "@taleweaver/core";
 import { createDefaultComponentRegistry } from "@taleweaver/core";
@@ -72,8 +72,8 @@ const pageConfig: PageConfig = {
  * (belt-and-braces; inheritance alone would suffice). The paragraph text wraps
  * into three lines under the narrow page.
  */
-function buildVerticalDoc(wm: WritingMode): ReturnType<typeof buildState> {
-  return buildState({
+function buildVerticalDoc(wm: WritingMode): ReturnType<typeof buildDocument> {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -96,8 +96,8 @@ function buildVerticalDoc(wm: WritingMode): ReturnType<typeof buildState> {
 
 /** Render + cascade the doc into a layout-ready ElementBox root. */
 function cascadedRoot(wm: WritingMode): ElementBox {
-  const state = buildVerticalDoc(wm);
-  const renderOutput = render(state, componentRegistry, attrRegistry);
+  const document = buildVerticalDoc(wm);
+  const renderOutput = render(document, componentRegistry, attrRegistry);
   const cascaded = cascadePass(renderOutput.root);
   if (cascaded.type !== "element") throw new Error("expected element root");
   return cascaded;

@@ -8,7 +8,7 @@ import { createMockShaper } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
 import { adaptShaperToMeasurer } from "@taleweaver/core";
 import type { TextMeasurer } from "@taleweaver/core";
-import { buildState, buildBlock, text, inlineContent, embed } from "@taleweaver/core";
+import { buildDocument, buildBlock, text, inlineContent, embed } from "@taleweaver/core";
 import { cascadePass } from "@taleweaver/core";
 import { makeRootContext } from "../layout/layout-context";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
@@ -17,7 +17,7 @@ import { collectFootnoteAnchors } from "@taleweaver/core";
 import { FOOTNOTE_ANCHOR_EMBED_TYPE } from "@taleweaver/core";
 import type { ElementBox, RenderNode } from "@taleweaver/core";
 import type { PageConfig } from "../layout/page-config";
-import type { BlockId, State } from "@taleweaver/core";
+import type { BlockId, Document } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 import { getLineIndex } from "./line-flatten";
 import type { AbsoluteLineBox } from "./line-flatten";
@@ -46,9 +46,9 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 const CHAR_W = 8;
 const LINE_H = 16;
 
-function pipeline(state: State): { layout: LayoutBox; measurer: TextMeasurer } {
+function pipeline(document: Document): { layout: LayoutBox; measurer: TextMeasurer } {
   const root = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -61,8 +61,8 @@ function pipeline(state: State): { layout: LayoutBox; measurer: TextMeasurer } {
  * Single-paragraph doc with the given text + optional `direction` attr (so we
  * can seed an RTL-base paragraph). Mirrors the cursor-position test pattern.
  */
-function para(textContent: string, attrs?: Record<string, string>): State {
-  return buildState({
+function para(textContent: string, attrs?: Record<string, string>): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -91,8 +91,8 @@ function bodyLine(layout: LayoutBox): AbsoluteLineBox {
 
 describe("buildLineBidiView", () => {
   it("LTR-only line: single leaf, level 0, contiguous state span from inlineOffsetStart", () => {
-    const state = para("abc");
-    const { layout } = pipeline(state);
+    const document = para("abc");
+    const { layout } = pipeline(document);
     const alb = bodyLine(layout);
     const view = buildLineBidiView(alb);
 
@@ -110,8 +110,8 @@ describe("buildLineBidiView", () => {
     // "abc אבג" in an LTR paragraph: Latin "abc " (level 0) + Hebrew "אבג"
     // (level 1). The reorder puts the Hebrew run before/after in VISUAL order,
     // but logical order (ascending sourceStart) keeps [Latin, Hebrew].
-    const state = para("abc אבג");
-    const { layout } = pipeline(state);
+    const document = para("abc אבג");
+    const { layout } = pipeline(document);
     const alb = bodyLine(layout);
     const view = buildLineBidiView(alb);
 
@@ -150,8 +150,8 @@ describe("buildLineBidiView", () => {
   });
 
   it("visualLeaves and logicalLeaves reference the SAME BidiViewLeaf objects", () => {
-    const state = para("abc אבג");
-    const { layout } = pipeline(state);
+    const document = para("abc אבג");
+    const { layout } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     // Every object in logicalLeaves must also be in visualLeaves (same refs).
     for (const lv of view.logicalLeaves) {
@@ -165,8 +165,8 @@ describe("buildLineBidiView", () => {
     // paragraph base stays LTR; the Hebrew CONTENT still resolves to a level-1
     // (RTL) run by UAX #9 — which is what the §B/§C intra-leaf RTL math keys
     // off (the leaf level parity, not the paragraph direction).
-    const state = para("אבג");
-    const { layout } = pipeline(state);
+    const document = para("אבג");
+    const { layout } = pipeline(document);
     const alb = bodyLine(layout);
     const view = buildLineBidiView(alb);
 
@@ -178,8 +178,8 @@ describe("buildLineBidiView", () => {
   });
 
   it("empty line (strut only): isEmpty true, no leaves", () => {
-    const state = para("");
-    const { layout } = pipeline(state);
+    const document = para("");
+    const { layout } = pipeline(document);
     const alb = bodyLine(layout);
     const view = buildLineBidiView(alb);
 
@@ -193,8 +193,8 @@ describe("buildLineBidiView", () => {
     // DISPLAY string (so the Latin leaf renders wider than its state length),
     // but its STATE span (logEnd - logStart) must equal the SOURCE length, and
     // logical order is by source, NOT by display width.
-    const state = para("aß אב", { textTransform: "uppercase" });
-    const { layout } = pipeline(state);
+    const document = para("aß אב", { textTransform: "uppercase" });
+    const { layout } = pipeline(document);
     const alb = bodyLine(layout);
     const view = buildLineBidiView(alb);
 
@@ -229,7 +229,7 @@ describe("buildLineBidiView", () => {
   it("hyphenated line: synthetic hyphen run excluded from leaves", () => {
     // Force a hyphenation by giving a long hyphenatable word in a narrow box.
     // The synthetic hyphen run has offsetLength === 0 && sourceStart === undefined.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -243,7 +243,7 @@ describe("buildLineBidiView", () => {
       ],
     });
     const root = render(
-      state,
+      document,
       createDefaultComponentRegistry(),
       createDefaultAttrRegistry(),
     ).root;
@@ -274,8 +274,8 @@ describe("findLeafOwner", () => {
   // stay robust to tokenization details — what matters is the dual-caret
   // ownership rule at the shared boundary `leafA.logEnd === leafB.logStart`.
   function mixedLeaves() {
-    const state = para("abc אבג");
-    const { layout } = pipeline(state);
+    const document = para("abc אבג");
+    const { layout } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     expect(view.logicalLeaves.length).toBeGreaterThanOrEqual(2);
     return view.logicalLeaves;
@@ -330,8 +330,8 @@ describe("inlineCoordForOffset", () => {
   //   "cd"  [7,9) LTR absX=56 w=16
   // Visual L→R: a[0] b[8] sp[16] ב[24] א[32] ז[40] sp[48] c[56] d[64].
   function fixture() {
-    const state = para("ab זאב cd");
-    const { layout, measurer } = pipeline(state);
+    const document = para("ab זאב cd");
+    const { layout, measurer } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     return { view, measurer };
   }
@@ -375,8 +375,8 @@ describe("inlineCoordForOffset", () => {
 
 describe("caretInlineCoordInLeaf / offsetInLeaf", () => {
   it("LTR run: caret X strictly increasing in stateOffset; round-trips", () => {
-    const state = para("abc");
-    const { layout, measurer } = pipeline(state);
+    const document = para("abc");
+    const { layout, measurer } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     const leaf = nth(view.logicalLeaves, 0, "leaf");
 
@@ -397,8 +397,8 @@ describe("caretInlineCoordInLeaf / offsetInLeaf", () => {
   });
 
   it("RTL run (uniform Hebrew): caret X strictly DECREASING in stateOffset; round-trips", () => {
-    const state = para("אבג");
-    const { layout, measurer } = pipeline(state);
+    const document = para("אבג");
+    const { layout, measurer } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     const leaf = nth(view.logicalLeaves, 0, "leaf");
     expect(leaf.level % 2).toBe(1);
@@ -421,8 +421,8 @@ describe("caretInlineCoordInLeaf / offsetInLeaf", () => {
   });
 
   it("caretInlineCoordInLeaf RTL endpoints: logStart at leaf right edge, logEnd at left edge", () => {
-    const state = para("אבג");
-    const { layout, measurer } = pipeline(state);
+    const document = para("אבג");
+    const { layout, measurer } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     const leaf = nth(view.logicalLeaves, 0, "leaf");
 
@@ -438,7 +438,7 @@ describe("caretInlineCoordInLeaf / offsetInLeaf", () => {
     // the leaf is a genuine InlineBlockBox (no `.text`).
     const FN_BODY = "fn-body" as BlockId;
     const FN_BODY_P = "fn-body-p" as BlockId;
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -469,7 +469,7 @@ describe("caretInlineCoordInLeaf / offsetInLeaf", () => {
     });
 
     const out = render(
-      state,
+      document,
       createDefaultComponentRegistry(),
       createDefaultAttrRegistry(),
     );
@@ -480,7 +480,7 @@ describe("caretInlineCoordInLeaf / offsetInLeaf", () => {
       const c = cascadePass(node as RenderNode);
       if (c.type === "element") cascadedEmbedContents.set(id, c);
     }
-    const footnoteAnchors = collectFootnoteAnchors(state);
+    const footnoteAnchors = collectFootnoteAnchors(document);
     const cfg: PageConfig = {
       pageInlineSize: 320,
       pageBlockSize: 400,
@@ -531,8 +531,8 @@ describe("caretInlineCoordInLeaf / offsetInLeaf", () => {
 
 describe("selectionRectsForLineRange", () => {
   it("pure-LTR range: ONE interval [startX, endX], xLo <= xHi", () => {
-    const state = para("abc");
-    const { layout, measurer } = pipeline(state);
+    const document = para("abc");
+    const { layout, measurer } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     // offsets 0..2 → x 0..16.
     const segs = selectionRectsForLineRange(view, 0, 2, measurer);
@@ -545,8 +545,8 @@ describe("selectionRectsForLineRange", () => {
   it("uniform-RTL range: ONE interval with non-negative extent (endpoints swapped)", () => {
     // "אבג" RTL: caretX off0→24, off3→0. Range 0..3 → xLo=caretX(3)=0,
     // xHi=caretX(0)=24 (the logically-later offset 3 is the LOWER x).
-    const state = para("אבג");
-    const { layout, measurer } = pipeline(state);
+    const document = para("אבג");
+    const { layout, measurer } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     const segs = selectionRectsForLineRange(view, 0, 3, measurer);
     expect(segs.length).toBe(1);
@@ -562,8 +562,8 @@ describe("selectionRectsForLineRange", () => {
     //   Hebrew overlap [3,5) → RTL xLo=caretX(5)=32, xHi=caretX(3)=48 (level 1)
     // Latin xHi=24 ≠ Hebrew xLo=32 (not physically adjacent) AND different
     // level → two separate intervals.
-    const state = para("abcאבג");
-    const { layout, measurer } = pipeline(state);
+    const document = para("abcאבג");
+    const { layout, measurer } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     const segs = selectionRectsForLineRange(view, 2, 5, measurer);
     expect(segs.length).toBe(2);
@@ -579,8 +579,8 @@ describe("selectionRectsForLineRange", () => {
   it("within-RTL sub-range: endpoints swap (logically-later offset → lower x)", () => {
     // "abcאבג": range 4..6 inside the Hebrew RTL run. caretX off4→40, off6→24.
     // xLo=caretX(6)=24, xHi=caretX(4)=40.
-    const state = para("abcאבג");
-    const { layout, measurer } = pipeline(state);
+    const document = para("abcאבג");
+    const { layout, measurer } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     const segs = selectionRectsForLineRange(view, 4, 6, measurer);
     expect(segs.length).toBe(1);
@@ -592,7 +592,7 @@ describe("selectionRectsForLineRange", () => {
     // "ab" bold + "cd" — two LTR (level-0) runs that abut at x16. A range
     // covering both (0..4) coalesces into a single [0, 32] interval (same level,
     // physically adjacent).
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -604,7 +604,7 @@ describe("selectionRectsForLineRange", () => {
         }),
       ],
     });
-    const { layout, measurer } = pipeline(state);
+    const { layout, measurer } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     for (const lv of view.logicalLeaves) expect(lv.level % 2).toBe(0);
     const segs = selectionRectsForLineRange(view, 0, 4, measurer);
@@ -614,8 +614,8 @@ describe("selectionRectsForLineRange", () => {
   });
 
   it("empty range and strut line yield no intervals", () => {
-    const state = para("abc");
-    const { layout, measurer } = pipeline(state);
+    const document = para("abc");
+    const { layout, measurer } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     expect(selectionRectsForLineRange(view, 2, 2, measurer)).toEqual([]);
 
@@ -650,8 +650,8 @@ function fmt(r: MoveVisuallyResult): string {
 
 describe("moveVisually", () => {
   it("pure-LTR ArrowRight = logical-forward (byte-identical to offset+1)", () => {
-    const state = para("abc");
-    const { layout } = pipeline(state);
+    const document = para("abc");
+    const { layout } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     const step = stepperFor("abc");
 
@@ -670,8 +670,8 @@ describe("moveVisually", () => {
   });
 
   it("pure-LTR ArrowLeft = logical-backward (byte-identical to offset−1)", () => {
-    const state = para("abc");
-    const { layout } = pipeline(state);
+    const document = para("abc");
+    const { layout } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     const step = stepperFor("abc");
 
@@ -688,8 +688,8 @@ describe("moveVisually", () => {
 
   it("uniform-RTL ArrowRight moves toward logical START (offset−1); exits at offset 0", () => {
     // "אבג" → a single odd-level (RTL) run [0,3). Visual-right = logical-backward.
-    const state = para("אבג");
-    const { layout } = pipeline(state);
+    const document = para("אבג");
+    const { layout } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     expect(nth(view.logicalLeaves, 0, "logicalLeaves").level % 2).toBe(1);
     const step = stepperFor("אבג");
@@ -709,8 +709,8 @@ describe("moveVisually", () => {
   });
 
   it("uniform-RTL ArrowLeft moves toward logical END (offset+1); exits at logEnd", () => {
-    const state = para("אבג");
-    const { layout } = pipeline(state);
+    const document = para("אבג");
+    const { layout } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     const step = stepperFor("אבג");
 
@@ -748,8 +748,8 @@ describe("moveVisually", () => {
     //   (4,after)  גב|א                          → 3,after (hebrew logStart = its
     //              visual-RIGHT edge)
     //   (3,after)  …גבא| (rightmost)            → CROSS right, no next run → exit-right
-    const state = para("abcאבג");
-    const { layout } = pipeline(state);
+    const document = para("abcאבג");
+    const { layout } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     const step = stepperFor("abcאבג");
 
@@ -788,8 +788,8 @@ describe("moveVisually", () => {
     // glyph 'א' at logEnd... the caret at offset 6 sits at the hebrew run's
     // visual-LEFT edge). Pressing ArrowLeft walks visual-left across the glyphs.
     // We assert the WITHIN-run + boundary steps we are confident in.
-    const state = para("abcאבג");
-    const { layout } = pipeline(state);
+    const document = para("abcאבג");
+    const { layout } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     const step = stepperFor("abcאבג");
 
@@ -831,7 +831,7 @@ describe("moveVisually", () => {
     // "ab" bold + "cd" — two LTR runs split by an attr change, same level parity.
     // ArrowRight across the run boundary must ADVANCE one unit, never produce a
     // same-offset affinity flip.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -846,7 +846,7 @@ describe("moveVisually", () => {
         }),
       ],
     });
-    const { layout } = pipeline(state);
+    const { layout } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     const step = stepperFor("abcd");
 
@@ -863,8 +863,8 @@ describe("moveVisually", () => {
   });
 
   it("empty (strut-only) line exits in the press direction", () => {
-    const state = para("");
-    const { layout } = pipeline(state);
+    const document = para("");
+    const { layout } = pipeline(document);
     const view = buildLineBidiView(bodyLine(layout));
     expect(view.isEmpty).toBe(true);
     const step = stepperFor("");

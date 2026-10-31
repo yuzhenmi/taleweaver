@@ -1,7 +1,7 @@
 import type * as Y from "yjs";
 import { requireBlockText } from "../block-text";
-import type { State, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
 import type { BlockId } from "../block-id";
 import type { Position } from "../block-position";
 import {
@@ -45,9 +45,9 @@ interface TabInsertPlan {
  *   - the host is not a leaf (no `inlineContent`).
  *   - `position.offset` is outside `[0, inlineContentLength(content)]`.
  */
-export function insertTab(state: State, position: Position): OperationResult {
-  const plan = planTabInsert(state, position);
-  return applyOperation(state, (doc) => {
+export function insertTab(document: Document, position: Position): OperationResult {
+  const plan = planTabInsert(document, position);
+  return applyOperation(document, (doc) => {
     insertTabInTx(doc, plan);
   });
 }
@@ -58,8 +58,8 @@ export function insertTab(state: State, position: Position): OperationResult {
  * a `tab` EmbedItem spliced in at `position.offset`). All snapshot reads +
  * validation happen here, BEFORE the surrounding `applyOperation` opens.
  */
-function planTabInsert(state: State, position: Position): TabInsertPlan {
-  const resolved = resolveBlock(state, position.blockId);
+function planTabInsert(document: Document, position: Position): TabInsertPlan {
+  const resolved = resolveBlock(document, position.blockId);
   if (resolved === null) {
     throw new Error(`insertTab: block "${position.blockId}" not found`);
   }

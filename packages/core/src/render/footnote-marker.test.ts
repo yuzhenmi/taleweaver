@@ -1,5 +1,5 @@
 import { sectionComponent } from "../components/section";
-import { bodyChildren } from "../test-utils/state-builders";
+import { bodyChildren } from "../test-utils/document-builders";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "./render";
 import * as footnotesModule from "../footnotes";
@@ -30,7 +30,7 @@ import { insertFootnote } from "../state/ops/insert-footnote";
 import { deleteRange } from "../state/ops/delete-range";
 import { createPosition } from "../state/block-position";
 import { createTestAllocator } from "../state/block-id";
-import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
+import { buildDocument, buildBlock, inlineContent, text } from "../test-utils/document-builders";
 import { footnoteBodyComponent } from "../components/footnote-body";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -134,7 +134,7 @@ describe("render — footnote-anchor superscript marker", () => {
   }
 
   it("a single footnote anchor renders a marker showing '1'", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -149,14 +149,14 @@ describe("render — footnote-anchor superscript marker", () => {
         buildBlock({ id: "fn-1", type: "fn-body", inlineContent: inlineContent([text("body")]) }),
       ],
     });
-    const out = render(state, basicRegistry(), createDefaultAttrRegistry());
+    const out = render(document, basicRegistry(), createDefaultAttrRegistry());
     const marker = findAnchorMarker(out);
     expect(marker.style.display).toBe("inline-block");
     expect(firstText(marker)).toBe("1");
   });
 
   it("three anchors in document order render '1', '2', '3' (continuous)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
@@ -170,7 +170,7 @@ describe("render — footnote-anchor superscript marker", () => {
         buildBlock({ id: "fn-3", type: "fn-body", inlineContent: inlineContent([text("z")]) }),
       ],
     });
-    const out = render(state, basicRegistry(), createDefaultAttrRegistry());
+    const out = render(document, basicRegistry(), createDefaultAttrRegistry());
     // Each paragraph's anchor marker is its SECOND inline child (after the text).
     const m1 = (bodyChildren(out.root)[0] as ElementBox).children[1] as ElementBox;
     const m2 = (bodyChildren(out.root)[1] as ElementBox).children[1] as ElementBox;
@@ -181,7 +181,7 @@ describe("render — footnote-anchor superscript marker", () => {
   });
 
   it("the rendered marker number matches footnoteNumbers for that contentBlockId (threaded, not re-walked)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -193,8 +193,8 @@ describe("render — footnote-anchor superscript marker", () => {
         buildBlock({ id: "fn-b", type: "fn-body", inlineContent: inlineContent([text("b")]) }),
       ],
     });
-    const out = render(state, basicRegistry(), createDefaultAttrRegistry());
-    const numbers = footnoteNumbers(collectFootnoteAnchors(state), {
+    const out = render(document, basicRegistry(), createDefaultAttrRegistry());
+    const numbers = footnoteNumbers(collectFootnoteAnchors(document), {
       reset: "continuous",
       format: "decimal",
     });
@@ -205,7 +205,7 @@ describe("render — footnote-anchor superscript marker", () => {
   });
 
   it("a non-footnote embed (image) is unaffected — still a zero-width, child-less inline-block", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -219,7 +219,7 @@ describe("render — footnote-anchor superscript marker", () => {
         }),
       ],
     });
-    const out = render(state, basicRegistry(), createDefaultAttrRegistry());
+    const out = render(document, basicRegistry(), createDefaultAttrRegistry());
     const embed = (bodyChildren(out.root)[0] as ElementBox).children[0] as ElementBox;
     expect(embed.style.display).toBe("inline-block");
     // Unchanged from before FN-2: zero inline-size, no children (no marker text),
@@ -232,7 +232,7 @@ describe("render — footnote-anchor superscript marker", () => {
 
 describe("render — footnote marker is exactly one cursor stop (IFC offset)", () => {
   it("emits exactly one atomic inline-block token (sourceLength 1) like a plain embed", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -247,7 +247,7 @@ describe("render — footnote marker is exactly one cursor stop (IFC offset)", (
         buildBlock({ id: "fn-1", type: "fn-body", inlineContent: inlineContent([text("body")]) }),
       ],
     });
-    const out = render(state, basicRegistry(), createDefaultAttrRegistry());
+    const out = render(document, basicRegistry(), createDefaultAttrRegistry());
     const cascadedRoot = cascadePass(out.root) as ElementBox;
     const para = bodyChildren(cascadedRoot)[0] as ElementBox;
     const shaper = createMockShaper(8, 16);
@@ -262,7 +262,7 @@ describe("render — footnote marker is exactly one cursor stop (IFC offset)", (
 
 describe("render — footnote marker geometry (reduced + raised)", () => {
   it("cascaded marker font-size is reduced vs the surrounding paragraph; it lays out raised", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -277,7 +277,7 @@ describe("render — footnote marker geometry (reduced + raised)", () => {
         buildBlock({ id: "fn-1", type: "fn-body", inlineContent: inlineContent([text("body")]) }),
       ],
     });
-    const out = render(state, basicRegistry(), createDefaultAttrRegistry());
+    const out = render(document, basicRegistry(), createDefaultAttrRegistry());
     const cascadedRoot = cascadePass(out.root) as ElementBox;
     const para = bodyChildren(cascadedRoot)[0] as ElementBox;
     const paraFontSize = para.computedStyle?.fontSize;
@@ -339,7 +339,7 @@ describe("render incremental — downstream markers renumber even when not dirty
 
     const alloc = createTestAllocator("seed");
     const seeded = insertFootnote(
-      buildState({
+      buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -350,19 +350,19 @@ describe("render incremental — downstream markers renumber even when not dirty
       createPosition("p2" as BlockId, 6),
       alloc,
     );
-    const prevState = seeded.state;
-    const prevRender = render(prevState, reg, attrReg);
+    const prevDocument = seeded.document;
+    const prevRender = render(prevDocument, reg, attrReg);
     expect(markerTextFor(prevRender, "p2")).toBe("1");
 
     // Insert a SECOND footnote at the start of p1 — it comes first in document
     // order, so it becomes "1" and p2's anchor renumbers to "2". The op's
     // dirtyIds covers p1 + new body roots, NOT p2.
-    const inserted = insertFootnote(prevState, createPosition("p1" as BlockId, 0), alloc);
+    const inserted = insertFootnote(prevDocument, createPosition("p1" as BlockId, 0), alloc);
     expect(inserted.dirtyIds.has("p2" as BlockId)).toBe(false); // precondition
 
-    const nextRender = render(inserted.state, reg, attrReg, {
+    const nextRender = render(inserted.document, reg, attrReg, {
       prev: prevRender,
-      prevState,
+      prevDocument,
       dirtyIds: inserted.dirtyIds,
     });
     // New anchor in p1 → "1"; p2's downstream anchor correctly renumbered → "2".
@@ -373,7 +373,7 @@ describe("render incremental — downstream markers renumber even when not dirty
   it("deleting the only footnote removes its marker (footnote-free incremental path)", () => {
     // Exercises the `fnAnchors.length === 0` branch of renderIncremental: when
     // the last footnote is deleted the new state has no anchors, so the
-    // renumber diff (and its prevState walk) is skipped entirely. The deleted
+    // renumber diff (and its prevDocument walk) is skipped entirely. The deleted
     // anchor's own block IS dirtied by deleteRange, so the marker must vanish
     // from the re-rendered paragraph — no stale marker RenderNode survives.
     const reg = basicRegistry();
@@ -381,7 +381,7 @@ describe("render incremental — downstream markers renumber even when not dirty
 
     const alloc = createTestAllocator("seed");
     const seeded = insertFootnote(
-      buildState({
+      buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
@@ -391,22 +391,22 @@ describe("render incremental — downstream markers renumber even when not dirty
       createPosition("p1" as BlockId, 6),
       alloc,
     );
-    const prevState = seeded.state;
-    const prevRender = render(prevState, reg, attrReg);
+    const prevDocument = seeded.document;
+    const prevRender = render(prevDocument, reg, attrReg);
     expect(markerTextFor(prevRender, "p1")).toBe("1");
 
     // Delete the single anchor: it occupies exactly one offset unit at [6, 7).
-    const deleted = deleteRange(prevState, {
+    const deleted = deleteRange(prevDocument, {
       anchor: createPosition("p1" as BlockId, 6),
       focus: createPosition("p1" as BlockId, 7),
     });
     expect(deleted.dirtyIds.has("p1" as BlockId)).toBe(true); // precondition
     // No footnote anchors remain after the delete.
-    expect(collectFootnoteAnchors(deleted.state).length).toBe(0);
+    expect(collectFootnoteAnchors(deleted.document).length).toBe(0);
 
-    const nextRender = render(deleted.state, reg, attrReg, {
+    const nextRender = render(deleted.document, reg, attrReg, {
       prev: prevRender,
-      prevState,
+      prevDocument,
       dirtyIds: deleted.dirtyIds,
     });
     // The marker is gone — no inline-block carrying a `/marker-text` child.
@@ -428,7 +428,7 @@ describe("FN-8: footnote-free incremental render skips the anchor walk", () => {
   });
 
   const footnoteFreeFixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -439,17 +439,17 @@ describe("FN-8: footnote-free incremental render skips the anchor walk", () => {
   it("does NOT call collectFootnoteAnchors during a footnote-free incremental render", () => {
     const reg = basicRegistry();
     const attrReg = createDefaultAttrRegistry();
-    const state1 = footnoteFreeFixture();
-    const prev = render(state1, reg, attrReg);
+    const document1 = footnoteFreeFixture();
+    const prev = render(document1, reg, attrReg);
 
     // A trivial text edit: dirty the one paragraph. No footnotes anywhere.
-    const edited = insertText(state1, createPosition("p" as BlockId, 5), " world", {});
+    const edited = insertText(document1, createPosition("p" as BlockId, 5), " world", {});
     expect(edited.dirtyIds.has("p" as BlockId)).toBe(true); // precondition
 
     const spy = vi.spyOn(footnotesModule, "collectFootnoteAnchors");
-    render(edited.state, reg, attrReg, {
+    render(edited.document, reg, attrReg, {
       prev,
-      prevState: state1,
+      prevDocument: document1,
       dirtyIds: edited.dirtyIds,
     });
     expect(spy).not.toHaveBeenCalled();
@@ -464,17 +464,17 @@ describe("FN-8: footnote-free incremental render skips the anchor walk", () => {
       createPosition("p" as BlockId, 5),
       alloc,
     );
-    const prevState = seeded.state;
-    const prev = render(prevState, reg, attrReg);
+    const prevDocument = seeded.document;
+    const prev = render(prevDocument, reg, attrReg);
 
     // A trivial text edit on the same paragraph (footnote still present).
-    const edited = insertText(prevState, createPosition("p" as BlockId, 0), "X", {});
+    const edited = insertText(prevDocument, createPosition("p" as BlockId, 0), "X", {});
     expect(edited.dirtyIds.has("p" as BlockId)).toBe(true); // precondition
 
     const spy = vi.spyOn(footnotesModule, "collectFootnoteAnchors");
-    render(edited.state, reg, attrReg, {
+    render(edited.document, reg, attrReg, {
       prev,
-      prevState,
+      prevDocument,
       dirtyIds: edited.dirtyIds,
     });
     expect(spy).toHaveBeenCalled();
@@ -509,7 +509,7 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
     const attrReg = createDefaultAttrRegistry();
     const alloc = createTestAllocator("seed");
     const inserted = insertFootnote(
-      buildState({
+      buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -519,7 +519,7 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
       createPosition("p" as BlockId, 4),
       alloc,
     );
-    const out = render(inserted.state, reg, attrReg);
+    const out = render(inserted.document, reg, attrReg);
     expect(bodyStyle(out, inserted.bodyRootId).markerText).toBe("1.");
   });
 
@@ -529,7 +529,7 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
     const alloc = createTestAllocator("seed");
     // Insert at p1 first (document order earlier) → "1"; then p2 → "2".
     const after1 = insertFootnote(
-      buildState({
+      buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -540,9 +540,9 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
       createPosition("p1" as BlockId, 1),
       alloc,
     );
-    const after2 = insertFootnote(after1.state, createPosition("p2" as BlockId, 1), alloc);
+    const after2 = insertFootnote(after1.document, createPosition("p2" as BlockId, 1), alloc);
 
-    const out = render(after2.state, reg, attrReg);
+    const out = render(after2.document, reg, attrReg);
     // after1's body is the document-earlier anchor → "1."; after2's → "2.".
     expect(bodyStyle(out, after1.bodyRootId).markerText).toBe("1.");
     expect(bodyStyle(out, after2.bodyRootId).markerText).toBe("2.");
@@ -553,7 +553,7 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
     const attrReg = createDefaultAttrRegistry();
     const alloc = createTestAllocator("seed");
     const inserted = insertFootnote(
-      buildState({
+      buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -563,8 +563,8 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
       createPosition("p" as BlockId, 2),
       alloc,
     );
-    const out = render(inserted.state, reg, attrReg);
-    const numbers = footnoteNumbers(collectFootnoteAnchors(inserted.state), {
+    const out = render(inserted.document, reg, attrReg);
+    const numbers = footnoteNumbers(collectFootnoteAnchors(inserted.document), {
       reset: "continuous",
       format: "decimal",
     });
@@ -579,7 +579,7 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
     const reg = realBodyRegistry();
     const attrReg = createDefaultAttrRegistry();
     const out = render(
-      buildState({
+      buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -602,7 +602,7 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
     const attrReg = createDefaultAttrRegistry();
     const alloc = createTestAllocator("seed");
     const inserted = insertFootnote(
-      buildState({
+      buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -612,7 +612,7 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
       createPosition("p" as BlockId, 1),
       alloc,
     );
-    const out = render(inserted.state, reg, attrReg);
+    const out = render(inserted.document, reg, attrReg);
     const body = out.embedContents.get(inserted.bodyRootId);
     if (body === undefined || body.type !== "element") {
       throw new Error("expected an ElementBox embed body");
@@ -671,7 +671,7 @@ describe("footnote dot is on the BODY marker ONLY, not the call marker", () => {
   }
 
   function docWith(format?: string) {
-    return buildState({
+    return buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -691,7 +691,7 @@ describe("footnote dot is on the BODY marker ONLY, not the call marker", () => {
     const attrReg = createDefaultAttrRegistry();
     const alloc = createTestAllocator("seed");
     const inserted = insertFootnote(docWith(), createPosition("p" as BlockId, 2), alloc);
-    const out = render(inserted.state, reg, attrReg);
+    const out = render(inserted.document, reg, attrReg);
     // Superscript CALL marker: BARE.
     expect(callMarkerText(out, "p")).toBe("1");
     // Bottom-slot BODY marker: DOTTED.
@@ -703,7 +703,7 @@ describe("footnote dot is on the BODY marker ONLY, not the call marker", () => {
     const attrReg = createDefaultAttrRegistry();
     const alloc = createTestAllocator("seed");
     const inserted = insertFootnote(docWith("symbol"), createPosition("p" as BlockId, 2), alloc);
-    const out = render(inserted.state, reg, attrReg);
+    const out = render(inserted.document, reg, attrReg);
     expect(callMarkerText(out, "p")).toBe("*");
     expect(bodyMarkerText(out, inserted.bodyRootId)).toBe("*");
   });

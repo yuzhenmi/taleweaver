@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { removeBlock } from "./remove-block";
-import { getBlock, getEmbedContent } from "../state";
-import { TEST_RESOLVER, testContainer, buildBlock, buildState, buildFlowDoc, finalSectionOf, embed, inlineContent, text } from "../../test-utils/state-builders";
+import { getBlock, getEmbedContent } from "../document";
+import { TEST_RESOLVER, testContainer, buildBlock, buildDocument, buildFlowDoc, finalSectionOf, embed, inlineContent, text } from "../../test-utils/document-builders";
 import { flowShape, assertInvariantI } from "../../test-utils/invariant-i";
 import type { BlockId } from "../block-id";
 
@@ -11,7 +11,7 @@ TEST_RESOLVER.register(testContainer("blockquote"));
 describe("removeBlock — middle child", () => {
   // doc > [p1, p2, p3]  →  doc > [p1, p3] (p2 removed)
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
@@ -22,29 +22,29 @@ describe("removeBlock — middle child", () => {
     });
 
   it("removes the block from state.blocks", () => {
-    const state = fixture();
-    const result = removeBlock(state, "p2" as BlockId);
-    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
+    const document = fixture();
+    const result = removeBlock(document, "p2" as BlockId);
+    expect(getBlock(result.document, "p2" as BlockId)).toBeNull();
   });
 
   it("relinks adjacent siblings (p1.nextSiblingId, p3.prevSiblingId)", () => {
-    const state = fixture();
-    const result = removeBlock(state, "p2" as BlockId);
-    expect(getBlock(result.state, "p1" as BlockId)?.nextSiblingId).toBe("p3");
-    expect(getBlock(result.state, "p3" as BlockId)?.prevSiblingId).toBe("p1");
+    const document = fixture();
+    const result = removeBlock(document, "p2" as BlockId);
+    expect(getBlock(result.document, "p1" as BlockId)?.nextSiblingId).toBe("p3");
+    expect(getBlock(result.document, "p3" as BlockId)?.prevSiblingId).toBe("p1");
   });
 
   it("does not change parent's firstChildId / lastChildId for a middle removal", () => {
-    const state = fixture();
-    const result = removeBlock(state, "p2" as BlockId);
-    const F = finalSectionOf(result.state);
-    expect(getBlock(result.state, F)?.firstChildId).toBe("p1");
-    expect(getBlock(result.state, F)?.lastChildId).toBe("p3");
+    const document = fixture();
+    const result = removeBlock(document, "p2" as BlockId);
+    const F = finalSectionOf(result.document);
+    expect(getBlock(result.document, F)?.firstChildId).toBe("p1");
+    expect(getBlock(result.document, F)?.lastChildId).toBe("p3");
   });
 
   it("returns dirtyIds for the removed block + adjacent siblings", () => {
-    const state = fixture();
-    const result = removeBlock(state, "p2" as BlockId);
+    const document = fixture();
+    const result = removeBlock(document, "p2" as BlockId);
     expect([...result.dirtyIds]).toEqual(expect.arrayContaining(["p2", "p1", "p3"]));
   });
 });
@@ -55,7 +55,7 @@ describe("removeBlock — container block with children (subtree cascade)", () =
   // be orphaned (their parentId points to a removed block) — violates
   // the spec's "no orphaned blocks" invariant.
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "p3" }),
@@ -69,38 +69,38 @@ describe("removeBlock — container block with children (subtree cascade)", () =
     });
 
   it("deletes the named block AND its entire subtree from state.blocks", () => {
-    const state = fixture();
-    const result = removeBlock(state, "section" as BlockId);
-    expect(getBlock(result.state, "section" as BlockId)).toBeNull();
-    expect(getBlock(result.state, "p1" as BlockId)).toBeNull();
-    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
+    const document = fixture();
+    const result = removeBlock(document, "section" as BlockId);
+    expect(getBlock(result.document, "section" as BlockId)).toBeNull();
+    expect(getBlock(result.document, "p1" as BlockId)).toBeNull();
+    expect(getBlock(result.document, "p2" as BlockId)).toBeNull();
     // Sibling p3 is unaffected:
-    expect(getBlock(result.state, "p3" as BlockId)).not.toBeNull();
+    expect(getBlock(result.document, "p3" as BlockId)).not.toBeNull();
     // Root unaffected:
-    expect(getBlock(result.state, "doc" as BlockId)).not.toBeNull();
+    expect(getBlock(result.document, "doc" as BlockId)).not.toBeNull();
   });
 
   it("includes every id in the deleted subtree in dirtyIds, plus parent + sibling rewires", () => {
-    const state = fixture();
-    const result = removeBlock(state, "section" as BlockId);
+    const document = fixture();
+    const result = removeBlock(document, "section" as BlockId);
     // dirty: the container + its subtree, the parent section (first child rewired), p3 (prev link).
-    expect([...result.dirtyIds]).toEqual(expect.arrayContaining(["section", "p1", "p2", finalSectionOf(result.state), "p3"]));
+    expect([...result.dirtyIds]).toEqual(expect.arrayContaining(["section", "p1", "p2", finalSectionOf(result.document), "p3"]));
   });
 
   it("preserves the no-orphans invariant after a container removal", () => {
-    const state = fixture();
-    const result = removeBlock(state, "section" as BlockId);
+    const document = fixture();
+    const result = removeBlock(document, "section" as BlockId);
     // Every remaining block must be reachable from rootId via parent/child links.
     // A simple check: every remaining block's parentId is either null (root) or
     // present in the result map.
     for (const id of ["doc", "p3"] as const) {
-      const b = getBlock(result.state, id as BlockId);
+      const b = getBlock(result.document, id as BlockId);
       expect(b).not.toBeNull();
       if (b === null) continue;
-      if (id === result.state.rootId) continue;
+      if (id === result.document.rootId) continue;
       expect(b.parentId).not.toBeNull();
       if (b.parentId !== null) {
-        expect(getBlock(result.state, b.parentId)).not.toBeNull();
+        expect(getBlock(result.document, b.parentId)).not.toBeNull();
       }
     }
   });
@@ -109,7 +109,7 @@ describe("removeBlock — container block with children (subtree cascade)", () =
 describe("removeBlock — first child", () => {
   // doc > [p1, p2, p3]  →  doc > [p2, p3] (p1 removed)
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
@@ -120,42 +120,42 @@ describe("removeBlock — first child", () => {
     });
 
   it("updates parent.firstChildId when removing the first child", () => {
-    const state = fixture();
-    const result = removeBlock(state, "p1" as BlockId);
-    const F = finalSectionOf(result.state);
-    expect(getBlock(result.state, F)?.firstChildId).toBe("p2");
-    expect(getBlock(result.state, F)?.lastChildId).toBe("p3");
-    expect(getBlock(result.state, "p2" as BlockId)?.prevSiblingId).toBeNull();
+    const document = fixture();
+    const result = removeBlock(document, "p1" as BlockId);
+    const F = finalSectionOf(result.document);
+    expect(getBlock(result.document, F)?.firstChildId).toBe("p2");
+    expect(getBlock(result.document, F)?.lastChildId).toBe("p3");
+    expect(getBlock(result.document, "p2" as BlockId)?.prevSiblingId).toBeNull();
   });
 
   it("includes the parent in dirtyIds (firstChildId changed) — boundary removal", () => {
-    const state = fixture();
-    const result = removeBlock(state, "p1" as BlockId);
+    const document = fixture();
+    const result = removeBlock(document, "p1" as BlockId);
     // p1 (deleted), p2 (prev link rewired), the parent section (first child changed).
-    expect([...result.dirtyIds]).toEqual(expect.arrayContaining(["p1", "p2", finalSectionOf(result.state)]));
+    expect([...result.dirtyIds]).toEqual(expect.arrayContaining(["p1", "p2", finalSectionOf(result.document)]));
   });
 });
 
 describe("removeBlock — the flow's last paragraph (Word: the final ¶ is never deleted — I2)", () => {
   it("removing the last child deletes its content and keeps its ¶: nothing merges", () => {
-    const state = buildFlowDoc([{ p: "p1", t: "a" }, { p: "p2", t: "b" }, { p: "p3", t: "end" }]);
-    const result = removeBlock(state, "p3" as BlockId);
-    expect(flowShape(result.state, "doc")).toBe('p1:"a" p2:"b" p3:""');
-    assertInvariantI(result.state, "storage");
+    const document = buildFlowDoc([{ p: "p1", t: "a" }, { p: "p2", t: "b" }, { p: "p3", t: "end" }]);
+    const result = removeBlock(document, "p3" as BlockId);
+    expect(flowShape(result.document, "doc")).toBe('p1:"a" p2:"b" p3:""');
+    assertInvariantI(result.document, "storage");
   });
 
   it("removing an already-empty last child changes nothing", () => {
-    const state = buildFlowDoc([{ p: "p1", t: "a" }, { p: "p3", t: "" }]);
-    const result = removeBlock(state, "p3" as BlockId);
-    expect(flowShape(result.state, "doc")).toBe('p1:"a" p3:""');
+    const document = buildFlowDoc([{ p: "p1", t: "a" }, { p: "p3", t: "" }]);
+    const result = removeBlock(document, "p3" as BlockId);
+    expect(flowShape(result.document, "doc")).toBe('p1:"a" p3:""');
     expect(result.dirtyIds.size).toBe(0);
   });
 
   it("removing the only child leaves it as the document's one empty paragraph", () => {
-    const state = buildFlowDoc([{ p: "p1", t: "only" }]);
-    const result = removeBlock(state, "p1" as BlockId);
-    expect(flowShape(result.state, "doc")).toBe('p1:""');
-    expect(getBlock(result.state, finalSectionOf(result.state))?.firstChildId).toBe("p1");
+    const document = buildFlowDoc([{ p: "p1", t: "only" }]);
+    const result = removeBlock(document, "p1" as BlockId);
+    expect(flowShape(result.document, "doc")).toBe('p1:""');
+    expect(getBlock(result.document, finalSectionOf(result.document))?.firstChildId).toBe("p1");
     expect(result.dirtyIds.has("p1" as BlockId)).toBe(true);
   });
 });
@@ -163,30 +163,30 @@ describe("removeBlock — the flow's last paragraph (Word: the final ¶ is never
 
 describe("removeBlock — error cases", () => {
   it("throws when the block does not exist", () => {
-    const state = buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
-    expect(() => removeBlock(state, "missing" as BlockId)).toThrow(/not found/);
+    const document = buildDocument({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
+    expect(() => removeBlock(document, "missing" as BlockId)).toThrow(/not found/);
   });
 
   it("throws when attempting to remove the document root", () => {
-    const state = buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
-    expect(() => removeBlock(state, "doc" as BlockId)).toThrow(/cannot remove the document root/);
+    const document = buildDocument({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
+    expect(() => removeBlock(document, "doc" as BlockId)).toThrow(/cannot remove the document root/);
   });
 
   it("a parentless non-root block is not in the read model (only flow-resident blocks exist)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document" }),
         buildBlock({ id: "orphan", type: "paragraph", inlineContent: inlineContent([]) }), // no parentId
       ],
     });
-    expect(() => removeBlock(state, "orphan" as BlockId)).toThrow(/not found/);
+    expect(() => removeBlock(document, "orphan" as BlockId)).toThrow(/not found/);
   });
 });
 
 describe("removeBlock — cascade-delete embed-content references", () => {
   it("removes a referenced fn-body when its anchor block is removed", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
@@ -208,15 +208,15 @@ describe("removeBlock — cascade-delete embed-content references", () => {
         }),
       ],
     });
-    expect(getEmbedContent(state, "fn-body-1" as BlockId)).not.toBeNull();
+    expect(getEmbedContent(document, "fn-body-1" as BlockId)).not.toBeNull();
 
-    const result = removeBlock(state, "p1" as BlockId);
-    expect(getEmbedContent(result.state, "fn-body-1" as BlockId)).toBeNull();
+    const result = removeBlock(document, "p1" as BlockId);
+    expect(getEmbedContent(result.document, "fn-body-1" as BlockId)).toBeNull();
     expect(result.dirtyIds.has("fn-body-1" as BlockId)).toBe(true);
   });
 
   it("recursively removes nested embed-content references (footnote in footnote)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
@@ -241,9 +241,9 @@ describe("removeBlock — cascade-delete embed-content references", () => {
       ],
     });
 
-    const result = removeBlock(state, "p1" as BlockId);
-    expect(getEmbedContent(result.state, "outer" as BlockId)).toBeNull();
-    expect(getEmbedContent(result.state, "inner" as BlockId)).toBeNull();
+    const result = removeBlock(document, "p1" as BlockId);
+    expect(getEmbedContent(result.document, "outer" as BlockId)).toBeNull();
+    expect(getEmbedContent(result.document, "inner" as BlockId)).toBeNull();
     expect(result.dirtyIds.has("outer" as BlockId)).toBe(true);
     expect(result.dirtyIds.has("inner" as BlockId)).toBe(true);
   });

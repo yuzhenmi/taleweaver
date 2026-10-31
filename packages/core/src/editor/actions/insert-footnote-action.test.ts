@@ -10,7 +10,7 @@
  * These tests run at editor-behavior level through `reduceEditor` and assert
  * via `getEmbedContent` / `resolveBlock` / `collectFootnoteAnchors`.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
@@ -47,7 +47,7 @@ function joinText(
 
 /** The id of the first body paragraph under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
+  const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -60,7 +60,7 @@ function anchorEmbedsOf(
   editor: EditorState,
   blockId: BlockId,
 ): ReadonlyArray<{ contentBlockId: BlockId }> {
-  const block = getBlock(editor.state, blockId);
+  const block = getBlock(editor.document, blockId);
   const items = block?.inlineContent?.items ?? [];
   const out: { contentBlockId: BlockId }[] = [];
   for (const it of items) {
@@ -85,12 +85,12 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
 
     const next = reduceEditor(placed, { type: "INSERT_FOOTNOTE" });
     // "cd" deleted; the anchor sits between "ab" and "ef".
-    expect(getTextOf(next.state, paraId)).toBe("abef");
+    expect(getTextOf(next.document, paraId)).toBe("abef");
     expect(anchorEmbedsOf(next, paraId).length).toBe(1);
 
     // ONE undo step restores "abcdef" AND removes the anchor + body.
     const undone = reduceEditor(next, { type: "UNDO" });
-    expect(getTextOf(undone.state, paraId)).toBe("abcdef");
+    expect(getTextOf(undone.document, paraId)).toBe("abcdef");
     expect(anchorEmbedsOf(undone, paraId).length).toBe(0);
   });
 
@@ -114,7 +114,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     const next = reduceEditor(placed, { type: "INSERT_FOOTNOTE" });
 
     // A new state (real change).
-    expect(next.state).not.toBe(placed.state);
+    expect(next.document).not.toBe(placed.document);
 
     // The leaf gained exactly one footnote-anchor embed.
     const anchors = anchorEmbedsOf(next, paraId);
@@ -122,7 +122,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     const bodyRootId = nth(anchors, 0, "anchor").contentBlockId;
 
     // The body root + its paragraph child exist in embedContents.
-    const bodyRoot = getEmbedContent(next.state, bodyRootId);
+    const bodyRoot = getEmbedContent(next.document, bodyRootId);
     expect(bodyRoot).not.toBeNull();
     expect(bodyRoot?.type).toBe("footnote-body");
     expect(bodyRoot?.parentId).toBeNull();
@@ -131,7 +131,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     const firstParagraphId = bodyRoot?.firstChildId as BlockId | null;
     expect(firstParagraphId).not.toBeNull();
     if (firstParagraphId === null) return;
-    const bodyPara = resolveBlock(next.state, firstParagraphId)?.block;
+    const bodyPara = resolveBlock(next.document, firstParagraphId)?.block;
     expect(bodyPara?.type).toBe("paragraph");
     expect(bodyPara?.parentId).toBe(bodyRootId);
 
@@ -151,7 +151,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     const afterType = reduceEditor(withFn, { type: "INSERT_TEXT", text: "Hi" });
 
     // The body paragraph now reads "Hi".
-    const bodyPara = resolveBlock(afterType.state, firstParagraphId)?.block;
+    const bodyPara = resolveBlock(afterType.document, firstParagraphId)?.block;
     expect(joinText(bodyPara?.inlineContent?.items)).toBe("Hi");
     // Caret advanced inside the body paragraph.
     expect(afterType.selection.focus.blockId).toBe(firstParagraphId);
@@ -167,15 +167,15 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     const anchors = anchorEmbedsOf(next, paraId);
     expect(anchors.length).toBe(1);
     const bodyRootId = nth(anchors, 0, "anchor").contentBlockId;
-    expect(getEmbedContent(next.state, bodyRootId)).not.toBeNull();
+    expect(getEmbedContent(next.document, bodyRootId)).not.toBeNull();
 
     const undone = reduceEditor(next, { type: "UNDO" });
 
     // Anchor gone from the leaf, body gone from embedContents.
     expect(anchorEmbedsOf(undone, paraId).length).toBe(0);
-    expect(getEmbedContent(undone.state, bodyRootId)).toBeNull();
+    expect(getEmbedContent(undone.document, bodyRootId)).toBeNull();
     // Original text intact.
-    expect(joinText(getBlock(undone.state, paraId)?.inlineContent?.items)).toBe("abc");
+    expect(joinText(getBlock(undone.document, paraId)?.inlineContent?.items)).toBe("abc");
   });
 
   it("a SECOND INSERT_FOOTNOTE adds a 2nd anchor; markers renumber 1,2 (computeFootnoteNumbers)", () => {
@@ -215,7 +215,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
 
     // The numbering engine renumbers in DOCUMENT ORDER: the anchor inserted at
     // offset 0 is #1, the one at the end is #2 — regardless of insert order.
-    const ordered = collectFootnoteAnchors(second.state);
+    const ordered = collectFootnoteAnchors(second.document);
     expect(ordered.length).toBe(2);
     const numbers = footnoteNumbers(ordered, {
       reset: "continuous",
@@ -270,7 +270,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
 
     // Both anchors sit back-to-back at the end of "abc": the two trailing items
     // are the embeds, in document order.
-    const items = getBlock(second.state, paraId)?.inlineContent?.items ?? [];
+    const items = getBlock(second.document, paraId)?.inlineContent?.items ?? [];
     const embeds = items.filter(
       (it) =>
         it.kind === "embed" && it.embedType === FOOTNOTE_ANCHOR_EMBED_TYPE,
@@ -278,7 +278,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     expect(embeds.length).toBe(2);
 
     // Numbering renumbers in document order: 1, 2.
-    const ordered = collectFootnoteAnchors(second.state);
+    const ordered = collectFootnoteAnchors(second.document);
     expect(ordered.length).toBe(2);
     const numbers = footnoteNumbers(ordered, {
       reset: "continuous",
@@ -300,8 +300,8 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     // No-op: same STATE reference (the guard returns the editor with its state
     // unchanged). Phase 0b's reduceEditor entry-clear of `lastDirtyIds` rewraps
     // the editor object, so the no-op contract is state-identity, not editor-
-    // object identity (mirrors the #141 `result.state === editor.state` rule).
-    expect(after.state).toBe(before.state);
+    // object identity (mirrors the #141 `result.document === editor.document` rule).
+    expect(after.document).toBe(before.document);
     // No second anchor on the main body leaf.
     const paraId = bodyParaId(typed);
     expect(anchorEmbedsOf(after, paraId).length).toBe(1);
@@ -313,11 +313,11 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     // The caret is now inside the header body (a templateContents non-main context).
     const after = reduceEditor(withHeader, { type: "INSERT_FOOTNOTE" });
 
-    // State-identity no-op (Phase 0b entry-clear rewraps the editor object —
+    // Document-identity no-op (Phase 0b entry-clear rewraps the editor object —
     // see the nested-footnote refuse test above).
-    expect(after.state).toBe(withHeader.state);
+    expect(after.document).toBe(withHeader.document);
     // No footnote anchors anywhere in the main document.
-    expect(collectFootnoteAnchors(after.state).length).toBe(0);
+    expect(collectFootnoteAnchors(after.document).length).toBe(0);
   });
 
   it("DELETE_BACKWARD over the anchor removes BOTH the anchor and the body (FN-1 cascade through the editor)", () => {
@@ -342,7 +342,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     const anchors = anchorEmbedsOf(withFn, paraId);
     expect(anchors.length).toBe(1);
     const bodyRootId = nth(anchors, 0, "anchor").contentBlockId;
-    expect(getEmbedContent(withFn.state, bodyRootId)).not.toBeNull();
+    expect(getEmbedContent(withFn.document, bodyRootId)).not.toBeNull();
 
     // Move the caret to just AFTER the anchor in the main body (offset 4 = 3
     // chars + 1-unit embed), then backspace over it.
@@ -360,9 +360,9 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
 
     // Anchor removed from the leaf AND body cascade-deleted.
     expect(anchorEmbedsOf(deleted, paraId).length).toBe(0);
-    expect(getEmbedContent(deleted.state, bodyRootId)).toBeNull();
+    expect(getEmbedContent(deleted.document, bodyRootId)).toBeNull();
     // "abc" survives (only the embed was deleted).
-    expect(joinText(getBlock(deleted.state, paraId)?.inlineContent?.items)).toBe("abc");
+    expect(joinText(getBlock(deleted.document, paraId)?.inlineContent?.items)).toBe("abc");
   });
 });
 
@@ -460,13 +460,13 @@ describe("nav + selection across an inline-block footnote marker (Bug-A siblings
     const anchors = anchorEmbedsOf(editor, paraId);
     expect(anchors.length).toBe(1);
     const bodyRootId = nth(anchors, 0, "anchor").contentBlockId;
-    expect(getEmbedContent(editor.state, bodyRootId)).not.toBeNull();
+    expect(getEmbedContent(editor.document, bodyRootId)).not.toBeNull();
 
     const deleted = reduceEditor(editor, { type: "DELETE_BACKWARD" });
     expect(anchorEmbedsOf(deleted, paraId).length).toBe(0);
-    expect(getEmbedContent(deleted.state, bodyRootId)).toBeNull();
+    expect(getEmbedContent(deleted.document, bodyRootId)).toBeNull();
     // "abc" survives — only the 1-unit embed was removed.
-    expect(joinText(getBlock(deleted.state, paraId)?.inlineContent?.items)).toBe("abc");
+    expect(joinText(getBlock(deleted.document, paraId)?.inlineContent?.items)).toBe("abc");
     // Caret collapses to where the marker was (offset 3, the end of "abc").
     expect(deleted.selection.focus.blockId).toBe(paraId);
     expect(deleted.selection.focus.offset).toBe(3);

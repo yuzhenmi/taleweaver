@@ -1,4 +1,4 @@
-import type { State } from "./state";
+import type { Document } from "./document";
 import type { Position } from "./block-position";
 import { createPosition } from "./block-position";
 import type { InlineContent } from "./inline-content";
@@ -7,7 +7,7 @@ import { isStructuralMarkerEmbedType } from "./embed-markers";
 import { iterateAllBlocksInDocumentOrder } from "./document-order";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import { attrRegistryOf } from "./mark-attrs";
-import { STATE_INTERNAL } from "./state-internal";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 
 /** One maximal range of a mark inside a block: offsets `[start, end)`. */
 export interface BlockMarkRange {
@@ -85,12 +85,12 @@ export function blockMarkRanges(
  * reported once per block. A mark type with a custom `equals` in the attr registry
  * bound to the doc groups ranges exactly as runs merge.
  */
-export function getMarkRanges(state: State, type: string): MarkRange[] {
-  const equality = markEqualityOf(attrRegistryOf(state[STATE_INTERNAL].doc));
+export function getMarkRanges(document: Document, type: string): MarkRange[] {
+  const equality = markEqualityOf(attrRegistryOf(document[DOCUMENT_INTERNAL].doc));
   const prefix = `${type}#`; // `#` = MARK_INSTANCE_SEPARATOR (cascade/attr-registry)
   const match = (key: string): boolean => key === type || key.startsWith(prefix);
   const out: MarkRange[] = [];
-  for (const block of iterateAllBlocksInDocumentOrder(state)) {
+  for (const block of iterateAllBlocksInDocumentOrder(document)) {
     if (block.inlineContent === null) continue;
     for (const r of blockMarkRanges(block.inlineContent, match, equality)) {
       out.push({ from: createPosition(block.id, r.start), to: createPosition(block.id, r.end), value: r.value });

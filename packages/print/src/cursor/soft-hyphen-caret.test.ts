@@ -9,9 +9,9 @@ import { layoutTree } from "../layout/dispatch";
 import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
-import { buildState, buildBlock, inlineContent, text } from "@taleweaver/core";
+import { buildDocument, buildBlock, inlineContent, text } from "@taleweaver/core";
 import { createPosition, createSpan } from "@taleweaver/core";
-import type { BlockId, State } from "@taleweaver/core";
+import type { BlockId, Document } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 
 /**
@@ -34,15 +34,15 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   return v;
 }
 
-function pipeline(state: State, width = 800): { layout: LayoutBox; shaper: TextShaper } {
-  const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
+function pipeline(document: Document, width = 800): { layout: LayoutBox; shaper: TextShaper } {
+  const root = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
   const shaper = createMockShaper(8, 16);
   const layout = positionTreeForTest(layoutTree(root, width, shaper));
   return { layout, shaper };
 }
 
-function softHyphenWord(): State {
-  return buildState({
+function softHyphenWord(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -58,10 +58,10 @@ function softHyphenWord(): State {
 
 describe("soft-hyphen caret/offset (HYPH.S4)", () => {
   it("maps every offset to x on a single line — the soft hyphen is zero-width so offsets 2 and 3 share an x", () => {
-    const state = softHyphenWord();
-    const { layout, shaper } = pipeline(state, 800);
+    const document = softHyphenWord();
+    const { layout, shaper } = pipeline(document, 800);
     const x = (offset: number): number | null => {
-      const r = resolvePixelPosition(state, createPosition("p" as BlockId, offset), layout, shaper);
+      const r = resolvePixelPosition(document, createPosition("p" as BlockId, offset), layout, shaper);
       return r === null ? null : r.x;
     };
     expect(x(0)).toBe(0);
@@ -75,11 +75,11 @@ describe("soft-hyphen caret/offset (HYPH.S4)", () => {
   });
 
   it("selection rects measure the word with the soft hyphen contributing zero width", () => {
-    const state = softHyphenWord();
-    const { layout, shaper } = pipeline(state, 800);
+    const document = softHyphenWord();
+    const { layout, shaper } = pipeline(document, 800);
     // Whole word [0,7): one rect spanning x 0..48 (6 visible glyphs × 8).
     const whole = computeSelectionRects(
-      state,
+      document,
       createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 7)),
       layout,
       shaper,
@@ -90,7 +90,7 @@ describe("soft-hyphen caret/offset (HYPH.S4)", () => {
     // A range straddling the soft hyphen [2,4) = "<SHY>p": the soft hyphen adds 0,
     // "p" adds 8 → rect x 16..24 (width 8), not 24.
     const straddle = computeSelectionRects(
-      state,
+      document,
       createSpan(createPosition("p" as BlockId, 2), createPosition("p" as BlockId, 4)),
       layout,
       shaper,
@@ -101,10 +101,10 @@ describe("soft-hyphen caret/offset (HYPH.S4)", () => {
   });
 
   it("click-to-offset maps unambiguous x positions across the word", () => {
-    const state = softHyphenWord();
-    const { layout, shaper } = pipeline(state, 800);
+    const document = softHyphenWord();
+    const { layout, shaper } = pipeline(document, 800);
     const offsetAt = (px: number): number | null => {
-      const r = resolvePositionFromPixel(state, layout, shaper, px, 4, 0);
+      const r = resolvePositionFromPixel(document, layout, shaper, px, 4, 0);
       return r === null ? null : r.position.offset;
     };
     expect(offsetAt(0)).toBe(0);
@@ -116,10 +116,10 @@ describe("soft-hyphen caret/offset (HYPH.S4)", () => {
   it("across a soft-hyphen wrap: prefix offsets land on line 1, suffix offsets on line 2 — all resolve", () => {
     // "hy<SHY>phen" = 48px in a 40px line → wraps at the soft hyphen. Line 1 =
     // "hy<SHY>" + the "-" glyph (y=0); line 2 = "phen" (y=16).
-    const state = softHyphenWord();
-    const { layout, shaper } = pipeline(state, 40);
+    const document = softHyphenWord();
+    const { layout, shaper } = pipeline(document, 40);
     const at = (offset: number) =>
-      resolvePixelPosition(state, createPosition("p" as BlockId, offset), layout, shaper);
+      resolvePixelPosition(document, createPosition("p" as BlockId, offset), layout, shaper);
     // Prefix offset 1 ("h|y") is on line 1.
     const p1 = at(1);
     expect(p1).not.toBeNull();

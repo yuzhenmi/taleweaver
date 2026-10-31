@@ -10,7 +10,7 @@
  * makes the section invisible to the BFC/IFC/paginator.
  */
 import { describe, it, expect } from "vitest";
-import { buildBlock, buildState, inlineContent, text } from "@taleweaver/core";
+import { buildBlock, buildDocument, inlineContent, text } from "@taleweaver/core";
 import { render } from "@taleweaver/core";
 import { cascadePass } from "@taleweaver/core";
 import { layoutTree } from "../layout/dispatch";
@@ -18,7 +18,7 @@ import { createMockShaper } from "@taleweaver/core";
 import { createDefaultComponentRegistry } from "@taleweaver/core";
 import { createDefaultAttrRegistry } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
-import type { State } from "@taleweaver/core";
+import type { Document } from "@taleweaver/core";
 
 const shaper = createMockShaper(8, 16);
 const componentRegistry = createDefaultComponentRegistry();
@@ -28,8 +28,8 @@ const attrRegistry = createDefaultAttrRegistry();
 const W = 800;
 
 // doc root children: [p_one, section([p_alpha, p_beta]), p_two]
-function sectionedDoc(): State {
-  return buildState({
+function sectionedDoc(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -80,8 +80,8 @@ function sectionedDoc(): State {
 }
 
 // doc root children: [p_one, p_alpha, p_beta, p_two] (section's children hoisted)
-function hoistedDoc(): State {
-  return buildState({
+function hoistedDoc(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -124,8 +124,8 @@ function hoistedDoc(): State {
   });
 }
 
-function layoutOf(state: State): LayoutBox {
-  const renderOutput = render(state, componentRegistry, attrRegistry);
+function layoutOf(document: Document): LayoutBox {
+  const renderOutput = render(document, componentRegistry, attrRegistry);
   const cascaded = cascadePass(renderOutput.root);
   const tree = layoutTree(cascaded, W, shaper);
   if (tree.type === "virtual-root") {

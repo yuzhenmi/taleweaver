@@ -5,20 +5,20 @@
  */
 import { describe, it, expect } from "vitest";
 import { planInsertItemsAt, insertItemsInTx } from "./insert-items";
-import { resolveBlock } from "../state";
+import { resolveBlock } from "../document";
 import { runTransaction } from "../yjs-doc";
-import { STATE_INTERNAL } from "../state-internal";
-import { buildBlock, buildState, text, embed, inlineContent, withTestAttrs } from "../../test-utils/state-builders";
+import { DOCUMENT_INTERNAL } from "../document-internal";
+import { buildBlock, buildDocument, text, embed, inlineContent, withTestAttrs } from "../../test-utils/document-builders";
 import { relAt, survives } from "../../test-utils/relpos-survival";
 import { AttrRegistry } from "../../cascade/attr-registry";
-import { freshState } from "../state";
-import type { State } from "../state";
+import { freshDocument } from "../document";
+import type { Document } from "../document";
 import type { InlineContent, InlineItem } from "../inline-content";
 import type { BlockId } from "../block-id";
 
 /** doc > [ p(<items>) ] — one leaf block "p" holding the given inline content. */
-function oneBlock(content: InlineContent): State {
-  return buildState({
+function oneBlock(content: InlineContent): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -27,10 +27,10 @@ function oneBlock(content: InlineContent): State {
   });
 }
 
-function apply(state: State, plan: ReturnType<typeof planInsertItemsAt>): ReadonlyArray<InlineItem> {
-  const doc = state[STATE_INTERNAL].doc;
+function apply(document: Document, plan: ReturnType<typeof planInsertItemsAt>): ReadonlyArray<InlineItem> {
+  const doc = document[DOCUMENT_INTERNAL].doc;
   const { dirtyIds } = runTransaction(doc, () => insertItemsInTx(doc, plan));
-  const after = freshState(state, dirtyIds);
+  const after = freshDocument(document, dirtyIds);
   return resolveBlock(after, "p" as BlockId)?.block.inlineContent?.items ?? [];
 }
 
@@ -59,7 +59,7 @@ describe("planInsertItemsAt + insertItemsInTx", () => {
       text("bb", { b: 1 }),
       text("ccc", { c: 1 }),
     ]);
-    const after = freshState(s, new Set(["p" as BlockId]));
+    const after = freshDocument(s, new Set(["p" as BlockId]));
     expect(rels.map((r, k) => survives(r, after, "abbc".charAt(k)))).toEqual([true, true, true, true]);
   });
 

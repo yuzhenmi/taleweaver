@@ -71,7 +71,7 @@ describe("#323 Cycle A — caretPageHint lifecycle", () => {
     const afterStruck = createSpan(createPosition(blockId, offset + 1), createPosition(blockId, offset + 1));
     editor = reduceEditor(editor, { type: "SET_SELECTION", selection: afterStruck, caretPageHint: 1 });
     const moved = reduceEditor(editor, { type: "DELETE_BACKWARD" });
-    expect(moved.state).toBe(editor.state); // nothing written: the caret only moves across the struck "c"
+    expect(moved.document).toBe(editor.document); // nothing written: the caret only moves across the struck "c"
     expect(moved.selection.focus.offset).toBe(offset);
     expect(moved.caretPageHint).toBe(1);
   });

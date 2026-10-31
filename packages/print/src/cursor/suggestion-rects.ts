@@ -1,5 +1,5 @@
 import { resolveSuggestionRange, createSpan } from "@taleweaver/core";
-import type { State, SuggestionId } from "@taleweaver/core";
+import type { Document, SuggestionId } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 import type { TextShaper } from "@taleweaver/core";
 import type { SelectionRect } from "./selection-geometry";
@@ -32,7 +32,7 @@ import { getBoundaryMarkIndex } from "./boundary-mark-index";
  * Stage-1 cadence: the host re-queries after each layout cycle rather than
  * maintaining a separate cached-rect invalidation path.
  *
- * @param state        Current document state.
+ * @param document        Current document state.
  * @param layoutTree   The materialized layout tree to resolve positions against.
  * @param shaper       Text shaper for sub-leaf pixel measurement.
  * @param suggestionId The (branded) id of the suggestion to highlight.
@@ -40,16 +40,16 @@ import { getBoundaryMarkIndex } from "./boundary-mark-index";
  *   no live tagged content.
  */
 export function getSuggestionRangeRects(
-  state: State,
+  document: Document,
   layoutTree: LayoutBox,
   shaper: TextShaper,
   suggestionId: SuggestionId,
 ): SelectionRect[] {
-  const range = resolveSuggestionRange(state, suggestionId);
+  const range = resolveSuggestionRange(document, suggestionId);
   if (range === null) return [];
 
   const rects = computeSelectionRects(
-    state,
+    document,
     createSpan(range.start, range.end),
     layoutTree,
     shaper,

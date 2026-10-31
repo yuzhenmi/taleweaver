@@ -1,11 +1,11 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
-import { applyOperation, getBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, getBlock } from "../document";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import type { InlineContent } from "../inline-content";
 import { requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { resolveBlock } from "../state";
+import { resolveBlock } from "../document";
 import { insertChildren } from "../flow-ops";
 import { assertNoIdCollision } from "../id-collision-check";
 
@@ -84,20 +84,20 @@ export interface InsertBlocksAfterPlan {
  * inside a single Y.Doc transaction (one undo entry / one collab event).
  */
 export function insertBlocksAfter(
-  state: State,
+  document: Document,
   afterBlockId: BlockId,
   inits: readonly SiblingBlockInit[],
   allocator: IdAllocator,
 ): OperationResult & { readonly newBlockIds: readonly BlockId[] } {
-  const plan = planInsertBlocksAfter(state, afterBlockId, inits, allocator);
+  const plan = planInsertBlocksAfter(document, afterBlockId, inits, allocator);
 
   // Empty inits → no-op identity: return the SAME state ref WITHOUT
   // opening a transaction (mirrors how other ops no-op).
   if (plan === null) {
-    return { state, dirtyIds: new Set<BlockId>(), newBlockIds: [] };
+    return { document, dirtyIds: new Set<BlockId>(), newBlockIds: [] };
   }
 
-  const result = applyOperation(state, (doc) => {
+  const result = applyOperation(document, (doc) => {
     insertBlocksAfterInTx(doc, plan);
   });
 
@@ -105,7 +105,7 @@ export function insertBlocksAfter(
 }
 
 /**
- * Validate the requested run-insert against the pre-mutation `state` snapshot
+ * Validate the requested run-insert against the pre-mutation `document` snapshot
  * and produce an `InsertBlocksAfterPlan`. Throws on every condition
  * `insertBlocksAfter`'s docstring lists.
  *
@@ -117,13 +117,13 @@ export function insertBlocksAfter(
  * the allocator is bumped exactly once even if the transaction body re-runs.
  */
 export function planInsertBlocksAfter(
-  state: State,
+  document: Document,
   afterBlockId: BlockId,
   inits: readonly SiblingBlockInit[],
   allocator: IdAllocator,
 ): InsertBlocksAfterPlan | null {
   // Pre-read against the pre-mutation snapshot.
-  const afterBlock = getBlock(state, afterBlockId);
+  const afterBlock = getBlock(document, afterBlockId);
   if (!afterBlock) {
     throw new Error(`insertBlocksAfter: afterBlock "${afterBlockId}" not found`);
   }
@@ -147,7 +147,7 @@ export function planInsertBlocksAfter(
   }));
 
   return {
-    kind: resolveBlock(state, afterBlockId)?.kind ?? "block",
+    kind: resolveBlock(document, afterBlockId)?.kind ?? "block",
     parentId: afterBlock.parentId,
     afterBlockId,
     oldNextId: afterBlock.nextSiblingId,

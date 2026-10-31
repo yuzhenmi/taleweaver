@@ -32,7 +32,7 @@ function makeConfig(): EditorConfig {
 
 /** Build the layout tree the backend driver would (render → cascade → layout). */
 function layoutOf(editor: EditorState, config: EditorConfig): VirtualLayoutTree {
-  const rendered = render(editor.state, config.componentRegistry, config.attrRegistry);
+  const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   const tree = layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
   if (tree.type !== "virtual-root") throw new Error("expected virtual");
@@ -45,11 +45,11 @@ function buildPasted(config: EditorConfig, n: number): EditorState {
 }
 
 function nthBlockId(editor: EditorState, n: number): BlockId {
-  const root = finalSection(editor.state);
+  const root = finalSection(editor.document);
   if (root === null || root.firstChildId === null) throw new Error("no blocks");
   let id: BlockId | null = root.firstChildId;
   for (let i = 0; i < n && id !== null; i++) {
-    id = getBlock(editor.state, id)?.nextSiblingId ?? null;
+    id = getBlock(editor.document, id)?.nextSiblingId ?? null;
   }
   if (id === null) throw new Error(`no block ${n}`);
   return id;
@@ -76,21 +76,21 @@ describe("computeSelectionRectsForPage equivalence vs the positioned-tree oracle
         createPosition(nthBlockId(editor, c.a[0]), c.a[1]),
         createPosition(nthBlockId(editor, c.f[0]), c.f[1]),
       );
-      const start = spanStart(editor.state, span);
-      const end = spanEnd(editor.state, span);
-      const startPos = resolvePixelPosition(editor.state, start, tree, measurer);
-      const endPos = resolvePixelPosition(editor.state, end, tree, measurer);
+      const start = spanStart(editor.document, span);
+      const end = spanEnd(editor.document, span);
+      const startPos = resolvePixelPosition(editor.document, start, tree, measurer);
+      const endPos = resolvePixelPosition(editor.document, end, tree, measurer);
       if (startPos === null || endPos === null) throw new Error("resolve failed");
 
       const perPage = [];
       for (let p = 0; p < pageCount; p++) {
         perPage.push(
           ...computeSelectionRectsForPage(
-            editor.state, span, tree.getPage(p), p, startPos, endPos, measurer,
+            editor.document, span, tree.getPage(p), p, startPos, endPos, measurer,
           ),
         );
       }
-      const viaBridge = computeSelectionRects(editor.state, span, bridge, measurer);
+      const viaBridge = computeSelectionRects(editor.document, span, bridge, measurer);
       expect(perPage).toEqual(viaBridge);
     });
   }

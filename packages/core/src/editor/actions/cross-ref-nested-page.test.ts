@@ -60,9 +60,9 @@ const measurer = createMockShaper(8, 16);
  * a nested target's ancestor chain to its indexed top-level block.
  */
 function layoutOf(editor: EditorState, config: EditorConfig): LayoutBox | VirtualLayoutTree {
-  const rendered = render(editor.state, config.componentRegistry, config.attrRegistry);
+  const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
-  const parentOf = makeBlockParentLookup(editor.state);
+  const parentOf = makeBlockParentLookup(editor.document);
   return layoutTree(
     cascaded,
     config.containerWidth,
@@ -77,12 +77,12 @@ function layoutOf(editor: EditorState, config: EditorConfig): LayoutBox | Virtua
 
 /** The document's top-level blocks, in order (root → sections → blocks). */
 function rootChildIds(editor: EditorState): BlockId[] {
-  return topLevelBlockIds(editor.state);
+  return topLevelBlockIds(editor.document);
 }
 
 /** Caret at the end of `blockId` (its inline-content length). */
 function caretAtEnd(editor: EditorState, blockId: BlockId): EditorState {
-  const block = getBlock(editor.state, blockId);
+  const block = getBlock(editor.document, blockId);
   const len =
     block?.inlineContent === null || block?.inlineContent === undefined
       ? 0
@@ -180,14 +180,14 @@ describe("cross-ref-page to a NESTED (table-cell) target resolves end-to-end (Ta
 
     // Sanity: the target is genuinely NESTED — its parent is a table-cell (NOT the root),
     // so the page plan does NOT index it directly; only its top-level TABLE ancestor is.
-    const targetParent = getBlock(editor.state, nestedTargetId)?.parentId;
+    const targetParent = getBlock(editor.document, nestedTargetId)?.parentId;
     expect(targetParent).not.toBeNull();
-    expect(getBlock(editor.state, targetParent as BlockId)?.type).toBe("table-cell");
+    expect(getBlock(editor.document, targetParent as BlockId)?.type).toBe("table-cell");
     expect(virtualTree(editor, config).plan.pageSpanOfBlock(nestedTargetId)).toBeNull();
 
     // The top-level TABLE ancestor IS indexed and lands on a later page.
     const tableId = rootChildIds(editor).find(
-      (id) => getBlock(editor.state, id)?.type === "table",
+      (id) => getBlock(editor.document, id)?.type === "table",
     );
     if (tableId === undefined) throw new Error("no table at top level");
     const tablePage = pageOf(editor, tableId, config);

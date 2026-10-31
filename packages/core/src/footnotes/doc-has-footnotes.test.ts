@@ -9,10 +9,10 @@ import {
 } from "../state";
 import {
   buildBlock,
-  buildState,
+  buildDocument,
   inlineContent,
   text,
-} from "../test-utils/state-builders";
+} from "../test-utils/document-builders";
 
 /**
  * `docHasFootnotes` — the FN-8 O(1) footnote-presence guard. True iff the
@@ -27,7 +27,7 @@ import {
  */
 describe("docHasFootnotes", () => {
   const footnoteFreeFixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -45,32 +45,32 @@ describe("docHasFootnotes", () => {
   });
 
   it("is true after inserting a footnote", () => {
-    const state = footnoteFreeFixture();
+    const document = footnoteFreeFixture();
     const result = insertFootnote(
-      state,
+      document,
       createPosition("p" as BlockId, 5),
       createTestAllocator("fn"),
     );
-    expect(docHasFootnotes(result.state)).toBe(true);
+    expect(docHasFootnotes(result.document)).toBe(true);
   });
 
   it("returns to false after deleting the only footnote", () => {
-    const state = footnoteFreeFixture();
+    const document = footnoteFreeFixture();
     const inserted = insertFootnote(
-      state,
+      document,
       createPosition("p" as BlockId, 5),
       createTestAllocator("fn"),
     );
-    expect(docHasFootnotes(inserted.state)).toBe(true);
+    expect(docHasFootnotes(inserted.document)).toBe(true);
 
     // Removing the anchor's containing block cascade-deletes the body root,
     // so the doc has no embed-content roots again.
-    const removed = removeBlock(inserted.state, "p" as BlockId);
-    expect(docHasFootnotes(removed.state)).toBe(false);
+    const removed = removeBlock(inserted.document, "p" as BlockId);
+    expect(docHasFootnotes(removed.document)).toBe(false);
   });
 
   it("stays true while at least one footnote remains (two footnotes, delete one)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -91,19 +91,19 @@ describe("docHasFootnotes", () => {
       ],
     });
     const first = insertFootnote(
-      state,
+      document,
       createPosition("p1" as BlockId, 5),
       createTestAllocator("fn1"),
     );
     const second = insertFootnote(
-      first.state,
+      first.document,
       createPosition("p2" as BlockId, 6),
       createTestAllocator("fn2"),
     );
-    expect(docHasFootnotes(second.state)).toBe(true);
+    expect(docHasFootnotes(second.document)).toBe(true);
 
     // Delete only the first footnote's host block; the second remains.
-    const removed = removeBlock(second.state, "p1" as BlockId);
-    expect(docHasFootnotes(removed.state)).toBe(true);
+    const removed = removeBlock(second.document, "p1" as BlockId);
+    expect(docHasFootnotes(removed.document)).toBe(true);
   });
 });

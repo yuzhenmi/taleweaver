@@ -7,7 +7,7 @@ import type { BlockId } from "../state";
 /** A one-paragraph editor with an open undo entry, as the reducer has before an edit runs. */
 function seeded(): { editor: EditorState; id: BlockId } {
   const editor = stateWithText("hello");
-  const id = firstChildId(editor.state);
+  const id = firstChildId(editor.document);
   if (id === null) throw new Error("no paragraph");
   editor.history.beginEntry("command", Date.now(), editor.selection);
   return { editor, id };
@@ -16,17 +16,17 @@ function seeded(): { editor: EditorState; id: BlockId } {
 describe("applyEdit", () => {
   it("commits a change as one undo entry carrying the selection before → after, and records it", () => {
     const { editor, id } = seeded();
-    const change = mergeBlockAttrs(editor.state, id, { textAlign: "center" });
+    const change = mergeBlockAttrs(editor.document, id, { textAlign: "center" });
     const after = createSpan(createPosition(id, 1), createPosition(id, 1));
 
     const next = applyEdit(editor, { change, selection: after });
-    expect(next.state).toBe(change.state);
+    expect(next.document).toBe(change.document);
     expect(next.selection).toBe(after);
     expect(next.lastDirtyIds).toBe(change.dirtyIds);
-    expect(next.lastChange?.from).toBe(editor.state);
+    expect(next.lastChange?.from).toBe(editor.document);
 
     const undone = reduceEditor(next, { type: "UNDO" });
-    expect(getBlock(undone.state, id)?.attrs.textAlign).toBeUndefined();
+    expect(getBlock(undone.document, id)?.attrs.textAlign).toBeUndefined();
     expect(positionsEqual(undone.selection.focus, editor.selection.focus)).toBe(true);
   });
 
@@ -35,8 +35,8 @@ describe("applyEdit", () => {
     expect(applyEdit(editor, null)).toBe(editor);
 
     const after = createSpan(createPosition(id, 0), createPosition(id, 0));
-    const moved = applyEdit(editor, { change: { state: editor.state, dirtyIds: new Set() }, selection: after });
-    expect(moved.state).toBe(editor.state);
+    const moved = applyEdit(editor, { change: { document: editor.document, dirtyIds: new Set() }, selection: after });
+    expect(moved.document).toBe(editor.document);
     expect(moved.lastChange).toBe(editor.lastChange);
     expect(moved.selection).toBe(after);
   });
@@ -44,7 +44,7 @@ describe("applyEdit", () => {
   it("an EditorState is not an Edit (it would silently lose its change)", () => {
     const { editor } = seeded();
     const asEdit = (edit: Edit): Edit => edit;
-    // @ts-expect-error — `Edit.state?: never` rejects a whole EditorState
+    // @ts-expect-error — `Edit.document?: never` rejects a whole EditorState
     expect(() => asEdit(editor)).not.toThrow();
   });
 });

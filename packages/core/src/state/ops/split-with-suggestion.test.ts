@@ -19,16 +19,16 @@ import { describe, it, expect } from "vitest";
 import { splitWithSuggestion } from "./split-block";
 import { getSuggestions, type SuggestionId } from "../suggestions";
 import { createHistory } from "../history";
-import { getBlock } from "../state";
-import type { State } from "../state";
+import { getBlock } from "../document";
+import type { Document } from "../document";
 import { relAt, survives } from "../../test-utils/relpos-survival";
 import { inlineContentLength } from "../inline-content";
 import {
   buildBlock,
-  buildState,
+  buildDocument,
   text,
   inlineContent,
-} from "../../test-utils/state-builders";
+} from "../../test-utils/document-builders";
 import { createPosition } from "../block-position";
 import { createTestAllocator, type BlockId } from "../block-id";
 
@@ -42,8 +42,8 @@ const SID = "split-1" as SuggestionId;
 const INPUT = { id: SID, author: "alice", createdAt: 1000 } as const;
 
 /** doc > [ p("abcdef") ] — one text run. */
-function oneBlock(): State {
-  return buildState({
+function oneBlock(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -58,17 +58,17 @@ function oneBlock(): State {
 }
 
 /** The inline items of a block, or []. */
-function itemsOf(s: State, id: string) {
+function itemsOf(s: Document, id: string) {
   return getBlock(s, id as BlockId)?.inlineContent?.items ?? [];
 }
 
 /** The block's paragraph-break suggestion tags (read model), or undefined. */
-function breakOf(s: State, id: string) {
+function breakOf(s: Document, id: string) {
   return getBlock(s, id as BlockId)?.breakSuggestion;
 }
 
 /** The concatenated text of a block's text runs (embeds contribute nothing). */
-function textOf(s: State, id: string): string {
+function textOf(s: Document, id: string): string {
   let out = "";
   for (const it of itemsOf(s, id)) {
     if (it.kind === "text") out += it.text;
@@ -85,7 +85,7 @@ describe("splitWithSuggestion — mid split: real split + insertion tag + insert
       allocator,
       INPUT,
     );
-    const s = result.state;
+    const s = result.document;
 
     // Head H (new id): "abc", its ¶ keyed. p keeps "def", untagged.
     expect(textOf(s, "p2-0")).toBe("abc");
@@ -125,7 +125,7 @@ describe("splitWithSuggestion — offset invariant: no inline item is added", ()
       createPosition("p" as BlockId, 3),
       allocator,
       INPUT,
-    ).state;
+    ).document;
 
     const nContent = getBlock(s, "p" as BlockId)?.inlineContent;
     if (nContent == null) throw new Error("expected block N inlineContent");
@@ -147,7 +147,7 @@ describe("splitWithSuggestion — split at END (offset = length), with newBlockI
       allocator,
       INPUT,
       { type: "paragraph" },
-    ).state;
+    ).document;
 
     // H: "abcdef", its ¶ keyed.
     expect(textOf(s, "p2-0")).toBe("abcdef");
@@ -168,7 +168,7 @@ describe("splitWithSuggestion — split at START (offset 0)", () => {
   it("no special case: the new EMPTY head above carries the keyed ¶ (Word); p keeps the text and its id", () => {
     const allocator = createTestAllocator("p2");
     const r = splitWithSuggestion(oneBlock(), createPosition("p" as BlockId, 0), allocator, INPUT);
-    const s = r.state;
+    const s = r.document;
     expect(itemsOf(s, "p2-0").length).toBe(0);
     expect(breakOf(s, "p2-0")).toEqual({ insertionId: SID });
     expect(getBlock(s, "p2-0" as BlockId)?.nextSiblingId).toBe("p");
@@ -192,7 +192,7 @@ describe("splitWithSuggestion — ONE undo entry (split + tag + record are one t
       INPUT,
     );
     history.commit(split, { before: null, after: null });
-    const s1 = split.state;
+    const s1 = split.document;
 
     // Post-op: two blocks, key on ¶H, one record.
     expect(getBlock(s1, "p2-0" as BlockId)).not.toBeNull();
@@ -202,7 +202,7 @@ describe("splitWithSuggestion — ONE undo entry (split + tag + record are one t
     // ONE undo reverts everything.
     const undone = history.undo();
     if (undone === null) throw new Error("expected undo to return a result");
-    const s2 = undone.state;
+    const s2 = undone.document;
     // Back to the single original block "abcdef".
     expect(textOf(s2, "p")).toBe("abcdef");
     expect(getBlock(s2, "p2-0" as BlockId)).toBeNull();
@@ -218,7 +218,7 @@ describe("splitWithSuggestion — ONE undo entry (split + tag + record are one t
 describe("splitWithSuggestion — non-first block", () => {
   it("splits the SECOND paragraph: correct siblings + insertion record", () => {
     // doc > [ p1("hello"), p2("world") ]
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -240,11 +240,11 @@ describe("splitWithSuggestion — non-first block", () => {
     });
     const allocator = createTestAllocator("p3");
     const s = splitWithSuggestion(
-      state,
+      document,
       createPosition("p2" as BlockId, 2),
       allocator,
       INPUT,
-    ).state;
+    ).document;
 
     // New head "wo" (its ¶ keyed); p2 keeps "rld".
     expect(textOf(s, "p3-0")).toBe("wo");
@@ -282,7 +282,7 @@ describe("splitWithSuggestion — character survival: block N's left half keeps 
       createPosition("p" as BlockId, 3),
       allocator,
       INPUT,
-    ).state;
+    ).document;
 
     // The split cuts N's text with one offset delete: the left half's characters
     // are the same CRDT items.

@@ -1,4 +1,4 @@
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   createInitialEditorState,
@@ -22,11 +22,11 @@ function makeConfig(): EditorConfig {
 
 /** First text item from the doc's first (and only) paragraph. */
 function firstTextItem(editor: ReturnType<typeof createInitialEditorState>): TextItem | null {
-  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
+  const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
   if (root === null) return null;
   const pId = root.firstChildId;
   if (pId === null) return null;
-  const p = getBlock(editor.state, pId);
+  const p = getBlock(editor.document, pId);
   if (p === null || p.inlineContent === null) return null;
   const first = p.inlineContent.items[0];
   if (first === undefined || first.kind !== "text") return null;
@@ -38,7 +38,7 @@ function selectAll(
   length: number,
 ): ReturnType<typeof createInitialEditorState> {
   const pId = (() => {
-    const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
+    const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
     if (root === null || root.firstChildId === null) throw new Error("no para");
     return root.firstChildId;
   })();
@@ -60,7 +60,7 @@ describe("handleSetFontSize", () => {
     // Collapsed at end.
     editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(editor.state).toBe(before.state);
+    expect(editor.document).toBe(before.document);
   });
 
   it("sets fontSize attr on every text item in the selection", () => {

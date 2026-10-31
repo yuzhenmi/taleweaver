@@ -8,7 +8,7 @@
  * output is valid input for `cascadePass` + `layoutTree`.
  *
  * This file exercises the full pipeline starting from a Y.Doc-backed
- * State that contains a realistic mix of block kinds and inline content:
+ * Document that contains a realistic mix of block kinds and inline content:
  *
  *   document
  *   ├── paragraph: "hello world"
@@ -24,7 +24,7 @@
  * payloads survive end-to-end.
  */
 import { describe, it, expect } from "vitest";
-import { buildBlock, buildState, inlineContent, text } from "@taleweaver/core";
+import { buildBlock, buildDocument, inlineContent, text } from "@taleweaver/core";
 import { render } from "@taleweaver/core";
 import { cascadePass } from "@taleweaver/core";
 import { layoutTree } from "../layout/dispatch";
@@ -51,7 +51,7 @@ const componentRegistry = createDefaultComponentRegistry();
 const attrRegistry = createDefaultAttrRegistry();
 
 function buildRealisticDoc() {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -130,7 +130,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     // `document` component sets `overflowWrap: "break-word"` (slice 3); it cascades
     // to the paragraph's text (slice 1) and the IFC breaks it (slice 2). This
     // exercises the WHOLE pipeline end-to-end with NO per-block override.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -138,7 +138,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
           inlineContent: inlineContent([text("aaaaaaaaaa")]) }), // 10 × 8px = 80px
       ],
     });
-    const renderOutput = render(state, componentRegistry, attrRegistry);
+    const renderOutput = render(document, componentRegistry, attrRegistry);
     // In a 40px column the 80px word must break (→ ≥2 lines). Without the body
     // default it would overflow on a single line.
     const layout = positionTreeForTest(layoutTree(renderOutput.root, 40, shaper));
@@ -151,17 +151,17 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
   });
 
   it("pipes a realistic doc through render() → cascadePass → layoutTree without throwing", () => {
-    const state = buildRealisticDoc();
+    const document = buildRealisticDoc();
     expect(() => {
-      const renderOutput = render(state, componentRegistry, attrRegistry);
+      const renderOutput = render(document, componentRegistry, attrRegistry);
       const cascaded = cascadePass(renderOutput.root);
       layoutTree(cascaded, 800, shaper);
     }).not.toThrow();
   });
 
   it("layout output preserves the inline text content from state", () => {
-    const state = buildRealisticDoc();
-    const renderOutput = render(state, componentRegistry, attrRegistry);
+    const document = buildRealisticDoc();
+    const renderOutput = render(document, componentRegistry, attrRegistry);
     const layout = positionTreeForTest(layoutTree(renderOutput.root, 800, shaper));
     const collected = collectText(layout);
     // Each leaf block's inline text must reach the layout tree as TextRunBoxes.
@@ -177,8 +177,8 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     // field in before layout reads it. Pre-cascade, inline TextBoxes
     // have `computedStyle === undefined`; post-cascade, every RenderNode
     // in the tree carries it.
-    const state = buildRealisticDoc();
-    const renderOutput = render(state, componentRegistry, attrRegistry);
+    const document = buildRealisticDoc();
+    const renderOutput = render(document, componentRegistry, attrRegistry);
 
     // Pre-cascade: walk the tree, find any TextBox, confirm
     // computedStyle is undefined (A1's contract).
@@ -208,8 +208,8 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     // strut. Find the image's LayoutBox by key and confirm its
     // descendants contain no empty-string TextRunBox attributable to
     // a leaked strut sentinel.
-    const state = buildRealisticDoc();
-    const renderOutput = render(state, componentRegistry, attrRegistry);
+    const document = buildRealisticDoc();
+    const renderOutput = render(document, componentRegistry, attrRegistry);
     const layout = positionTreeForTest(layoutTree(renderOutput.root, 800, shaper));
 
     function findEmptyStrutTextRuns(box: LayoutBox, fromImg: boolean): number {
@@ -230,8 +230,8 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     // R-B's A5 keeps the strut sentinel for inline-bearing leaves. An
     // empty paragraph (p2) must still produce a visible empty line in
     // the layout tree (so the cursor has a vertical slot to sit on).
-    const state = buildRealisticDoc();
-    const renderOutput = render(state, componentRegistry, attrRegistry);
+    const document = buildRealisticDoc();
+    const renderOutput = render(document, componentRegistry, attrRegistry);
     const layout = positionTreeForTest(layoutTree(renderOutput.root, 800, shaper));
 
     function findBlock(box: LayoutBox, key: string): LayoutBox | null {
@@ -261,14 +261,14 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       measureFontMetrics: (s) => ({ ascent: s.fontSize * 0.8, descent: s.fontSize * 0.2, lineGap: 0, capHeight: s.fontSize * 0.7, xHeight: s.fontSize * 0.5 }),
     };
     const lineHeightOf = (markAttrs?: Record<string, unknown>): number => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
           { ...buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }), ...(markAttrs !== undefined ? { markAttrs } : {}) },
         ],
       });
-      const layout = positionTreeForTest(layoutTree(render(state, componentRegistry, attrRegistry).root, 800, scaled));
+      const layout = positionTreeForTest(layoutTree(render(document, componentRegistry, attrRegistry).root, 800, scaled));
       const find = (box: LayoutBox): LayoutBox | null => {
         if (box.type === "line") return box;
         if ("children" in box) for (const c of box.children) { const f = find(c); if (f !== null) return f; }
@@ -291,12 +291,12 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "two" });
     const two = editor.selection.focus.blockId;
-    const one = getBlock(editor.state, two)?.prevSiblingId;
+    const one = getBlock(editor.document, two)?.prevSiblingId;
     if (one === null || one === undefined) throw new Error("no first item");
-    expect(getBlock(editor.state, two)?.markAttrs).toEqual({ bold: true });
+    expect(getBlock(editor.document, two)?.markAttrs).toEqual({ bold: true });
     editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(one, 0), createPosition(two, 3)) });
     editor = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" });
-    const layout = positionTreeForTest(layoutTree(render(editor.state, componentRegistry, attrRegistry).root, 800, shaper));
+    const layout = positionTreeForTest(layoutTree(render(editor.document, componentRegistry, attrRegistry).root, 800, shaper));
     const markers: LayoutBox[] = [];
     const walk = (box: LayoutBox): void => {
       if (box.type === "marker") markers.push(box);
@@ -322,7 +322,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "color me" });
     const pId = (() => {
-      const root = finalSection(editor.state);
+      const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -335,7 +335,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     );
     editor = reduceEditor(editor, { type: "SET_TEXT_COLOR", color: "#ff0000" });
 
-    const renderOutput = render(editor.state, componentRegistry, attrRegistry);
+    const renderOutput = render(editor.document, componentRegistry, attrRegistry);
     const cascaded = cascadePass(renderOutput.root);
 
     function findFirstText(node: RenderNode): RenderNode | null {
@@ -356,7 +356,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     // paints exactly this behind the glyphs).
     editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "#ffff00" });
     const cascadedHl = cascadePass(
-      render(editor.state, componentRegistry, attrRegistry).root,
+      render(editor.document, componentRegistry, attrRegistry).root,
     );
     const hlNode = findFirstText(cascadedHl);
     expect(hlNode?.computedStyle?.backgroundColor).toBe("#ffff00");
@@ -406,7 +406,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" });
     const pId = (() => {
-      const root = finalSection(editor.state);
+      const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -439,22 +439,22 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       return null;
     }
 
-    function paragraphHeight(state: typeof editor.state): number {
+    function paragraphHeight(document: typeof editor.document): number {
       const layout = positionTreeForTest(
-        layoutTree(render(state, componentRegistry, attrRegistry).root, 800, scalingShaper),
+        layoutTree(render(document, componentRegistry, attrRegistry).root, 800, scalingShaper),
       );
       const p = findBlock(layout, pId);
       if (p === null) throw new Error("no paragraph box");
       return p.blockSize;
     }
 
-    const heightBefore = paragraphHeight(editor.state);
+    const heightBefore = paragraphHeight(editor.document);
 
     editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 });
 
     // Cascade: the affected text node carries the dispatched fontSize.
     const cascaded = cascadePass(
-      render(editor.state, componentRegistry, attrRegistry).root,
+      render(editor.document, componentRegistry, attrRegistry).root,
     );
     const textNode = findFirstText(cascaded);
     expect(textNode).not.toBeNull();
@@ -462,7 +462,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
 
     // Layout reflow: the line/paragraph grew taller because the IFC
     // measured the run at the larger fontSize.
-    const heightAfter = paragraphHeight(editor.state);
+    const heightAfter = paragraphHeight(editor.document);
     expect(heightAfter).toBeGreaterThan(heightBefore);
   });
 
@@ -508,7 +508,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "space me" });
     const pId = (() => {
-      const root = finalSection(editor.state);
+      const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -540,9 +540,9 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       return null;
     }
 
-    function paragraphHeight(state: typeof editor.state): number {
+    function paragraphHeight(document: typeof editor.document): number {
       const layout = positionTreeForTest(
-        layoutTree(render(state, componentRegistry, attrRegistry).root, 800, spacingShaper),
+        layoutTree(render(document, componentRegistry, attrRegistry).root, 800, spacingShaper),
       );
       const p = findBlock(layout, pId);
       if (p === null) throw new Error("no paragraph box");
@@ -550,15 +550,15 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     }
 
     // Baseline: default line spacing (no lineHeight attr → INITIAL ratio 1.2).
-    expect(getBlock(editor.state, pId)?.attrs.lineHeight).toBeUndefined();
-    const heightBefore = paragraphHeight(editor.state);
+    expect(getBlock(editor.document, pId)?.attrs.lineHeight).toBeUndefined();
+    const heightBefore = paragraphHeight(editor.document);
 
     editor = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 });
 
     // Cascade: the affected text node's ComputedStyle carries the dispatched
     // unitless ratio (inherits down to the run from the block attr).
     const cascaded = cascadePass(
-      render(editor.state, componentRegistry, attrRegistry).root,
+      render(editor.document, componentRegistry, attrRegistry).root,
     );
     const textNode = findFirstText(cascaded);
     expect(textNode).not.toBeNull();
@@ -568,7 +568,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
 
     // Layout reflow: the line/paragraph grew taller because the IFC measured
     // the run with the larger half-leading derived from lineHeight.
-    const heightAfter = paragraphHeight(editor.state);
+    const heightAfter = paragraphHeight(editor.document);
     expect(heightAfter).toBeGreaterThan(heightBefore);
   });
 
@@ -588,7 +588,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "indent me" });
     const pId = (() => {
-      const root = finalSection(editor.state);
+      const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -611,9 +611,9 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       return null;
     }
 
-    function paragraphBox(state: typeof editor.state): LayoutBox {
+    function paragraphBox(document: typeof editor.document): LayoutBox {
       const layout = positionTreeForTest(
-        layoutTree(render(state, componentRegistry, attrRegistry).root, 800, shaper),
+        layoutTree(render(document, componentRegistry, attrRegistry).root, 800, shaper),
       );
       const p = findBlockBox(layout, pId);
       if (p === null) throw new Error("no paragraph box");
@@ -621,17 +621,17 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     }
 
     // Baseline: no marginInlineStart attr → paragraph sits at the container edge.
-    expect(getBlock(editor.state, pId)?.attrs.marginInlineStart).toBeUndefined();
-    const before = paragraphBox(editor.state);
+    expect(getBlock(editor.document, pId)?.attrs.marginInlineStart).toBeUndefined();
+    const before = paragraphBox(editor.document);
 
     editor = reduceEditor(editor, { type: "INDENT" });
 
-    // State: the attr landed.
-    expect(getBlock(editor.state, pId)?.attrs.marginInlineStart).toBe(48);
+    // Document: the attr landed.
+    expect(getBlock(editor.document, pId)?.attrs.marginInlineStart).toBe(48);
 
     // Layout: the box moved inline by exactly 48px and its content box narrowed
     // by 48px (the BFC inset + width reduction for an in-flow inline margin).
-    const after = paragraphBox(editor.state);
+    const after = paragraphBox(editor.document);
     expect(after.x).toBe(before.x + 48);
     expect(after.inlineSize).toBe(before.inlineSize - 48);
   });
@@ -662,10 +662,10 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "second" });
 
     const [p1Id, p2Id] = (() => {
-      const root = finalSection(editor.state);
+      const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       const first = root.firstChildId;
-      const firstBlock = getBlock(editor.state, first);
+      const firstBlock = getBlock(editor.document, first);
       if (firstBlock === null || firstBlock.nextSiblingId === null) {
         throw new Error("no second para");
       }
@@ -683,9 +683,9 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       return null;
     }
 
-    function paraBox(state: typeof editor.state, key: string): LayoutBox {
+    function paraBox(document: typeof editor.document, key: string): LayoutBox {
       const layout = positionTreeForTest(
-        layoutTree(render(state, componentRegistry, attrRegistry).root, 800, shaper),
+        layoutTree(render(document, componentRegistry, attrRegistry).root, 800, shaper),
       );
       const box = findBlockBox(layout, key);
       if (box === null) throw new Error(`no box for ${key}`);
@@ -693,9 +693,9 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     }
 
     // Baseline: no marginBlockEnd attr → the default 0.5em (8px) collapsed gap.
-    expect(getBlock(editor.state, p1Id)?.attrs.marginBlockEnd).toBeUndefined();
-    const p1Before = paraBox(editor.state, p1Id);
-    const p2Before = paraBox(editor.state, p2Id);
+    expect(getBlock(editor.document, p1Id)?.attrs.marginBlockEnd).toBeUndefined();
+    const p1Before = paraBox(editor.document, p1Id);
+    const p2Before = paraBox(editor.document, p2Id);
     const gapBefore = p2Before.y - (p1Before.y + p1Before.blockSize);
 
     // Put the caret in the FIRST paragraph (typing "second" left it collapsed in
@@ -714,13 +714,13 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
       { type: "SET_PARAGRAPH_SPACING", edge: "after", value: 60 },
     );
 
-    // State: the attr landed.
-    expect(getBlock(editor.state, p1Id)?.attrs.marginBlockEnd).toBe(60);
+    // Document: the attr landed.
+    expect(getBlock(editor.document, p1Id)?.attrs.marginBlockEnd).toBe(60);
 
     // Layout: the second paragraph moved DOWN, and the gap grew to exactly the
     // 60px margin (collapse: max(60, para2.before=0) = 60), not the 8px default.
-    const p1After = paraBox(editor.state, p1Id);
-    const p2After = paraBox(editor.state, p2Id);
+    const p1After = paraBox(editor.document, p1Id);
+    const p2After = paraBox(editor.document, p2Id);
     const gapAfter = p2After.y - (p1After.y + p1After.blockSize);
 
     expect(p2After.y).toBeGreaterThan(p2Before.y);
@@ -737,7 +737,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "font me" });
     const pId = (() => {
-      const root = finalSection(editor.state);
+      const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -754,7 +754,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     );
 
     const cascaded = cascadePass(
-      render(editor.state, componentRegistry, attrRegistry).root,
+      render(editor.document, componentRegistry, attrRegistry).root,
     );
 
     function findFirstText(node: RenderNode): RenderNode | null {

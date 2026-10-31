@@ -1,4 +1,4 @@
-import type { BlockId, BookmarkRange, State, SuggestionView } from "../state";
+import type { BlockId, BookmarkRange, Document, SuggestionView } from "../state";
 import { createSpan, extractText, captionEmbedSerializer, BROKEN_CROSS_REFERENCE_TEXT } from "../state";
 import type { CounterValue } from "../numbering";
 
@@ -14,7 +14,7 @@ export { BROKEN_CROSS_REFERENCE_TEXT };
 
 /**
  * Resolve a cross-reference field to its displayed string, at RENDER time. Pure:
- * given the current `state` + the render pass's already-computed list `numbering`
+ * given the current `document` + the render pass's already-computed list `numbering`
  * map (`computeCounters` result, keyed by the list-item's own blockId), produces the
  * text the field shows.
  *
@@ -36,7 +36,7 @@ export { BROKEN_CROSS_REFERENCE_TEXT };
  * Targets the MAIN BODY tree only (resolved via `getBlock`, not `resolveBlock`).
  */
 export function resolveCrossReference(
-  state: State,
+  document: Document,
   numbering: ReadonlyMap<BlockId, CounterValue>,
   props: { readonly range: BookmarkRange; readonly refMode: "number" | "text" },
   view: SuggestionView = "suggesting",
@@ -49,5 +49,5 @@ export function resolveCrossReference(
   }
   // `text`: the bookmarked range's text (Word's REF), in the current view.
   if (range.start.blockId === range.end.blockId && range.start.offset >= range.end.offset) return "";
-  return extractText(state, createSpan(range.start, range.end), captionEmbedSerializer, view);
+  return extractText(document, createSpan(range.start, range.end), captionEmbedSerializer, view);
 }

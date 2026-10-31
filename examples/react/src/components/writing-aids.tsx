@@ -6,7 +6,7 @@ import {
   type BlockId,
   type Decoration,
   type EditorState,
-  type State,
+  type Document,
 } from "@taleweaver/core";
 import { mentionDecorations } from "./mentions";
 /** The pointer event fields the demo reads — satisfied by BOTH backends' events
@@ -38,25 +38,25 @@ function isAidInfo(value: unknown): value is AidInfo {
   return typeof value === "object" && value !== null && typeof (value as { message?: unknown }).message === "string";
 }
 
-function leafIds(state: State): BlockId[] {
+function leafIds(document: Document): BlockId[] {
   const out: BlockId[] = [];
   const walk = (id: BlockId | null): void => {
     for (let cur = id; cur !== null; ) {
-      const b = getBlock(state, cur);
+      const b = getBlock(document, cur);
       if (b === null) return;
       if (b.inlineContent !== null) out.push(b.id);
       else walk(b.firstChildId);
       cur = b.nextSiblingId;
     }
   };
-  walk(getBlock(state, state.rootId)?.firstChildId ?? null);
+  walk(getBlock(document, document.rootId)?.firstChildId ?? null);
   return out;
 }
 
-export function writingAidDecorations(state: State): Decoration[] {
+export function writingAidDecorations(document: Document): Decoration[] {
   const out: Decoration[] = [];
   for (const word of KEYWORDS) {
-    for (const m of findMatches(state, word, { wholeWord: true })) {
+    for (const m of findMatches(document, word, { wholeWord: true })) {
       out.push({
         kind: "inline",
         id: `keyword:${m.blockId}:${m.start}`,
@@ -67,8 +67,8 @@ export function writingAidDecorations(state: State): Decoration[] {
       });
     }
   }
-  for (const id of leafIds(state)) {
-    const items = getBlock(state, id)?.inlineContent?.items ?? [];
+  for (const id of leafIds(document)) {
+    const items = getBlock(document, id)?.inlineContent?.items ?? [];
     const text = items.map((i) => (i.kind === "text" ? i.text : "￼")).join("");
     for (const m of text.matchAll(/\b\w+ly\b/g)) {
       out.push({
@@ -106,20 +106,20 @@ export function writingAidDecorations(state: State): Decoration[] {
 export function useWritingAids(
   enabled: boolean,
   editorState: EditorState,
-  setDecorations: (decorations: readonly Decoration[], basedOn: State) => void,
+  setDecorations: (decorations: readonly Decoration[], basedOn: Document) => void,
   extra: () => readonly Decoration[] = () => [],
 ): void {
-  const state = editorState.state;
+  const document = editorState.document;
   useEffect(() => {
-    // Computed against `state`; the editor maps the result through any edits made since.
+    // Computed against `document`; the editor maps the result through any edits made since.
     const compute = () => [
-      ...(enabled ? writingAidDecorations(state) : []),
-      ...mentionDecorations(state),
+      ...(enabled ? writingAidDecorations(document) : []),
+      ...mentionDecorations(document),
       ...extra(),
     ];
-    const handle = window.setTimeout(() => setDecorations(compute(), state), 250);
+    const handle = window.setTimeout(() => setDecorations(compute(), document), 250);
     return () => window.clearTimeout(handle);
-  }, [enabled, state, setDecorations, extra]);
+  }, [enabled, document, setDecorations, extra]);
 }
 
 /** A hover card anchored to the innermost hovered decoration that carries a message. */

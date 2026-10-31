@@ -13,7 +13,7 @@
 
 import { describe, it, expect } from "vitest";
 import { reduceEditor } from "../reduce-editor";
-import { type EditorState, createEditorStateFromState } from "../editor-state";
+import { type EditorState, createEditorStateFromDocument } from "../editor-state";
 import { type EditorConfig } from "../editor-config";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
@@ -24,8 +24,8 @@ import {
   getTemplateContent,
   PAGE_FIELD_EMBED_TYPE,
 } from "../../state";
-import type { State, BlockId, InlineItem } from "../../state";
-import { buildState, buildBlock, inlineContent, text, embed } from "../../test-utils/state-builders";
+import type { Document, BlockId, InlineItem } from "../../state";
+import { buildDocument, buildBlock, inlineContent, text, embed } from "../../test-utils/document-builders";
 
 const componentRegistry = createDefaultComponentRegistry();
 const attrRegistry = createDefaultAttrRegistry();
@@ -42,8 +42,8 @@ const FN_P = "fn-c1" as BlockId;
  * header exercises the ALLOWED (templateContent) path; the footnote body and the main
  * body exercise the two REJECTED context kinds (embedContent, block).
  */
-function buildStateWithHeaderBody(headerItems: InlineItem[] = [text("Page ")]): State {
-  return buildState({
+function buildDocumentWithHeaderBody(headerItems: InlineItem[] = [text("Page ")]): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -65,72 +65,72 @@ function buildStateWithHeaderBody(headerItems: InlineItem[] = [text("Page ")]): 
  * `INSERT_PAGE_*` handlers are context-driven (caret block/context only) and
  * read no layout — the synthetic state needs only the geometry-free fields.
  */
-function buildEditor(state: State, caret: { blockId: BlockId; offset: number }): EditorState {
+function buildEditor(document: Document, caret: { blockId: BlockId; offset: number }): EditorState {
   const cursor = createPosition(caret.blockId, caret.offset);
-  return createEditorStateFromState(state, createSpan(cursor, cursor), config);
+  return createEditorStateFromDocument(document, createSpan(cursor, cursor), config);
 }
 
 function pageFieldItemsOf(items: readonly InlineItem[] | undefined): InlineItem[] {
   return (items ?? []).filter((it) => it.kind === "embed" && it.embedType === PAGE_FIELD_EMBED_TYPE);
 }
-function headerPageFields(state: State, id: BlockId): InlineItem[] {
-  return pageFieldItemsOf(getTemplateContent(state, id)?.inlineContent?.items);
+function headerPageFields(document: Document, id: BlockId): InlineItem[] {
+  return pageFieldItemsOf(getTemplateContent(document, id)?.inlineContent?.items);
 }
-function bodyPageFields(state: State, id: BlockId): InlineItem[] {
-  return pageFieldItemsOf(getBlock(state, id)?.inlineContent?.items);
+function bodyPageFields(document: Document, id: BlockId): InlineItem[] {
+  return pageFieldItemsOf(getBlock(document, id)?.inlineContent?.items);
 }
 
 describe("handleInsertPageField — INSERT_PAGE_NUMBER / INSERT_PAGE_COUNT (header/footer only)", () => {
   it("INSERT_PAGE_NUMBER in a header inserts a page-field at the caret and advances the caret by 1", () => {
-    const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P1, offset: 5 }); // after "Page "
+    const editor = buildEditor(buildDocumentWithHeaderBody(), { blockId: HDR_P1, offset: 5 }); // after "Page "
     const out = reduceEditor(editor, { type: "INSERT_PAGE_NUMBER" });
 
-    const fields = headerPageFields(out.state, HDR_P1);
+    const fields = headerPageFields(out.document, HDR_P1);
     expect(fields.length).toBe(1);
     expect((fields[0] as { properties?: { fieldKind?: string } }).properties?.fieldKind).toBe("page-number");
     // caret stayed in the header paragraph, advanced past the one-offset field
     expect(out.selection.focus.blockId).toBe(HDR_P1);
     expect(out.selection.focus.offset).toBe(6);
     expect(out.selection.anchor).toEqual(out.selection.focus); // collapsed
-    expect(out.state).not.toBe(editor.state);
+    expect(out.document).not.toBe(editor.document);
     // A caret before a marker inserts after it (inside a bookmark at its start), as typing.
     for (const type of ["INSERT_PAGE_NUMBER", "INSERT_PAGE_COUNT"] as const) {
-      const marked = buildEditor(buildStateWithHeaderBody([embed("bookmark-start", { bookmarkId: "b" }), text("Page ")]), { blockId: HDR_P1, offset: 0 });
-      const items = getTemplateContent(reduceEditor(marked, { type }).state, HDR_P1)?.inlineContent?.items ?? [];
+      const marked = buildEditor(buildDocumentWithHeaderBody([embed("bookmark-start", { bookmarkId: "b" }), text("Page ")]), { blockId: HDR_P1, offset: 0 });
+      const items = getTemplateContent(reduceEditor(marked, { type }).document, HDR_P1)?.inlineContent?.items ?? [];
       expect(items.map((i) => (i.kind === "embed" ? i.embedType : i.text))).toEqual(["bookmark-start", PAGE_FIELD_EMBED_TYPE, "Page "]);
     }
   });
 
   it("INSERT_PAGE_COUNT in a header inserts a page-count field; UNDO removes it (its own undo unit)", () => {
-    const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P1, offset: 5 });
+    const editor = buildEditor(buildDocumentWithHeaderBody(), { blockId: HDR_P1, offset: 5 });
     const inserted = reduceEditor(editor, { type: "INSERT_PAGE_COUNT" });
-    const fields = headerPageFields(inserted.state, HDR_P1);
+    const fields = headerPageFields(inserted.document, HDR_P1);
     expect(fields.length).toBe(1);
     expect((fields[0] as { properties?: { fieldKind?: string } }).properties?.fieldKind).toBe("page-count");
 
     const undone = reduceEditor(inserted, { type: "UNDO" });
-    expect(headerPageFields(undone.state, HDR_P1).length).toBe(0);
+    expect(headerPageFields(undone.document, HDR_P1).length).toBe(0);
   });
 
   it("threads a non-default numberStyle through to the inserted field", () => {
-    const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P1, offset: 5 });
+    const editor = buildEditor(buildDocumentWithHeaderBody(), { blockId: HDR_P1, offset: 5 });
     const out = reduceEditor(editor, { type: "INSERT_PAGE_NUMBER", numberStyle: "lower-roman" });
-    const fields = headerPageFields(out.state, HDR_P1);
+    const fields = headerPageFields(out.document, HDR_P1);
     expect(fields.length).toBe(1);
     expect((fields[0] as { properties?: { numberStyle?: string } }).properties?.numberStyle).toBe("lower-roman");
   });
 
   it("is a NO-OP in the main body (main-body page-fields are OUT of scope)", () => {
-    const editor = buildEditor(buildStateWithHeaderBody(), { blockId: BODY_P, offset: 4 }); // inside "body text"
+    const editor = buildEditor(buildDocumentWithHeaderBody(), { blockId: BODY_P, offset: 4 }); // inside "body text"
     const out = reduceEditor(editor, { type: "INSERT_PAGE_NUMBER" });
     expect(out).toBe(editor); // unchanged editor reference
-    expect(bodyPageFields(out.state, BODY_P).length).toBe(0);
+    expect(bodyPageFields(out.document, BODY_P).length).toBe(0);
   });
 
   it("is a NO-OP in a footnote body (embedContent context — only the template host is allowed)", () => {
     // The gate rejects the embedContent kind, not just main-body: a footnote-body caret
     // resolves to a context root of kind "embedContent", which is NOT "templateContent".
-    const editor = buildEditor(buildStateWithHeaderBody(), { blockId: FN_P, offset: 2 }); // inside "note"
+    const editor = buildEditor(buildDocumentWithHeaderBody(), { blockId: FN_P, offset: 2 }); // inside "note"
     const out = reduceEditor(editor, { type: "INSERT_PAGE_COUNT" });
     expect(out).toBe(editor); // unchanged editor reference — same-ref no-op proves nothing was inserted
   });

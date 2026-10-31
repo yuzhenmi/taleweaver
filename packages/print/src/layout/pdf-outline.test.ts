@@ -18,7 +18,7 @@ import type { TextShaper } from "@taleweaver/core";
 import type { PageConfig } from "./page-config";
 import type { VirtualLayoutTree } from "./virtual-layout-tree";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
@@ -26,7 +26,7 @@ import {
 import { makeBlockParentLookup } from "@taleweaver/core";
 import { resolveGotoDestination } from "./resolve-goto-destination";
 import { asBlockId } from "@taleweaver/core";
-import type { State } from "@taleweaver/core";
+import type { Document } from "@taleweaver/core";
 
 const SHAPER_CHAR_W = 8;
 const SHAPER_LINE_H = 16;
@@ -60,7 +60,7 @@ interface HeadingSpec {
 }
 
 interface Built {
-  state: State;
+  document: Document;
   virtual: VirtualLayoutTree;
   shaper: TextShaper;
 }
@@ -68,7 +68,7 @@ interface Built {
 /** Build a flat document of single-line heading blocks, laid out paginated. */
 function buildHeadingDoc(headings: readonly HeadingSpec[], cfg: PageConfig): Built {
   const ids = headings.map((h) => h.id);
-  const state = buildState({
+  const document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -91,7 +91,7 @@ function buildHeadingDoc(headings: readonly HeadingSpec[], cfg: PageConfig): Bui
     ],
   });
   const root = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -100,13 +100,13 @@ function buildHeadingDoc(headings: readonly HeadingSpec[], cfg: PageConfig): Bui
   if (lt.type !== "virtual-root") {
     throw new Error("expected a VirtualLayoutTree (paginated supported doc)");
   }
-  return { state, virtual: lt, shaper };
+  return { document, virtual: lt, shaper };
 }
 
 function build(headings: readonly HeadingSpec[]): readonly PdfOutlineNode[] {
-  const { state, virtual, shaper } = buildHeadingDoc(headings, pageConfig());
-  const parentOf = makeBlockParentLookup(state);
-  return buildPdfOutline(state, virtual, shaper, parentOf);
+  const { document, virtual, shaper } = buildHeadingDoc(headings, pageConfig());
+  const parentOf = makeBlockParentLookup(document);
+  return buildPdfOutline(document, virtual, shaper, parentOf);
 }
 
 describe("buildPdfOutline", () => {
@@ -145,16 +145,16 @@ describe("buildPdfOutline", () => {
       level: i % 4 === 0 ? 1 : 2,
       text: `Heading ${i}`,
     }));
-    const { state, virtual, shaper } = buildHeadingDoc(headings, pageConfig());
-    const parentOf = makeBlockParentLookup(state);
-    const roots = buildPdfOutline(state, virtual, shaper, parentOf);
+    const { document, virtual, shaper } = buildHeadingDoc(headings, pageConfig());
+    const parentOf = makeBlockParentLookup(document);
+    const roots = buildPdfOutline(document, virtual, shaper, parentOf);
 
     // buildPdfOutline threads each heading's resolved destination UNCHANGED —
     // assert node.dest deep-equals an independent resolveGotoDestination call
     // (robust to the exact pagination, which depends on heading margins).
     const expectDest = (node: PdfOutlineNode, id: string): void => {
       expect(node.dest).toEqual(
-        resolveGotoDestination(state, asBlockId(id), virtual, shaper, parentOf),
+        resolveGotoDestination(document, asBlockId(id), virtual, shaper, parentOf),
       );
     };
     expect(roots.map((r) => r.title)).toEqual(["Heading 0", "Heading 4"]);
@@ -172,12 +172,12 @@ describe("buildPdfOutline", () => {
   });
 
   it("returns [] for a heading-free document", () => {
-    const { state, virtual, shaper } = buildHeadingDoc(
+    const { document, virtual, shaper } = buildHeadingDoc(
       [{ id: "h0", level: 1, text: "Only heading" }],
       pageConfig(),
     );
     // Replace with a paragraph-only doc: build directly.
-    const paraState = buildState({
+    const paraDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: "p0" }),
@@ -190,7 +190,7 @@ describe("buildPdfOutline", () => {
       ],
     });
     const root = render(
-      paraState,
+      paraDocument,
       createDefaultComponentRegistry(),
       createDefaultAttrRegistry(),
     ).root;
@@ -198,10 +198,10 @@ describe("buildPdfOutline", () => {
     if (lt.type !== "virtual-root") {
       throw new Error("expected a VirtualLayoutTree");
     }
-    const parentOf = makeBlockParentLookup(paraState);
-    expect(buildPdfOutline(paraState, lt, shaper, parentOf)).toEqual([]);
+    const parentOf = makeBlockParentLookup(paraDocument);
+    expect(buildPdfOutline(paraDocument, lt, shaper, parentOf)).toEqual([]);
     // (state/virtual from the heading doc are unused here; assert the helper is callable.)
-    void state;
+    void document;
     void virtual;
   });
 });

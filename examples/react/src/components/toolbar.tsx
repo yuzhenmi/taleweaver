@@ -219,7 +219,7 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
   // Current document-wide footnote numbering reset policy (drives the footnote
   // dropdown's displayed label below). Read straight from the root block's attrs.
   const footnoteReset = useMemo(
-    () => documentFootnotePolicy(editorState.state).reset,
+    () => documentFootnotePolicy(editorState.document).reset,
     [editorState],
   );
 

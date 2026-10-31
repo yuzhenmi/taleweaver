@@ -1,5 +1,5 @@
 /**
- * `taleweaver-html` ENCODE: a pure `State` → HTML-string serialization (no
+ * `taleweaver-html` ENCODE: a pure `Document` → HTML-string serialization (no
  * parser). Walks the main tree in document order, mapping each block to its
  * HTML element per the block-type table.
  *
@@ -10,10 +10,10 @@
  * dropped type + the lossless binary escape; other unsupported
  * embeds are skipped silently.
  */
-import { getBlock } from "../state";
+import { getBlock } from "../document";
 import { topLevelBlockIds } from "../block-traversal";
 import { docHasLists } from "../document-order";
-import { getListDefsForState, classifyListDef } from "../list-defs";
+import { getListDefsForDocument, classifyListDef } from "../list-defs";
 import { collectListEvents, computeCounters } from "../../numbering";
 import type { CounterValue } from "../../numbering";
 import { FOOTNOTE_ANCHOR_EMBED_TYPE } from "../ops/insert-footnote";
@@ -23,7 +23,7 @@ import { INLINE_IMAGE_EMBED_TYPE, type EmbedItem } from "../inline-content";
 import { BOOKMARK_START_EMBED_TYPE, BOOKMARK_END_EMBED_TYPE, collectBookmarks, type BookmarkRange } from "../bookmarks";
 import { extractText, captionEmbedSerializer } from "../extract-text";
 import { createSpan } from "../block-position";
-import type { State } from "../state";
+import type { Document } from "../document";
 import type { Block } from "../block";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -351,7 +351,7 @@ function emitLiTag(
   return tag;
 }
 
-type ListDefMap = ReturnType<typeof getListDefsForState>;
+type ListDefMap = ReturnType<typeof getListDefsForDocument>;
 
 /** Resolved list ordinals keyed by list-item blockId (numbering engine output). */
 type Counters = ReadonlyMap<BlockId, CounterValue>;
@@ -367,7 +367,7 @@ type Counters = ReadonlyMap<BlockId, CounterValue>;
  * and cells it has — export never throws.
  */
 function encodeTable(
-  state: State,
+  document: Document,
   table: Block,
   listDefs: ListDefMap,
   counters: Counters,
@@ -389,16 +389,16 @@ function encodeTable(
 
   let rowId = table.firstChildId;
   while (rowId !== null) {
-    const row = getBlock(state, rowId);
+    const row = getBlock(document, rowId);
     if (row === null) break;
     if (row.type === "table-row") {
       out += "<tr>";
       let cellId = row.firstChildId;
       while (cellId !== null) {
-        const cellBlock = getBlock(state, cellId);
+        const cellBlock = getBlock(document, cellId);
         if (cellBlock === null) break;
         if (cellBlock.type === "table-cell") {
-          out += encodeCell(state, cellBlock, listDefs, counters, ctx);
+          out += encodeCell(document, cellBlock, listDefs, counters, ctx);
         }
         cellId = cellBlock.nextSiblingId;
       }
@@ -412,7 +412,7 @@ function encodeTable(
 
 /** Encode one `table-cell` → `<td>` with optional span attrs + recursive content. */
 function encodeCell(
-  state: State,
+  document: Document,
   cell: Block,
   listDefs: ListDefMap,
   counters: Counters,
@@ -426,9 +426,9 @@ function encodeCell(
   const childIds: BlockId[] = [];
   for (let c = cell.firstChildId; c !== null; ) {
     childIds.push(c);
-    c = getBlock(state, c)?.nextSiblingId ?? null;
+    c = getBlock(document, c)?.nextSiblingId ?? null;
   }
-  const inner = encodeBlockSequence(state, childIds, listDefs, counters, ctx);
+  const inner = encodeBlockSequence(document, childIds, listDefs, counters, ctx);
   return `<td${attrsStr}>${inner}</td>`;
 }
 
@@ -440,7 +440,7 @@ function encodeCell(
  * via `encodeTable` → `encodeCell`, so nested structures serialize.
  */
 function encodeBlockSequence(
-  state: State,
+  document: Document,
   ids: readonly BlockId[],
   listDefs: ListDefMap,
   counters: Counters,
@@ -448,7 +448,7 @@ function encodeBlockSequence(
 ): string {
   const blocks: Block[] = [];
   for (const id of ids) {
-    const block = getBlock(state, id);
+    const block = getBlock(document, id);
     if (block !== null) blocks.push(block);
   }
 
@@ -484,7 +484,7 @@ function encodeBlockSequence(
       out += encodeListRun(runItems, tag);
       i = j;
     } else if (block.type === "table") {
-      out += encodeTable(state, block, listDefs, counters, ctx);
+      out += encodeTable(document, block, listDefs, counters, ctx);
       i++;
     } else {
       out += encodeLeaf(block, ctx);
@@ -495,22 +495,22 @@ function encodeBlockSequence(
 }
 
 /**
- * Encode the document State to an HTML string. Walks the main tree's top-level
+ * Encode the document Document to an HTML string. Walks the main tree's top-level
  * blocks (root → sections → blocks; sections are transparent, as in Word's HTML
  * output) in document order via {@link encodeBlockSequence}.
  */
-export function encodeHtml(state: State): string {
-  const listDefs = getListDefsForState(state);
+export function encodeHtml(document: Document): string {
+  const listDefs = getListDefsForDocument(document);
   // Resolve list ordinals via the SAME numbering engine the render path uses
   // (single source of truth — never re-derived here), so `<ol start>` / `<li value>`
   // match the on-screen marker numbers. `docHasLists` short-circuits the walk for
   // list-free documents.
-  const counters: Counters = docHasLists(state)
-    ? computeCounters(collectListEvents(state), listDefs)
+  const counters: Counters = docHasLists(document)
+    ? computeCounters(collectListEvents(document), listDefs)
     : new Map();
   // Bookmarks are paired once (the duplicate-id rule) when the document has any.
   let bookmarks: Map<string, BookmarkRange> | null = null;
-  const pairs = (): Map<string, BookmarkRange> => (bookmarks ??= collectBookmarks(state));
+  const pairs = (): Map<string, BookmarkRange> => (bookmarks ??= collectBookmarks(document));
   const ctx: EncodeCtx = {
     warnDrop: makeDropWarner(),
     isLiveStart: (id, blockId, offset) => {
@@ -524,9 +524,9 @@ export function encodeHtml(state: State): string {
       if (item.properties.refMode === "number") return counters.get(range.start.blockId)?.formatted ?? BROKEN_CROSS_REFERENCE_TEXT;
       // `page` needs pagination, which this layout-free encoder does not have.
       if (item.properties.refMode !== "text") return "";
-      return extractText(state, createSpan(range.start, range.end), captionEmbedSerializer);
+      return extractText(document, createSpan(range.start, range.end), captionEmbedSerializer);
     },
   };
-  const body = encodeBlockSequence(state, topLevelBlockIds(state), listDefs, counters, ctx);
+  const body = encodeBlockSequence(document, topLevelBlockIds(document), listDefs, counters, ctx);
   return `<body>${body}</body>`;
 }

@@ -48,12 +48,12 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 import type { LayoutBox } from "../layout/layout-box";
 import type { TextShaper } from "@taleweaver/core";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
-import type { State } from "@taleweaver/core";
+import type { Document } from "@taleweaver/core";
 
 const CHAR_W = 8;
 const LINE_H = 16;
@@ -76,7 +76,7 @@ function columnSectionPlan(columnConfig: ColumnConfig): SectionPlan {
 }
 
 interface Built {
-  state: State;
+  document: Document;
   layout: LayoutBox;
   shaper: TextShaper;
   page0: LayoutBox;
@@ -95,7 +95,7 @@ function buildMulticolumnDoc(
   columnConfig: ColumnConfig,
 ): Built {
   const blockIds = paragraphTexts.map((_, i) => `p${i}`);
-  const state = buildState({
+  const document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -117,7 +117,7 @@ function buildMulticolumnDoc(
     ],
   });
   const rendered = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -150,7 +150,7 @@ function buildMulticolumnDoc(
 
   const layout = positionTreeForTest(virtual);
   const page0 = virtual.getPage(0);
-  return { state, layout, shaper, page0 };
+  return { document, layout, shaper, page0 };
 }
 
 describe("cursor-position / selection-geometry — multi-column SPANNING block (same block id in both columns)", () => {
@@ -219,7 +219,7 @@ describe("cursor-position / selection-geometry — multi-column SPANNING block (
   });
 
   it("a caret whose line is in COLUMN 1 resolves to column-1 coords, NOT column 0 (load-bearing)", () => {
-    const { state, layout, shaper, col1Lines, col0MaxX, col1MinX } = geometry();
+    const { document, layout, shaper, col1Lines, col0MaxX, col1MinX } = geometry();
 
     // A line that lives in column 1 but belongs to the SAME block 'p0'.
     const target = col1Lines.find((l) => l.line.ownerBlockId === "p0");
@@ -228,7 +228,7 @@ describe("cursor-position / selection-geometry — multi-column SPANNING block (
 
     // An offset within that column-1 line.
     const caret = createPosition(target.line.ownerBlockId, target.line.inlineOffsetStart);
-    const pixel = resolvePixelPosition(state, caret, layout, shaper);
+    const pixel = resolvePixelPosition(document, caret, layout, shaper);
     expect(pixel).not.toBeNull();
     if (pixel === null) return;
 
@@ -242,7 +242,7 @@ describe("cursor-position / selection-geometry — multi-column SPANNING block (
   });
 
   it("round-trips a column-1 caret AND a column-0 caret through hit-test across the boundary", () => {
-    const { state, layout, shaper, col0Lines, col1Lines } = geometry();
+    const { document, layout, shaper, col0Lines, col1Lines } = geometry();
 
     const roundTrip = (al: AbsoluteLineBox): void => {
       // Use an offset strictly INSIDE the line (start + 1, clamped to end) so
@@ -250,11 +250,11 @@ describe("cursor-position / selection-geometry — multi-column SPANNING block (
       // neighbouring line during the round-trip.
       const off = Math.min(al.line.inlineOffsetStart + 1, al.line.inlineOffsetEnd);
       const pos = createPosition(al.line.ownerBlockId, off);
-      const pixel = resolvePixelPosition(state, pos, layout, shaper);
+      const pixel = resolvePixelPosition(document, pos, layout, shaper);
       expect(pixel).not.toBeNull();
       if (pixel === null) return;
 
-      const hit = resolvePositionFromPixel(state, layout, shaper, pixel.x, pixel.y, 0);
+      const hit = resolvePositionFromPixel(document, layout, shaper, pixel.x, pixel.y, 0);
       expect(hit).not.toBeNull();
       if (hit === null) return;
       expect(hit.position.blockId).toBe(pos.blockId);
@@ -274,7 +274,7 @@ describe("cursor-position / selection-geometry — multi-column SPANNING block (
   });
 
   it("selection from a column-0 offset to a column-1 offset (SAME block) draws rects in both columns and NONE spanning the gap", () => {
-    const { state, layout, shaper, col0Lines, col1Lines, col0MaxX, col1MinX } = geometry();
+    const { document, layout, shaper, col0Lines, col1Lines, col0MaxX, col1MinX } = geometry();
 
     const c0 = col0Lines.find((l) => l.line.ownerBlockId === "p0");
     const c1 = col1Lines.find((l) => l.line.ownerBlockId === "p0");
@@ -299,7 +299,7 @@ describe("cursor-position / selection-geometry — multi-column SPANNING block (
       createPosition(blockId, c1Off),
     );
 
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
 
     // (a) multi-line selection across the boundary → at least 2 rects.
     expect(rects.length).toBeGreaterThanOrEqual(2);

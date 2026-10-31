@@ -12,7 +12,7 @@ import { render } from "./render";
 import type { RenderNode, ElementBox, TextBox } from "./render-node";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
-import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent, text } from "../test-utils/document-builders";
 import { asBlockId, insertPageField, PAGE_FIELD_EMBED_TYPE, createPosition } from "../state";
 import type { PageFieldNumberStyle } from "../state";
 
@@ -33,14 +33,14 @@ function findPageField(root: RenderNode): ElementBox | null {
 }
 
 function docWithField(fieldKind: "page-number" | "page-count", numberStyle?: PageFieldNumberStyle) {
-  const state = buildState({
+  const document = buildDocument({
     rootId: asBlockId("doc"),
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
       buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("ab")]) }),
     ],
   });
-  return insertPageField(state, createPosition(asBlockId("p"), 1), fieldKind, numberStyle).state;
+  return insertPageField(document, createPosition(asBlockId("p"), 1), fieldKind, numberStyle).document;
 }
 
 describe("render — page-field placeholder wiring", () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { collectListEvents, listCounterRenumberedBlocks } from "./list-collector";
-import { buildState, buildBlock } from "../test-utils/state-builders";
+import { buildDocument, buildBlock } from "../test-utils/document-builders";
 import type { BlockId } from "../state";
 import type { CounterValue } from "./types";
 
@@ -32,16 +32,16 @@ function flatDoc(children: Array<{ id: string; type: string; attrs?: Record<stri
       }),
     );
   });
-  return buildState({ rootId: "root", blocks });
+  return buildDocument({ rootId: "root", blocks });
 }
 
 describe("collectListEvents", () => {
   it("emits one event per list-item with listId scope + listLevel", () => {
-    const state = flatDoc([
+    const document = flatDoc([
       { id: "i1", type: "list-item", attrs: { listId: "L1", listLevel: 0 } },
       { id: "i2", type: "list-item", attrs: { listId: "L1", listLevel: 0 } },
     ]);
-    const events = collectListEvents(state);
+    const events = collectListEvents(document);
     expect(events.map((e) => e.blockId)).toEqual(["i1", "i2"]);
     expect(nth(events, 0, "event").scopeKey).toBe("L1");
     expect(nth(events, 0, "event").level).toBe(0);
@@ -50,29 +50,29 @@ describe("collectListEvents", () => {
   });
 
   it("sets breakBefore when a non-list block intervenes", () => {
-    const state = flatDoc([
+    const document = flatDoc([
       { id: "i1", type: "list-item", attrs: { listId: "L1", listLevel: 0 } },
       { id: "p1", type: "paragraph" },
       { id: "i2", type: "list-item", attrs: { listId: "L1", listLevel: 0 } },
     ]);
-    const events = collectListEvents(state);
+    const events = collectListEvents(document);
     expect(events.map((e) => e.blockId)).toEqual(["i1", "i2"]);
     expect(nth(events, 1, "event").breakBefore).toBe(true);
   });
 
   it("sets breakBefore when the listId changes between adjacent items", () => {
-    const state = flatDoc([
+    const document = flatDoc([
       { id: "i1", type: "list-item", attrs: { listId: "L1", listLevel: 0 } },
       { id: "i2", type: "list-item", attrs: { listId: "L2", listLevel: 0 } },
     ]);
-    expect(nth(collectListEvents(state), 1, "event").breakBefore).toBe(true);
+    expect(nth(collectListEvents(document), 1, "event").breakBefore).toBe(true);
   });
 
   it("carries an override from listCounterOverride attr", () => {
-    const state = flatDoc([
+    const document = flatDoc([
       { id: "i1", type: "list-item", attrs: { listId: "L1", listLevel: 0, listCounterOverride: 7 } },
     ]);
-    expect(nth(collectListEvents(state), 0, "event").override).toBe(7);
+    expect(nth(collectListEvents(document), 0, "event").override).toBe(7);
   });
 });
 

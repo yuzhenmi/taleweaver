@@ -15,7 +15,7 @@
  * Migrated from `packages/core/src/editor/actions/hard-break-navigation.test.ts`.
  * The fixture is rebuilt via the dom package's `decodeHtml` (the real clipboard
  * decode path — `<p>AB<br>CD</p>` → one paragraph with the hard-break embed),
- * since core's `buildState`/`embed` test-utils don't cross the package boundary.
+ * since core's `buildDocument`/`embed` test-utils don't cross the package boundary.
  * Assertions byte-identical; the layout SOURCE is the driver rebuild.
  */
 import { describe, it, expect } from "vitest";
@@ -23,7 +23,7 @@ import { createPosition, getBlock, productionAllocator, decodeHtml, type BlockId
 import { resolvePositionFromPixel, resolvePixelPosition } from "../index";
 import { browserHtmlParser } from "../html-parser";
 import {
-  makeNavEditorFromState,
+  makeNavEditorFromDocument,
   caretAt as caretAtHelper,
   nav,
   layoutOf,
@@ -39,8 +39,8 @@ const LINE_H = 16;
 
 /** A fresh nav context over one paragraph "AB" <hard-break> "CD" (block length 5). */
 function hardBreakCtx(): { ctx: NavCtx; para: BlockId } {
-  const state = decodeHtml("<p>AB<br>CD</p>", productionAllocator, browserHtmlParser, TEST_RESOLVER);
-  const ctx = makeNavEditorFromState(state, {
+  const document = decodeHtml("<p>AB<br>CD</p>", productionAllocator, browserHtmlParser, TEST_RESOLVER);
+  const ctx = makeNavEditorFromDocument(document, {
     containerWidth: 200,
     charWidth: CHAR_W,
     lineHeight: LINE_H,
@@ -69,7 +69,7 @@ function up(ctx: NavCtx): NavCtx {
 /** Rendered caret pixel position for the editor's current focus. */
 function caretPixel(ctx: NavCtx) {
   const r = resolvePixelPosition(
-    ctx.editor.state,
+    ctx.editor.document,
     ctx.editor.selection.focus,
     layoutOf(ctx),
     ctx.measurer,
@@ -200,7 +200,7 @@ describe("hard-break — hit-test lands on the clicked sub-line", () => {
     const x = startOfCD.x + CHAR_W; // between C and D
     const y = startOfCD.lineY + LINE_H / 2;
 
-    const hit = resolvePositionFromPixel(ctx.editor.state, lt, ctx.measurer, x, y);
+    const hit = resolvePositionFromPixel(ctx.editor.document, lt, ctx.measurer, x, y);
     expect(hit).not.toBeNull();
     expect(hit?.position.blockId).toBe(para);
     expect(hit?.position.offset).toBeGreaterThanOrEqual(3);
@@ -217,7 +217,7 @@ describe("hard-break — hit-test lands on the clicked sub-line", () => {
     const x = CHAR_W; // between A and B
     const y = endOfAB.lineY + LINE_H / 2;
 
-    const hit = resolvePositionFromPixel(ctx.editor.state, lt, ctx.measurer, x, y);
+    const hit = resolvePositionFromPixel(ctx.editor.document, lt, ctx.measurer, x, y);
     expect(hit?.position.blockId).toBe(para);
     expect(hit?.position.offset).toBeGreaterThanOrEqual(0);
     expect(hit?.position.offset).toBeLessThanOrEqual(2);
@@ -248,7 +248,7 @@ describe("hard-break — selection spans the break (EXPAND_SELECTION / EXPAND_LI
     expanded = nav(expanded, { type: "EXPAND_SELECTION", direction: "forward" });
     expect(expanded.editor.selection.anchor.offset).toBe(2);
     expect(expanded.editor.selection.focus.offset).toBe(4);
-    const block = getBlock(expanded.editor.state, para);
+    const block = getBlock(expanded.editor.document, para);
     expect(block?.inlineContent?.items.length).toBe(3);
   });
 });

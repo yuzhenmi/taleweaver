@@ -26,7 +26,7 @@ import {
 } from "../editor/actions/test-helpers";
 import { collectFootnoteAnchors, type FootnoteNumber } from "../footnotes";
 import { FOOTNOTE_ANCHOR_EMBED_TYPE } from "../state";
-import type { State, BlockId } from "../state";
+import type { Document, BlockId } from "../state";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -36,19 +36,19 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 
 /** Build a one-paragraph doc carrying a single footnote; return its ids. */
 function docWithOneFootnote(): {
-  state: State;
+  document: Document;
   contentBlockId: BlockId;
   hostBlockId: BlockId;
 } {
   let editor = createInitialEditorState(config);
   editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
   editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
-  const anchors = collectFootnoteAnchors(editor.state);
+  const anchors = collectFootnoteAnchors(editor.document);
   if (anchors.length !== 1) {
     throw new Error(`expected exactly one footnote anchor, got ${anchors.length}`);
   }
   return {
-    state: editor.state,
+    document: editor.document,
     contentBlockId: nth(anchors, 0, "anchor").contentBlockId,
     hostBlockId: nth(anchors, 0, "anchor").blockId,
   };
@@ -91,28 +91,28 @@ const FIVE: FootnoteNumber = { value: 5, formatted: "5" };
 
 describe("FN-6.4 — render footnoteNumbersOverride (call marker + body marker)", () => {
   it("call marker uses the override number, not the policy-derived one", () => {
-    const { state, contentBlockId } = docWithOneFootnote();
+    const { document, contentBlockId } = docWithOneFootnote();
 
     // Default (no override): continuous → bare "1" on the call marker.
-    const def = render(state, componentRegistry, attrRegistry);
+    const def = render(document, componentRegistry, attrRegistry);
     expect(callMarkerText(def.root, contentBlockId)).toBe("1");
 
     // With override → "5".
     const override = new Map<BlockId, FootnoteNumber>([[contentBlockId, FIVE]]);
-    const out = render(state, componentRegistry, attrRegistry, {
+    const out = render(document, componentRegistry, attrRegistry, {
       footnoteNumbersOverride: override,
     });
     expect(callMarkerText(out.root, contentBlockId)).toBe("5");
   });
 
   it("body leading marker uses the override number too", () => {
-    const { state, contentBlockId } = docWithOneFootnote();
+    const { document, contentBlockId } = docWithOneFootnote();
 
-    const def = render(state, componentRegistry, attrRegistry);
+    const def = render(document, componentRegistry, attrRegistry);
     expect(bodyMarkerText(def, contentBlockId)).toBe("1.");
 
     const override = new Map<BlockId, FootnoteNumber>([[contentBlockId, FIVE]]);
-    const out = render(state, componentRegistry, attrRegistry, {
+    const out = render(document, componentRegistry, attrRegistry, {
       footnoteNumbersOverride: override,
     });
     // The body marker adds the list-style "." to the override's bare number.
@@ -120,18 +120,18 @@ describe("FN-6.4 — render footnoteNumbersOverride (call marker + body marker)"
   });
 
   it("the override map is cached on RenderOutput.footnoteNumbers", () => {
-    const { state, contentBlockId } = docWithOneFootnote();
+    const { document, contentBlockId } = docWithOneFootnote();
     const override = new Map<BlockId, FootnoteNumber>([[contentBlockId, FIVE]]);
-    const out = render(state, componentRegistry, attrRegistry, {
+    const out = render(document, componentRegistry, attrRegistry, {
       footnoteNumbersOverride: override,
     });
     expect(out.footnoteNumbers.get(contentBlockId)?.formatted).toBe("5");
   });
 
   it("override flows through the INCREMENTAL path and overrides the reused cache", () => {
-    const { state, contentBlockId, hostBlockId } = docWithOneFootnote();
+    const { document, contentBlockId, hostBlockId } = docWithOneFootnote();
     // Prior cycle: continuous (no override).
-    const prev = render(state, componentRegistry, attrRegistry);
+    const prev = render(document, componentRegistry, attrRegistry);
     expect(prev.footnoteNumbers.get(contentBlockId)?.formatted).toBe("1");
 
     // Incremental cycle with the changed-marker blocks dirtied (the HOST block
@@ -140,9 +140,9 @@ describe("FN-6.4 — render footnoteNumbersOverride (call marker + body marker)"
     // must win over the reused prev.footnoteNumbers cache and re-render both
     // markers with "5".
     const override = new Map<BlockId, FootnoteNumber>([[contentBlockId, FIVE]]);
-    const out = render(state, componentRegistry, attrRegistry, {
+    const out = render(document, componentRegistry, attrRegistry, {
       prev,
-      prevState: state,
+      prevDocument: document,
       dirtyIds: new Set<BlockId>([hostBlockId, contentBlockId]),
       footnoteNumbersOverride: override,
     });
@@ -153,8 +153,8 @@ describe("FN-6.4 — render footnoteNumbersOverride (call marker + body marker)"
   });
 
   it("no override → behavior unchanged (continuous default)", () => {
-    const { state, contentBlockId } = docWithOneFootnote();
-    const out = render(state, componentRegistry, attrRegistry);
+    const { document, contentBlockId } = docWithOneFootnote();
+    const out = render(document, componentRegistry, attrRegistry);
     expect(out.footnoteNumbers.get(contentBlockId)?.formatted).toBe("1");
     expect(callMarkerText(out.root, contentBlockId)).toBe("1");
   });

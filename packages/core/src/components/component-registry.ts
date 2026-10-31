@@ -22,7 +22,7 @@ import { tableOfContentsComponent } from "./table-of-contents";
  * Also implements `BlockKindResolver` from the state module: `getBlockKind`
  * maps a type string to its `BlockKind` by reading the registered
  * definition's `kind` (container) or `leafShape` (inline-bearing vs
- * atomic). State ops that need to judge shape (e.g., `setBlockType`'s
+ * atomic). Document ops that need to judge shape (e.g., `setBlockType`'s
  * cross-kind refusal) accept the resolver — the state module stays free
  * of component-type knowledge.
  *

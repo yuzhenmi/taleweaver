@@ -16,7 +16,7 @@ export function handleSplitNode(editor: EditorState): Edit | null {
   const { config } = editor;
   // Object selection: Enter on a selected atomic-leaf (image) does
   // nothing — an atomic block has no text content to split. No-op (Google Docs).
-  if (isObjectSelection(editor.state, editor.selection, config.componentRegistry) !== null) {
+  if (isObjectSelection(editor.document, editor.selection, config.componentRegistry) !== null) {
     return null;
   }
 
@@ -31,25 +31,25 @@ export function handleSplitNode(editor: EditorState): Edit | null {
     // Both the suggesting composite and the direct deleteRange would otherwise
     // operate on a cross-tree span (deleteRange throws "no common ancestor"), so
     // refuse here ONCE for both modes.
-    if (isCrossContextSelection(editor.state, selection)) return null;
+    if (isCrossContextSelection(editor.document, selection)) return null;
     // Deletable-span guard + collapse point (see expandedSpanCollapsePoint):
     // refuses an unresolvable or cross-parent span.
-    const start = expandedSpanCollapsePoint(editor.state, selection);
+    const start = expandedSpanCollapsePoint(editor.document, selection);
     if (start === null) return null;
 
     // Gate on the selection-start block's context: in suggesting mode a non-collapsed
     // Enter SOFT-DELETES the selection then inserts a suggested split — in the main body
     // OR any footnote/header/footer body (`replaceSuggestionInputForBlock` returns null
     // only when not suggesting or the block resolves to no context).
-    const replaceInput = replaceSuggestionInputForBlock(editor.state, spanStart(editor.state, selection).blockId, config);
+    const replaceInput = replaceSuggestionInputForBlock(editor, spanStart(editor.document, selection).blockId);
     if (replaceInput !== null) {
       // Suggesting mode: a non-collapsed Enter
       // SOFT-DELETES the selection (text stays, struck) THEN inserts a suggested
       // paragraph split, in ONE undoable transaction. The split lands in the span's
       // text (`clipSpanToText`): a covered object stays in place (its cell text is struck).
-      const { anchor: sStart, focus: sEnd } = clipSpanToText(editor.state, selection);
-      const splitBlock = resolveBlock(editor.state, sStart.blockId)?.block ?? null;
-      const endBlock = resolveBlock(editor.state, sEnd.blockId)?.block ?? null;
+      const { anchor: sStart, focus: sEnd } = clipSpanToText(editor.document, selection);
+      const splitBlock = resolveBlock(editor.document, sStart.blockId)?.block ?? null;
+      const endBlock = resolveBlock(editor.document, sEnd.blockId)?.block ?? null;
       if (
         splitBlock === null ||
         splitBlock.inlineContent === null ||
@@ -76,13 +76,13 @@ export function handleSplitNode(editor: EditorState): Edit | null {
         const newBlockInit =
           followOnType !== undefined ? { type: followOnType, attrs: {} } : undefined;
         const result = splitWithSuggestionOverSelection(
-          editor.state,
+          editor.document,
           selection,
           productionAllocator,
           replaceInput,
           newBlockInit,
         );
-        if (result.state === editor.state) return null;
+        if (result.document === editor.document) return null;
         const newCursor = createPosition(sStart.blockId, 0);
         const newSelection = createSpan(newCursor, newCursor);
         return { change: result, selection: newSelection };
@@ -96,38 +96,38 @@ export function handleSplitNode(editor: EditorState): Edit | null {
       // E keeps its id (a removed own ¶ leaves the survivor R) and the strike never
       // touches its tail, so the post-strike split offset is E's length minus the tail.
       const mint = { author: replaceInput.author, createdAt: replaceInput.createdAt, order: replaceInput.order, noCoalesce: replaceInput.noCoalesce };
-      const del = markDeletion(editor.state, selection, { ...mint, id: replaceInput.deletionId });
-      const postEnd = resolveBlock(del.state, sEnd.blockId)?.block ?? null;
+      const del = markDeletion(editor.document, selection, { ...mint, id: replaceInput.deletionId });
+      const postEnd = resolveBlock(del.document, sEnd.blockId)?.block ?? null;
       if (postEnd === null || postEnd.inlineContent === null) return null;
       const tailLen = inlineContentLength(endBlock.inlineContent) - sEnd.offset;
       const splitPos = createPosition(sEnd.blockId, inlineContentLength(postEnd.inlineContent) - tailLen);
       const newBlockInit = followOnType !== undefined ? { type: followOnType, attrs: {} } : undefined;
-      const split = splitWithSuggestion(del.state, splitPos, productionAllocator, { ...mint, id: replaceInput.insertionId }, newBlockInit);
+      const split = splitWithSuggestion(del.document, splitPos, productionAllocator, { ...mint, id: replaceInput.insertionId }, newBlockInit);
       for (const id of del.dirtyIds) accumulatedDirtyIds.add(id);
       for (const id of split.dirtyIds) accumulatedDirtyIds.add(id);
       const newCursor = createPosition(sEnd.blockId, 0);
       const newSelection = createSpan(newCursor, newCursor);
-      return { change: { state: split.state, dirtyIds: accumulatedDirtyIds }, selection: newSelection };
+      return { change: { document: split.document, dirtyIds: accumulatedDirtyIds }, selection: newSelection };
     }
 
     // Direct mode: delete the span, then fall through to the shared collapsed split.
-    const deleteResult = deleteRange(editor.state, selection);
+    const deleteResult = deleteRange(editor.document, selection);
     for (const id of deleteResult.dirtyIds) accumulatedDirtyIds.add(id);
     const collapsedCursor = createPosition(start.blockId, start.offset);
     current = {
       ...editor,
-      state: deleteResult.state,
+      document: deleteResult.document,
       selection: createSpan(collapsedCursor, collapsedCursor),
     };
   }
 
   const pos = current.selection.focus;
-  const block = resolveBlock(current.state, pos.blockId)?.block ?? null;
+  const block = resolveBlock(current.document, pos.blockId)?.block ?? null;
   // The range delete is committed even when the split itself cannot happen.
   const deleteEdit = (): Edit | null =>
     current === editor
       ? null
-      : { change: { state: current.state, dirtyIds: accumulatedDirtyIds }, selection: current.selection };
+      : { change: { document: current.document, dirtyIds: accumulatedDirtyIds }, selection: current.selection };
   if (block === null) return deleteEdit();
 
   // Split is only meaningful on leaf blocks under a non-null parent.
@@ -145,7 +145,7 @@ export function handleSplitNode(editor: EditorState): Edit | null {
   ) {
     return listLevelOf(block) > 0
       ? shiftListLevel(editor, -1)
-      : unlistBlock(editor, block, config);
+      : unlistBlock(editor, block);
   }
 
   // "Style for the following paragraph" (Word / Google Docs): pressing Enter at
@@ -173,33 +173,33 @@ export function handleSplitNode(editor: EditorState): Edit | null {
   // OR a footnote/header/footer body) is TRACKED via `splitWithSuggestion`;
   // `suggestionInputForBlock` returns null only when not suggesting or the block
   // resolves to no context, → the direct `splitBlockAtPosition` path.
-  const suggestInput = suggestionInputForBlock(current.state, pos.blockId, config);
+  const suggestInput = suggestionInputForBlock(current, pos.blockId);
   const splitResult =
     suggestInput === null
-      ? splitBlockAtPosition(current.state, pos, productionAllocator, newBlockInit)
-      : splitWithSuggestion(current.state, pos, productionAllocator, suggestInput, newBlockInit);
+      ? splitBlockAtPosition(current.document, pos, productionAllocator, newBlockInit)
+      : splitWithSuggestion(current.document, pos, productionAllocator, suggestInput, newBlockInit);
   for (const id of splitResult.dirtyIds) accumulatedDirtyIds.add(id);
 
   // Chained ops accumulate dirtyIds manually. Use the
-  // identity-no-op contract — splitResult.state === editor.state iff every
+  // identity-no-op contract — splitResult.document === editor.document iff every
   // chained primitive was a no-op:
-  //   - collapsed branch: splitResult is built from editor.state, so
-  //     splitResult.state === editor.state iff split itself was no-op.
-  //   - !collapsed branch with non-no-op delete: deleteResult.state
-  //     !== editor.state, so splitResult.state (built from it) is
-  //     also !== editor.state regardless of split.
+  //   - collapsed branch: splitResult is built from editor.document, so
+  //     splitResult.document === editor.document iff split itself was no-op.
+  //   - !collapsed branch with non-no-op delete: deleteResult.document
+  //     !== editor.document, so splitResult.document (built from it) is
+  //     also !== editor.document regardless of split.
   //   - !collapsed branch with no-op delete (pathological — e.g.
   //     equal-position selection that slipped past isCollapsed for
-  //     some structural reason): current.state === editor.state, and
-  //     splitResult.state === editor.state iff split is also no-op.
-  // In every subcase, splitResult.state === editor.state ⇔ both
+  //     some structural reason): current.state === editor.document, and
+  //     splitResult.document === editor.document iff split is also no-op.
+  // In every subcase, splitResult.document === editor.document ⇔ both
   // primitives were no-ops, so returning editor is correct.
-  if (splitResult.state === editor.state) return null;
+  if (splitResult.document === editor.document) return null;
 
   // The caret goes to the start of the block AFTER the break: the caret's own block,
   // which keeps the tail + its ¶ (the head [0, k) is the new block).
   const newCursor = createPosition(pos.blockId, 0);
   const newSelection = createSpan(newCursor, newCursor);
 
-  return { change: { state: splitResult.state, dirtyIds: accumulatedDirtyIds }, selection: newSelection };
+  return { change: { document: splitResult.document, dirtyIds: accumulatedDirtyIds }, selection: newSelection };
 }

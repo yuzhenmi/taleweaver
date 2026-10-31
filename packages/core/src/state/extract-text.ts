@@ -1,4 +1,4 @@
-import type { State } from "./state";
+import type { Document } from "./document";
 import type { Span } from "./block-position";
 import { iterateSpan } from "./span-iteration";
 import type { InlineItem, EmbedItem } from "./inline-content";
@@ -114,17 +114,17 @@ export const captionEmbedSerializer: EmbedSerializer = (item) => {
  * Used by clipboard, find/replace, accessibility.
  */
 export function extractText(
-  state: State,
+  document: Document,
   span: Span,
   embedSerializer: EmbedSerializer = defaultEmbedSerializer,
   view: SuggestionView = "suggesting",
 ): string {
   const parts: string[] = [];
   let prev: Block | null = null;
-  for (const { block, rangeStart, rangeEnd } of iterateSpan(state, span)) {
+  for (const { block, rangeStart, rangeEnd } of iterateSpan(document, span)) {
     if (prev !== null) {
       // A paragraph boundary resolved away in `view` suppresses the inter-block "\n".
-      parts.push(boundaryMergesInView(state, prev, block, view) ? "" : "\n");
+      parts.push(boundaryMergesInView(document, prev, block, view) ? "" : "\n");
     }
     if (block.inlineContent) {
       parts.push(extractTextFromBlock(block.inlineContent.items, rangeStart, rangeEnd, embedSerializer, view));

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { extractText, builtinEmbedSerializer, type EmbedSerializer } from "./extract-text";
-import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
+import { buildBlock, buildDocument, text, embed, inlineContent } from "../test-utils/document-builders";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";
 import { createTestAllocator } from "./block-id";
@@ -10,7 +10,7 @@ import { splitWithSuggestion } from "./ops/split-block";
 
 describe("extractText", () => {
   it("extracts text from a single text item, full range", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -18,11 +18,11 @@ describe("extractText", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
-    expect(extractText(state, span)).toBe("hello");
+    expect(extractText(document, span)).toBe("hello");
   });
 
   it("extracts a partial range within a single text item", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -30,11 +30,11 @@ describe("extractText", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 1), createPosition("p" as BlockId, 4));
-    expect(extractText(state, span)).toBe("ell");
+    expect(extractText(document, span)).toBe("ell");
   });
 
   it("concatenates multiple text items in the same block", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -45,11 +45,11 @@ describe("extractText", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 11));
-    expect(extractText(state, span)).toBe("hello world");
+    expect(extractText(document, span)).toBe("hello world");
   });
 
   it("represents embed items as a single Object Replacement Character (U+FFFC)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -60,11 +60,11 @@ describe("extractText", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
-    expect(extractText(state, span)).toBe("a￼b");
+    expect(extractText(document, span)).toBe("a￼b");
   });
 
   it("joins multi-block spans with newlines", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -73,11 +73,11 @@ describe("extractText", () => {
       ],
     });
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 5));
-    expect(extractText(state, span)).toBe("hello\nworld");
+    expect(extractText(document, span)).toBe("hello\nworld");
   });
 
   it("returns empty string for a collapsed span", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -86,13 +86,13 @@ describe("extractText", () => {
     });
     const pos = createPosition("p" as BlockId, 2);
     const span = createSpan(pos, pos);
-    expect(extractText(state, span)).toBe("");
+    expect(extractText(document, span)).toBe("");
   });
 
   it("emits a trailing newline when a multi-block span ends at offset 0 of the focus block", () => {
     // This locks in the Word/Google Docs convention for "select to start
     // of next paragraph" — the trailing \n represents the paragraph break.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -101,12 +101,12 @@ describe("extractText", () => {
       ],
     });
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 0));
-    expect(extractText(state, span)).toBe("hello\n");
+    expect(extractText(document, span)).toBe("hello\n");
   });
 
   describe("embed serializer (T17)", () => {
     it("default serializer maps a hard-break embed to U+FFFC (preserves legacy contract)", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -117,11 +117,11 @@ describe("extractText", () => {
         ],
       });
       const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
-      expect(extractText(state, span)).toBe("a￼b");
+      expect(extractText(document, span)).toBe("a￼b");
     });
 
     it("builtin serializer maps a hard-break embed to \\n", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -132,11 +132,11 @@ describe("extractText", () => {
         ],
       });
       const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
-      expect(extractText(state, span, builtinEmbedSerializer)).toBe("a\nb");
+      expect(extractText(document, span, builtinEmbedSerializer)).toBe("a\nb");
     });
 
     it("builtin serializer maps a tab embed to \\t", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -147,11 +147,11 @@ describe("extractText", () => {
         ],
       });
       const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
-      expect(extractText(state, span, builtinEmbedSerializer)).toBe("a\tb");
+      expect(extractText(document, span, builtinEmbedSerializer)).toBe("a\tb");
     });
 
     it("builtin serializer falls back to U+FFFC for unknown embed types", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -162,7 +162,7 @@ describe("extractText", () => {
         ],
       });
       const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
-      expect(extractText(state, span, builtinEmbedSerializer)).toBe("a￼b");
+      expect(extractText(document, span, builtinEmbedSerializer)).toBe("a￼b");
     });
 
     it("builtin serializer maps a page-field embed to \"\" (value is layout-dependent, not known here)", () => {
@@ -170,7 +170,7 @@ describe("extractText", () => {
       // count), which layout-independent text extraction cannot know — so it serializes
       // to "" (1 Position offset, 0 chars), like a comment marker. Without this case it
       // would fall through to U+FFFC and pollute extractText / getWordCount.
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -185,11 +185,11 @@ describe("extractText", () => {
         ],
       });
       const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
-      expect(extractText(state, span, builtinEmbedSerializer)).toBe("ab");
+      expect(extractText(document, span, builtinEmbedSerializer)).toBe("ab");
     });
 
     it("caller-provided custom serializer is used in place of default and builtin", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -207,7 +207,7 @@ describe("extractText", () => {
       });
       const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
       const custom: EmbedSerializer = (item) => `<${item.embedType}>`;
-      expect(extractText(state, span, custom)).toBe("a<hard-break><tab><image>b");
+      expect(extractText(document, span, custom)).toBe("a<hard-break><tab><image>b");
     });
   });
 });
@@ -215,8 +215,8 @@ describe("extractText", () => {
 describe("extractText — SuggestionView projection (slice 5c-ii)", () => {
   // doc > p( "keep" + <ins>"INS"</ins> + <del>"DEL"</del> + "tail" ) — offsets
   // 0..4 keep, 4..7 ins, 7..10 del, 10..14 tail (literal length 14).
-  function build(): ReturnType<typeof buildState> {
-    return buildState({
+  function build(): ReturnType<typeof buildDocument> {
+    return buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -237,30 +237,30 @@ describe("extractText — SuggestionView projection (slice 5c-ii)", () => {
   const fullSpan = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 14));
 
   it('"suggesting" (default) extracts the literal text — both insertion and deletion shown', () => {
-    const state = build();
-    expect(extractText(state, fullSpan)).toBe("keepINSDELtail");
-    expect(extractText(state, fullSpan, builtinEmbedSerializer, "suggesting")).toBe("keepINSDELtail");
+    const document = build();
+    expect(extractText(document, fullSpan)).toBe("keepINSDELtail");
+    expect(extractText(document, fullSpan, builtinEmbedSerializer, "suggesting")).toBe("keepINSDELtail");
   });
 
   it('"final" (accept all) keeps the insertion, drops the deletion text', () => {
-    const state = build();
-    expect(extractText(state, fullSpan, builtinEmbedSerializer, "final")).toBe("keepINStail");
+    const document = build();
+    expect(extractText(document, fullSpan, builtinEmbedSerializer, "final")).toBe("keepINStail");
   });
 
   it('"original" (reject all) drops the insertion, keeps the deletion text', () => {
-    const state = build();
-    expect(extractText(state, fullSpan, builtinEmbedSerializer, "original")).toBe("keepDELtail");
+    const document = build();
+    expect(extractText(document, fullSpan, builtinEmbedSerializer, "original")).toBe("keepDELtail");
   });
 
   it("a filtered-out run does not shift the offsets of later runs (span is literal-domain)", () => {
     // Sub-span starting INSIDE the deletion run (offset 8) through tail: the
     // deletion's literal offsets are still consumed, so "final" yields just the
     // post-deletion tail (the deletion run contributes nothing).
-    const state = build();
+    const document = build();
     const sub = createSpan(createPosition("p" as BlockId, 8), createPosition("p" as BlockId, 14));
-    expect(extractText(state, sub, builtinEmbedSerializer, "final")).toBe("tail");
+    expect(extractText(document, sub, builtinEmbedSerializer, "final")).toBe("tail");
     // "suggesting" includes the "EL" tail of the deletion run + "tail".
-    expect(extractText(state, sub, builtinEmbedSerializer, "suggesting")).toBe("ELtail");
+    expect(extractText(document, sub, builtinEmbedSerializer, "suggesting")).toBe("ELtail");
   });
 });
 
@@ -272,7 +272,7 @@ describe("extractText — 5c-structural block-boundary merge projection", () => 
   const INPUT = { id: "s1" as SuggestionId, author: "alice", createdAt: 1 };
 
   it("accepted JOIN (final view): merges — the inter-block \\n is suppressed", () => {
-    const base = buildState({
+    const base = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -280,18 +280,18 @@ describe("extractText — 5c-structural block-boundary merge projection", () => 
         buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("World")]) }),
       ],
     });
-    const state = markParagraphMarkDeletion(base, "p1" as BlockId, INPUT).state;
+    const document = markParagraphMarkDeletion(base, "p1" as BlockId, INPUT).document;
     const wholeSpan = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 5));
     // final: the join is accepted → blocks merge → "HelloWorld".
-    expect(extractText(state, wholeSpan, builtinEmbedSerializer, "final")).toBe("HelloWorld");
+    expect(extractText(document, wholeSpan, builtinEmbedSerializer, "final")).toBe("HelloWorld");
     // original: the join is KEPT (deletion rejected) → blocks stay split.
-    expect(extractText(state, wholeSpan, builtinEmbedSerializer, "original")).toBe("Hello\nWorld");
+    expect(extractText(document, wholeSpan, builtinEmbedSerializer, "original")).toBe("Hello\nWorld");
     // suggesting: literal — always split.
-    expect(extractText(state, wholeSpan, builtinEmbedSerializer, "suggesting")).toBe("Hello\nWorld");
+    expect(extractText(document, wholeSpan, builtinEmbedSerializer, "suggesting")).toBe("Hello\nWorld");
   });
 
   it("rejected SPLIT (original view): merges — the inter-block \\n is suppressed", () => {
-    const base = buildState({
+    const base = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
@@ -299,19 +299,19 @@ describe("extractText — 5c-structural block-boundary merge projection", () => 
       ],
     });
     const r = splitWithSuggestion(base, createPosition("p1" as BlockId, 5), createTestAllocator("n"), INPUT);
-    const state = r.state;
+    const document = r.document;
     // the new head H holds "Hello" and its keyed ¶; p1 keeps "World".
     const wholeSpan = createSpan(createPosition(r.newBlockId, 0), createPosition("p1" as BlockId, 5));
     // original: the split is rejected → blocks merge → "HelloWorld".
-    expect(extractText(state, wholeSpan, builtinEmbedSerializer, "original")).toBe("HelloWorld");
+    expect(extractText(document, wholeSpan, builtinEmbedSerializer, "original")).toBe("HelloWorld");
     // final: the split is KEPT (insertion accepted) → blocks stay split.
-    expect(extractText(state, wholeSpan, builtinEmbedSerializer, "final")).toBe("Hello\nWorld");
+    expect(extractText(document, wholeSpan, builtinEmbedSerializer, "final")).toBe("Hello\nWorld");
     // suggesting: literal — always split.
-    expect(extractText(state, wholeSpan, builtinEmbedSerializer, "suggesting")).toBe("Hello\nWorld");
+    expect(extractText(document, wholeSpan, builtinEmbedSerializer, "suggesting")).toBe("Hello\nWorld");
   });
 
   it("a plain (non-break) inter-block boundary keeps the \\n in every view", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -321,7 +321,7 @@ describe("extractText — 5c-structural block-boundary merge projection", () => 
     });
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 5));
     for (const view of ["suggesting", "final", "original"] as const) {
-      expect(extractText(state, span, builtinEmbedSerializer, view)).toBe("Hello\nWorld");
+      expect(extractText(document, span, builtinEmbedSerializer, view)).toBe("Hello\nWorld");
     }
   });
 });

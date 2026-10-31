@@ -9,7 +9,7 @@ import {
   type Proposal,
   type ProposedEdit,
   type ProposeResult,
-  type State,
+  type Document,
   type SuggestionGroupStyle,
 } from "@taleweaver/core";
 
@@ -38,12 +38,12 @@ const WORD_SWAPS: Readonly<Record<string, string>> = {
   good: "fine",
 };
 
-export type Propose = (proposal: Proposal, options?: { readonly basedOn?: State }) => Promise<ProposeResult>;
+export type Propose = (proposal: Proposal, options?: { readonly basedOn?: Document }) => Promise<ProposeResult>;
 
 /** The edits the simulated assistant proposes for the paragraph holding the caret. */
 function draftEdits(editor: EditorState): ProposedEdit[] {
   const id = editor.selection.focus.blockId;
-  const items = getBlock(editor.state, id)?.inlineContent?.items ?? [];
+  const items = getBlock(editor.document, id)?.inlineContent?.items ?? [];
   const text = items.map((i) => (i.kind === "text" ? i.text : "￼")).join("");
   const edits: ProposedEdit[] = [];
   const taken: Array<[number, number]> = [];
@@ -109,7 +109,7 @@ export function useSuggestEdit(editorState: EditorState, propose: Propose): Sugg
             metadata: { source: SOURCE, reason: "Tidy spacing, a stronger word, emphasise the opening" },
             edits,
           },
-          { basedOn: snapshot.state },
+          { basedOn: snapshot.document },
         ).then((result) => {
           // The editor's TRUE verdict (print: once the host has applied the dispatch).
           if (result.ok) setStatus("Suggested — review it in the panel.");
@@ -134,7 +134,7 @@ export function SuggestEditBar({
   editorState: EditorState;
   dispatch: (action: EditorAction) => void;
 }) {
-  const groups = getSuggestionGroups(editorState.state);
+  const groups = getSuggestionGroups(editorState.document);
   return (
     <div className="border-b px-4 py-1 text-xs text-gray-600">
       <div className="flex items-center gap-3">

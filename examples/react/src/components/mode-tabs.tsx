@@ -5,7 +5,7 @@ export type EditorMode = "print" | "digital" | "collab";
 /**
  * The Print | Digital | Collab tab-bar. Print/Digital swap the editing BACKEND
  * (print canvas geometry ↔ digital browser-flowed DOM) over the SAME document —
- * the fork is downstream of core `State`. Collab renders two print editors over
+ * the fork is downstream of core `Document`. Collab renders two print editors over
  * ONE shared CRDT (Yjs) document to demonstrate live multi-peer editing. The
  * current document is handed off on switch.
  */

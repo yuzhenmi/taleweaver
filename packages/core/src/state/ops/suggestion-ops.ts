@@ -1,8 +1,8 @@
 import type * as Y from "yjs";
 import { requireBlockText, blockText } from "../block-text";
 import { HARD_BREAK_EMBED_TYPE } from "../hard-break";
-import type { State, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { Block } from "../block";
 import type { Position, Span } from "../block-position";
@@ -43,7 +43,7 @@ import { clipSpanToText, type BlockRange } from "../span-iteration";
 import { splitAt, deleteUnits, type ContentSpan } from "../flow-ops";
 import { hasContent, bookmarksRemovedBy, unitsDeletedBy, widenOverBookmarkMarkers, type DeletedPart } from "../bookmarks";
 import type { SiblingBlockInit } from "./insert-blocks-after";
-import { STATE_INTERNAL } from "../state-internal";
+import { DOCUMENT_INTERNAL } from "../document-internal";
 import { getSuggestionsMap, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
 import {
   attrsDiff,
@@ -77,7 +77,7 @@ import {
 } from "../break-suggestions";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import { attrRegistryOf } from "../mark-attrs";
-import type { ResolvedBlockKind } from "../state";
+import type { ResolvedBlockKind } from "../document";
 import { isDevMode } from "../dev-mode";
 
 /** An empty dirtyIds set — the identity-no-op return per the identity-no-op contract. */
@@ -112,21 +112,21 @@ const NO_DIRTY: ReadonlySet<BlockId> = new Set<BlockId>();
  * BEFORE neighbor is preferred when both sides coalesce. No new record is written
  * in the coalescing case (the existing record already describes the proposal).
  *
- * No-op (identity — returns the SAME input `state` reference + empty dirtyIds, so
+ * No-op (identity — returns the SAME input `document` reference + empty dirtyIds, so
  * the editor short-circuits per the identity-no-op contract): empty `proposedAttrs`; a
  * collapsed span; or nothing to mark (the apply-attrs plan is empty). Mirrors the
  * two guards atop `applyAttrsToRange`.
  */
 export function markFormatting(
-  state: State,
+  document: Document,
   span: Span,
   proposedAttrs: ReadonlyAttrs,
   input: SuggestionMintInput,
 ): OperationResult {
   // Empty proposal = no-op (nothing to suggest). Mirrors applyAttrsToRange's
-  // empty-attrs guard; must return the input State reference (identity).
+  // empty-attrs guard; must return the input Document reference (identity).
   if (Object.keys(proposedAttrs).length === 0) {
-    return { state, dirtyIds: NO_DIRTY };
+    return { document, dirtyIds: NO_DIRTY };
   }
 
   // Collapsed span = no-op. Collapsed-ness (same block + same offset) is
@@ -136,22 +136,22 @@ export function markFormatting(
     span.anchor.blockId === span.focus.blockId &&
     span.anchor.offset === span.focus.offset
   ) {
-    return { state, dirtyIds: NO_DIRTY };
+    return { document, dirtyIds: NO_DIRTY };
   }
 
-  const plan = planApplyAttrsToRange(state, span);
+  const plan = planApplyAttrsToRange(document, span);
   if (plan === null) {
-    return { state, dirtyIds: NO_DIRTY };
+    return { document, dirtyIds: NO_DIRTY };
   }
 
   // Coalesce decision is PURE and computed BEFORE opening the transaction.
-  const stateDoc = state[STATE_INTERNAL].doc;
+  const stateDoc = document[DOCUMENT_INTERNAL].doc;
   const inSpan = formattingRecordsInSegments(plan.segments, stateDoc);
   // Never reuse an id that is shadowed on a span character (an accepted newer value
   // overrides it there, so reusing it would not show the new action), nor one that a
   // newer formatting suggestion in the span ranks above.
   const { id, reusing } = resolveCoalesce(
-    state,
+    document,
     span,
     input.id,
     FORMATTING_SUGGESTION_ATTR,
@@ -177,7 +177,7 @@ export function markFormatting(
   if (!reusing && order !== undefined) observeSuggestionOrder(order);
 
   const key = formattingSuggestionKey(id);
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     applyAttrsToRangeInTx(doc, plan, { [key]: true });
     if (!reusing) {
       writeSuggestionRecordInTx(doc, {
@@ -266,7 +266,7 @@ function formattingRecordsInSegments(
  * author (no `proposedAttrs` check — deletions carry none). The BEFORE neighbor
  * is preferred; on coalesce the id is reused (no new record written).
  *
- * No-op (identity — returns the SAME input `state` reference + empty dirtyIds, so
+ * No-op (identity — returns the SAME input `document` reference + empty dirtyIds, so
  * the editor short-circuits per the identity-no-op contract): a collapsed span, or
  * `planApplyAttrsToRange` returns `null` (nothing inside the span). NOTE: a span
  * that is ALL own-insertions (everything removed, nothing tagged) is NOT a no-op
@@ -274,19 +274,19 @@ function formattingRecordsInSegments(
  * deletion record.
  */
 export function markDeletion(
-  state: State,
+  document: Document,
   span: Span,
   input: SuggestionMintInput,
 ): OperationResult {
-  const plan = planMarkDeletion(state, span, input);
+  const plan = planMarkDeletion(document, span, input);
   // Collapsed span / nothing to mark / nothing would change (every run and step in
-  // the span already carries a live deletion) → identity no-op (the input State
+  // the span already carries a live deletion) → identity no-op (the input Document
   // reference): a caret-only outcome, no history entry.
   if (plan === null || !plan.changesAny) {
-    return { state, dirtyIds: NO_DIRTY };
+    return { document, dirtyIds: NO_DIRTY };
   }
 
-  return applyOperation(state, (d) => {
+  return applyOperation(document, (d) => {
     // Surgical, identity-preserving strike per block: mutate only the
     // changed runs in place (untouched runs keep their Y.Text CRDT identity),
     // replacing the old full-replace seam.
@@ -327,10 +327,10 @@ interface MarkDeletionStep {
  * The ¶s a suggested deletion over `span` acts on (`paragraphMarksInSpan`: every ¶
  * inside the span that accepting would delete), minus those already deletion-keyed.
  */
-function planMarkSteps(state: State, span: Span, author: string): MarkDeletionStep[] {
+function planMarkSteps(document: Document, span: Span, author: string): MarkDeletionStep[] {
   const out: MarkDeletionStep[] = [];
-  for (const b of paragraphMarksInSpan(state, span)) {
-    const rule = markDeletionOf(state, b, author);
+  for (const b of paragraphMarksInSpan(document, span)) {
+    const rule = markDeletionOf(document, b, author);
     if (rule !== "keep") out.push({ id: b.id, remove: rule === "remove" });
   }
   return out;
@@ -373,7 +373,7 @@ function applyMarkStepsInTx(doc: Y.Doc, marks: readonly MarkDeletionStep[], id: 
  * yields nothing) so the caller short-circuits with the identity contract.
  */
 function planMarkDeletion(
-  state: State,
+  document: Document,
   span: Span,
   input: SuggestionMintInput,
 ): MarkDeletionPlan | null {
@@ -386,7 +386,7 @@ function planMarkDeletion(
     return null;
   }
 
-  const plan = planApplyAttrsToRange(state, span);
+  const plan = planApplyAttrsToRange(document, span);
   if (plan === null) {
     return null;
   }
@@ -395,7 +395,7 @@ function planMarkDeletion(
   // deletion coalesces with a same-author `deletion` neighbor (no proposedAttrs
   // check — deletions carry none).
   const { id, reusing } = resolveCoalesce(
-    state,
+    document,
     span,
     input.id,
     DELETION_SUGGESTION_ATTR,
@@ -406,11 +406,11 @@ function planMarkDeletion(
   // Compute the per-owning-block rewrites + whether any run was TAGGED (vs all
   // own-insertions removed) PRE-transaction (pure) — mirror of `deleteComment`,
   // which plans writes pre-tx then applies them in the tx.
-  const doc = state[STATE_INTERNAL].doc;
+  const doc = document[DOCUMENT_INTERNAL].doc;
   const writes: MarkDeletionPlan["writes"] = [];
   let taggedAny = false;
   let changesAny = false;
-  const steps = planMarkSteps(state, span, input.author);
+  const steps = planMarkSteps(document, span, input.author);
   if (steps.length > 0) changesAny = true;
   if (steps.some((m) => !m.remove)) taggedAny = true;
   // The physical removals (the deleter's own pending insertions) are a deletion: the
@@ -447,8 +447,8 @@ function planMarkDeletion(
   // The seam: where a suggested replacement goes — the start of the span's text
   // (`clipSpanToText`: after an object start), or where a removed bookmark's start
   // marker just before it was (as `bookmarkDeletionSpan`).
-  const textStart = clipSpanToText(state, span).anchor;
-  const startItems = resolveBlock(state, textStart.blockId)?.block.inlineContent?.items ?? [];
+  const textStart = clipSpanToText(document, span).anchor;
+  const startItems = resolveBlock(document, textStart.blockId)?.block.inlineContent?.items ?? [];
   const seam = widenOverBookmarkMarkers(startItems, textStart.offset, "backward", removedBookmarks);
 
   return { writes, steps, taggedAny, changesAny, id, reusing, kind: plan.kind, removedBookmarks, seam };
@@ -554,7 +554,7 @@ interface MarkDeletionPlan {
  * created but carries the SAME id — both correct (coalescing is about the id /
  * record, not physical run-merge).
  *
- * No-op (identity — returns the SAME input `state` reference + empty dirtyIds, so
+ * No-op (identity — returns the SAME input `document` reference + empty dirtyIds, so
  * the editor short-circuits per the identity-no-op contract): empty `text`. Mirrors
  * `insertText`'s empty-text guard.
  *
@@ -563,16 +563,16 @@ interface MarkDeletionPlan {
  * validates the caret first, so no redundant guard here.
  */
 export function mintInsertion(
-  state: State,
+  document: Document,
   position: Position,
   text: string,
   attrs: ReadonlyAttrs,
   input: SuggestionMintInput,
 ): OperationResult {
   // Empty text = no-op. Mirrors insertText's empty-text guard; must return the
-  // input State reference (identity).
+  // input Document reference (identity).
   if (text === "") {
-    return { state, dirtyIds: NO_DIRTY };
+    return { document, dirtyIds: NO_DIRTY };
   }
 
   // Coalesce decision is PURE and computed BEFORE opening the transaction. The
@@ -580,7 +580,7 @@ export function mintInsertion(
   // (`position.offset - 1`) and the run starting AT (`position.offset`) the
   // insertion point — exactly the insertion-point neighbors.
   const { id, reusing } = resolveCoalesce(
-    state,
+    document,
     createSpan(position, position),
     input.id,
     INSERTION_SUGGESTION_ATTR,
@@ -594,9 +594,9 @@ export function mintInsertion(
   const insertAttrs = { ...attrs, [INSERTION_SUGGESTION_ATTR]: id };
   // Typing at (P, len) keeps ¶P's `markAttrs`; the inclusive filter keeps the
   // provenance id (and links) out of them.
-  const plan = planInsertText(state, position, text, insertAttrs);
+  const plan = planInsertText(document, position, text, insertAttrs);
 
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     insertTextInTx(doc, plan);
     if (!reusing) {
       writeSuggestionRecordInTx(doc, {
@@ -619,8 +619,8 @@ export function mintInsertion(
  * does. Reject drops the break; accept strips the id. Throws as `insertLineBreak` on a
  * bad position.
  */
-export function mintLineBreak(state: State, position: Position, input: SuggestionMintInput): OperationResult {
-  const block = resolveBlock(state, position.blockId)?.block ?? null;
+export function mintLineBreak(document: Document, position: Position, input: SuggestionMintInput): OperationResult {
+  const block = resolveBlock(document, position.blockId)?.block ?? null;
   if (block === null || block.inlineContent === null) {
     throw new Error(`mintLineBreak: block "${position.blockId}" is not a text block`);
   }
@@ -629,7 +629,7 @@ export function mintLineBreak(state: State, position: Position, input: Suggestio
     throw new Error(`mintLineBreak: offset ${position.offset} out of range [0, ${len}] for block "${position.blockId}"`);
   }
   const { id, reusing } = resolveCoalesce(
-    state,
+    document,
     createSpan(position, position),
     input.id,
     INSERTION_SUGGESTION_ATTR,
@@ -637,7 +637,7 @@ export function mintLineBreak(state: State, position: Position, input: Suggestio
     input.noCoalesce,
   );
   const embed: EmbedItem = { kind: "embed", embedType: HARD_BREAK_EMBED_TYPE, attrs: { [INSERTION_SUGGESTION_ATTR]: id }, properties: {} };
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     insertInlineItems(requireBlockText(doc, position.blockId, "mintLineBreak"), position.offset, [embed]);
     if (!reusing) {
       writeSuggestionRecordInTx(doc, { id, kind: "insertion", author: input.author, createdAt: input.createdAt, order: input.order });
@@ -710,7 +710,7 @@ export interface ReplaceSuggestionInput {
  * attr registry bound to the doc; none bound → deep-value compare.
  */
 export function replaceWithSuggestion(
-  state: State,
+  document: Document,
   rawSpan: Span,
   text: string,
   attrs: ReadonlyAttrs,
@@ -719,10 +719,10 @@ export function replaceWithSuggestion(
   const span = rawSpan;
   // The suggested text goes at the start of the span's text (after an object start):
   // a covered object stays in place (structural change tracking is not built).
-  const start = clipSpanToText(state, span).anchor;
+  const start = clipSpanToText(document, span).anchor;
   // Degenerate: nothing to insert → a pure suggested deletion of the selection.
   if (text === "") {
-    const del = markDeletion(state, span, {
+    const del = markDeletion(document, span, {
       id: input.deletionId,
       author: input.author,
       createdAt: input.createdAt,
@@ -736,7 +736,7 @@ export function replaceWithSuggestion(
     span.anchor.blockId === span.focus.blockId &&
     span.anchor.offset === span.focus.offset
   ) {
-    const ins = mintInsertion(state, span.anchor, text, attrs, {
+    const ins = mintInsertion(document, span.anchor, text, attrs, {
       id: input.insertionId,
       author: input.author,
       createdAt: input.createdAt,
@@ -748,14 +748,14 @@ export function replaceWithSuggestion(
   // Plan the strike (pure, pre-tx). A `null` plan means the span re-collapsed /
   // yields nothing to strike — reduce to a pure suggested insertion at the span
   // start (the document-order earliest endpoint).
-  const delPlan = planMarkDeletion(state, span, {
+  const delPlan = planMarkDeletion(document, span, {
     id: input.deletionId,
     author: input.author,
     createdAt: input.createdAt,
     order: input.order,
   });
   if (delPlan === null) {
-    const ins = mintInsertion(state, start, text, attrs, {
+    const ins = mintInsertion(document, start, text, attrs, {
       id: input.insertionId,
       author: input.author,
       createdAt: input.createdAt,
@@ -770,11 +770,11 @@ export function replaceWithSuggestion(
   // too; `planInsertText` validates against the pre-strike state.
   const seam = createPosition(start.blockId, delPlan.seam);
 
-  // Insertion coalesce decision — computed against the PRE-strike `state` (the
+  // Insertion coalesce decision — computed against the PRE-strike `document` (the
   // strike never alters the run before the seam, so a same-author insertion
   // neighbor there is still valid). Mirrors `mintInsertion`'s collapsed-span probe.
   const { id: insId, reusing: reusingIns } = resolveCoalesce(
-    state,
+    document,
     createSpan(seam, seam),
     input.insertionId,
     INSERTION_SUGGESTION_ATTR,
@@ -786,9 +786,9 @@ export function replaceWithSuggestion(
   // `insertionSuggestionId` (any stale caller value is replaced by the resolved id).
   const insertAttrs: ReadonlyAttrs = { ...attrs, [INSERTION_SUGGESTION_ATTR]: insId };
 
-  const insertPlan = planInsertText(state, seam, text, insertAttrs);
+  const insertPlan = planInsertText(document, seam, text, insertAttrs);
 
-  const result = applyOperation(state, (d) => {
+  const result = applyOperation(document, (d) => {
     // Strike every struck block, then insert the suggested run at the seam.
     applyDeletionStrikeInTx(d, delPlan.writes, delPlan.id, input.author, "replaceWithSuggestion", delPlan.removedBookmarks);
     // Insert at the seam BEFORE the ¶ steps: an own-insertion ¶ removal merges the
@@ -824,10 +824,10 @@ export function replaceWithSuggestion(
  * (start backward, end forward; a collapsed span snaps backward) — computed ONCE by a
  * planner so the strike, the cut and the insert all use the same offsets.
  */
-function snapSpanOut(state: State, span: Span): Span {
-  const start = spanStart(state, span);
-  const end = spanEnd(state, span);
-  const itemsOf = (id: BlockId): ReadonlyArray<InlineItem> => resolveBlock(state, id)?.block.inlineContent?.items ?? [];
+function snapSpanOut(document: Document, span: Span): Span {
+  const start = spanStart(document, span);
+  const end = spanEnd(document, span);
+  const itemsOf = (id: BlockId): ReadonlyArray<InlineItem> => resolveBlock(document, id)?.block.inlineContent?.items ?? [];
   const s = createPosition(start.blockId, snapOffset(itemsOf(start.blockId), start.offset));
   const collapsed = start.blockId === end.blockId && start.offset === end.offset;
   const e = collapsed ? s : createPosition(end.blockId, snapOffset(itemsOf(end.blockId), end.offset, 1));
@@ -885,7 +885,7 @@ function snapSpanOut(state: State, span: Span): Span {
  * {@link planSplitBlockAtPosition} unchanged.
  */
 export function splitWithSuggestionOverSelection(
-  state: State,
+  document: Document,
   rawSpan: Span,
   allocator: IdAllocator,
   input: ReplaceSuggestionInput,
@@ -894,22 +894,22 @@ export function splitWithSuggestionOverSelection(
   // Snapped ONCE: the strike, the split offset and the split tag share one cut. The
   // split lands in the span's TEXT (`clipSpanToText`): a covered object stays in
   // place, though the strike covers a table's cell text.
-  const span = snapSpanOut(state, rawSpan);
-  const text = snapSpanOut(state, clipSpanToText(state, rawSpan));
+  const span = snapSpanOut(document, rawSpan);
+  const text = snapSpanOut(document, clipSpanToText(document, rawSpan));
   const start = text.anchor;
   const end = text.focus;
   const blockB = start.blockId; // === end.blockId for a single-block span text.
 
   // Plan the strike (pure, pre-tx). A `null` plan means the span re-collapsed /
   // yields nothing to strike — reduce to a pure suggested split at the span start.
-  const delPlan = planMarkDeletion(state, span, {
+  const delPlan = planMarkDeletion(document, span, {
     id: input.deletionId,
     author: input.author,
     createdAt: input.createdAt,
     order: input.order,
   });
   if (delPlan === null) {
-    return splitWithSuggestion(state, start, allocator, {
+    return splitWithSuggestion(document, start, allocator, {
       id: input.insertionId,
       author: input.author,
       createdAt: input.createdAt,
@@ -917,7 +917,7 @@ export function splitWithSuggestionOverSelection(
     }, newBlockInit);
   }
 
-  const resolvedB = resolveBlock(state, blockB);
+  const resolvedB = resolveBlock(document, blockB);
   if (resolvedB === null || resolvedB.block.inlineContent === null) {
     // Unreachable: planMarkDeletion produced a write only for a real leaf block.
     throw new Error(
@@ -934,9 +934,9 @@ export function splitWithSuggestionOverSelection(
   // validates it against the PRE-strike state; it is ≤ end.offset, so it passes. The
   // plan allocates the head H's id.
   const splitOffset = postStrikeOffset(bWrite, end.offset);
-  const splitPlan = planSplitBlockAtPosition(state, createPosition(blockB, splitOffset), allocator, newBlockInit);
+  const splitPlan = planSplitBlockAtPosition(document, createPosition(blockB, splitOffset), allocator, newBlockInit);
 
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     // 1. Apply the strike writes (B written BEFORE the split so the split reads
     //    B's post-strike content). For a single-block span this is just B: offset
     //    `format` / `delete` writes on its inline Y.Text.
@@ -981,7 +981,7 @@ export function splitWithSuggestionOverSelection(
  * The pure structural plan for replacing `span` with a `fragment` as a tracked
  * suggestion: per-existing-block full-replace inline writes, fresh fully-linked
  * new blocks, the 0..2 suggestion records, and the post-op caret. Computed
- * entirely from the pre-tx `state` (every new block id allocated up-front), then
+ * entirely from the pre-tx `document` (every new block id allocated up-front), then
  * applied in ONE transaction by {@link replaceWithSuggestedFragment}.
  */
 export interface ReplaceFragmentPlan {
@@ -1049,7 +1049,7 @@ function fragmentLineLength(line: SiblingBlockInit): number {
 }
 
 export function planReplaceWithSuggestedFragment(
-  state: State,
+  document: Document,
   rawSpan: Span,
   fragment: readonly SiblingBlockInit[],
   input: ReplaceSuggestionInput,
@@ -1059,9 +1059,9 @@ export function planReplaceWithSuggestedFragment(
   // all use the same grapheme-aligned offsets. The fragment goes at the start of the
   // span's TEXT (`clipSpanToText`: after an object start) — a covered object stays in
   // place (structural change tracking is not built), though a table's cell text is struck.
-  const span = snapSpanOut(state, rawSpan);
-  const at = snapSpanOut(state, clipSpanToText(state, rawSpan)).anchor;
-  const resolved = resolveBlock(state, at.blockId);
+  const span = snapSpanOut(document, rawSpan);
+  const at = snapSpanOut(document, clipSpanToText(document, rawSpan)).anchor;
+  const resolved = resolveBlock(document, at.blockId);
   if (resolved === null || resolved.block.inlineContent === null) {
     throw new Error(
       `planReplaceWithSuggestedFragment: block "${at.blockId}" not found or not a leaf`,
@@ -1075,7 +1075,7 @@ export function planReplaceWithSuggestedFragment(
   // suggested insertion at `at` (the collapsed-selection case). A non-null plan strikes B's tail +
   // any intervening blocks + E's head and (cross-block) suggests JOINing the crossed
   // boundaries so accept re-flows the merged paragraph and reject restores the split.
-  const delPlan = planMarkDeletion(state, span, {
+  const delPlan = planMarkDeletion(document, span, {
     id: input.deletionId,
     author: input.author,
     createdAt: input.createdAt,
@@ -1177,7 +1177,7 @@ export function planReplaceWithSuggestedFragment(
   let insRecord: SuggestionRecord | null;
   if (n === 1) {
     const decision = resolveCoalesce(
-      state,
+      document,
       createSpan(at, at),
       input.insertionId,
       INSERTION_SUGGESTION_ATTR,
@@ -1298,14 +1298,14 @@ export interface FragmentHead {
  * records. Returns the standard `OperationResult` plus the post-op `endPosition`.
  */
 export function replaceWithSuggestedFragment(
-  state: State,
+  document: Document,
   span: Span,
   fragment: readonly SiblingBlockInit[],
   input: ReplaceSuggestionInput,
   allocator: IdAllocator,
 ): OperationResult & { readonly endPosition: Position } {
-  const plan = planReplaceWithSuggestedFragment(state, span, fragment, input, allocator);
-  const result = applyOperation(state, (doc) => {
+  const plan = planReplaceWithSuggestedFragment(document, span, fragment, input, allocator);
+  const result = applyOperation(document, (doc) => {
     // Per-block roles. The START block is `plan.writes[0]`; every OTHER write is an
     // intervening block or E. NON-start writes are ALWAYS surgical: strike
     // in place (preserving untouched runs' Y.Text identity) + append the cross-block
@@ -1350,14 +1350,14 @@ export function replaceWithSuggestedFragment(
  * (no strike). `deletionId` is unused on this path.
  */
 export function insertFragmentAsSuggestion(
-  state: State,
+  document: Document,
   at: Position,
   fragment: readonly SiblingBlockInit[],
   input: SuggestionMintInput,
   allocator: IdAllocator,
 ): OperationResult & { readonly endPosition: Position } {
   return replaceWithSuggestedFragment(
-    state,
+    document,
     createSpan(at, at),
     fragment,
     {
@@ -1386,14 +1386,14 @@ export function insertFragmentAsSuggestion(
  * UNDOABLE: an ordinary tracked transaction (the editor commits it as one history
  * entry; undo restores the record and the tagged runs exactly).
  *
- * Identity no-op (returns the SAME `state` reference + empty dirtyIds, per the
+ * Identity no-op (returns the SAME `document` reference + empty dirtyIds, per the
  * identity-no-op contract) when no record exists for `id`.
  */
 export function acceptSuggestion(
-  state: State,
+  document: Document,
   id: SuggestionId,
 ): OperationResult {
-  return resolve(state, id, "accept");
+  return resolve(document, id, "accept");
 }
 
 /**
@@ -1409,10 +1409,10 @@ export function acceptSuggestion(
  * Identity no-op when no record exists for `id`.
  */
 export function rejectSuggestion(
-  state: State,
+  document: Document,
   id: SuggestionId,
 ): OperationResult {
-  return resolve(state, id, "reject");
+  return resolve(document, id, "reject");
 }
 
 /** What a resolve does to each TAGGED run of a resolved insertion / deletion. */
@@ -1522,14 +1522,14 @@ export function applyResolveDecisionsInTx(doc: Y.Doc, writes: readonly ResolveDe
  * of ids OTHER than the resolved ones (co-tenant cleanup).
  */
 function resolveBlockScan(
-  state: State,
+  document: Document,
   classify: (item: InlineItem) => ScanItemResult,
   resolved: (id: SuggestionId) => boolean,
 ): { writes: ResolveDecisionWrite[]; occ: Occurrences } {
   const writes: ResolveDecisionWrite[] = [];
   const occ: Occurrences = { survivors: new Set(), dropped: new Set() };
   let gap = false;
-  for (const block of iterateAllBlocksInDocumentOrder(state)) {
+  for (const block of iterateAllBlocksInDocumentOrder(document)) {
     const content = block.inlineContent;
     if (content === null) continue;
     let touched = false;
@@ -1601,11 +1601,11 @@ function deletesBoundary(doc: Y.Doc, id: SuggestionId, mode: "accept" | "reject"
  * level): a paragraph follows, or — before an object — `b` is empty and does not follow
  * an object. False at a flow's last ¶.
  */
-function markDeletableNow(state: State, b: Block): boolean {
-  const after = blockAfter(state, b)?.block ?? null;
+function markDeletableNow(document: Document, b: Block): boolean {
+  const after = blockAfter(document, b)?.block ?? null;
   if (after === null) return false;
   if (after.inlineContent !== null) return true;
-  const prev = b.prevSiblingId === null ? null : (resolveBlock(state, b.prevSiblingId)?.block ?? null);
+  const prev = b.prevSiblingId === null ? null : (resolveBlock(document, b.prevSiblingId)?.block ?? null);
   return b.inlineContent !== null && inlineContentLength(b.inlineContent) === 0 && (prev === null || prev.inlineContent !== null);
 }
 
@@ -1617,10 +1617,10 @@ function markDeletableNow(state: State, b: Block): boolean {
  * concurrency-born key) keeps the ¶ and drops the key. Undecided keys removed with their
  * ¶ are recorded in `occ.dropped`, the others in `occ.survivors`.
  */
-function planBoundaryResolution(state: State, decide: Decide, occ: Occurrences): PlannedBoundary {
-  const doc = state[STATE_INTERNAL].doc;
+function planBoundaryResolution(document: Document, decide: Decide, occ: Occurrences): PlannedBoundary {
+  const doc = document[DOCUMENT_INTERNAL].doc;
   const ops: BoundaryOp[] = [];
-  for (const b of iterateAllBlocksInDocumentOrder(state)) {
+  for (const b of iterateAllBlocksInDocumentOrder(document)) {
     const bs = b.breakSuggestion;
     if (b.inlineContent === null || bs === undefined) continue;
     const tags: BoundaryTag[] = [];
@@ -1631,7 +1631,7 @@ function planBoundaryResolution(state: State, decide: Decide, occ: Occurrences):
       const mode = decide(t.id);
       return mode !== null && deletesBoundary(doc, t.id, mode);
     });
-    const gone = removes && markDeletableNow(state, b);
+    const gone = removes && markDeletableNow(document, b);
     for (const t of tags) if (decide(t.id) === null) (gone ? occ.dropped : occ.survivors).add(t.id);
     if (decided.length === 0) continue;
     ops.push(gone ? { op: "mark", owner: b.id, tags: decided } : { op: "keys", tags: decided });
@@ -1663,26 +1663,26 @@ function applyBoundaryOpsInTx(doc: Y.Doc, plan: PlannedBoundary): void {
  *   4. surfaces `state.rootId` when no block was touched (record-only change).
  */
 function runResolve(
-  state: State,
+  document: Document,
   resolvedIds: ReadonlySet<SuggestionId>,
   decide: Decide,
   classify: (item: InlineItem) => ScanItemResult,
-  carriers: Carriers = carriersOf(state),
+  carriers: Carriers = carriersOf(document),
 ): OperationResult {
   const inSet = (id: SuggestionId): boolean => resolvedIds.has(id);
-  const { writes, occ } = resolveBlockScan(state, classify, inSet);
-  const boundaries = planBoundaryResolution(state, decide, occ);
+  const { writes, occ } = resolveBlockScan(document, classify, inSet);
+  const boundaries = planBoundaryResolution(document, decide, occ);
   const deletes = new Set([...resolvedIds, ...[...occ.dropped].filter((c) => !occ.survivors.has(c))]);
   // Lazy cleanup: a record with NO carrier at all (no tagged char / embed, no key on
   // a live ¶: e.g. a concurrent same-key write lost by last-writer-wins, a key on a ¶ a
   // peer deleted) is deleted here.
   for (const id of carriers.carrierless) deletes.add(id);
-  return applyOperation(state, (d) => {
+  return applyOperation(document, (d) => {
     applyResolveDecisionsInTx(d, writes);
     applyBoundaryOpsInTx(d, boundaries);
     const map = getSuggestionsMap(d);
     for (const id of deletes) map.delete(id);
-    if (writes.length === 0 && boundaries.ops.length === 0) return new Set<BlockId>([state.rootId]);
+    if (writes.length === 0 && boundaries.ops.length === 0) return new Set<BlockId>([document.rootId]);
   });
 }
 
@@ -1703,18 +1703,18 @@ function runResolve(
  * {@link acceptSuggestion} / {@link rejectSuggestion}.
  */
 function resolve(
-  state: State,
+  document: Document,
   id: SuggestionId,
   mode: "accept" | "reject",
 ): OperationResult {
-  const doc = state[STATE_INTERNAL].doc;
+  const doc = document[DOCUMENT_INTERNAL].doc;
   const record = readSuggestionRecord(doc, id);
-  // Absent record → identity no-op (return the input State reference). A carrier-less
+  // Absent record → identity no-op (return the input Document reference). A carrier-less
   // record resolves to its deletion (lazy cleanup).
   if (record === null) {
-    return { state, dirtyIds: NO_DIRTY };
+    return { document, dirtyIds: NO_DIRTY };
   }
-  const carriers = carriersOf(state);
+  const carriers = carriersOf(document);
 
   const readRecord = (sid: SuggestionId): SuggestionRecord | null => readSuggestionRecord(doc, sid);
   const tagKey = formattingSuggestionKey(id);
@@ -1739,7 +1739,7 @@ function resolve(
     return { op: "keep" };
   };
 
-  return runResolve(state, new Set([id]), (sid) => (sid === id ? mode : null), classify, carriers);
+  return runResolve(document, new Set([id]), (sid) => (sid === id ? mode : null), classify, carriers);
 }
 
 export { suggestionIdsOnItem } from "../suggestions";
@@ -1751,10 +1751,10 @@ interface Carriers {
 }
 
 /** One O(document) pass: the record carriers (see {@link Carriers}). */
-function carriersOf(state: State): Carriers {
-  const visible = new Set(buildSuggestionRangeIndex(state).keys());
+function carriersOf(document: Document): Carriers {
+  const visible = new Set(buildSuggestionRangeIndex(document).keys());
   const carrierless = new Set<SuggestionId>();
-  for (const key of getSuggestionsMap(state[STATE_INTERNAL].doc).keys()) {
+  for (const key of getSuggestionsMap(document[DOCUMENT_INTERNAL].doc).keys()) {
     const id = key as SuggestionId;
     if (!visible.has(id)) carrierless.add(id);
   }
@@ -1796,11 +1796,11 @@ function attrsWithout(attrs: ReadonlyAttrs, key: string): ReadonlyAttrs {
  * plain (insertion id stripped) with its formatting proposals applied live. ALL
  * records are deleted. See {@link resolveAll}.
  *
- * Undoable (one history entry), exactly as {@link acceptSuggestion}. Identity no-op (same `state` ref +
+ * Undoable (one history entry), exactly as {@link acceptSuggestion}. Identity no-op (same `document` ref +
  * empty dirtyIds) when the document has no suggestions.
  */
-export function acceptAll(state: State): OperationResult {
-  return resolveAll(state, "accept");
+export function acceptAll(document: Document): OperationResult {
+  return resolveAll(document, "accept");
 }
 
 /**
@@ -1812,8 +1812,8 @@ export function acceptAll(state: State): OperationResult {
  *
  * Undoable, same identity no-op contract as {@link acceptAll}.
  */
-export function rejectAll(state: State): OperationResult {
-  return resolveAll(state, "reject");
+export function rejectAll(document: Document): OperationResult {
+  return resolveAll(document, "reject");
 }
 
 /**
@@ -1922,19 +1922,19 @@ function resolveFormattingInSet(
  * in-place in their body tree.
  */
 function resolveAll(
-  state: State,
+  document: Document,
   mode: "accept" | "reject",
   only: ReadonlySet<SuggestionId> | null = null,
 ): OperationResult {
-  const doc = state[STATE_INTERNAL].doc;
-  const carriers = carriersOf(state);
+  const doc = document[DOCUMENT_INTERNAL].doc;
+  const carriers = carriersOf(document);
   // Every record (of the group, when `only`); a carrier-less one is simply deleted.
   const ids: SuggestionId[] = [...getSuggestionsMap(doc).keys()]
     .map((key) => key as SuggestionId)
     .filter((id) => only === null || only.has(id));
-  // No (matching) suggestions and nothing to clean → identity no-op (the input State reference).
+  // No (matching) suggestions and nothing to clean → identity no-op (the input Document reference).
   if (ids.length === 0 && carriers.carrierless.size === 0) {
-    return { state, dirtyIds: NO_DIRTY };
+    return { document, dirtyIds: NO_DIRTY };
   }
   const idSet = new Set(ids);
   const inSet = (raw: unknown): raw is SuggestionId => typeof raw === "string" && idSet.has(raw as SuggestionId);
@@ -1956,7 +1956,7 @@ function resolveAll(
     const attrs = resolveFormattingInSet(base, mode, doc, inSet);
     return attrs === item.attrs ? { op: "keep" } : { op: "rewrite", attrs };
   };
-  return runResolve(state, idSet, (sid) => (idSet.has(sid) ? mode : null), classify, carriers);
+  return runResolve(document, idSet, (sid) => (idSet.has(sid) ? mode : null), classify, carriers);
 }
 
 /**
@@ -1966,18 +1966,18 @@ function resolveAll(
  * suggestion outside the group survives (or is cleaned up if it loses all its content).
  * Identity no-op when the group has no records.
  */
-export function acceptSuggestionGroup(state: State, groupId: string): OperationResult {
-  return resolveAll(state, "accept", groupMemberIds(state, groupId));
+export function acceptSuggestionGroup(document: Document, groupId: string): OperationResult {
+  return resolveAll(document, "accept", groupMemberIds(document, groupId));
 }
 
 /** REJECT every suggestion of one group in one transaction (inverse of {@link acceptSuggestionGroup}). */
-export function rejectSuggestionGroup(state: State, groupId: string): OperationResult {
-  return resolveAll(state, "reject", groupMemberIds(state, groupId));
+export function rejectSuggestionGroup(document: Document, groupId: string): OperationResult {
+  return resolveAll(document, "reject", groupMemberIds(document, groupId));
 }
 
 /** The record ids of group `groupId` (`suggestionGroupOf(record) === groupId`). */
-function groupMemberIds(state: State, groupId: string): Set<SuggestionId> {
-  const doc = state[STATE_INTERNAL].doc;
+function groupMemberIds(document: Document, groupId: string): Set<SuggestionId> {
+  const doc = document[DOCUMENT_INTERNAL].doc;
   const out = new Set<SuggestionId>();
   for (const key of getSuggestionsMap(doc).keys()) {
     const record = readSuggestionRecord(doc, key as SuggestionId);
@@ -2191,7 +2191,7 @@ type CoalescePredicate = (
  * otherwise → mint via `mintId` (`reusing: false`).
  */
 function resolveCoalesce(
-  state: State,
+  document: Document,
   span: Span,
   mintId: SuggestionId,
   attrKey: string,
@@ -2199,15 +2199,15 @@ function resolveCoalesce(
   noCoalesce = false,
 ): CoalesceDecision {
   if (noCoalesce) return { id: mintId, reusing: false };
-  const start = spanStart(state, span);
-  const end = spanEnd(state, span);
+  const start = spanStart(document, span);
+  const end = spanEnd(document, span);
 
-  const beforeIds = neighborSuggestionIds(state, start.blockId, start.offset - 1, attrKey);
-  const afterIds = neighborSuggestionIdsAfter(state, end.blockId, end.offset, attrKey);
+  const beforeIds = neighborSuggestionIds(document, start.blockId, start.offset - 1, attrKey);
+  const afterIds = neighborSuggestionIdsAfter(document, end.blockId, end.offset, attrKey);
 
   // Prefer the BEFORE neighbor when both coalesce.
   for (const candidate of [...beforeIds, ...afterIds]) {
-    if (coalesces(state, candidate, matches)) {
+    if (coalesces(document, candidate, matches)) {
       return { id: candidate, reusing: true };
     }
   }
@@ -2221,13 +2221,13 @@ function resolveCoalesce(
  * attr. Used for the BEFORE neighbor (the run holding `start.offset - 1`).
  */
 function neighborSuggestionIds(
-  state: State,
+  document: Document,
   blockId: BlockId,
   containedOffset: number,
   attrKey: string,
 ): SuggestionId[] {
   if (containedOffset < 0) return [];
-  const content = resolveBlock(state, blockId)?.block.inlineContent ?? null;
+  const content = resolveBlock(document, blockId)?.block.inlineContent ?? null;
   if (content === null) return [];
   let cursor = 0;
   for (const item of content.items) {
@@ -2250,12 +2250,12 @@ function neighborSuggestionIds(
  * `end.offset`).
  */
 function neighborSuggestionIdsAfter(
-  state: State,
+  document: Document,
   blockId: BlockId,
   startOffset: number,
   attrKey: string,
 ): SuggestionId[] {
-  const content = resolveBlock(state, blockId)?.block.inlineContent ?? null;
+  const content = resolveBlock(document, blockId)?.block.inlineContent ?? null;
   if (content === null) return [];
   let cursor = 0;
   for (const item of content.items) {
@@ -2287,8 +2287,8 @@ function textItemSuggestionIds(
  * per-op coalesce predicate). Shared by `markFormatting` (same-author /
  * same-proposal) and `markDeletion` (same-author).
  */
-function coalesces(state: State, id: SuggestionId, matches: CoalescePredicate): boolean {
-  const record = readSuggestionRecord(state[STATE_INTERNAL].doc, id);
+function coalesces(document: Document, id: SuggestionId, matches: CoalescePredicate): boolean {
+  const record = readSuggestionRecord(document[DOCUMENT_INTERNAL].doc, id);
   // A grouped suggestion (a host proposal) is a closed reviewable unit: never extended.
   return record !== null && record.groupId === undefined && matches(record);
 }
@@ -2299,16 +2299,16 @@ function coalesces(state: State, id: SuggestionId, matches: CoalescePredicate): 
  * tracked transaction. Ids without a record are skipped; identity no-op when none.
  */
 export function assignSuggestionGroup(
-  state: State,
+  document: Document,
   ids: ReadonlyArray<SuggestionId>,
   groupId: string,
   metadata: Readonly<Record<string, unknown>> | undefined,
   perId?: ReadonlyMap<SuggestionId, Readonly<Record<string, unknown>>>,
 ): OperationResult {
-  const map = getSuggestionsMap(state[STATE_INTERNAL].doc);
+  const map = getSuggestionsMap(document[DOCUMENT_INTERNAL].doc);
   const present = ids.filter((id) => map.get(id) !== undefined);
-  if (present.length === 0) return { state, dirtyIds: NO_DIRTY };
-  return applyOperation(state, (doc) => {
+  if (present.length === 0) return { document, dirtyIds: NO_DIRTY };
+  return applyOperation(document, (doc) => {
     const records = getSuggestionsMap(doc);
     for (const id of present) {
       const yRecord = records.get(id);
@@ -2318,6 +2318,6 @@ export function assignSuggestionGroup(
       const merged = own === undefined ? metadata : { ...(metadata ?? {}), ...own };
       if (merged !== undefined) yRecord.set("metadata", merged);
     }
-    return new Set<BlockId>([state.rootId]);
+    return new Set<BlockId>([document.rootId]);
   });
 }

@@ -1,4 +1,4 @@
-import type { BlockId, Position, State } from "../state";
+import type { BlockId, Position, Document } from "../state";
 import { recordSample } from "../perf/perf-trace";
 import { createSpan, comparePositions, iterateSpan, resolveBlock } from "../state";
 import type { Assoc, PositionMapping } from "../state/position-mapping";
@@ -97,7 +97,7 @@ const EMPTY_BLOCK: BlockDecorations = Object.freeze({
 });
 
 /**
- * An immutable, block-indexed set of decorations valid against one document State.
+ * An immutable, block-indexed set of decorations valid against one document Document.
  * Build with {@link createDecorationSet}; carry through edits with
  * {@link mapDecorationSet}. Mapping re-indexes only the decorations in the transition's
  * dirty blocks, and per-block views keep reference identity for untouched blocks, so a
@@ -202,17 +202,17 @@ function setFromStore(store: Store, prov?: Provenance): DecorationSet {
 }
 
 /**
- * Build a set against `state`. Decorations that do not resolve in `state` (unknown
+ * Build a set against `document`. Decorations that do not resolve in `document` (unknown
  * block, offset past the end, inverted or empty inline range, endpoints in different
  * selection contexts) are dropped: a host result computed against an older document
  * must not break the editor.
  */
-export function createDecorationSet(state: State, decorations: readonly Decoration[]): DecorationSet {
+export function createDecorationSet(document: Document, decorations: readonly Decoration[]): DecorationSet {
   if (decorations.length === 0) return EMPTY_DECORATION_SET;
   const index = new Map<BlockId, MutableBlock>();
   const blocksOf = new Map<Decoration, readonly BlockId[] | null>();
   for (const d of decorations) {
-    const blocks = indexDecoration(state, d, index);
+    const blocks = indexDecoration(document, d, index);
     if (blocks !== null) blocksOf.set(d, blocks);
   }
   if (blocksOf.size === 0) return EMPTY_DECORATION_SET;
@@ -228,7 +228,7 @@ export function createDecorationSet(state: State, decorations: readonly Decorati
  * decoration whose block was removed. Only decorations indexed in the transition's dirty
  * blocks are re-mapped and re-indexed; everything else is reused by reference.
  */
-export function mapDecorationSet(set: DecorationSet, mapping: PositionMapping, next: State): DecorationSet {
+export function mapDecorationSet(set: DecorationSet, mapping: PositionMapping, next: Document): DecorationSet {
   if (mapping.identity || set === EMPTY_DECORATION_SET) return set;
   const store = stores.get(set);
   const dirty = mapping.dirty;
@@ -262,10 +262,10 @@ export function mapDecorationSet(set: DecorationSet, mapping: PositionMapping, n
 
 /**
  * Map a plain decoration list through `mapping` (e.g. a host result computed against an
- * older State, mapped by a `MappingLog`). Unmappable / collapsed decorations are dropped
+ * older Document, mapped by a `MappingLog`). Unmappable / collapsed decorations are dropped
  * when the result is indexed (`createDecorationSet`).
  */
-export function mapDecorations(decorations: readonly Decoration[], mapping: PositionMapping, next: State): Decoration[] {
+export function mapDecorations(decorations: readonly Decoration[], mapping: PositionMapping, next: Document): Decoration[] {
   if (mapping.identity) return [...decorations];
   const out: Decoration[] = [];
   for (const d of decorations) {
@@ -282,7 +282,7 @@ export function mapDecorations(decorations: readonly Decoration[], mapping: Posi
  */
 export function patchDecorationSet(
   set: DecorationSet,
-  state: State,
+  document: Document,
   blocks: Iterable<BlockId>,
   decorations: readonly Decoration[],
 ): DecorationSet {
@@ -290,7 +290,7 @@ export function patchDecorationSet(
   if (store === undefined) {
     const keep = new Set(blocks);
     const kept = set.decorations.filter((d) => !blocksOfDecoration(d).some((id) => keep.has(id)));
-    return createDecorationSet(state, [...kept, ...decorations]);
+    return createDecorationSet(document, [...kept, ...decorations]);
   }
   const removed = new Set<Decoration>();
   for (const id of blocks) {
@@ -300,7 +300,7 @@ export function patchDecorationSet(
     for (const k of b.block) removed.add(k);
   }
   if (removed.size === 0 && decorations.length === 0) return set;
-  return rebuild(set, store, removed, decorations, state);
+  return rebuild(set, store, removed, decorations, document);
 }
 
 /** The blocks a decoration names directly (its endpoints). */
@@ -321,7 +321,7 @@ function rebuild(
   store: Store,
   removed: ReadonlySet<Decoration>,
   added: readonly Decoration[],
-  next: State,
+  next: Document,
 ): DecorationSet {
   const touched = new Set<BlockId>();
   for (const d of removed) for (const id of storeBlocksOf(store, d) ?? []) touched.add(id);
@@ -446,7 +446,7 @@ export function decorationsAt(set: DecorationSet, position: Position): Decoratio
   return out;
 }
 
-function mapDecoration(d: Decoration, mapping: PositionMapping, next: State): Decoration | null {
+function mapDecoration(d: Decoration, mapping: PositionMapping, next: Document): Decoration | null {
   recordSample("decorations.mapped", 0); // deterministic perf counter (no-op unless tracing)
   switch (d.kind) {
     case "block":
@@ -487,8 +487,8 @@ function slot(index: Map<BlockId, MutableBlock>, id: BlockId): MutableBlock {
   return s;
 }
 
-function leafLength(state: State, id: BlockId): number | null {
-  const block = resolveBlock(state, id)?.block;
+function leafLength(document: Document, id: BlockId): number | null {
+  const block = resolveBlock(document, id)?.block;
   if (block === undefined || block.inlineContent === null) return null;
   let n = 0;
   for (const item of block.inlineContent.items) n += item.kind === "text" ? item.text.length : 1;
@@ -496,22 +496,22 @@ function leafLength(state: State, id: BlockId): number | null {
 }
 
 /** Index `d` into `index`; returns the blocks it landed in, or null when it does not
- *  resolve in `state`. */
-function indexDecoration(state: State, d: Decoration, index: Map<BlockId, MutableBlock>): readonly BlockId[] | null {
+ *  resolve in `document`. */
+function indexDecoration(document: Document, d: Decoration, index: Map<BlockId, MutableBlock>): readonly BlockId[] | null {
   switch (d.kind) {
     case "block":
-      if (resolveBlock(state, d.blockId) === null) return null;
+      if (resolveBlock(document, d.blockId) === null) return null;
       slot(index, d.blockId).block.push(d);
       return [d.blockId];
     case "widget": {
-      const len = leafLength(state, d.at.blockId);
+      const len = leafLength(document, d.at.blockId);
       if (len === null || d.at.offset < 0 || d.at.offset > len) return null;
       slot(index, d.at.blockId).widgets.push(d);
       return [d.at.blockId];
     }
     case "inline": {
-      const fromLen = leafLength(state, d.from.blockId);
-      const toLen = leafLength(state, d.to.blockId);
+      const fromLen = leafLength(document, d.from.blockId);
+      const toLen = leafLength(document, d.to.blockId);
       if (fromLen === null || toLen === null) return null;
       if (d.from.offset < 0 || d.from.offset > fromLen || d.to.offset < 0 || d.to.offset > toLen) return null;
       if (d.from.blockId === d.to.blockId) {
@@ -521,8 +521,8 @@ function indexDecoration(state: State, d: Decoration, index: Map<BlockId, Mutabl
       }
       let ranges;
       try {
-        if (comparePositions(state, d.from, d.to) >= 0) return null;
-        ranges = [...iterateSpan(state, createSpan(d.from, d.to))];
+        if (comparePositions(document, d.from, d.to) >= 0) return null;
+        ranges = [...iterateSpan(document, createSpan(d.from, d.to))];
       } catch {
         return null; // different selection contexts / unreachable — not a drawable range
       }

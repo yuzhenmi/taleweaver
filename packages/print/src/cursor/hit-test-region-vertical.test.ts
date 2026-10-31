@@ -44,13 +44,13 @@ import type { TextShaper } from "@taleweaver/core";
 import type { PageConfig } from "../layout/page-config";
 import type { WritingMode } from "@taleweaver/core";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
 import { resolveBlock, selectionContextOf } from "@taleweaver/core";
-import type { State, BlockId } from "@taleweaver/core";
+import type { Document, BlockId } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -89,7 +89,7 @@ function pageConfig(): PageConfig {
 }
 
 interface Built {
-  state: State;
+  document: Document;
   positioned: LayoutBox;
   shaper: TextShaper;
 }
@@ -151,7 +151,7 @@ function buildDoc(opts: {
       inlineContent: inlineContent([text(t)]),
     });
   });
-  const state = buildState({
+  const document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -166,7 +166,7 @@ function buildDoc(opts: {
     templateContents: templateBlocks,
   });
 
-  const out = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry());
+  const out = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry());
   const cascadedRoot = cascadePass(out.root);
   if (cascadedRoot.type !== "element") throw new Error("root cascade not element");
 
@@ -201,7 +201,7 @@ function buildDoc(opts: {
     plan, cascadedRoot, ctx, shaper, cfg, undefined, cascadedTemplateContents,
   );
   const positioned = positionTreeForTest(virtual);
-  return { state, positioned, shaper };
+  return { document, positioned, shaper };
 }
 
 function planWithEntries(
@@ -261,16 +261,16 @@ function page0(positioned: LayoutBox) {
 }
 
 /** Per-context line groups + their physical-X spans on page 0. */
-function geometry(state: State, positioned: LayoutBox) {
+function geometry(document: Document, positioned: LayoutBox) {
   const all = getLineIndex(positioned).all;
   const bodyLines = all.filter(
-    (l) => selectionContextOf(state, l.line.ownerBlockId) === state.rootId,
+    (l) => selectionContextOf(document, l.line.ownerBlockId) === document.rootId,
   );
   const headerLines = all.filter(
-    (l) => selectionContextOf(state, l.line.ownerBlockId) === HEADER_ROOT,
+    (l) => selectionContextOf(document, l.line.ownerBlockId) === HEADER_ROOT,
   );
   const footerLines = all.filter(
-    (l) => selectionContextOf(state, l.line.ownerBlockId) === FOOTER_ROOT,
+    (l) => selectionContextOf(document, l.line.ownerBlockId) === FOOTER_ROOT,
   );
   return { bodyLines, headerLines, footerLines };
 }
@@ -285,13 +285,13 @@ beforeEach(() => {
 for (const wm of ["vertical-lr", "vertical-rl"] as const) {
   describe(`#438 ${wm} — slot-zone classification on the block (physical-X) axis`, () => {
     it("layout sanity: header sits at the block-START margin, footer at the block-END margin", () => {
-      const { state, positioned } = buildDoc({
+      const { document, positioned } = buildDoc({
         wm,
         bodyParas: ["body one", "body two"],
         headerPara: "the header",
         footerPara: "the footer",
       });
-      const g = geometry(state, positioned);
+      const g = geometry(document, positioned);
       expect(g.headerLines.length).toBe(1);
       expect(g.footerLines.length).toBe(1);
       expect(g.bodyLines.length).toBe(2);
@@ -315,23 +315,23 @@ for (const wm of ["vertical-lr", "vertical-rl"] as const) {
     });
 
     it("header-margin click → HEADER context (not body)", () => {
-      const { state, positioned, shaper } = buildDoc({
+      const { document, positioned, shaper } = buildDoc({
         wm,
         bodyParas: ["body one", "body two"],
         headerPara: "the header",
         footerPara: "the footer",
       });
-      const g = geometry(state, positioned);
+      const g = geometry(document, positioned);
       const header = nth(g.headerLines, 0, "header line");
       // Block-axis (physical X) click coord: the center of the header line band.
       const x = header.absoluteX + header.line.blockSize / 2;
       // Inline-axis (physical Y) click coord: over the header text (a few chars).
       const y = header.absoluteY + SHAPER_CHAR_W * 2;
 
-      const pos = resolvePositionFromPixel(state, positioned, shaper, x, y, 0);
+      const pos = resolvePositionFromPixel(document, positioned, shaper, x, y, 0);
       expect(pos).not.toBeNull();
       if (pos === null) return;
-      const resolved = resolveBlock(state, pos.blockId);
+      const resolved = resolveBlock(document, pos.blockId);
       expect(resolved).not.toBeNull();
       if (resolved === null) return;
       expect(resolved.kind).toBe("templateContent");
@@ -339,21 +339,21 @@ for (const wm of ["vertical-lr", "vertical-rl"] as const) {
     });
 
     it("footer-margin click → FOOTER context (not body)", () => {
-      const { state, positioned, shaper } = buildDoc({
+      const { document, positioned, shaper } = buildDoc({
         wm,
         bodyParas: ["body one", "body two"],
         headerPara: "the header",
         footerPara: "the footer",
       });
-      const g = geometry(state, positioned);
+      const g = geometry(document, positioned);
       const footer = nth(g.footerLines, 0, "footer line");
       const x = footer.absoluteX + footer.line.blockSize / 2;
       const y = footer.absoluteY + SHAPER_CHAR_W * 2;
 
-      const pos = resolvePositionFromPixel(state, positioned, shaper, x, y, 0);
+      const pos = resolvePositionFromPixel(document, positioned, shaper, x, y, 0);
       expect(pos).not.toBeNull();
       if (pos === null) return;
-      const resolved = resolveBlock(state, pos.blockId);
+      const resolved = resolveBlock(document, pos.blockId);
       expect(resolved).not.toBeNull();
       if (resolved === null) return;
       expect(resolved.kind).toBe("templateContent");
@@ -361,21 +361,21 @@ for (const wm of ["vertical-lr", "vertical-rl"] as const) {
     });
 
     it("body-content click → BODY context (no slot capture)", () => {
-      const { state, positioned, shaper } = buildDoc({
+      const { document, positioned, shaper } = buildDoc({
         wm,
         bodyParas: ["body one", "body two"],
         headerPara: "the header",
         footerPara: "the footer",
       });
-      const g = geometry(state, positioned);
+      const g = geometry(document, positioned);
       const first = nth(g.bodyLines, 0, "body line");
       const x = first.absoluteX + first.line.blockSize / 2;
       const y = first.absoluteY + SHAPER_CHAR_W * 1 + 1; // mid-second-char inline
 
-      const pos = resolvePositionFromPixel(state, positioned, shaper, x, y, 0);
+      const pos = resolvePositionFromPixel(document, positioned, shaper, x, y, 0);
       expect(pos).not.toBeNull();
       if (pos === null) return;
-      const resolved = resolveBlock(state, pos.blockId);
+      const resolved = resolveBlock(document, pos.blockId);
       expect(resolved).not.toBeNull();
       if (resolved === null) return;
       expect(resolved.kind).toBe("block");
@@ -385,13 +385,13 @@ for (const wm of ["vertical-lr", "vertical-rl"] as const) {
 
     it("body empty-tail click (block-end edge of content, near footer) → END of last body block, NOT footer", () => {
       const lastBodyText = "body two";
-      const { state, positioned, shaper } = buildDoc({
+      const { document, positioned, shaper } = buildDoc({
         wm,
         bodyParas: ["body one", lastBodyText],
         headerPara: "the header",
         footerPara: "the footer",
       });
-      const g = geometry(state, positioned);
+      const g = geometry(document, positioned);
       const edges = page0(positioned);
       // Project the body lines' block coords back to logical block-offset space to
       // find a click just past the last body line but still inside the content
@@ -411,10 +411,10 @@ for (const wm of ["vertical-lr", "vertical-rl"] as const) {
       // Inline coord far past the line end.
       const y = 5000;
 
-      const pos = resolvePositionFromPixel(state, positioned, shaper, x, y, 0);
+      const pos = resolvePositionFromPixel(document, positioned, shaper, x, y, 0);
       expect(pos).not.toBeNull();
       if (pos === null) return;
-      const resolved = resolveBlock(state, pos.blockId);
+      const resolved = resolveBlock(document, pos.blockId);
       expect(resolved).not.toBeNull();
       if (resolved === null) return;
       expect(resolved.kind).toBe("block");

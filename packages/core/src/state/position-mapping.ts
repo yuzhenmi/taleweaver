@@ -2,8 +2,8 @@ import type { Block } from "./block";
 import type { BlockId } from "./block-id";
 import type { Position } from "./block-position";
 import { createPosition } from "./block-position";
-import type { State } from "./state";
-import { peekBlock, resolveBlock } from "./state";
+import type { Document } from "./document";
+import { peekBlock, resolveBlock } from "./document";
 import { mapThrough, blockTouched, changedBlocks, type TxMapping } from "./tx-mapping";
 
 /**
@@ -85,7 +85,7 @@ export function txMappingsOf(dirtyIds: ReadonlySet<BlockId>): readonly TxMapping
 }
 
 /** Document order of two blocks: in `prev`'s cache, else in `next`'s live read model; null = unknown. */
-function orderIn(prev: State, next: State, a: BlockId, b: BlockId): number | null {
+function orderIn(prev: Document, next: Document, a: BlockId, b: BlockId): number | null {
   if (a === b) return 0;
   try {
     return compareWith((id) => peekBlock(prev, id), a, b);
@@ -113,12 +113,12 @@ function txIdentity(m: TxMapping): boolean {
 /**
  * The EXACT mapping `prev → next` from the transactions' own structure changes
  * (`tx-mapping.ts`): no text diff, no previous-content cache — a block the previous
- * State never read maps exactly. `prev` / `next` only order blocks for `touches`
+ * Document never read maps exactly. `prev` / `next` only order blocks for `touches`
  * across blocks.
  */
 export function exactPositionMapping(
-  prev: State,
-  next: State,
+  prev: Document,
+  next: Document,
   dirtyIds: ReadonlySet<BlockId>,
   maps: readonly TxMapping[],
 ): PositionMapping {
@@ -221,9 +221,9 @@ export function composeMappings(mappings: readonly PositionMapping[]): PositionM
   };
 }
 
-/** One document change of a chain: the State it was made from + its dirty set. */
+/** One document change of a chain: the Document it was made from + its dirty set. */
 export interface ChangeLink {
-  readonly from: State;
+  readonly from: Document;
   readonly dirtyIds: ReadonlySet<BlockId>;
 }
 
@@ -232,7 +232,7 @@ export interface ChangeLink {
  * transaction mappings composed when every change carries them; otherwise one text
  * diff over the union of the dirty sets (changes of unknown provenance).
  */
-export function mappingAcross(links: readonly ChangeLink[], next: State, hint?: Position, nextHint?: Position): PositionMapping {
+export function mappingAcross(links: readonly ChangeLink[], next: Document, hint?: Position, nextHint?: Position): PositionMapping {
   const first = links[0];
   if (first === undefined) return IDENTITY_MAPPING;
   const exact: PositionMapping[] = [];
@@ -291,7 +291,7 @@ class UnknownBlock extends Error {}
  * and Backspace in "xo|o" deletes [1, 2) rather than the trailing "o". A hint far from the
  * edit only widens the diffed middle (which Myers still resolves).
  *
- * The PREV block text is read via a cache-only peek (a superseded State's Y.Doc has
+ * The PREV block text is read via a cache-only peek (a superseded Document's Y.Doc has
  * already been mutated). When a dirty block's previous content is not cached, positions
  * in it map to `{ position: null, deleted: true }` rather than to possibly-wrong text.
  *
@@ -299,8 +299,8 @@ class UnknownBlock extends Error {}
  * middle — one paragraph for a keystroke.
  */
 export function createPositionMapping(
-  prev: State,
-  next: State,
+  prev: Document,
+  next: Document,
   dirtyIds: ReadonlySet<BlockId>,
   hint?: Position,
   nextHint?: Position,
@@ -586,14 +586,14 @@ function ancestorChain(get: (id: BlockId) => Block | undefined, id: BlockId): Bl
 }
 
 /**
- * Document order of two positions in a possibly SUPERSEDED State, reading only its
+ * Document order of two positions in a possibly SUPERSEDED Document, reading only its
  * snapshot cache (never the live Y.Doc, which may already hold a later change):
  * negative / zero / positive, or null when a needed block was never snapshotted.
  */
-export function comparePositionsCached(state: State, a: Position, b: Position): number | null {
+export function comparePositionsCached(document: Document, a: Position, b: Position): number | null {
   if (a.blockId === b.blockId) return a.offset - b.offset;
   try {
-    return compareWith((id) => peekBlock(state, id), a.blockId, b.blockId);
+    return compareWith((id) => peekBlock(document, id), a.blockId, b.blockId);
   } catch (e) {
     if (e instanceof UnknownBlock) return null;
     throw e;
@@ -602,7 +602,7 @@ export function comparePositionsCached(state: State, a: Position, b: Position): 
 
 /**
  * Document-order comparison through an arbitrary block getter (so it works on a
- * superseded State via peek). Blocks in different trees order by their root id — an
+ * superseded Document via peek). Blocks in different trees order by their root id — an
  * arbitrary but consistent order, the same on both sides of a transition.
  */
 function compareWith(get: (id: BlockId) => Block | undefined, a: BlockId, b: BlockId): number {

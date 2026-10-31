@@ -32,7 +32,6 @@ import type { ActionOf } from "../editor-action";
  * dirtyIds threaded through to the incremental render pipeline.
  */
 export function handleSetFontSize(editor: EditorState, { size }: ActionOf<"SET_FONT_SIZE">): Edit | null {
-  const { config } = editor;
   const { selection } = editor;
   // Normalize a non-positive size to a removal — a font size of 0 or less
   // isn't a meaningful value, so this handler is where we reject it.
@@ -41,8 +40,8 @@ export function handleSetFontSize(editor: EditorState, { size }: ActionOf<"SET_F
     : { fontSize: undefined };
   // Collapsed caret: the size applies to the next typed text (typing attrs).
   if (isCollapsed(selection)) return storeTypingAttrs(editor, incoming);
-  const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
-  if (result.state === editor.state) return null;
+  const result = applyAttrsOrSuggest(editor, selection, incoming);
+  if (result.document === editor.document) return null;
 
   // An attr-only edit shifts no offsets, so the selection is unchanged — it is
   // committed and rebuilt AS-IS, preserving both endpoints and the anchor/focus

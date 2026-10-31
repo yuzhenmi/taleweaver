@@ -29,15 +29,15 @@ import { extractText, builtinEmbedSerializer } from "./extract-text";
 import { clonePastedSubtree } from "./clone-pasted-subtree";
 import { createPosition, createSpan } from "./block-position";
 import { createTestAllocator, type BlockId } from "./block-id";
-import { buildBlock, buildState, text, inlineContent } from "../test-utils/state-builders";
-import type { State } from "./state";
-import { getBlock } from "./state";
+import { buildBlock, buildDocument, text, inlineContent } from "../test-utils/document-builders";
+import type { Document } from "./document";
+import { getBlock } from "./document";
 
 const CID = "c1" as CommentId;
 
 /** doc > [ p("hello world") ] */
-function oneBlock(): State {
-  return buildState({
+function oneBlock(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -52,8 +52,8 @@ function oneBlock(): State {
 }
 
 /** doc > [ p1("hello"), p2("world") ] */
-function twoBlocks(): State {
-  return buildState({
+function twoBlocks(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -76,12 +76,12 @@ function twoBlocks(): State {
 }
 
 /** Comment "world" in p ("hello world"): start at offset 6, end at offset 11. */
-function commentWorld(state: State): State {
+function commentWorld(document: Document): Document {
   return insertCommentMarkers(
-    state,
+    document,
     createSpan(createPosition("p" as BlockId, 6), createPosition("p" as BlockId, 11)),
     CID,
-  ).state;
+  ).document;
 }
 
 describe("insertCommentMarkers + scan — basic resolution", () => {
@@ -115,7 +115,7 @@ describe("insertCommentMarkers + scan — basic resolution", () => {
       twoBlocks(),
       createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 5)),
       CID,
-    ).state;
+    ).document;
     const range = resolveCommentRange(s, CID);
     expect(range?.orphaned).toBe(false);
     expect(range?.start.blockId).toBe("p1");
@@ -133,7 +133,7 @@ describe("insertCommentMarkers + scan — basic resolution", () => {
 describe("marker survival across structural ops (the spike's matrix — now ALL survive)", () => {
   it("insert-before SURVIVES — range stays live, shifted right", () => {
     const s = commentWorld(oneBlock());
-    const after = insertText(s, createPosition("p" as BlockId, 0), "XYZ", {}).state;
+    const after = insertText(s, createPosition("p" as BlockId, 0), "XYZ", {}).document;
     const range = resolveCommentRange(after, CID);
     expect(range?.orphaned).toBe(false);
     // "XYZ" (3 chars) before the start marker pushes both markers right by 3.
@@ -147,7 +147,7 @@ describe("marker survival across structural ops (the spike's matrix — now ALL 
     const after = deleteRange(
       s,
       createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 1)),
-    ).state;
+    ).document;
     const range = resolveCommentRange(after, CID);
     expect(range?.orphaned).toBe(false);
     // One char removed before the markers → both shift left by one.
@@ -163,7 +163,7 @@ describe("marker survival across structural ops (the spike's matrix — now ALL 
       s,
       createPosition("p" as BlockId, 6),
       createTestAllocator("p2"),
-    ).state;
+    ).document;
     const range = resolveCommentRange(after, CID);
     expect(range?.orphaned).toBe(false);
     // Both markers moved to the new block; the range is still well-formed.
@@ -176,10 +176,10 @@ describe("marker survival across structural ops (the spike's matrix — now ALL 
       twoBlocks(),
       createSpan(createPosition("p2" as BlockId, 0), createPosition("p2" as BlockId, 5)),
       CID,
-    ).state;
+    ).document;
     expect(resolveCommentRange(base, CID)?.orphaned).toBe(false);
 
-    const merged = mergeAdjacentBlocks(base, "p1" as BlockId, "p2" as BlockId).state;
+    const merged = mergeAdjacentBlocks(base, "p1" as BlockId, "p2" as BlockId).document;
     const range = resolveCommentRange(merged, CID);
     expect(range?.orphaned).toBe(false);
     // After merge everything lives in the survivor p2 (¶p1 is deleted).
@@ -197,7 +197,7 @@ describe("orphan derivation", () => {
     const after = deleteRange(
       s,
       createSpan(createPosition("p" as BlockId, 6), createPosition("p" as BlockId, 13)),
-    ).state;
+    ).document;
     // No markers remain → no entry in the index → resolve returns null.
     expect(buildCommentRangeIndex(after).has(CID)).toBe(false);
     expect(resolveCommentRange(after, CID)).toBeNull();
@@ -210,7 +210,7 @@ describe("orphan derivation", () => {
     const after = deleteRange(
       s,
       createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 7)),
-    ).state;
+    ).document;
     const range = resolveCommentRange(after, CID);
     expect(range).not.toBeNull();
     expect(range?.orphaned).toBe(true);

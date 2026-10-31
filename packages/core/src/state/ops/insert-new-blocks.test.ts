@@ -8,21 +8,21 @@
  */
 import { describe, it, expect } from "vitest";
 import { insertNewBlocksInTx, type NewBlockSpec } from "./insert-new-blocks";
-import { buildState, buildBlock, inlineContent, text, finalSectionOf } from "../../test-utils/state-builders";
-import { applyOperation, resolveBlock } from "../state";
+import { buildDocument, buildBlock, inlineContent, text, finalSectionOf } from "../../test-utils/document-builders";
+import { applyOperation, resolveBlock } from "../document";
 import { asBlockId } from "../block-id";
 import { getYBlock } from "../yjs-doc";
 
 describe("insertNewBlocksInTx — materialize pre-linked new blocks (PF-0)", () => {
   it("writes a run of new MAIN-tree blocks with verbatim pre-linked pointers", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("x")]) }),
       ],
     });
-    const F = finalSectionOf(state);
+    const F = finalSectionOf(document);
     const specs: NewBlockSpec[] = [
       { id: asBlockId("n1"), kind: "block", type: "paragraph", attrs: {}, items: [text("a")],
         parentId: F, prevSiblingId: asBlockId("p"), nextSiblingId: asBlockId("n2") },
@@ -32,11 +32,11 @@ describe("insertNewBlocksInTx — materialize pre-linked new blocks (PF-0)", () 
     // The primitive does NOT rewire neighbors — that's the caller's job. Mirror it
     // so the resulting chain is consistent (else the assertChainIntegrity dev
     // invariant rejects the op). p was doc's last child, so doc.lastChildId → n2.
-    const next = applyOperation(state, (doc) => {
+    const next = applyOperation(document, (doc) => {
       insertNewBlocksInTx(doc, specs);
       getYBlock(doc, asBlockId("p"), "test", "block").set("nextSiblingId", asBlockId("n1"));
       getYBlock(doc, asBlockId("doc"), "test", "block").set("lastChildId", asBlockId("n2"));
-    }).state;
+    }).document;
     const n1 = resolveBlock(next, asBlockId("n1"))?.block;
     const n2 = resolveBlock(next, asBlockId("n2"))?.block;
     expect(n1?.parentId).toBe(F);
@@ -48,7 +48,7 @@ describe("insertNewBlocksInTx — materialize pre-linked new blocks (PF-0)", () 
   });
 
   it("routes writes into the EMBED tree when kind = embedContent", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
                buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("m")]) })],
@@ -61,22 +61,22 @@ describe("insertNewBlocksInTx — materialize pre-linked new blocks (PF-0)", () 
       { id: asBlockId("e1"), kind: "embedContent", type: "paragraph", attrs: {}, items: [text("z")],
         parentId: asBlockId("fn"), prevSiblingId: asBlockId("fnp"), nextSiblingId: null },
     ];
-    const next = applyOperation(state, (doc) => {
+    const next = applyOperation(document, (doc) => {
       insertNewBlocksInTx(doc, specs);
       getYBlock(doc, asBlockId("fnp"), "test", "embedContent").set("nextSiblingId", asBlockId("e1"));
       getYBlock(doc, asBlockId("fn"), "test", "embedContent").set("lastChildId", asBlockId("e1"));
-    }).state;
+    }).document;
     const e1 = resolveBlock(next, asBlockId("e1"));
     expect(e1?.kind).toBe("embedContent"); // resolved from the embed tree, not main
     expect(e1?.block.parentId).toBe("fn");
   });
 
   it("throws on an id collision with an existing block (dev defense)", () => {
-    const state = buildState({ rootId: "doc", blocks: [
+    const document = buildDocument({ rootId: "doc", blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
       buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("x")]) }) ] });
     const specs: NewBlockSpec[] = [{ id: asBlockId("p"), kind: "block", type: "paragraph", attrs: {}, items: [],
       parentId: asBlockId("doc"), prevSiblingId: asBlockId("doc"), nextSiblingId: null }];
-    expect(() => applyOperation(state, (doc) => { insertNewBlocksInTx(doc, specs); })).toThrow();
+    expect(() => applyOperation(document, (doc) => { insertNewBlocksInTx(doc, specs); })).toThrow();
   });
 });

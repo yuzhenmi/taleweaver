@@ -5,7 +5,7 @@ import {
   mergeAdjacentTextItems,
   splitInlineContentAtOffset,
 } from "./inline-content";
-import { text, embed, inlineContent } from "../test-utils/state-builders";
+import { text, embed, inlineContent } from "../test-utils/document-builders";
 import { AttrRegistry } from "../cascade/attr-registry";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {

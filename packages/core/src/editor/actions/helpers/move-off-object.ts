@@ -18,6 +18,6 @@ export function moveOffObject(
   objId: BlockId,
   direction: "forward" | "backward",
 ): Edit | null {
-  const selection = objectMoveSelection(editor.state, objId, direction);
+  const selection = objectMoveSelection(editor.document, objId, direction);
   return selection === null ? null : { selection };
 }

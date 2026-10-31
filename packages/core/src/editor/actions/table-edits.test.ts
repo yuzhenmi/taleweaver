@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { config, createInitialEditorState, reduceEditor, createPosition, createSpan } from "./test-helpers";
-import { createEditorStateFromState } from "../editor-state";
+import { createEditorStateFromDocument } from "../editor-state";
 import type { EditorState } from "../editor-state";
-import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent } from "../../test-utils/document-builders";
 import { getBlock, getChildIds, topLevelBlockIds } from "../../state";
-import type { BlockId, BlockInit, State } from "../../state";
+import type { BlockId, BlockInit, Document } from "../../state";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -29,27 +29,27 @@ function editorWithTable(): EditorState {
 }
 
 /** Find the table block id (first top-level table, in document order). */
-function findTableId(state: State): BlockId {
-  for (const id of topLevelBlockIds(state)) {
-    if (getBlock(state, id)?.type === "table") return id;
+function findTableId(document: Document): BlockId {
+  for (const id of topLevelBlockIds(document)) {
+    if (getBlock(document, id)?.type === "table") return id;
   }
   throw new Error("no table in state");
 }
 
 /** The first paragraph inside the table's first cell. */
-function firstCellParagraph(state: State, tableId: BlockId): BlockId {
-  const row0 = nth(getChildIds(state, tableId), 0, "row");
-  const cellA = nth(getChildIds(state, row0), 0, "cell");
-  const para = getBlock(state, cellA)?.firstChildId;
+function firstCellParagraph(document: Document, tableId: BlockId): BlockId {
+  const row0 = nth(getChildIds(document, tableId), 0, "row");
+  const cellA = nth(getChildIds(document, row0), 0, "cell");
+  const para = getBlock(document, cellA)?.firstChildId;
   if (para == null) throw new Error("no paragraph in first cell");
   return para;
 }
 
 /** The first paragraph inside the cell at [row r, column c] of the table. */
-function cellParagraph(state: State, tableId: BlockId, r: number, c: number): BlockId {
-  const row = nth(getChildIds(state, tableId), r, "row");
-  const cell = nth(getChildIds(state, row), c, "cell");
-  const para = getBlock(state, cell)?.firstChildId;
+function cellParagraph(document: Document, tableId: BlockId, r: number, c: number): BlockId {
+  const row = nth(getChildIds(document, tableId), r, "row");
+  const cell = nth(getChildIds(document, row), c, "cell");
+  const para = getBlock(document, cell)?.firstChildId;
   if (para == null) throw new Error(`no paragraph in cell [${r}, ${c}]`);
   return para;
 }
@@ -78,34 +78,34 @@ describe("handleInsertTableRow — INSERT_TABLE_ROW (P15a.S2)", () => {
     };
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_NODE", node: ragged });
-    const tableId = findTableId(editor.state);
-    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    const tableId = findTableId(editor.document);
+    editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
 
     const next = reduceEditor(editor, { type: "INSERT_TABLE_ROW", position: "below" });
     expect(next).not.toBe(editor);
-    const rows = getChildIds(next.state, tableId);
+    const rows = getChildIds(next.document, tableId);
     expect(rows.length).toBe(3);
-    expect(getChildIds(next.state, nth(rows, 1, "row")).length).toBe(2);
+    expect(getChildIds(next.document, nth(rows, 1, "row")).length).toBe(2);
   });
 
   it("inserts a row below the caret's row; the table grows from 2 to 3 rows", () => {
     let editor = editorWithTable();
-    const tableId = findTableId(editor.state);
-    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    const tableId = findTableId(editor.document);
+    editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
     const before = createSpan(editor.selection.anchor, editor.selection.focus);
 
     const next = reduceEditor(editor, { type: "INSERT_TABLE_ROW", position: "below" });
 
-    const rows = getChildIds(next.state, tableId);
+    const rows = getChildIds(next.document, tableId);
     expect(rows.length).toBe(3);
     // the new row is the second one (below row 0), with 2 cells each holding a paragraph
     const newRow = nth(rows, 1, "row");
-    const cells = getChildIds(next.state, newRow);
+    const cells = getChildIds(next.document, newRow);
     expect(cells.length).toBe(2);
     const cell0 = nth(cells, 0, "cell");
-    expect(getBlock(next.state, cell0)?.type).toBe("table-cell");
-    const p = getBlock(next.state, cell0)?.firstChildId;
-    expect(p != null && getBlock(next.state, p)?.type).toBe("paragraph");
+    expect(getBlock(next.document, cell0)?.type).toBe("table-cell");
+    const p = getBlock(next.document, cell0)?.firstChildId;
+    expect(p != null && getBlock(next.document, p)?.type).toBe("paragraph");
 
     // selection unchanged (Google Docs keeps the caret in place on insert-row)
     expect(next.selection).toEqual(before);
@@ -113,14 +113,14 @@ describe("handleInsertTableRow — INSERT_TABLE_ROW (P15a.S2)", () => {
 
   it("inserts a row above; one undo entry restores the 2-row table", () => {
     let editor = editorWithTable();
-    const tableId = findTableId(editor.state);
-    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    const tableId = findTableId(editor.document);
+    editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
 
     const inserted = reduceEditor(editor, { type: "INSERT_TABLE_ROW", position: "above" });
-    expect(getChildIds(inserted.state, tableId).length).toBe(3);
+    expect(getChildIds(inserted.document, tableId).length).toBe(3);
 
     const undone = reduceEditor(inserted, { type: "UNDO" });
-    expect(getChildIds(undone.state, tableId).length).toBe(2);
+    expect(getChildIds(undone.document, tableId).length).toBe(2);
   });
 
   it("routes a WELL-FORMED SPANNED table to the span-aware op (P15b): a crossing rowSpan grows", () => {
@@ -139,14 +139,14 @@ describe("handleInsertTableRow — INSERT_TABLE_ROW (P15a.S2)", () => {
       buildBlock({ id: "C", type: "table-cell", parentId: "r1", firstChildId: "Cp", lastChildId: "Cp" }),
       buildBlock({ id: "Cp", type: "paragraph", parentId: "C", inlineContent: inlineContent([]) }),
     ];
-    const state = buildState({ rootId: "doc", blocks });
+    const document = buildDocument({ rootId: "doc", blocks });
     const caret = createPosition("Bp" as BlockId, 0);
-    let editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    let editor = createEditorStateFromDocument(document, createSpan(caret, caret), config);
 
     const next = reduceEditor(editor, { type: "INSERT_TABLE_ROW", position: "below" });
     expect(next).not.toBe(editor);
-    expect(getBlock(next.state, "A" as BlockId)?.attrs.rowSpan).toBe(3);
-    expect(getChildIds(next.state, "table" as BlockId).length).toBe(3);
+    expect(getBlock(next.document, "A" as BlockId)?.attrs.rowSpan).toBe(3);
+    expect(getChildIds(next.document, "table" as BlockId).length).toBe(3);
     expect(next.selection.focus.blockId).toBe("Bp"); // selection unchanged
   });
 });
@@ -162,13 +162,13 @@ describe("handleDeleteTable — DELETE_TABLE (P15a.S3)", () => {
     // editorWithTable → doc has [seeded empty paragraph, table, paragraph] (invariant I:
     // a paragraph follows every table); the caret goes to the one after the table (Word).
     let editor = editorWithTable();
-    const tableId = findTableId(editor.state);
+    const tableId = findTableId(editor.document);
     // Invariant I: a paragraph always follows a table — the caret goes there (Word).
-    const seededPara = getBlock(editor.state, tableId)?.nextSiblingId ?? null;
-    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    const seededPara = getBlock(editor.document, tableId)?.nextSiblingId ?? null;
+    editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE" });
-    expect(getBlock(next.state, tableId)).toBeNull();
+    expect(getBlock(next.document, tableId)).toBeNull();
     // caret moved to the paragraph after the table
     expect(next.selection.focus.blockId).toBe(seededPara);
   });
@@ -183,29 +183,29 @@ describe("handleDeleteTable — DELETE_TABLE (P15a.S3)", () => {
     };
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_NODE", node: spanned });
-    const tableId = findTableId(editor.state);
-    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    const tableId = findTableId(editor.document);
+    editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE" });
     expect(next).not.toBe(editor);
-    expect(getBlock(next.state, tableId)).toBeNull();
+    expect(getBlock(next.document, tableId)).toBeNull();
   });
 
   it("one undo entry restores the table", () => {
     let editor = editorWithTable();
-    const tableId = findTableId(editor.state);
-    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    const tableId = findTableId(editor.document);
+    editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
     const deleted = reduceEditor(editor, { type: "DELETE_TABLE" });
-    expect(getBlock(deleted.state, tableId)).toBeNull();
+    expect(getBlock(deleted.document, tableId)).toBeNull();
     const undone = reduceEditor(deleted, { type: "UNDO" });
-    expect(getBlock(undone.state, tableId)?.type).toBe("table");
+    expect(getBlock(undone.document, tableId)?.type).toBe("table");
   });
 
   it("sole-child table → caret lands on the paragraph after it", () => {
     // A document whose only authored child is a 1×1 table. Invariant I:
     // a paragraph always follows a table, so deleting the table leaves exactly
     // that paragraph and the caret lands on it (no replacement paragraph is minted).
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
@@ -216,16 +216,16 @@ describe("handleDeleteTable — DELETE_TABLE (P15a.S3)", () => {
       ],
     });
     const caret = createPosition("cp" as BlockId, 0);
-    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    const editor = createEditorStateFromDocument(document, createSpan(caret, caret), config);
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE" });
 
     // table subtree gone; the body holds exactly the trailing paragraph
-    expect(getBlock(next.state, "table" as BlockId)).toBeNull();
-    const bodyChildren = topLevelBlockIds(next.state);
+    expect(getBlock(next.document, "table" as BlockId)).toBeNull();
+    const bodyChildren = topLevelBlockIds(next.document);
     expect(bodyChildren.length).toBe(1);
     const replacement = nth(bodyChildren, 0, "block");
-    expect(getBlock(next.state, replacement)?.type).toBe("paragraph");
+    expect(getBlock(next.document, replacement)?.type).toBe("paragraph");
     // caret landed on it
     expect(next.selection.focus.blockId).toBe(replacement);
   });
@@ -259,12 +259,12 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
     };
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_NODE", node: ragged });
-    const tableId = findTableId(editor.state);
-    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    const tableId = findTableId(editor.document);
+    editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" });
     expect(next).not.toBe(editor);
-    expect(getChildIds(next.state, tableId).length).toBe(1);
+    expect(getChildIds(next.document, tableId).length).toBe(1);
   });
 
   it("routes a WELL-FORMED SPANNED table to the span-aware op (P15b): a covering rowSpan shrinks + caret lands", () => {
@@ -284,42 +284,42 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
       buildBlock({ id: "C", type: "table-cell", parentId: "r1", firstChildId: "Cp", lastChildId: "Cp" }),
       buildBlock({ id: "Cp", type: "paragraph", parentId: "C", inlineContent: inlineContent([]) }),
     ];
-    const state = buildState({ rootId: "doc", blocks });
+    const document = buildDocument({ rootId: "doc", blocks });
     const caret = createPosition("Cp" as BlockId, 0);
-    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    const editor = createEditorStateFromDocument(document, createSpan(caret, caret), config);
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" });
     expect(next).not.toBe(editor);
-    expect(getBlock(next.state, "A" as BlockId)?.attrs.rowSpan).toBeUndefined(); // 2→1
-    expect(getChildIds(next.state, "table" as BlockId)).toEqual(["r0"]); // row1 gone
-    expect(getBlock(next.state, "C" as BlockId)).toBeNull();
+    expect(getBlock(next.document, "A" as BlockId)?.attrs.rowSpan).toBeUndefined(); // 2→1
+    expect(getChildIds(next.document, "table" as BlockId)).toEqual(["r0"]); // row1 gone
+    expect(getBlock(next.document, "C" as BlockId)).toBeNull();
     // caret → column 1 of the surviving row (B's first paragraph).
     expect(next.selection.focus.blockId).toBe("Bp");
   });
 
   it("deletes the caret's row; caret moves to the same column in the NEXT row", () => {
     let editor = editorWithTable(); // 2×2
-    const tableId = findTableId(editor.state);
+    const tableId = findTableId(editor.document);
     // caret in row 0, column 0; the next row's column-0 paragraph survives.
-    const survivingTarget = cellParagraph(editor.state, tableId, 1, 0);
-    editor = selectInto(editor, cellParagraph(editor.state, tableId, 0, 0));
+    const survivingTarget = cellParagraph(editor.document, tableId, 1, 0);
+    editor = selectInto(editor, cellParagraph(editor.document, tableId, 0, 0));
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" });
 
-    expect(getChildIds(next.state, tableId).length).toBe(1);
+    expect(getChildIds(next.document, tableId).length).toBe(1);
     expect(next.selection.focus.blockId).toBe(survivingTarget);
   });
 
   it("deleting the LAST row moves the caret to the same column in the PREVIOUS row", () => {
     let editor = editorWithTable(); // 2×2
-    const tableId = findTableId(editor.state);
+    const tableId = findTableId(editor.document);
     // caret in row 1 (last), column 1; the previous row's column-1 paragraph survives.
-    const survivingTarget = cellParagraph(editor.state, tableId, 0, 1);
-    editor = selectInto(editor, cellParagraph(editor.state, tableId, 1, 1));
+    const survivingTarget = cellParagraph(editor.document, tableId, 0, 1);
+    editor = selectInto(editor, cellParagraph(editor.document, tableId, 1, 1));
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" });
 
-    expect(getChildIds(next.state, tableId).length).toBe(1);
+    expect(getChildIds(next.document, tableId).length).toBe(1);
     expect(next.selection.focus.blockId).toBe(survivingTarget);
   });
 
@@ -328,19 +328,19 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
     // table collapse is the plain-removal path (caret → that sibling).
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_NODE", node: oneRowTableInit() });
-    const tableId = findTableId(editor.state);
+    const tableId = findTableId(editor.document);
     // Invariant I: a paragraph always follows a table — the caret goes there (Word).
-    const seededPara = getBlock(editor.state, tableId)?.nextSiblingId ?? null;
-    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    const seededPara = getBlock(editor.document, tableId)?.nextSiblingId ?? null;
+    editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" });
 
-    expect(getBlock(next.state, tableId)).toBeNull();
+    expect(getBlock(next.document, tableId)).toBeNull();
     expect(next.selection.focus.blockId).toBe(seededPara);
   });
 
   it("deleting the only row of a sole-child table → caret on the paragraph after it (invariant I)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
@@ -351,35 +351,35 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
       ],
     });
     const caret = createPosition("cp" as BlockId, 0);
-    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    const editor = createEditorStateFromDocument(document, createSpan(caret, caret), config);
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" });
 
-    expect(getBlock(next.state, "table" as BlockId)).toBeNull();
-    const bodyChildren = topLevelBlockIds(next.state);
+    expect(getBlock(next.document, "table" as BlockId)).toBeNull();
+    const bodyChildren = topLevelBlockIds(next.document);
     expect(bodyChildren.length).toBe(1);
     const body0 = nth(bodyChildren, 0, "block");
-    expect(getBlock(next.state, body0)?.type).toBe("paragraph");
+    expect(getBlock(next.document, body0)?.type).toBe("paragraph");
     expect(next.selection.focus.blockId).toBe(body0);
   });
 
   it("one undo entry restores the deleted row", () => {
     let editor = editorWithTable();
-    const tableId = findTableId(editor.state);
-    editor = selectInto(editor, cellParagraph(editor.state, tableId, 0, 0));
+    const tableId = findTableId(editor.document);
+    editor = selectInto(editor, cellParagraph(editor.document, tableId, 0, 0));
 
     const deleted = reduceEditor(editor, { type: "DELETE_TABLE_ROW" });
-    expect(getChildIds(deleted.state, tableId).length).toBe(1);
+    expect(getChildIds(deleted.document, tableId).length).toBe(1);
 
     const undone = reduceEditor(deleted, { type: "UNDO" });
-    expect(getChildIds(undone.state, tableId).length).toBe(2);
+    expect(getChildIds(undone.document, tableId).length).toBe(2);
   });
 
   it("keeps headerRowCount naming the leading block across a plain row delete (#487)", () => {
     // 3-row single-column PLAIN (no-span) table with headerRowCount=2 (rows 0–1 pinned).
-    const hrc = (s: State): unknown => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
-    const plainTable3 = (): State =>
-      buildState({
+    const hrc = (s: Document): unknown => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
+    const plainTable3 = (): Document =>
+      buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
@@ -399,23 +399,23 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
     // Delete row 0 (a header row) → headerRowCount 2 → 1.
     {
       const caret = createPosition("p0" as BlockId, 0);
-      const editor = createEditorStateFromState(plainTable3(), createSpan(caret, caret), config);
+      const editor = createEditorStateFromDocument(plainTable3(), createSpan(caret, caret), config);
       const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" });
-      expect(getChildIds(next.state, "table" as BlockId).length).toBe(2);
-      expect(hrc(next.state)).toBe(1);
+      expect(getChildIds(next.document, "table" as BlockId).length).toBe(2);
+      expect(hrc(next.document)).toBe(1);
     }
 
     // Delete a BODY row (row 2) → headerRowCount unchanged at 2.
     {
       const caret = createPosition("p2" as BlockId, 0);
-      const editor = createEditorStateFromState(plainTable3(), createSpan(caret, caret), config);
+      const editor = createEditorStateFromDocument(plainTable3(), createSpan(caret, caret), config);
       const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" });
-      expect(hrc(next.state)).toBe(2);
+      expect(hrc(next.document)).toBe(2);
     }
   });
 
   it("deleting the last header row of a headerRowCount=1 plain table turns the header off (#487)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
@@ -429,11 +429,11 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
       ],
     });
     const caret = createPosition("p0" as BlockId, 0);
-    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    const editor = createEditorStateFromDocument(document, createSpan(caret, caret), config);
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" });
     // The last header row removed → header turns OFF (attr dropped, reads as 0/undefined).
-    expect(getBlock(next.state, "table" as BlockId)?.attrs.headerRowCount).toBeUndefined();
+    expect(getBlock(next.document, "table" as BlockId)?.attrs.headerRowCount).toBeUndefined();
   });
 });
 
@@ -456,12 +456,12 @@ describe("handleInsertTableColumn — INSERT_TABLE_COLUMN (P15a.S5)", () => {
     };
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_NODE", node: ragged });
-    const tableId = findTableId(editor.state);
-    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    const tableId = findTableId(editor.document);
+    editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
 
     const next = reduceEditor(editor, { type: "INSERT_TABLE_COLUMN", position: "right" });
     expect(next).not.toBe(editor);
-    for (const row of getChildIds(next.state, tableId)) expect(getChildIds(next.state, row).length).toBe(3);
+    for (const row of getChildIds(next.document, tableId)) expect(getChildIds(next.document, row).length).toBe(3);
   });
 
   it("routes a WELL-FORMED SPANNED table to the span-aware op (P15b): a crossing colSpan grows", () => {
@@ -480,28 +480,28 @@ describe("handleInsertTableColumn — INSERT_TABLE_COLUMN (P15a.S5)", () => {
       buildBlock({ id: "D", type: "table-cell", parentId: "r1", prevSiblingId: "C", firstChildId: "Dp", lastChildId: "Dp" }),
       buildBlock({ id: "Dp", type: "paragraph", parentId: "D", inlineContent: inlineContent([]) }),
     ];
-    const state = buildState({ rootId: "doc", blocks });
+    const document = buildDocument({ rootId: "doc", blocks });
     const caret = createPosition("Cp" as BlockId, 0);
-    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    const editor = createEditorStateFromDocument(document, createSpan(caret, caret), config);
 
     const next = reduceEditor(editor, { type: "INSERT_TABLE_COLUMN", position: "right" });
     expect(next).not.toBe(editor);
-    expect(getBlock(next.state, "A" as BlockId)?.attrs.colSpan).toBe(3);
-    expect(getChildIds(next.state, "r1" as BlockId).length).toBe(3); // C, new, D
+    expect(getBlock(next.document, "A" as BlockId)?.attrs.colSpan).toBe(3);
+    expect(getChildIds(next.document, "r1" as BlockId).length).toBe(3); // C, new, D
     expect(next.selection.focus.blockId).toBe("Cp"); // selection unchanged
   });
 
   it("inserts a column right of the caret's column in every row; caret unchanged", () => {
     let editor = editorWithTable(); // 2×2
-    const tableId = findTableId(editor.state);
-    editor = selectInto(editor, cellParagraph(editor.state, tableId, 0, 0));
+    const tableId = findTableId(editor.document);
+    editor = selectInto(editor, cellParagraph(editor.document, tableId, 0, 0));
     const before = createSpan(editor.selection.anchor, editor.selection.focus);
 
     const next = reduceEditor(editor, { type: "INSERT_TABLE_COLUMN", position: "right" });
 
     // every row grew 2 → 3 cells
-    for (const rowId of getChildIds(next.state, tableId)) {
-      expect(getChildIds(next.state, rowId).length).toBe(3);
+    for (const rowId of getChildIds(next.document, tableId)) {
+      expect(getChildIds(next.document, rowId).length).toBe(3);
     }
     // Google Docs keeps the cursor in its current cell on insert-column.
     expect(next.selection).toEqual(before);
@@ -509,18 +509,18 @@ describe("handleInsertTableColumn — INSERT_TABLE_COLUMN (P15a.S5)", () => {
 
   it("one undo entry reverts BOTH the new cells AND the columnWidths (C1/D4 atomicity)", () => {
     let editor = editorWithTable(); // 2×2, columnWidths [0.5, 0.5]
-    const tableId = findTableId(editor.state);
-    editor = selectInto(editor, cellParagraph(editor.state, tableId, 0, 0));
+    const tableId = findTableId(editor.document);
+    editor = selectInto(editor, cellParagraph(editor.document, tableId, 0, 0));
 
     const inserted = reduceEditor(editor, { type: "INSERT_TABLE_COLUMN", position: "left" });
     // cells grew and columnWidths re-spliced to 3 entries
-    expect(getChildIds(inserted.state, nth(getChildIds(inserted.state, tableId), 0, "row")).length).toBe(3);
-    expect((getBlock(inserted.state, tableId)?.attrs.columnWidths as number[]).length).toBe(3);
+    expect(getChildIds(inserted.document, nth(getChildIds(inserted.document, tableId), 0, "row")).length).toBe(3);
+    expect((getBlock(inserted.document, tableId)?.attrs.columnWidths as number[]).length).toBe(3);
 
     // ONE undo reverts both dimensions together (single transaction → single entry)
     const undone = reduceEditor(inserted, { type: "UNDO" });
-    expect(getChildIds(undone.state, nth(getChildIds(undone.state, tableId), 0, "row")).length).toBe(2);
-    expect(getBlock(undone.state, tableId)?.attrs.columnWidths).toEqual([0.5, 0.5]);
+    expect(getChildIds(undone.document, nth(getChildIds(undone.document, tableId), 0, "row")).length).toBe(2);
+    expect(getBlock(undone.document, tableId)?.attrs.columnWidths).toEqual([0.5, 0.5]);
   });
 });
 
@@ -552,12 +552,12 @@ describe("handleDeleteTableColumn — DELETE_TABLE_COLUMN (P15a.S6)", () => {
     };
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_NODE", node: ragged });
-    const tableId = findTableId(editor.state);
-    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    const tableId = findTableId(editor.document);
+    editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_COLUMN" });
     expect(next).not.toBe(editor);
-    for (const row of getChildIds(next.state, tableId)) expect(getChildIds(next.state, row).length).toBe(1);
+    for (const row of getChildIds(next.document, tableId)) expect(getChildIds(next.document, row).length).toBe(1);
   });
 
   it("routes a WELL-FORMED SPANNED table to the span-aware op (P15b): covering colSpan shrinks, the 1×1 at the deleted column is removed, caret lands", () => {
@@ -576,45 +576,45 @@ describe("handleDeleteTableColumn — DELETE_TABLE_COLUMN (P15a.S6)", () => {
       buildBlock({ id: "D", type: "table-cell", parentId: "r1", prevSiblingId: "C", firstChildId: "Dp", lastChildId: "Dp" }),
       buildBlock({ id: "Dp", type: "paragraph", parentId: "D", inlineContent: inlineContent([]) }),
     ];
-    const state = buildState({ rootId: "doc", blocks });
+    const document = buildDocument({ rootId: "doc", blocks });
     const caret = createPosition("Dp" as BlockId, 0);
-    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    const editor = createEditorStateFromDocument(document, createSpan(caret, caret), config);
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_COLUMN" });
     expect(next).not.toBe(editor);
-    expect(getBlock(next.state, "A" as BlockId)?.attrs.colSpan).toBeUndefined(); // 2→1
-    expect(getChildIds(next.state, "table" as BlockId)).toEqual(["r0", "r1"]); // both rows remain
-    expect(getBlock(next.state, "D" as BlockId)).toBeNull();
-    expect(getChildIds(next.state, "r1" as BlockId)).toEqual(["C"]);
+    expect(getBlock(next.document, "A" as BlockId)?.attrs.colSpan).toBeUndefined(); // 2→1
+    expect(getChildIds(next.document, "table" as BlockId)).toEqual(["r0", "r1"]); // both rows remain
+    expect(getBlock(next.document, "D" as BlockId)).toBeNull();
+    expect(getChildIds(next.document, "r1" as BlockId)).toEqual(["C"]);
     expect(next.selection.focus.blockId).toBe("Cp");
   });
 
   it("deletes the caret's column; caret moves to the same row's NEXT column", () => {
     let editor = editorWithTable(); // 2×2
-    const tableId = findTableId(editor.state);
+    const tableId = findTableId(editor.document);
     // caret in row 0, column 0; the same row's column-1 cell survives.
-    const survivingTarget = cellParagraph(editor.state, tableId, 0, 1);
-    editor = selectInto(editor, cellParagraph(editor.state, tableId, 0, 0));
+    const survivingTarget = cellParagraph(editor.document, tableId, 0, 1);
+    editor = selectInto(editor, cellParagraph(editor.document, tableId, 0, 0));
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_COLUMN" });
 
-    for (const rowId of getChildIds(next.state, tableId)) {
-      expect(getChildIds(next.state, rowId).length).toBe(1);
+    for (const rowId of getChildIds(next.document, tableId)) {
+      expect(getChildIds(next.document, rowId).length).toBe(1);
     }
     expect(next.selection.focus.blockId).toBe(survivingTarget);
   });
 
   it("deleting the LAST column moves the caret to the same row's PREVIOUS column", () => {
     let editor = editorWithTable(); // 2×2
-    const tableId = findTableId(editor.state);
+    const tableId = findTableId(editor.document);
     // caret in row 1, column 1 (last); the same row's column-0 cell survives.
-    const survivingTarget = cellParagraph(editor.state, tableId, 1, 0);
-    editor = selectInto(editor, cellParagraph(editor.state, tableId, 1, 1));
+    const survivingTarget = cellParagraph(editor.document, tableId, 1, 0);
+    editor = selectInto(editor, cellParagraph(editor.document, tableId, 1, 1));
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_COLUMN" });
 
-    for (const rowId of getChildIds(next.state, tableId)) {
-      expect(getChildIds(next.state, rowId).length).toBe(1);
+    for (const rowId of getChildIds(next.document, tableId)) {
+      expect(getChildIds(next.document, rowId).length).toBe(1);
     }
     expect(next.selection.focus.blockId).toBe(survivingTarget);
   });
@@ -622,34 +622,34 @@ describe("handleDeleteTableColumn — DELETE_TABLE_COLUMN (P15a.S6)", () => {
   it("deleting the ONLY column collapses the whole table; caret → surviving sibling", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_NODE", node: oneRowTableInit() });
-    let tableId = findTableId(editor.state);
+    let tableId = findTableId(editor.document);
     // Invariant I: a paragraph always follows a table — the caret goes there (Word).
-    const seededPara = getBlock(editor.state, tableId)?.nextSiblingId ?? null;
+    const seededPara = getBlock(editor.document, tableId)?.nextSiblingId ?? null;
     // Delete column 0, then column 0 again: the second delete is on a 1-column
     // table → collapses the whole table.
-    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
     editor = reduceEditor(editor, { type: "DELETE_TABLE_COLUMN" });
-    tableId = findTableId(editor.state);
-    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    tableId = findTableId(editor.document);
+    editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_COLUMN" });
 
-    expect(getBlock(next.state, tableId)).toBeNull();
+    expect(getBlock(next.document, tableId)).toBeNull();
     expect(next.selection.focus.blockId).toBe(seededPara);
   });
 
   it("one undo entry restores BOTH the deleted column AND the columnWidths", () => {
     let editor = editorWithTable(); // 2×2, columnWidths [0.5, 0.5]
-    const tableId = findTableId(editor.state);
-    editor = selectInto(editor, cellParagraph(editor.state, tableId, 0, 0));
+    const tableId = findTableId(editor.document);
+    editor = selectInto(editor, cellParagraph(editor.document, tableId, 0, 0));
 
     const deleted = reduceEditor(editor, { type: "DELETE_TABLE_COLUMN" });
-    expect(getChildIds(deleted.state, nth(getChildIds(deleted.state, tableId), 0, "row")).length).toBe(1);
-    expect(getBlock(deleted.state, tableId)?.attrs.columnWidths).toEqual([1]);
+    expect(getChildIds(deleted.document, nth(getChildIds(deleted.document, tableId), 0, "row")).length).toBe(1);
+    expect(getBlock(deleted.document, tableId)?.attrs.columnWidths).toEqual([1]);
 
     const undone = reduceEditor(deleted, { type: "UNDO" });
-    expect(getChildIds(undone.state, nth(getChildIds(undone.state, tableId), 0, "row")).length).toBe(2);
-    expect(getBlock(undone.state, tableId)?.attrs.columnWidths).toEqual([0.5, 0.5]);
+    expect(getChildIds(undone.document, nth(getChildIds(undone.document, tableId), 0, "row")).length).toBe(2);
+    expect(getBlock(undone.document, tableId)?.attrs.columnWidths).toEqual([0.5, 0.5]);
   });
 });
 
@@ -672,9 +672,9 @@ describe("handleSplitCell — SPLIT_CELL (P15b.S2)", () => {
       buildBlock({ id: "D", type: "table-cell", parentId: "r1", prevSiblingId: "C", firstChildId: "Dp", lastChildId: "Dp" }),
       buildBlock({ id: "Dp", type: "paragraph", parentId: "D", inlineContent: inlineContent([]) }),
     ];
-    const state = buildState({ rootId: "doc", blocks });
+    const document = buildDocument({ rootId: "doc", blocks });
     const caret = createPosition("Ap" as BlockId, 0);
-    return createEditorStateFromState(state, createSpan(caret, caret), config);
+    return createEditorStateFromDocument(document, createSpan(caret, caret), config);
   }
 
   it("no-ops (same editor ref) when the caret is not inside a table", () => {
@@ -685,8 +685,8 @@ describe("handleSplitCell — SPLIT_CELL (P15b.S2)", () => {
 
   it("no-ops when the caret cell is a plain 1×1 (nothing to unmerge)", () => {
     let editor = editorWithTable(); // uniform 2×2, no spans
-    const tableId = findTableId(editor.state);
-    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    const tableId = findTableId(editor.document);
+    editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
     const next = reduceEditor(editor, { type: "SPLIT_CELL" });
     expect(next).toBe(editor);
   });
@@ -708,13 +708,13 @@ describe("handleSplitCell — SPLIT_CELL (P15b.S2)", () => {
       buildBlock({ id: "D", type: "table-cell", parentId: "r1", prevSiblingId: "C", firstChildId: "Dp", lastChildId: "Dp" }),
       buildBlock({ id: "Dp", type: "paragraph", parentId: "D", inlineContent: inlineContent([]) }),
     ];
-    const state = buildState({ rootId: "doc", blocks });
+    const document = buildDocument({ rootId: "doc", blocks });
     const caret = createPosition("Ap" as BlockId, 0);
-    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    const editor = createEditorStateFromDocument(document, createSpan(caret, caret), config);
     const next = reduceEditor(editor, { type: "SPLIT_CELL" });
     expect(next).not.toBe(editor);
-    expect(getBlock(next.state, "A" as BlockId)?.attrs.colSpan).toBeUndefined();
-    expect(getChildIds(next.state, "r0" as BlockId).length).toBe(3);
+    expect(getBlock(next.document, "A" as BlockId)?.attrs.colSpan).toBeUndefined();
+    expect(getChildIds(next.document, "r0" as BlockId).length).toBe(3);
   });
 
   it("unmerges a colSpan-2 cell: row0 grows to 2 cells, the survivor drops its span, caret stays", () => {
@@ -722,11 +722,11 @@ describe("handleSplitCell — SPLIT_CELL (P15b.S2)", () => {
     const next = reduceEditor(editor, { type: "SPLIT_CELL" });
     expect(next).not.toBe(editor);
 
-    const r0 = getChildIds(next.state, "r0" as BlockId);
+    const r0 = getChildIds(next.document, "r0" as BlockId);
     expect(r0.length).toBe(2);
     expect(r0[0]).toBe("A");
-    expect(getBlock(next.state, "A" as BlockId)?.attrs.colSpan).toBeUndefined();
-    expect(getBlock(next.state, nth(r0, 1, "cell"))?.type).toBe("table-cell");
+    expect(getBlock(next.document, "A" as BlockId)?.attrs.colSpan).toBeUndefined();
+    expect(getBlock(next.document, nth(r0, 1, "cell"))?.type).toBe("table-cell");
     // Selection is unchanged (caret still in the survivor's paragraph).
     expect(next.selection.focus.blockId).toBe("Ap");
     expect(next.selection.anchor.blockId).toBe("Ap");
@@ -736,8 +736,8 @@ describe("handleSplitCell — SPLIT_CELL (P15b.S2)", () => {
     const editor = editorWithSpannedTable();
     const split = reduceEditor(editor, { type: "SPLIT_CELL" });
     const undone = reduceEditor(split, { type: "UNDO" });
-    expect(getChildIds(undone.state, "r0" as BlockId).length).toBe(1);
-    expect(getBlock(undone.state, "A" as BlockId)?.attrs.colSpan).toBe(2);
+    expect(getChildIds(undone.document, "r0" as BlockId).length).toBe(1);
+    expect(getBlock(undone.document, "A" as BlockId)?.attrs.colSpan).toBe(2);
   });
 });
 
@@ -757,20 +757,20 @@ describe("handleMergeCells — MERGE_CELLS (P15b.S3)", () => {
 
   it("no-ops on a single-cell (collapsed) selection — nothing to merge", () => {
     let editor = editorWithTable();
-    const tableId = findTableId(editor.state);
-    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    const tableId = findTableId(editor.document);
+    editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
     const next = reduceEditor(editor, { type: "MERGE_CELLS" });
     expect(next).toBe(editor);
   });
 
   it("merges a 2×2 selection: survivor spans 2×2, row1 empties, caret lands in the survivor", () => {
     let editor = editorWithTable(); // uniform 2×2
-    const tableId = findTableId(editor.state);
-    const r0 = nth(getChildIds(editor.state, tableId), 0, "row");
-    const r1 = nth(getChildIds(editor.state, tableId), 1, "row");
-    const survivor = nth(getChildIds(editor.state, r0), 0, "cell"); // cell (0,0)
-    const p00 = cellParagraph(editor.state, tableId, 0, 0);
-    const p11 = cellParagraph(editor.state, tableId, 1, 1);
+    const tableId = findTableId(editor.document);
+    const r0 = nth(getChildIds(editor.document, tableId), 0, "row");
+    const r1 = nth(getChildIds(editor.document, tableId), 1, "row");
+    const survivor = nth(getChildIds(editor.document, r0), 0, "cell"); // cell (0,0)
+    const p00 = cellParagraph(editor.document, tableId, 0, 0);
+    const p11 = cellParagraph(editor.document, tableId, 1, 1);
     editor = spanSelect(editor, p00, p11);
     // Sanity: a same-table cross-cell span IS accepted (not dropped by the
     // cross-context selection guard #424) — so the merge below has real input.
@@ -780,10 +780,10 @@ describe("handleMergeCells — MERGE_CELLS (P15b.S3)", () => {
     const next = reduceEditor(editor, { type: "MERGE_CELLS" });
     expect(next).not.toBe(editor);
 
-    expect(getBlock(next.state, survivor)?.attrs.rowSpan).toBe(2);
-    expect(getBlock(next.state, survivor)?.attrs.colSpan).toBe(2);
-    expect(getChildIds(next.state, r0)).toEqual([survivor]);
-    expect(getChildIds(next.state, r1)).toEqual([]);
+    expect(getBlock(next.document, survivor)?.attrs.rowSpan).toBe(2);
+    expect(getBlock(next.document, survivor)?.attrs.colSpan).toBe(2);
+    expect(getChildIds(next.document, r0)).toEqual([survivor]);
+    expect(getChildIds(next.document, r1)).toEqual([]);
     // Caret → collapsed at the survivor's first paragraph (p00 survives).
     expect(next.selection.focus.blockId).toBe(p00);
     expect(next.selection.anchor.blockId).toBe(p00);
@@ -792,18 +792,18 @@ describe("handleMergeCells — MERGE_CELLS (P15b.S3)", () => {
 
   it("is one undo entry: UNDO restores the 4 separate cells", () => {
     let editor = editorWithTable();
-    const tableId = findTableId(editor.state);
-    const r0 = nth(getChildIds(editor.state, tableId), 0, "row");
-    const survivor = nth(getChildIds(editor.state, r0), 0, "cell");
-    const p00 = cellParagraph(editor.state, tableId, 0, 0);
-    const p11 = cellParagraph(editor.state, tableId, 1, 1);
+    const tableId = findTableId(editor.document);
+    const r0 = nth(getChildIds(editor.document, tableId), 0, "row");
+    const survivor = nth(getChildIds(editor.document, r0), 0, "cell");
+    const p00 = cellParagraph(editor.document, tableId, 0, 0);
+    const p11 = cellParagraph(editor.document, tableId, 1, 1);
     editor = spanSelect(editor, p00, p11);
 
     const merged = reduceEditor(editor, { type: "MERGE_CELLS" });
     const undone = reduceEditor(merged, { type: "UNDO" });
-    expect(getChildIds(undone.state, r0).length).toBe(2);
-    expect(getBlock(undone.state, survivor)?.attrs.rowSpan).toBeUndefined();
-    expect(getBlock(undone.state, survivor)?.attrs.colSpan).toBeUndefined();
+    expect(getChildIds(undone.document, r0).length).toBe(2);
+    expect(getBlock(undone.document, survivor)?.attrs.rowSpan).toBeUndefined();
+    expect(getBlock(undone.document, survivor)?.attrs.colSpan).toBeUndefined();
   });
 
   it("a 'holed' table is never ragged (grid: the hole reads as an implicit cell) — MERGE_CELLS runs", () => {
@@ -822,15 +822,15 @@ describe("handleMergeCells — MERGE_CELLS (P15b.S3)", () => {
       buildBlock({ id: "D", type: "table-cell", parentId: "r1", prevSiblingId: "C", firstChildId: "Dp", lastChildId: "Dp" }),
       buildBlock({ id: "Dp", type: "paragraph", parentId: "D", inlineContent: inlineContent([]) }),
     ];
-    const state = buildState({ rootId: "doc", blocks });
-    const editor = createEditorStateFromState(
-      state,
+    const document = buildDocument({ rootId: "doc", blocks });
+    const editor = createEditorStateFromDocument(
+      document,
       createSpan(createPosition("Ap" as BlockId, 0), createPosition("Dp" as BlockId, 0)),
       config,
     );
     const next = reduceEditor(editor, { type: "MERGE_CELLS" });
     expect(next).not.toBe(editor);
-    expect(getBlock(next.state, "A" as BlockId)?.attrs.colSpan).toBe(2);
-    expect(getBlock(next.state, "A" as BlockId)?.attrs.rowSpan).toBe(2);
+    expect(getBlock(next.document, "A" as BlockId)?.attrs.colSpan).toBe(2);
+    expect(getBlock(next.document, "A" as BlockId)?.attrs.rowSpan).toBe(2);
   });
 });

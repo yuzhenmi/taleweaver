@@ -5,7 +5,7 @@
  * after the transaction (in `afterTransaction`, before Yjs garbage-collects): the
  * version BEFORE it is the current structure with the transaction's inserted structs
  * not live and its deleted structs live (a `View`, see `flow-read.ts`). So no
- * snapshot of the previous State is needed — a block that was never read maps
+ * snapshot of the previous Document is needed — a block that was never read maps
  * exactly too.
  *
  * For every block the transaction affected in the PREVIOUS version (the owner of each

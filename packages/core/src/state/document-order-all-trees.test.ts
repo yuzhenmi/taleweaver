@@ -12,17 +12,17 @@ import {
   iterateAllBlocksInDocumentOrder,
 } from "./document-order";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
-} from "../test-utils/state-builders";
-import { getBlock, type State } from "./state";
+} from "../test-utils/document-builders";
+import { getBlock, type Document } from "./document";
 import type { Block } from "./block";
 
 /** doc>(p) main tree + one embedContent body (fn>fnp) + one templateContent body (hd>hdp). */
-function threeTreeState(): State {
-  return buildState({
+function threeTreeDocument(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -41,39 +41,39 @@ function threeTreeState(): State {
 
 const ids = (it: Iterable<Block>): string[] => [...it].map((b) => b.id);
 /** The document's final section (the root always holds it; a section-less doc's blocks are in it). */
-const fin = (s: State): string => getBlock(s, s.rootId)?.firstChildId ?? "";
+const fin = (s: Document): string => getBlock(s, s.rootId)?.firstChildId ?? "";
 
 describe("iterateAllBlocksInDocumentOrder", () => {
   it("yields the main tree, then embed bodies, then template bodies (in document order)", () => {
-    const state = threeTreeState();
-    expect(ids(iterateAllBlocksInDocumentOrder(state))).toEqual([
-      "doc", fin(state), "p", // main tree
+    const document = threeTreeDocument();
+    expect(ids(iterateAllBlocksInDocumentOrder(document))).toEqual([
+      "doc", fin(document), "p", // main tree
       "fn", "fnp", // embedContents body subtree
       "hd", "hdp", // templateContents body subtree
     ]);
   });
 
   it("the single-tree iterator stays MAIN-TREE-ONLY (the body trees are NOT yielded)", () => {
-    const state = threeTreeState();
-    expect(ids(iterateBlocksInDocumentOrder(state))).toEqual(["doc", fin(state), "p"]);
+    const document = threeTreeDocument();
+    expect(ids(iterateBlocksInDocumentOrder(document))).toEqual(["doc", fin(document), "p"]);
   });
 
   it("equals the single-tree walk when there are no embed/template bodies", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("only")]) }),
       ],
     });
-    expect(ids(iterateAllBlocksInDocumentOrder(state))).toEqual(ids(iterateBlocksInDocumentOrder(state)));
+    expect(ids(iterateAllBlocksInDocumentOrder(document))).toEqual(ids(iterateBlocksInDocumentOrder(document)));
   });
 
   it("enumerates MULTIPLE embed roots, each with a fresh active-path guard", () => {
     // Two independent footnote bodies — both roots + their children must be
     // yielded sequentially after the main tree. A shared `visited` set across
     // roots would wrongly fire the cycle guard; fresh-per-root is the contract.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -86,12 +86,12 @@ describe("iterateAllBlocksInDocumentOrder", () => {
         buildBlock({ id: "fn2p", type: "paragraph", parentId: "fn2", inlineContent: inlineContent([text("2")]) }),
       ],
     });
-    const got = ids(iterateAllBlocksInDocumentOrder(state));
+    const got = ids(iterateAllBlocksInDocumentOrder(document));
     // Main tree first, then both embed bodies (root + child each). Embed-root
     // enumeration order is the Y.Map's, so assert membership + the per-body
     // root→child adjacency rather than a fixed fn1-before-fn2 order.
-    expect(got.slice(0, 3)).toEqual(["doc", fin(state), "p"]);
-    expect(new Set(got)).toEqual(new Set(["doc", fin(state), "p", "fn1", "fn1p", "fn2", "fn2p"]));
+    expect(got.slice(0, 3)).toEqual(["doc", fin(document), "p"]);
+    expect(new Set(got)).toEqual(new Set(["doc", fin(document), "p", "fn1", "fn1p", "fn2", "fn2p"]));
     expect(got).toHaveLength(7);
     expect(got.indexOf("fn1p")).toBe(got.indexOf("fn1") + 1);
     expect(got.indexOf("fn2p")).toBe(got.indexOf("fn2") + 1);
@@ -100,7 +100,7 @@ describe("iterateAllBlocksInDocumentOrder", () => {
   it("descends into nested body children (depth-first within each body subtree)", () => {
     // An embed body whose root has TWO paragraph children — both must be yielded
     // after the root, in sibling order, inside the embed segment.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -112,6 +112,6 @@ describe("iterateAllBlocksInDocumentOrder", () => {
         buildBlock({ id: "b", type: "paragraph", parentId: "fn", prevSiblingId: "a", inlineContent: inlineContent([text("b")]) }),
       ],
     });
-    expect(ids(iterateAllBlocksInDocumentOrder(state))).toEqual(["doc", fin(state), "p", "fn", "a", "b"]);
+    expect(ids(iterateAllBlocksInDocumentOrder(document))).toEqual(["doc", fin(document), "p", "fn", "a", "b"]);
   });
 });

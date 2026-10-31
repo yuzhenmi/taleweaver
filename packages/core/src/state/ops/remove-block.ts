@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
-import { applyOperation, getBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, getBlock } from "../document";
 import type { BlockId } from "../block-id";
 import { requireInTransaction } from "../yjs-doc";
 import { removeBlockStorage } from "../flow-ops";
@@ -68,7 +68,7 @@ export interface RemoveBlockPlan {
  *     last child). A MIDDLE removal leaves the parent's boundaries unchanged,
  *     so the parent is NOT in dirtyIds (mirrors insertBlock). The parent
  *     still re-renders via render's computeInvalidatedBlocks ancestor-walk:
- *     the deleted child ∈ dirtyIds resolves through prevState → its parent is
+ *     the deleted child ∈ dirtyIds resolves through prevDocument → its parent is
  *     invalidated.
  *   - the previous sibling's id (its nextSiblingId is rewired) — if exists
  *   - the next sibling's id (its prevSiblingId is rewired) — if exists
@@ -78,7 +78,7 @@ export interface RemoveBlockPlan {
  * ancestor walk.
  *
  * Render consumers must drop their cached render nodes for ids in
- * dirtyIds that are NOT in result.state.blocks (they were deleted).
+ * dirtyIds that are NOT in result.document.blocks (they were deleted).
  *
  * Throws if the block does not exist OR is the document root.
  *
@@ -95,28 +95,28 @@ export interface RemoveBlockPlan {
  * lets callers chain a removal with other `*InTx` ops inside a single Y.Doc
  * transaction (one undo entry / one collab event).
  */
-export function removeBlock(state: State, blockId: BlockId): OperationResult {
-  const plan = planRemoveBlock(state, blockId);
-  return applyOperation(state, (doc) => {
+export function removeBlock(document: Document, blockId: BlockId): OperationResult {
+  const plan = planRemoveBlock(document, blockId);
+  return applyOperation(document, (doc) => {
     removeBlockInTx(doc, plan);
   });
 }
 
 /**
- * Validate the requested removal against the pre-mutation `state` snapshot
+ * Validate the requested removal against the pre-mutation `document` snapshot
  * and produce a `RemoveBlockPlan`. Throws on every condition `removeBlock`'s
  * docstring lists.
  *
  * Walks the subtree to collect every id to delete + every embed-content body
  * to cascade-delete, ALL against the pre-mutation snapshot. `inTx` performs no
- * further `state` / `getBlock` reads.
+ * further `document` / `getBlock` reads.
  */
-export function planRemoveBlock(state: State, blockId: BlockId): RemoveBlockPlan {
-  const block = getBlock(state, blockId);
+export function planRemoveBlock(document: Document, blockId: BlockId): RemoveBlockPlan {
+  const block = getBlock(document, blockId);
   if (block === null) {
     throw new Error(`removeBlock: block "${blockId}" not found`);
   }
-  if (blockId === state.rootId) {
+  if (blockId === document.rootId) {
     throw new Error(`removeBlock: cannot remove the document root "${blockId}"`);
   }
   const parentId = block.parentId;
@@ -129,31 +129,31 @@ export function planRemoveBlock(state: State, blockId: BlockId): RemoveBlockPlan
     // is malformed.
     throw new Error(`removeBlock: block "${blockId}" has no parentId (orphan)`);
   }
-  const parent = getBlock(state, parentId);
+  const parent = getBlock(document, parentId);
   if (parent === null) {
     throw new Error(`removeBlock: parent "${parentId}" of "${blockId}" not found`);
   }
-  if (block.prevSiblingId !== null && getBlock(state, block.prevSiblingId) === null) {
+  if (block.prevSiblingId !== null && getBlock(document, block.prevSiblingId) === null) {
     throw new Error(`removeBlock: prev sibling "${block.prevSiblingId}" not found`);
   }
-  if (block.nextSiblingId !== null && getBlock(state, block.nextSiblingId) === null) {
+  if (block.nextSiblingId !== null && getBlock(document, block.nextSiblingId) === null) {
     throw new Error(`removeBlock: next sibling "${block.nextSiblingId}" not found`);
   }
 
   // Collect every id in the subtree (the block + all descendants).
   // Cycle-defended via the visited set itself.
   const subtreeIds = new Set<BlockId>();
-  collectSubtreeIds(state, blockId, subtreeIds);
+  collectSubtreeIds(document, blockId, subtreeIds);
 
   // Collect embed-content ids to cascade-delete: walk the removed
   // subtree's inlineContent for EmbedItem.properties.contentBlockId
   // references; recursively follow each via getEmbedContent.
   const embedContentIds = new Set<BlockId>();
   for (const id of subtreeIds) {
-    const subBlock = getBlock(state, id);
+    const subBlock = getBlock(document, id);
     if (subBlock === null || subBlock.inlineContent === null) continue;
     collectEmbedContentSubtreeFromInlineContent(
-      state,
+      document,
       subBlock.inlineContent,
       embedContentIds,
     );
@@ -205,16 +205,16 @@ export function removeBlockInTx(doc: Y.Doc, plan: RemoveBlockPlan): void {
  * Walk the subtree rooted at `rootId` and add every visited id to `out`.
  * Cycle-defended: a block already in `out` is not re-visited.
  */
-function collectSubtreeIds(state: State, rootId: BlockId, out: Set<BlockId>): void {
+function collectSubtreeIds(document: Document, rootId: BlockId, out: Set<BlockId>): void {
   if (out.has(rootId)) return;
-  const block = getBlock(state, rootId);
+  const block = getBlock(document, rootId);
   if (block === null) return;
   out.add(rootId);
   let current = block.firstChildId;
   while (current !== null) {
     if (out.has(current)) break; // defensive: sibling cycle
-    collectSubtreeIds(state, current, out);
-    const c = getBlock(state, current);
+    collectSubtreeIds(document, current, out);
+    const c = getBlock(document, current);
     current = c !== null ? c.nextSiblingId : null;
   }
 }

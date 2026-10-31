@@ -1,4 +1,4 @@
-import type { BlockId, State, TextMatch, CommentId, SuggestionId, SuggestionGroup } from "../state";
+import type { BlockId, Document, TextMatch, CommentId, SuggestionId, SuggestionGroup } from "../state";
 import { createPosition, buildCommentRangeIndex, buildSuggestionRangeIndex, getSuggestionGroups } from "../state";
 import type { DecorationAttrs, InlineDecoration } from "./decorations";
 
@@ -66,10 +66,10 @@ export function findHighlightDecorations(
  * Comment ranges (resolved from live state — markers move with the text) → decorations.
  * Orphaned / unresolvable comments emit nothing.
  */
-export function commentHighlightDecorations(state: State, highlights: readonly CommentHighlight[]): InlineDecoration[] {
+export function commentHighlightDecorations(document: Document, highlights: readonly CommentHighlight[]): InlineDecoration[] {
   const out: InlineDecoration[] = [];
   if (highlights.length === 0) return out;
-  const index = buildCommentRangeIndex(state); // one document scan for all comments
+  const index = buildCommentRangeIndex(document); // one document scan for all comments
   for (const { commentId, active } of highlights) {
     const range = index.get(commentId) ?? null;
     if (range === null || range.orphaned) continue;
@@ -89,10 +89,10 @@ export function commentHighlightDecorations(state: State, highlights: readonly C
 }
 
 /** Pending suggestion ranges (resolved from live state) → decorations. */
-export function suggestionHighlightDecorations(state: State, highlights: readonly SuggestionHighlight[]): InlineDecoration[] {
+export function suggestionHighlightDecorations(document: Document, highlights: readonly SuggestionHighlight[]): InlineDecoration[] {
   const out: InlineDecoration[] = [];
   if (highlights.length === 0) return out;
-  const index = buildSuggestionRangeIndex(state); // one document scan for all suggestions
+  const index = buildSuggestionRangeIndex(document); // one document scan for all suggestions
   for (const { suggestionId, active } of highlights) {
     const range = index.get(suggestionId) ?? null;
     if (range === null) continue;
@@ -117,11 +117,11 @@ export function suggestionHighlightDecorations(state: State, highlights: readonl
  * (author colour, insertion underline / deletion strike) stay underneath as defaults.
  */
 export function suggestionGroupDecorations(
-  state: State,
+  document: Document,
   styleOf: (group: SuggestionGroup) => DecorationAttrs | null,
 ): InlineDecoration[] {
   const out: InlineDecoration[] = [];
-  for (const group of getSuggestionGroups(state)) {
+  for (const group of getSuggestionGroups(document)) {
     const look = styleOf(group);
     if (look === null) continue;
     group.ranges.forEach((range, n) => {

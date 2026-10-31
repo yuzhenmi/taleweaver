@@ -4,19 +4,19 @@ import { extractFragment } from "./extract-fragment";
 import { encodeHtml } from "../serialize/html-encode";
 import { createSpan, createPosition } from "../block-position";
 import type { BlockId } from "../block-id";
-import { TEST_RESOLVER, buildBlock, buildState, inlineContent, text, embed } from "../../test-utils/state-builders";
-import { getBlock, getEmbedContent } from "../state";
+import { TEST_RESOLVER, buildBlock, buildDocument, inlineContent, text, embed } from "../../test-utils/document-builders";
+import { getBlock, getEmbedContent } from "../document";
 import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "../comments";
 import {
   INSERTION_SUGGESTION_ATTR,
-  readSuggestionRecordFromState,
+  readSuggestionRecordFromDocument,
   type SuggestionId,
   type SuggestionRecord,
 } from "../suggestions";
 import { suggestionIdsOnItem } from "./suggestion-ops";
-import { buildStateFromBlocks } from "../build-state-from-blocks";
+import { buildDocumentFromBlocks } from "../build-document-from-blocks";
 
-// ─── Small helpers to query a fragment State ────────────────────────────────
+// ─── Small helpers to query a fragment Document ────────────────────────────────
 
 function bid(s: string): BlockId {
   return s as BlockId;
@@ -138,7 +138,7 @@ function suggestionRecordsOf(
     cur = block.nextSiblingId;
   }
   return [...ids]
-    .map((id) => readSuggestionRecordFromState(frag, id as SuggestionId))
+    .map((id) => readSuggestionRecordFromDocument(frag, id as SuggestionId))
     .filter((r): r is SuggestionRecord => r !== null);
 }
 
@@ -149,7 +149,7 @@ describe("extractFragment", () => {
 
   it("intra-block selection: trims to [start,end), preserves marks", () => {
     // doc: p = "ab" + "cd"(bold) + "ef"
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -168,7 +168,7 @@ describe("extractFragment", () => {
 
     // select offset 2..4 = "cd" (bold)
     const span = createSpan(createPosition(bid("p"), 2), createPosition(bid("p"), 4));
-    const frag = extractFragment(state, span);
+    const frag = extractFragment(document, span);
 
     expect(fragTopLevelTypes(frag)).toEqual(["paragraph"]);
     const items = fragBlockItems(frag, 0);
@@ -180,7 +180,7 @@ describe("extractFragment", () => {
 
   it("cross-leaf selection: first/last trimmed, interior whole, types kept", () => {
     // doc: h1 "Title" | p "body" | p "tail"
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -216,7 +216,7 @@ describe("extractFragment", () => {
 
     // Select: h1 offset 2 ("tle") to p2 offset 2 ("ta")
     const span = createSpan(createPosition(bid("h1"), 2), createPosition(bid("p2"), 2));
-    const frag = extractFragment(state, span);
+    const frag = extractFragment(document, span);
 
     expect(fragTopLevelTypes(frag)).toEqual(["heading", "paragraph", "paragraph"]);
     expect(fragBlockText(frag, 0)).toBe("tle"); // h1 trimmed from offset 2
@@ -228,7 +228,7 @@ describe("extractFragment", () => {
 
   it("whole-table selection clones the table subtree (rows/cells preserved)", () => {
     // doc: table → row → cell → paragraph "Hello"
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -270,12 +270,12 @@ describe("extractFragment", () => {
     // Select the whole table: the span covering its unit, (tbl, 0)–(the paragraph after
     // it, 0) (Word: the object's [i, i+1]). A span inside the cell
     // text copies the text only.
-    const after = getBlock(state, bid("tbl"))?.nextSiblingId;
+    const after = getBlock(document, bid("tbl"))?.nextSiblingId;
     if (after == null) throw new Error("no paragraph after the table");
-    const frag = extractFragment(state, createSpan(createPosition(bid("tbl"), 0), createPosition(after, 0)));
+    const frag = extractFragment(document, createSpan(createPosition(bid("tbl"), 0), createPosition(after, 0)));
     // The table, then the empty open paragraph the span ends in.
     expect(fragTopLevelTypes(frag)).toEqual(["table", "paragraph"]);
-    const textOnly = extractFragment(state, createSpan(createPosition(bid("cp"), 0), createPosition(bid("cp"), 5)));
+    const textOnly = extractFragment(document, createSpan(createPosition(bid("cp"), 0), createPosition(bid("cp"), 5)));
     expect(fragTopLevelTypes(textOnly)).toEqual(["paragraph"]);
     // walk into the cloned table: row/cell structure intact
     const tblId = topLevelBlockIds(frag)[0];
@@ -296,7 +296,7 @@ describe("extractFragment", () => {
 
   it("an object endpoint — (objectId, 0), start or end — copies the whole object", () => {
     // "abcd" | hr | tbl["xy"] | "efgh"
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: "p1" }),
@@ -315,11 +315,11 @@ describe("extractFragment", () => {
         const type = getBlock(frag, id)?.type ?? "?";
         return type === "paragraph" ? `"${fragBlockText(frag, i)}"` : type;
       });
-    const toTable = extractFragment(state, createSpan(createPosition(bid("p0"), 1), createPosition(bid("tbl"), 0)));
+    const toTable = extractFragment(document, createSpan(createPosition(bid("p0"), 1), createPosition(bid("tbl"), 0)));
     expect(shape(toTable)).toEqual(['"bcd"', "horizontal-line", '""', "table", '""']);
-    const fromRule = extractFragment(state, createSpan(createPosition(bid("hr"), 0), createPosition(bid("p1"), 2)));
+    const fromRule = extractFragment(document, createSpan(createPosition(bid("hr"), 0), createPosition(bid("p1"), 2)));
     expect(shape(fromRule)).toEqual(["horizontal-line", '""', "table", '"ef"']);
-    const toRule = extractFragment(state, createSpan(createPosition(bid("p0"), 1), createPosition(bid("hr"), 0)));
+    const toRule = extractFragment(document, createSpan(createPosition(bid("p0"), 1), createPosition(bid("hr"), 0)));
     expect(shape(toRule)).toEqual(['"bcd"', "horizontal-line", '""']);
   });
 
@@ -329,7 +329,7 @@ describe("extractFragment", () => {
     // doc: p → [text "Hello ", footnote-anchor(contentBlockId="fnbody"), text " World"]
     // embed: fnbody → paragraph "Footnote text"
     const FOOTNOTE_EMBED_TYPE = "footnote-anchor";
-    const state = buildStateFromBlocks({ resolver: TEST_RESOLVER,
+    const document = buildDocumentFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -363,7 +363,7 @@ describe("extractFragment", () => {
     // Select the entire paragraph content: offset 0 to 14 (6 + 1 + 7 = 14)
     // "Hello " = 6, footnote embed = 1, " World" = 6 → total 13
     const span = createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 13));
-    const frag = extractFragment(state, span);
+    const frag = extractFragment(document, span);
 
     expect(fragHasEmbedContent(frag)).toBe(true);
   });
@@ -373,7 +373,7 @@ describe("extractFragment", () => {
   it("strips comment markers on the partial-block arm (M3)", () => {
     // p contains: "a" + comment-start + "bcd" + comment-end + "e"
     // select offsets 1..5 = "bcde" (spans the comment markers but they should be stripped)
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -395,7 +395,7 @@ describe("extractFragment", () => {
     // offsets: "a"=1, comment-start=1, "bcd"=3, comment-end=1, "e"=1 → total 7
     // select 1..5: starts after "a", ends after "cd" — covers comment-start + "bcd" + comment-end
     const span = createSpan(createPosition(bid("p"), 1), createPosition(bid("p"), 5));
-    const frag = extractFragment(state, span);
+    const frag = extractFragment(document, span);
 
     expect(fragHasCommentEmbed(frag)).toBe(false);
   });
@@ -405,7 +405,7 @@ describe("extractFragment", () => {
   it("carries referenced suggestion records into the fragment", () => {
     // p: text "hello" with insertionSuggestionId="s1"
     // suggestion record: { id:"s1", kind:"insertion", author:"Alice", createdAt:0 }
-    const state = buildStateFromBlocks({ resolver: TEST_RESOLVER,
+    const document = buildDocumentFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -424,7 +424,7 @@ describe("extractFragment", () => {
     });
 
     const span = createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 5));
-    const frag = extractFragment(state, span);
+    const frag = extractFragment(document, span);
 
     const records = suggestionRecordsOf(frag);
     expect(records.map((r) => r.id)).toContain("s1");
@@ -440,7 +440,7 @@ describe("extractFragment", () => {
     // packages/print/src/cursor/selection-geometry.test.ts:1025). The defined
     // behavior is LINEAR leaf extraction (the spanned paragraphs as top-level
     // fragment blocks), consistent with extractText/plain-copy — not a crash.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "tbl", lastChildId: "tbl" }),
@@ -456,7 +456,7 @@ describe("extractFragment", () => {
     // Span: pA offset 1 ("lpha") → pB offset 2 ("Be"). Partial table → recursion
     // flattens to the spanned leaves.
     const span = createSpan(createPosition(bid("pA"), 1), createPosition(bid("pB"), 2));
-    const frag = extractFragment(state, span);
+    const frag = extractFragment(document, span);
 
     // No crash; the spanned leaf paragraphs are present with trimmed text.
     expect(fragTopLevelTypes(frag)).toEqual(["paragraph", "paragraph"]);
@@ -464,10 +464,10 @@ describe("extractFragment", () => {
     expect(fragBlockText(frag, 1)).toBe("Be");   // pB trimmed to offset 2
   });
 
-  // ── encodeHtml accepts the fragment State ───────────────────────────────
+  // ── encodeHtml accepts the fragment Document ───────────────────────────────
 
-  it("encodeHtml accepts the fragment State (valid mini-document)", () => {
-    const state = buildState({
+  it("encodeHtml accepts the fragment Document (valid mini-document)", () => {
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -481,7 +481,7 @@ describe("extractFragment", () => {
     });
 
     const span = createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 6));
-    const frag = extractFragment(state, span);
+    const frag = extractFragment(document, span);
     const html = encodeHtml(frag);
     expect(html).toContain("<p>");
   });

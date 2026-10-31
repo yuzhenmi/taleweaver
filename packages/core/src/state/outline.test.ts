@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getOutline } from "./outline";
-import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
+import { buildBlock, buildDocument, text, embed, inlineContent } from "../test-utils/document-builders";
 import type { BlockId } from "./block-id";
 import { INSERTION_SUGGESTION_ATTR, DELETION_SUGGESTION_ATTR } from "./suggestions";
 
@@ -12,7 +12,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 
 /** A single-heading doc whose heading carries the given inline items. */
 function headingDoc(items: Parameters<typeof inlineContent>[0]) {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "h" }),
@@ -54,19 +54,19 @@ function buildDoc(
       }),
     ),
   ];
-  return buildState({ rootId: "doc", blocks });
+  return buildDocument({ rootId: "doc", blocks });
 }
 
 describe("getOutline", () => {
   it("lists only heading blocks, in document order, with level + text", () => {
-    const state = buildDoc([
+    const document = buildDoc([
       { id: "h1", type: "heading", attrs: { level: 1 }, text: "Chapter One" },
       { id: "p1", type: "paragraph", text: "body text" },
       { id: "h2", type: "heading", attrs: { level: 2 }, text: "Section A" },
       { id: "p2", type: "paragraph", text: "more body" },
       { id: "h3", type: "heading", attrs: { level: 3 }, text: "Subsection" },
     ]);
-    expect(getOutline(state)).toEqual([
+    expect(getOutline(document)).toEqual([
       { blockId: "h1", level: 1, text: "Chapter One" },
       { blockId: "h2", level: 2, text: "Section A" },
       { blockId: "h3", level: 3, text: "Subsection" },
@@ -74,31 +74,31 @@ describe("getOutline", () => {
   });
 
   it("extracts the heading text", () => {
-    const state = buildDoc([
+    const document = buildDoc([
       { id: "h", type: "heading", attrs: { level: 1 }, text: "Chapter One" },
     ]);
-    expect(getOutline(state)).toEqual([
+    expect(getOutline(document)).toEqual([
       { blockId: "h", level: 1, text: "Chapter One" },
     ]);
   });
 
   it("lists an empty heading with text \"\" (still an entry)", () => {
-    const state = buildDoc([
+    const document = buildDoc([
       { id: "h", type: "heading", attrs: { level: 2 } },
     ]);
-    expect(getOutline(state)).toEqual([{ blockId: "h", level: 2, text: "" }]);
+    expect(getOutline(document)).toEqual([{ blockId: "h", level: 2, text: "" }]);
   });
 
   it("reads level from attrs.level when 1–6", () => {
-    const state = buildDoc([
+    const document = buildDoc([
       { id: "h", type: "heading", attrs: { level: 3 }, text: "X" },
     ]);
-    expect(getOutline(state)[0]?.level).toBe(3);
+    expect(getOutline(document)[0]?.level).toBe(3);
   });
 
   it("defaults level to 1 for a missing level attr", () => {
-    const state = buildDoc([{ id: "h", type: "heading", text: "X" }]);
-    expect(getOutline(state)[0]?.level).toBe(1);
+    const document = buildDoc([{ id: "h", type: "heading", text: "X" }]);
+    expect(getOutline(document)[0]?.level).toBe(1);
   });
 
   it("defaults level to 1 for an out-of-range level (0 or 9)", () => {
@@ -113,40 +113,40 @@ describe("getOutline", () => {
   });
 
   it("returns [] for a document with no headings", () => {
-    const state = buildDoc([
+    const document = buildDoc([
       { id: "p1", type: "paragraph", text: "a" },
       { id: "p2", type: "paragraph", text: "b" },
     ]);
-    expect(getOutline(state)).toEqual([]);
+    expect(getOutline(document)).toEqual([]);
   });
 
   it("returns [] for an empty document (single empty paragraph)", () => {
-    const state = buildDoc([{ id: "p", type: "paragraph" }]);
-    expect(getOutline(state)).toEqual([]);
+    const document = buildDoc([{ id: "p", type: "paragraph" }]);
+    expect(getOutline(document)).toEqual([]);
   });
 
   it("restricts to and orders by the given blockIds", () => {
-    const state = buildDoc([
+    const document = buildDoc([
       { id: "h1", type: "heading", attrs: { level: 1 }, text: "One" },
       { id: "p", type: "paragraph", text: "body" },
       { id: "h2", type: "heading", attrs: { level: 2 }, text: "Two" },
     ]);
     // Reverse the heading order; paragraph in the list is skipped (non-heading).
     const ids: BlockId[] = ["h2" as BlockId, "p" as BlockId, "h1" as BlockId];
-    expect(getOutline(state, { blockIds: ids })).toEqual([
+    expect(getOutline(document, { blockIds: ids })).toEqual([
       { blockId: "h2", level: 2, text: "Two" },
       { blockId: "h1", level: 1, text: "One" },
     ]);
   });
 
   it("skips blockIds without inline content (container/non-leaf)", () => {
-    const state = buildDoc([
+    const document = buildDoc([
       { id: "h", type: "heading", attrs: { level: 1 }, text: "One" },
     ]);
     // "doc" is the document container (inlineContent === null) — skipped even
     // though it is not a heading anyway; the guard runs before the type check.
     const ids: BlockId[] = ["doc" as BlockId, "h" as BlockId];
-    expect(getOutline(state, { blockIds: ids })).toEqual([
+    expect(getOutline(document, { blockIds: ids })).toEqual([
       { blockId: "h", level: 1, text: "One" },
     ]);
   });
@@ -155,7 +155,7 @@ describe("getOutline", () => {
     // "Part" + hard-break + "One" + tab + "Two" + a footnote anchor. The
     // clipboard serializer would yield "Part\nOne\tTwo￼"; the outline is DISPLAY
     // text so the caption serializer collapses breaks/tabs to a space + drops embeds.
-    const state = headingDoc([
+    const document = headingDoc([
       text("Part"),
       embed("hard-break"),
       text("One"),
@@ -163,27 +163,27 @@ describe("getOutline", () => {
       text("Two"),
       embed("footnote-anchor", { footnoteId: "f1" }),
     ]);
-    expect(getOutline(state)).toEqual([{ blockId: "h" as BlockId, level: 1, text: "Part One Two" }]);
+    expect(getOutline(document)).toEqual([{ blockId: "h" as BlockId, level: 1, text: "Part One Two" }]);
   });
 
   it("heading text resolves under the suggestionView option (XR-1 parallel)", () => {
     // "Keep " (live) + "Added" (pending INSERTION). suggesting/final → "Keep Added";
     // original (reject) → "Keep " (the insertion is removed from the previewed doc).
-    const state = headingDoc([
+    const document = headingDoc([
       text("Keep "),
       text("Added", { [INSERTION_SUGGESTION_ATTR]: "s1" }),
     ]);
-    expect(nth(getOutline(state), 0, "outline entry").text).toBe("Keep Added"); // default "suggesting"
-    expect(nth(getOutline(state, { suggestionView: "final" }), 0, "outline entry").text).toBe("Keep Added");
-    expect(nth(getOutline(state, { suggestionView: "original" }), 0, "outline entry").text).toBe("Keep ");
+    expect(nth(getOutline(document), 0, "outline entry").text).toBe("Keep Added"); // default "suggesting"
+    expect(nth(getOutline(document, { suggestionView: "final" }), 0, "outline entry").text).toBe("Keep Added");
+    expect(nth(getOutline(document, { suggestionView: "original" }), 0, "outline entry").text).toBe("Keep ");
   });
 
   it("a pending DELETION in a heading is kept under original, dropped under final (XR-1 mirror)", () => {
-    const state = headingDoc([
+    const document = headingDoc([
       text("Stay"),
       text("Cut", { [DELETION_SUGGESTION_ATTR]: "d1" }),
     ]);
-    expect(nth(getOutline(state, { suggestionView: "final" }), 0, "outline entry").text).toBe("Stay");
-    expect(nth(getOutline(state, { suggestionView: "original" }), 0, "outline entry").text).toBe("StayCut");
+    expect(nth(getOutline(document, { suggestionView: "final" }), 0, "outline entry").text).toBe("Stay");
+    expect(nth(getOutline(document, { suggestionView: "original" }), 0, "outline entry").text).toBe("StayCut");
   });
 });

@@ -1,4 +1,4 @@
-import type { State, Position, InlineContent } from "@taleweaver/core";
+import type { Document, Position, InlineContent } from "@taleweaver/core";
 import { resolveBlock } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
@@ -36,7 +36,7 @@ const EMBED_CHAR = "￼";
  * opt-out exactly as the cursor-position pickers do.
  */
 export function resolveLineForPosition(
-  state: State,
+  document: Document,
   position: Position,
   layoutTree: LayoutBox | VirtualLayoutTree,
   measurer: TextMeasurer,
@@ -45,7 +45,7 @@ export function resolveLineForPosition(
 ): AbsoluteLineBox | null {
   if (layoutTree.type === "virtual-root") {
     const pixel = resolvePixelPosition(
-      state,
+      document,
       position,
       layoutTree,
       measurer,
@@ -91,8 +91,8 @@ function pickLine(
  * index directly into this string, so a grapheme step over it is exactly the
  * within-block ±1-grapheme step (embeds are atomic single-unit graphemes).
  */
-function blockStateText(state: State, blockId: Position["blockId"]): string {
-  const block = resolveBlock(state, blockId)?.block ?? null;
+function blockDocumentText(document: Document, blockId: Position["blockId"]): string {
+  const block = resolveBlock(document, blockId)?.block ?? null;
   if (block === null || block.inlineContent === null) return "";
   const content: InlineContent = block.inlineContent;
   let out = "";
@@ -103,15 +103,15 @@ function blockStateText(state: State, blockId: Position["blockId"]): string {
 }
 
 /**
- * A `GraphemeStepper` over the block's STATE-indexed text (see `blockStateText`).
+ * A `GraphemeStepper` over the block's STATE-indexed text (see `blockDocumentText`).
  * The returned stepper walks grapheme boundaries within the block, treating each
  * embed as one atomic unit.
  */
 export function buildBlockGraphemeStepper(
-  state: State,
+  document: Document,
   blockId: Position["blockId"],
 ): GraphemeStepper {
-  const blockText = blockStateText(state, blockId);
+  const blockText = blockDocumentText(document, blockId);
   return (offset, direction) =>
     direction === "forward"
       ? nextGraphemeBoundary(blockText, offset)

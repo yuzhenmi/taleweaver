@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
 import type { BlockId } from "../block-id";
 import { requireInTransaction, type BlockTreeKind } from "../yjs-doc";
 import { markDeletionOf, markDeletableInFinal, deleteParagraphMarkInTx, writeBreakTagInTx } from "../break-suggestions";
@@ -15,9 +15,9 @@ import {
 } from "../suggestions";
 
 // Shared empty dirty-set for identity no-op returns (mirror suggestion-ops.ts's
-// NO_DIRTY): a degenerate `markParagraphMarkDeletion` returns the input `state`
+// NO_DIRTY): a degenerate `markParagraphMarkDeletion` returns the input `document`
 // reference + this shared empty set so callers can short-circuit on
-// `result.state === state`.
+// `result.document === state`.
 const NO_DIRTY: ReadonlySet<BlockId> = new Set<BlockId>();
 
 /** Pre-computed mutation plan for `mergeAdjacentBlocksInTx` (plain data): the two blocks + their tree. */
@@ -47,28 +47,28 @@ export interface MergeBlocksResult extends OperationResult {
  * Composition: `mergeAdjacentBlocksInTx` runs inside a caller's transaction.
  */
 export function mergeAdjacentBlocks(
-  state: State,
+  document: Document,
   leftId: BlockId,
   rightId: BlockId,
 ): MergeBlocksResult {
-  const plan = planMergeAdjacentBlocks(state, leftId, rightId);
-  const r = applyOperation(state, (doc) => {
+  const plan = planMergeAdjacentBlocks(document, leftId, rightId);
+  const r = applyOperation(document, (doc) => {
     mergeAdjacentBlocksInTx(doc, plan);
   });
   return { ...r, survivorId: plan.rightId };
 }
 
 /**
- * Validate the requested merge against the pre-mutation `state` snapshot and
+ * Validate the requested merge against the pre-mutation `document` snapshot and
  * produce a `MergeBlocksPlan`. Throws on every condition
  * `mergeAdjacentBlocks`'s docstring lists.
  *
  * All validation reads happen here, BEFORE the surrounding `applyOperation`
  * is opened. The plan captures everything `mergeAdjacentBlocksInTx` needs to
- * run the mutations without further reads from `state`.
+ * run the mutations without further reads from `document`.
  */
 export function planMergeAdjacentBlocks(
-  state: State,
+  document: Document,
   leftId: BlockId,
   rightId: BlockId,
 ): MergeBlocksPlan {
@@ -79,12 +79,12 @@ export function planMergeAdjacentBlocks(
   // Resolve the reference (left) block ONCE to learn its owning tree (`kind`);
   // every kind-routed write in `inTx` targets that tree. `right` and the other
   // neighbors are asserted to live in the same tree below.
-  const leftResolved = resolveBlock(state, leftId);
+  const leftResolved = resolveBlock(document, leftId);
   if (leftResolved === null) {
     throw new Error(`mergeAdjacentBlocks: left block "${leftId}" not found`);
   }
   const { block: left, kind } = leftResolved;
-  const right = resolveBlock(state, rightId)?.block ?? null;
+  const right = resolveBlock(document, rightId)?.block ?? null;
   if (right === null) {
     throw new Error(`mergeAdjacentBlocks: right block "${rightId}" not found`);
   }
@@ -126,7 +126,7 @@ export function planMergeAdjacentBlocks(
   // The neighbours the merge touches (right — the survivor —, its next sibling, the
   // parent) must live in the SAME tree as the left block. (Dev-only; production no-op.)
   assertSameTree(
-    state,
+    document,
     kind,
     [rightId, right.nextSiblingId, parentId],
     "mergeAdjacentBlocks",
@@ -182,27 +182,27 @@ export interface JoinSuggestionResult extends OperationResult {
  *   - else `deletionSuggestionId` on ¶L's entry + a `deletion` record.
  */
 export function markParagraphMarkDeletion(
-  state: State,
+  document: Document,
   leftBlockId: BlockId,
   input: SuggestionMintInput,
 ): JoinSuggestionResult {
-  const none: JoinSuggestionResult = { state, dirtyIds: NO_DIRTY, removedBoundary: null };
-  const left = resolveBlock(state, leftBlockId)?.block ?? null;
+  const none: JoinSuggestionResult = { document, dirtyIds: NO_DIRTY, removedBoundary: null };
+  const left = resolveBlock(document, leftBlockId)?.block ?? null;
   if (left === null || left.inlineContent === null) return none;
-  const rule = markDeletionOf(state, left, input.author);
+  const rule = markDeletionOf(document, left, input.author);
   if (rule === "keep") return none;
   if (rule === "remove") {
-    const after = blockAfter(state, left)?.block ?? null;
+    const after = blockAfter(document, left)?.block ?? null;
     let removed = false;
-    const r = applyOperation(state, (d) => {
+    const r = applyOperation(document, (d) => {
       removed = deleteParagraphMarkInTx(d, left.id);
     });
     if (!removed) return none;
     const survivorId = after === null ? left.id : after.id;
     return { ...r, removedBoundary: { survivorId, offset: after?.inlineContent === null ? 0 : inlineContentLength(left.inlineContent) } };
   }
-  if (!markDeletableInFinal(state, left)) return none;
-  const r = applyOperation(state, (d) => {
+  if (!markDeletableInFinal(document, left)) return none;
+  const r = applyOperation(document, (d) => {
     writeBreakTagInTx(d, left.id, DELETION_TAG_KEY, input.id);
     writeSuggestionRecordInTx(d, {
       id: input.id,

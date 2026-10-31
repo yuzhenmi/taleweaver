@@ -1,7 +1,7 @@
 import type { EditorState } from "../../editor-state";
 import type { Edit } from "../../edit";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../../state";
-import type { State, BlockId } from "../../../state";
+import type { Document, BlockId } from "../../../state";
 
 /**
  * One indent step, in px (≈ 0.5in — Google Docs' default increase/decrease-
@@ -45,7 +45,7 @@ export const MIN_INDENT_CONTENT_WIDTH = 96;
  * ids only when a write actually occurred.
  *
  * No-op (return the input `editor` unchanged, never calling `history.commit`):
- *  - No target leaf changed (the running state is still `editor.state`) — the
+ *  - No target leaf changed (the running state is still `editor.document`) — the
  *    identity guard. (Notably: OUTDENT when every target is already at 0.)
  *
  * Selection is UNCHANGED: indent is a block-geometry change, not a caret move.
@@ -63,10 +63,10 @@ export function shiftIndent(editor: EditorState, delta: number): Edit | null {
       ? Math.max(0, availableWidth - MIN_INDENT_CONTENT_WIDTH)
       : Infinity;
 
-  let state: State = editor.state;
+  let document: Document = editor.document;
   const dirtyIds = new Set<BlockId>();
   for (const blockId of targetIds) {
-    const block = getBlock(state, blockId);
+    const block = getBlock(document, blockId);
     // Defensive: skip a block that resolved into the target list but is now
     // missing (never expected — the ids come from the live state).
     if (block === null) continue;
@@ -85,21 +85,21 @@ export function shiftIndent(editor: EditorState, delta: number): Edit | null {
     // Outdent to 0 clears the attr (undefined → mergeAttrs removes the key).
     const nextValue = next > 0 ? next : undefined;
     const result = mergeBlockAttrs(
-      state,
+      document,
       blockId,
       { marginInlineStart: nextValue },
     );
     // No-op merge (value unchanged): same state ref → skip.
-    if (result.state === state) continue;
-    state = result.state;
+    if (result.document === document) continue;
+    document = result.document;
     for (const id of result.dirtyIds) dirtyIds.add(id);
   }
 
   // the identity-no-op contract: nothing changed → return the input editor unchanged.
   // (`history.commit` is itself no-op-safe.)
-  if (state === editor.state) return null;
+  if (document === editor.document) return null;
 
-  return { change: { state, dirtyIds } };
+  return { change: { document, dirtyIds } };
 }
 
 /**
@@ -119,17 +119,17 @@ export function shiftIndent(editor: EditorState, delta: number): Edit | null {
  * marginInlineStart). Mirrors `handleSetLineSpacing` otherwise.
  */
 function targetLeafBlockIds(editor: EditorState): BlockId[] {
-  const { state, selection } = editor;
+  const { document, selection } = editor;
 
   if (positionsEqual(selection.anchor, selection.focus)) {
-    const focus = getBlock(state, selection.focus.blockId);
+    const focus = getBlock(document, selection.focus.blockId);
     if (focus === null || focus.inlineContent === null || focus.type === "list-item")
       return [];
     return [focus.id];
   }
 
   const ids: BlockId[] = [];
-  for (const block of iterateBlocksInSpan(state, selection)) {
+  for (const block of iterateBlocksInSpan(document, selection)) {
     if (block.inlineContent !== null && block.type !== "list-item") ids.push(block.id);
   }
   return ids;

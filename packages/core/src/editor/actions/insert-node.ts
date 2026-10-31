@@ -1,11 +1,11 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import { productionAllocator, insertBlock, getBlock } from "../../state";
-import type { BlockInit, State, BlockId, IdAllocator, InlineContent, BlockKindResolver } from "../../state";
+import type { BlockInit, Document, BlockId, IdAllocator, InlineContent, BlockKindResolver } from "../../state";
 import type { ActionOf } from "../editor-action";
 
 interface InsertNodeFold {
-  readonly state: State;
+  readonly document: Document;
   readonly dirtyIds: Set<BlockId>;
 }
 
@@ -23,7 +23,7 @@ interface InsertNodeFold {
  *     Throws if `init.inlineContent` is populated.
  */
 function insertBlockInitAt(
-  state: State,
+  document: Document,
   init: BlockInit,
   parentId: BlockId,
   allocator: IdAllocator,
@@ -73,7 +73,7 @@ function insertBlockInitAt(
   }
 
   const insertResult = insertBlock(
-    state,
+    document,
     parentId,
     null,
     {
@@ -85,7 +85,7 @@ function insertBlockInitAt(
     resolver,
   );
   for (const id of insertResult.dirtyIds) accumulatedDirtyIds.add(id);
-  let cur = insertResult.state;
+  let cur = insertResult.document;
   const newId = insertResult.newBlockId;
 
   if (kind === "container" && init.children !== undefined) {
@@ -98,10 +98,10 @@ function insertBlockInitAt(
         resolver,
         accumulatedDirtyIds,
       );
-      cur = sub.state;
+      cur = sub.document;
     }
   }
-  return { state: cur, dirtyIds: accumulatedDirtyIds };
+  return { document: cur, dirtyIds: accumulatedDirtyIds };
 }
 
 export function handleInsertNode(editor: EditorState, { node: init }: ActionOf<"INSERT_NODE">): Edit | null {
@@ -109,14 +109,14 @@ export function handleInsertNode(editor: EditorState, { node: init }: ActionOf<"
   // insertBlockInitAt always calls insertBlock at least once for the
   // root init (line 82), and insertBlock always mutates the Y.Doc
   // (sets a new blocks-map entry + rewires siblings + updates the
-  // parent's first/last-child pointers). So fold.state is guaranteed
-  // !== editor.state — no no-op short-circuit is reachable.
+  // parent's first/last-child pointers). So fold.document is guaranteed
+  // !== editor.document — no no-op short-circuit is reachable.
   // Appended at the END of the document body: the final section (the
   // root's children are sections; the final one always exists and is last).
-  const body = getBlock(editor.state, editor.state.rootId)?.lastChildId ?? null;
+  const body = getBlock(editor.document, editor.document.rootId)?.lastChildId ?? null;
   if (body === null) return null;
   const fold = insertBlockInitAt(
-    editor.state,
+    editor.document,
     init,
     body,
     productionAllocator,
@@ -124,5 +124,5 @@ export function handleInsertNode(editor: EditorState, { node: init }: ActionOf<"
     new Set<BlockId>(),
   );
 
-  return { change: { state: fold.state, dirtyIds: fold.dirtyIds } };
+  return { change: { document: fold.document, dirtyIds: fold.dirtyIds } };
 }

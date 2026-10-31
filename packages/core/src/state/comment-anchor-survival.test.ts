@@ -17,15 +17,15 @@ import { insertText } from "./ops/insert-text";
 import { deleteRange } from "./ops/delete-range";
 import { splitBlockAtPosition } from "./ops/split-block";
 import { mergeAdjacentBlocks } from "./ops/merge-blocks";
-import type { State } from "./state";
-import { buildBlock, buildState, text, inlineContent } from "../test-utils/state-builders";
+import type { Document } from "./document";
+import { buildBlock, buildDocument, text, inlineContent } from "../test-utils/document-builders";
 import { relAt, survives } from "../test-utils/relpos-survival";
 import { createPosition, createSpan } from "./block-position";
 import { createTestAllocator, type BlockId } from "./block-id";
 
 /** doc > [ p("hello world") ] */
-function oneBlock(): State {
-  return buildState({
+function oneBlock(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -35,8 +35,8 @@ function oneBlock(): State {
 }
 
 /** doc > [ p1("hello"), p2("world") ] (two blocks; "world" lives in p2's own Y.Text). */
-function twoBlocks(): State {
-  return buildState({
+function twoBlocks(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -50,7 +50,7 @@ describe("comments slice-0 spike — RelativePosition survival across structural
   it("insert-before (same block) SURVIVES — an offset insert keeps every other char", () => {
     const s0 = oneBlock();
     const rel = relAt(s0, "p", 6); // "w"
-    const after = insertText(s0, createPosition("p" as BlockId, 0), "XYZ", {}).state;
+    const after = insertText(s0, createPosition("p" as BlockId, 0), "XYZ", {}).document;
     expect(survives(rel, after, "w")).toBe(true);
   });
 
@@ -60,7 +60,7 @@ describe("comments slice-0 spike — RelativePosition survival across structural
     const after = deleteRange(
       s,
       createSpan(createPosition("p" as BlockId, 10), createPosition("p" as BlockId, 11)),
-    ).state;
+    ).document;
     expect(survives(rel, after, "w")).toBe(true);
   });
 
@@ -68,19 +68,19 @@ describe("comments slice-0 spike — RelativePosition survival across structural
     // Split "hello world" at offset 5 → left "hello", right " world" — same chars on both sides.
     const sL = oneBlock();
     const relLeft = relAt(sL, "p", 2); // "l", left half
-    const splitL = splitBlockAtPosition(sL, createPosition("p" as BlockId, 5), createTestAllocator("p2")).state;
+    const splitL = splitBlockAtPosition(sL, createPosition("p" as BlockId, 5), createTestAllocator("p2")).document;
     expect(survives(relLeft, splitL, "l")).toBe(true);
 
     const sR = oneBlock();
     const relRight = relAt(sR, "p", 6); // "w", right half
-    const splitR = splitBlockAtPosition(sR, createPosition("p" as BlockId, 5), createTestAllocator("p3")).state;
+    const splitR = splitBlockAtPosition(sR, createPosition("p" as BlockId, 5), createTestAllocator("p3")).document;
     expect(survives(relRight, splitR, "w")).toBe(true);
   });
 
   it("merge — an anchor in the merged-in RIGHT block SURVIVES (a merge deletes the mark only)", () => {
     const s = twoBlocks();
     const rel = relAt(s, "p2", 0); // "w" of "world"
-    const merged = mergeAdjacentBlocks(s, "p1" as BlockId, "p2" as BlockId).state;
+    const merged = mergeAdjacentBlocks(s, "p1" as BlockId, "p2" as BlockId).document;
     expect(survives(rel, merged, "w")).toBe(true);
   });
 });

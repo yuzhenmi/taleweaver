@@ -4,5 +4,5 @@ import { rejectAll } from "../../state";
 import { resolveEdit } from "./helpers/resolve-edit";
 
 export function handleRejectAllSuggestions(editor: EditorState): Edit | null {
-  return resolveEdit(rejectAll(editor.state));
+  return resolveEdit(rejectAll(editor.document));
 }

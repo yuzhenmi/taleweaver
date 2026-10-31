@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
-import { applyOperation, getBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, getBlock } from "../document";
 import type { BlockId } from "../block-id";
 import { requireInTransaction } from "../yjs-doc";
 import { ancestorChain } from "../block-traversal";
@@ -29,20 +29,20 @@ export interface ReparentPlan {
  * never lost).
  */
 export function reparentChildren(
-  state: State,
+  document: Document,
   blockIds: readonly BlockId[],
   newParentId: BlockId,
   beforeSiblingId: BlockId | null = null,
 ): OperationResult {
-  const plan = planReparentChildren(state, blockIds, newParentId, beforeSiblingId);
-  if (plan.blockIds.length === 0) return { state, dirtyIds: new Set<BlockId>() };
-  return applyOperation(state, (doc) => {
+  const plan = planReparentChildren(document, blockIds, newParentId, beforeSiblingId);
+  if (plan.blockIds.length === 0) return { document, dirtyIds: new Set<BlockId>() };
+  return applyOperation(document, (doc) => {
     reparentChildrenInTx(doc, plan);
   });
 }
 
 export function planReparentChildren(
-  state: State,
+  document: Document,
   blockIds: readonly BlockId[],
   newParentId: BlockId,
   beforeSiblingId: BlockId | null = null,
@@ -55,13 +55,13 @@ export function planReparentChildren(
 
   // Every moved block must exist.
   for (const id of blockIds) {
-    if (getBlock(state, id) === null) {
+    if (getBlock(document, id) === null) {
       throw new Error(`reparentChildren: block "${id}" not found`);
     }
   }
 
   // New parent must exist and be a container (no inlineContent).
-  const newParent = getBlock(state, newParentId);
+  const newParent = getBlock(document, newParentId);
   if (newParent === null) {
     throw new Error(`reparentChildren: newParent "${newParentId}" not found`);
   }
@@ -77,7 +77,7 @@ export function planReparentChildren(
     // Unreachable given the length check, but narrows for the type system.
     return { blockIds: [], newParentId, prevSiblingId: null, nodes: [] };
   }
-  const firstBlock = getBlock(state, first);
+  const firstBlock = getBlock(document, first);
   if (firstBlock === null) {
     throw new Error(`reparentChildren: block "${first}" not found`);
   }
@@ -94,7 +94,7 @@ export function planReparentChildren(
     if (cur === undefined || nxt === undefined) {
       throw new Error("reparentChildren: blockIds must be a contiguous sibling run");
     }
-    const curBlock = getBlock(state, cur);
+    const curBlock = getBlock(document, cur);
     if (curBlock === null) {
       throw new Error(`reparentChildren: block "${cur}" not found`);
     }
@@ -107,7 +107,7 @@ export function planReparentChildren(
   }
 
   // Cycle check: no moved block may be an ancestor of the new parent.
-  const newParentChain = ancestorChain(state, newParentId);
+  const newParentChain = ancestorChain(document, newParentId);
   const movedSet = new Set(blockIds);
   for (const ancestorId of newParentChain) {
     if (movedSet.has(ancestorId)) {
@@ -128,7 +128,7 @@ export function planReparentChildren(
         "reparentChildren: beforeSiblingId cannot be one of the moved blocks",
       );
     }
-    const beforeSibling = getBlock(state, beforeSiblingId);
+    const beforeSibling = getBlock(document, beforeSiblingId);
     if (beforeSibling === null) {
       throw new Error(
         `reparentChildren: beforeSiblingId "${beforeSiblingId}" not found`,
@@ -146,23 +146,23 @@ export function planReparentChildren(
   if (lastId === undefined) {
     return { blockIds: [], newParentId, prevSiblingId: null, nodes: [] };
   }
-  const lastBlock = getBlock(state, lastId);
+  const lastBlock = getBlock(document, lastId);
   if (lastBlock === null) {
     throw new Error(`reparentChildren: block "${lastId}" not found`);
   }
-  const sourceParent = getBlock(state, sourceParentId);
+  const sourceParent = getBlock(document, sourceParentId);
   if (sourceParent === null) {
     throw new Error(`reparentChildren: source parent "${sourceParentId}" not found`);
   }
   // The target's previous sibling, skipping the moved run itself.
   let prevSiblingId =
-    beforeSiblingId === null ? newParent.lastChildId : (getBlock(state, beforeSiblingId)?.prevSiblingId ?? null);
-  while (prevSiblingId !== null && movedSet.has(prevSiblingId)) prevSiblingId = getBlock(state, prevSiblingId)?.prevSiblingId ?? null;
+    beforeSiblingId === null ? newParent.lastChildId : (getBlock(document, beforeSiblingId)?.prevSiblingId ?? null);
+  while (prevSiblingId !== null && movedSet.has(prevSiblingId)) prevSiblingId = getBlock(document, prevSiblingId)?.prevSiblingId ?? null;
   // The run already sits at the target: identity no-op (no MOVE, no re-minting).
   if (newParentId === sourceParentId && prevSiblingId === firstBlock.prevSiblingId) {
     return { blockIds: [], newParentId, prevSiblingId: null, nodes: [] };
   }
-  return { blockIds, newParentId, prevSiblingId, nodes: blockIds.map((id) => subtreeNode(state, id)) };
+  return { blockIds, newParentId, prevSiblingId, nodes: blockIds.map((id) => subtreeNode(document, id)) };
 }
 
 /** Apply a {@link ReparentPlan} inside an open transaction. */
@@ -173,10 +173,10 @@ export function reparentChildrenInTx(doc: Y.Doc, plan: ReparentPlan): void {
   moveEntities(doc, plan.nodes, plan.prevSiblingId, plan.newParentId, tree);
 }
 
-function subtreeNode(state: State, id: BlockId): TreeNode {
-  const b = getBlock(state, id);
+function subtreeNode(document: Document, id: BlockId): TreeNode {
+  const b = getBlock(document, id);
   if (b === null) throw new Error(`reparentChildren: block "${id}" not found`);
   const children: TreeNode[] = [];
-  for (let c = b.firstChildId; c !== null; c = getBlock(state, c)?.nextSiblingId ?? null) children.push(subtreeNode(state, c));
+  for (let c = b.firstChildId; c !== null; c = getBlock(document, c)?.nextSiblingId ?? null) children.push(subtreeNode(document, c));
   return { id: b.id, type: b.type, attrs: b.attrs, inlineContent: b.inlineContent, children };
 }

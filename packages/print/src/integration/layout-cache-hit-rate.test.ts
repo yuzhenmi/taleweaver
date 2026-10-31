@@ -55,7 +55,7 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
     const firstId = (() => {
-      const root = finalSection(editor.state);
+      const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("?");
       return root.firstChildId;
     })();
@@ -136,7 +136,7 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
     const firstId = (() => {
-      const root = finalSection(editor.state);
+      const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("?");
       return root.firstChildId;
     })();
@@ -183,7 +183,7 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     for (const N of [500]) {
       let editor = createInitialEditorState(config);
       const firstId = (() => {
-        const root = finalSection(editor.state);
+        const root = finalSection(editor.document);
         if (root === null || root.firstChildId === null) throw new Error("?");
         return root.firstChildId;
       })();
@@ -241,7 +241,7 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
     const firstId = (() => {
-      const root = finalSection(editor.state);
+      const root = finalSection(editor.document);
       if (root === null || root.firstChildId === null) throw new Error("?");
       return root.firstChildId;
     })();

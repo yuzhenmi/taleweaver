@@ -6,7 +6,7 @@
  * Behavior-level tests through `reduceEditor`: insertion semantics (empty doc /
  * mid-paragraph split), one-undo-step, body-context refusal, and range-replace.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
@@ -20,7 +20,7 @@ import type { BlockId } from "../../state";
 
 /** The id of the first body paragraph under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
+  const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
   const id = root?.firstChildId;
   if (id === undefined || id === null) throw new Error("document root has no first child");
   return id;
@@ -29,9 +29,9 @@ function bodyParaId(editor: EditorState): BlockId {
 /** The ordered block types of the document root's direct children. */
 function topLevelTypes(editor: EditorState): string[] {
   const out: string[] = [];
-  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
-  for (let id = root?.firstChildId ?? null; id !== null; id = getBlock(editor.state, id)?.nextSiblingId ?? null) {
-    out.push(getBlock(editor.state, id)?.type ?? "?");
+  const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
+  for (let id = root?.firstChildId ?? null; id !== null; id = getBlock(editor.document, id)?.nextSiblingId ?? null) {
+    out.push(getBlock(editor.document, id)?.type ?? "?");
   }
   return out;
 }
@@ -41,7 +41,7 @@ function ancestorTypes(editor: EditorState, blockId: BlockId): string[] {
   const out: string[] = [];
   let id: BlockId | null = blockId;
   while (id !== null) {
-    const b = getBlock(editor.state, id);
+    const b = getBlock(editor.document, id);
     if (b === null) break;
     out.push(b.type);
     id = b.parentId;
@@ -51,10 +51,10 @@ function ancestorTypes(editor: EditorState, blockId: BlockId): string[] {
 
 /** The single table block among the root's children (throws if not exactly one). */
 function theTableId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
+  const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
   let found: BlockId | null = null;
-  for (let id = root?.firstChildId ?? null; id !== null; id = getBlock(editor.state, id)?.nextSiblingId ?? null) {
-    if (getBlock(editor.state, id)?.type === "table") {
+  for (let id = root?.firstChildId ?? null; id !== null; id = getBlock(editor.document, id)?.nextSiblingId ?? null) {
+    if (getBlock(editor.document, id)?.type === "table") {
       if (found !== null) throw new Error("more than one table");
       found = id;
     }
@@ -74,12 +74,12 @@ describe("handleInsertTable — INSERT_TABLE", () => {
     );
 
     const next = reduceEditor(placed, { type: "INSERT_TABLE", rows: 2, cols: 3 });
-    expect(next.state).not.toBe(placed.state);
+    expect(next.document).not.toBe(placed.document);
 
     // table now precedes the original paragraph.
     expect(topLevelTypes(next)).toEqual(["table", "paragraph"]);
     const tableId = theTableId(next);
-    expect(getBlock(next.state, tableId)?.attrs.columnWidths).toEqual([1 / 3, 1 / 3, 1 / 3]);
+    expect(getBlock(next.document, tableId)?.attrs.columnWidths).toEqual([1 / 3, 1 / 3, 1 / 3]);
 
     // caret sits in a paragraph whose ancestry is cell → row → table.
     const caretBlock = next.selection.focus.blockId;
@@ -91,10 +91,10 @@ describe("handleInsertTable — INSERT_TABLE", () => {
       "table",
     ]);
     // it is the FIRST cell of the FIRST row.
-    const cell = getBlock(next.state, getBlock(next.state, caretBlock)?.parentId as BlockId);
-    const row = getBlock(next.state, cell?.parentId as BlockId);
+    const cell = getBlock(next.document, getBlock(next.document, caretBlock)?.parentId as BlockId);
+    const row = getBlock(next.document, cell?.parentId as BlockId);
     expect(row?.firstChildId).toBe(cell?.id);
-    expect(getBlock(next.state, tableId)?.firstChildId).toBe(row?.id);
+    expect(getBlock(next.document, tableId)?.firstChildId).toBe(row?.id);
   });
 
   it("splits a mid-paragraph caret and threads the table between the halves", () => {
@@ -110,8 +110,8 @@ describe("handleInsertTable — INSERT_TABLE", () => {
     // "abc" | table | "def". The head "abc" is the new block; the
     // caret's paragraph keeps the tail "def" (and its ¶) after the table.
     expect(topLevelTypes(next)).toEqual(["paragraph", "table", "paragraph"]);
-    expect(getTextOf(next.state, paraId)).toBe("def");
-    expect(getTextOf(next.state, bodyParaId(next))).toBe("abc");
+    expect(getTextOf(next.document, paraId)).toBe("def");
+    expect(getTextOf(next.document, bodyParaId(next))).toBe("abc");
     // caret in cell (0,0).
     expect(ancestorTypes(next, next.selection.focus.blockId).slice(0, 2)).toEqual([
       "paragraph",
@@ -132,7 +132,7 @@ describe("handleInsertTable — INSERT_TABLE", () => {
 
     const undone = reduceEditor(next, { type: "UNDO" });
     expect(topLevelTypes(undone)).toEqual(["paragraph"]);
-    expect(getTextOf(undone.state, paraId)).toBe("abcdef");
+    expect(getTextOf(undone.document, paraId)).toBe("abcdef");
   });
 
   it("replaces a non-collapsed selection (deletes it) before inserting, as one undo step", () => {
@@ -147,13 +147,13 @@ describe("handleInsertTable — INSERT_TABLE", () => {
 
     const next = reduceEditor(placed, { type: "INSERT_TABLE", rows: 1, cols: 1 });
     // "cd" deleted → "ab" | table | "ef" (the head "ab" is the new block).
-    expect(getTextOf(next.state, paraId)).toBe("ef");
-    expect(getTextOf(next.state, bodyParaId(next))).toBe("ab");
+    expect(getTextOf(next.document, paraId)).toBe("ef");
+    expect(getTextOf(next.document, bodyParaId(next))).toBe("ab");
     expect(topLevelTypes(next)).toEqual(["paragraph", "table", "paragraph"]);
 
     // ONE undo restores "abcdef" AND removes the table.
     const undone = reduceEditor(next, { type: "UNDO" });
-    expect(getTextOf(undone.state, paraId)).toBe("abcdef");
+    expect(getTextOf(undone.document, paraId)).toBe("abcdef");
     expect(topLevelTypes(undone)).toEqual(["paragraph"]);
   });
 
@@ -162,17 +162,17 @@ describe("handleInsertTable — INSERT_TABLE", () => {
     const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" });
     // INSERT_FOOTNOTE lands the caret inside the footnote body paragraph.
     const inFootnote = reduceEditor(typed, { type: "INSERT_FOOTNOTE" });
-    expect(resolveBlock(inFootnote.state, inFootnote.selection.focus.blockId)?.kind).toBe("embedContent");
+    expect(resolveBlock(inFootnote.document, inFootnote.selection.focus.blockId)?.kind).toBe("embedContent");
 
     const refused = reduceEditor(inFootnote, { type: "INSERT_TABLE", rows: 2, cols: 2 });
-    expect(refused.state).toBe(inFootnote.state); // identity: nothing changed
+    expect(refused.document).toBe(inFootnote.document); // identity: nothing changed
   });
 
   it("is a no-op for rows < 1 or cols < 1", () => {
     const initial = createInitialEditorState(config);
     const a = reduceEditor(initial, { type: "INSERT_TABLE", rows: 0, cols: 3 });
-    expect(a.state).toBe(initial.state);
+    expect(a.document).toBe(initial.document);
     const b = reduceEditor(initial, { type: "INSERT_TABLE", rows: 2, cols: 0 });
-    expect(b.state).toBe(initial.state);
+    expect(b.document).toBe(initial.document);
   });
 });

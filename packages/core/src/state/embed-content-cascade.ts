@@ -1,9 +1,9 @@
-import type { State } from "./state";
+import type { Document } from "./document";
 import {
   getBlock,
   getEmbedContent,
   getTemplateContent,
-} from "./state";
+} from "./document";
 import { iterateAllBlocksInDocumentOrder } from "./document-order";
 import type { BlockId } from "./block-id";
 import type { InlineContent } from "./inline-content";
@@ -37,25 +37,25 @@ import type { InlineContent } from "./inline-content";
  * has already been processed in an earlier cascade pass.
  */
 export function collectEmbedContentSubtree(
-  state: State,
+  document: Document,
   rootId: BlockId,
   out: Set<BlockId>,
 ): void {
   if (out.has(rootId)) return;
-  const block = getEmbedContent(state, rootId);
+  const block = getEmbedContent(document, rootId);
   if (block === null) return;
   out.add(rootId);
   // Children of an embed-content block (if any) are themselves embed-content.
   let childId = block.firstChildId;
   while (childId !== null) {
     if (out.has(childId)) break;
-    collectEmbedContentSubtree(state, childId, out);
-    const child = getEmbedContent(state, childId);
+    collectEmbedContentSubtree(document, childId, out);
+    const child = getEmbedContent(document, childId);
     childId = child?.nextSiblingId ?? null;
   }
   // Nested embed-content references in this embed-content's inlineContent.
   if (block.inlineContent !== null) {
-    collectEmbedContentSubtreeFromInlineContent(state, block.inlineContent, out);
+    collectEmbedContentSubtreeFromInlineContent(document, block.inlineContent, out);
   }
 }
 
@@ -105,34 +105,34 @@ export function collectEmbedContentSubtree(
  * O(N_blocks) on ops that delete a block.
  */
 export function assertNoOrphanedEmbedContent(
-  state: State,
+  document: Document,
   opName: string,
   dirtyIds?: ReadonlySet<BlockId>,
 ): void {
   if (dirtyIds !== undefined) {
     let needsFullScan = false;
     for (const id of dirtyIds) {
-      const main = getBlock(state, id);
+      const main = getBlock(document, id);
       if (main !== null) {
         const content = main.inlineContent;
         if (content !== null) {
-          assertNoOrphansInInlineContent(state, id, content, opName);
+          assertNoOrphansInInlineContent(document, id, content, opName);
         }
         continue;
       }
-      const embed = getEmbedContent(state, id);
+      const embed = getEmbedContent(document, id);
       if (embed !== null) {
         const content = embed.inlineContent;
         if (content !== null) {
-          assertNoOrphansInInlineContent(state, id, content, opName);
+          assertNoOrphansInInlineContent(document, id, content, opName);
         }
         continue;
       }
-      const template = getTemplateContent(state, id);
+      const template = getTemplateContent(document, id);
       if (template !== null) {
         const content = template.inlineContent;
         if (content !== null) {
-          assertNoOrphansInInlineContent(state, id, content, opName);
+          assertNoOrphansInInlineContent(document, id, content, opName);
         }
         continue;
       }
@@ -144,7 +144,7 @@ export function assertNoOrphanedEmbedContent(
     }
     if (!needsFullScan) return;
   }
-  fullScanForOrphans(state, opName);
+  fullScanForOrphans(document, opName);
 }
 
 /**
@@ -152,11 +152,11 @@ export function assertNoOrphanedEmbedContent(
  * inline content for orphan EmbedItem references. Used by the direct entry-
  * point (no dirtyIds) and by the deletion-detected fallback path.
  */
-function fullScanForOrphans(state: State, opName: string): void {
+function fullScanForOrphans(document: Document, opName: string): void {
   // The read model of every tree (not registry keys): implicit paragraphs
   // (`${anchor}#i`) carry content but have no registry entry.
-  for (const block of iterateAllBlocksInDocumentOrder(state)) {
-    if (block.inlineContent !== null) assertNoOrphansInInlineContent(state, block.id, block.inlineContent, opName);
+  for (const block of iterateAllBlocksInDocumentOrder(document)) {
+    if (block.inlineContent !== null) assertNoOrphansInInlineContent(document, block.id, block.inlineContent, opName);
   }
 }
 
@@ -169,7 +169,7 @@ function fullScanForOrphans(state: State, opName: string): void {
  * — the invariant only covers reference-typed embed properties.
  */
 function assertNoOrphansInInlineContent(
-  state: State,
+  document: Document,
   owningBlockId: BlockId,
   content: InlineContent,
   opName: string,
@@ -178,7 +178,7 @@ function assertNoOrphansInInlineContent(
     if (item.kind !== "embed") continue;
     const cbId = item.properties.contentBlockId;
     if (typeof cbId !== "string") continue;
-    if (getEmbedContent(state, cbId as BlockId) === null) {
+    if (getEmbedContent(document, cbId as BlockId) === null) {
       throw new Error(
         `assertNoOrphanedEmbedContent (op: "${opName}"): EmbedItem in block ` +
           `"${owningBlockId}" references missing embedContent root "${cbId}"`,
@@ -232,16 +232,16 @@ function assertNoOrphansInInlineContent(
  * production call site inside `applyOperation`.
  */
 export function assertNoSharedEmbedContent(
-  state: State,
+  document: Document,
   opName: string,
   dirtyIds?: ReadonlySet<BlockId>,
 ): void {
-  if (dirtyIds !== undefined && !anyDirtyBlockHasEmbedRef(state, dirtyIds)) {
+  if (dirtyIds !== undefined && !anyDirtyBlockHasEmbedRef(document, dirtyIds)) {
     // No dirty block introduced or modified an embed-with-contentBlockId, so
     // the op cannot have created a new duplicate. Skip the full sweep.
     return;
   }
-  fullScanForSharing(state, opName);
+  fullScanForSharing(document, opName);
 }
 
 /**
@@ -253,14 +253,14 @@ export function assertNoSharedEmbedContent(
  * deletion ops short-circuit here).
  */
 function anyDirtyBlockHasEmbedRef(
-  state: State,
+  document: Document,
   dirtyIds: ReadonlySet<BlockId>,
 ): boolean {
   for (const id of dirtyIds) {
     const block =
-      getBlock(state, id) ??
-      getEmbedContent(state, id) ??
-      getTemplateContent(state, id);
+      getBlock(document, id) ??
+      getEmbedContent(document, id) ??
+      getTemplateContent(document, id);
     if (block === null) continue;
     const content = block.inlineContent;
     if (content === null) continue;
@@ -288,9 +288,9 @@ function inlineContentHasEmbedRef(content: InlineContent): boolean {
  * `Map<contentBlockId, owningBlockId>`. Throws on the first contentBlockId
  * that is already a key (a second owning anchor).
  */
-function fullScanForSharing(state: State, opName: string): void {
+function fullScanForSharing(document: Document, opName: string): void {
   const seenRefs = new Map<BlockId, BlockId>();
-  for (const block of iterateAllBlocksInDocumentOrder(state)) {
+  for (const block of iterateAllBlocksInDocumentOrder(document)) {
     if (block.inlineContent !== null) accumulateSharingInInlineContent(block.id, block.inlineContent, seenRefs, opName);
   }
 }
@@ -339,7 +339,7 @@ function accumulateSharingInInlineContent(
  * Cycle-defended via the shared `out` Set.
  */
 export function collectEmbedContentSubtreeFromInlineContent(
-  state: State,
+  document: Document,
   content: InlineContent,
   out: Set<BlockId>,
 ): void {
@@ -347,6 +347,6 @@ export function collectEmbedContentSubtreeFromInlineContent(
     if (item.kind !== "embed") continue;
     const cbId = item.properties.contentBlockId;
     if (typeof cbId !== "string") continue;
-    collectEmbedContentSubtree(state, cbId as BlockId, out);
+    collectEmbedContentSubtree(document, cbId as BlockId, out);
   }
 }

@@ -249,7 +249,7 @@ function editOf<K extends HandledActionType>(editor: EditorState, type: K, actio
 function withCaretAfterMarkers(editor: EditorState): EditorState {
   const { anchor, focus } = editor.selection;
   if (!positionsEqual(anchor, focus)) return editor;
-  const caret = caretAfterMarkers(editor.state, focus);
+  const caret = caretAfterMarkers(editor.document, focus);
   return caret === focus ? editor : { ...editor, selection: createSpan(caret, caret) };
 }
 
@@ -299,8 +299,8 @@ export function reduceEditor(rawEditor: EditorState, action: EditorAction): Edit
       ? runTransaction(editor, action.run, reduceEditor)
       : applyEdit(editor, editOf(editor, action.type, action));
   // User-typed text may complete a host input rule (its own undo entry).
-  if (action.type === "INSERT_TEXT" && action.userInput === true && result.state !== editor.state) {
-    result = applyInputRules(result, editor.config, reduceEditor);
+  if (action.type === "INSERT_TEXT" && action.userInput === true && result.document !== editor.document) {
+    result = applyInputRules(result, reduceEditor);
   }
 
   // Central transient-view-state clear: `targetX` (line-nav sticky goal column)
@@ -324,10 +324,10 @@ export function reduceEditor(rawEditor: EditorState, action: EditorAction): Edit
   // one whole or not at all. Likewise a range covers a table whole or not at all;
   // extending from a lifted anchor restarts from the user's own (`anchorBeforeLift`).
   if (result !== editor) {
-    let marked = normalizeSelectionForAtomicMarks(result.state, result.selection, editor.selection);
-    const raw = result.state === editor.state ? editor.anchorBeforeLift : undefined;
+    let marked = normalizeSelectionForAtomicMarks(result.document, result.selection, editor.selection);
+    const raw = result.document === editor.document ? editor.anchorBeforeLift : undefined;
     if (raw !== undefined && positionsEqual(marked.anchor, editor.selection.anchor)) marked = createSpan(raw, marked.focus);
-    const selection = normalizeSelectionForObjects(result.state, marked);
+    const selection = normalizeSelectionForObjects(result.document, marked);
     const lifted = !positionsEqual(selection.anchor, marked.anchor) && !positionsEqual(selection.anchor, selection.focus);
     const anchorBeforeLift = lifted ? marked.anchor : undefined;
     if (selection !== result.selection) result = { ...result, selection };
@@ -335,12 +335,12 @@ export function reduceEditor(rawEditor: EditorState, action: EditorAction): Edit
   }
 
   result = updateStoredAttrs(editor, result, traits);
-  result = updateActiveTrigger(editor, result, action, editor.config);
+  result = updateActiveTrigger(editor, result, action);
   // Keep the selection's blocks snapshotted in the current state: a later foreign
   // change maps the caret from that snapshot (the Y.Doc has changed by then). O(1).
-  if (result.state !== editor.state || result.selection !== editor.selection) {
-    resolveBlock(result.state, result.selection.focus.blockId);
-    resolveBlock(result.state, result.selection.anchor.blockId);
+  if (result.document !== editor.document || result.selection !== editor.selection) {
+    resolveBlock(result.document, result.selection.focus.blockId);
+    resolveBlock(result.document, result.selection.anchor.blockId);
   }
   return result;
 }
@@ -368,11 +368,11 @@ function updateStoredAttrs(
   }
   if (
     out.storedAttrs === undefined &&
-    out.state !== before.state &&
+    out.document !== before.document &&
     traits.carriesTypingAttrs === true &&
     positionsEqual(out.selection.anchor, out.selection.focus)
   ) {
-    const content = resolveBlock(out.state, out.selection.focus.blockId)?.block.inlineContent ?? null;
+    const content = resolveBlock(out.document, out.selection.focus.blockId)?.block.inlineContent ?? null;
     if (content !== null && content.items.length === 0) {
       // Only INCLUSIVE keys (formatting) carry: a deleted link / mention / other
       // non-inclusive or atomic mark — and change-tracking ids — must not

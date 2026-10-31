@@ -1,7 +1,7 @@
 import type { LayoutBox, LineBox, TextRunBox, InlineBlockBox } from "../layout/layout-node";
 import type { ComputedStyle } from "@taleweaver/core";
 import { axisMapFor } from "@taleweaver/core";
-import type { Position, BlockId, State } from "@taleweaver/core";
+import type { Position, BlockId, Document } from "@taleweaver/core";
 import { selectionContextOf } from "@taleweaver/core";
 // Type-only import (no runtime cycle): `line-bidi.ts` imports VALUES from this
 // file, so this file must not import values from it. `CaretAffinity` is a type,
@@ -348,14 +348,14 @@ export function getLineIndex(root: LayoutBox): LineIndex {
  * Shared by `line-navigation.ts` and `selection-geometry.ts` so both consumers apply identical isolation.
  */
 export function makeContextFilter(
-  state: State,
+  document: Document,
   context: BlockId | null,
 ): (lines: readonly AbsoluteLineBox[]) => readonly AbsoluteLineBox[] {
   const memo = new Map<BlockId, BlockId | null>();
   const ctxOf = (blockId: BlockId): BlockId | null => {
     const cached = memo.get(blockId);
     if (cached !== undefined) return cached;
-    const ctx = selectionContextOf(state, blockId);
+    const ctx = selectionContextOf(document, blockId);
     memo.set(blockId, ctx);
     return ctx;
   };

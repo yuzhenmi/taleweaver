@@ -21,7 +21,7 @@ import { deleteWholeTable } from "./helpers/delete-whole-table";
  * delete; its first paragraph is read from the POST-op state. One undo (`"command"`).
  */
 export function handleDeleteTableRow(editor: EditorState): Edit | null {
-  const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
+  const ctx = resolveTableContext(editor.document, editor.selection.focus.blockId);
   if (ctx === null || ctx.ragged) return null;
 
   // Last remaining row → deleting it collapses the whole table.
@@ -38,13 +38,13 @@ export function handleDeleteTableRow(editor: EditorState): Edit | null {
     const caretCell = grid === null ? undefined : grid.cells.find((c) => c.cellId === ctx.cellId);
     if (grid === null || caretCell === undefined) return null;
 
-    const result = deleteTableRowSpanAware(editor.state, ctx);
-    if (result.state === editor.state) return null;
+    const result = deleteTableRowSpanAware(editor.document, ctx);
+    if (result.document === editor.document) return null;
 
     const rowCount = grid.occupancy.length;
     const targetGridRow = caretCell.gridRow < rowCount - 1 ? caretCell.gridRow + 1 : caretCell.gridRow - 1;
     const targetCellId = grid.occupancy[targetGridRow]?.[caretCell.gridCol] ?? null;
-    const caretBlockId = targetCellId !== null ? getBlock(result.state, targetCellId)?.firstChildId ?? null : null;
+    const caretBlockId = targetCellId !== null ? getBlock(result.document, targetCellId)?.firstChildId ?? null : null;
     // Defensive POST-op guard: for a non-ragged spanned table the target cell always
     // survives the delete, so this is unreachable; if it ever fired we'd discard the
     // already-computed `result` rather than commit a caret-less state.
@@ -52,7 +52,7 @@ export function handleDeleteTableRow(editor: EditorState): Edit | null {
 
     const cursor = createPosition(caretBlockId, 0);
     const after = createSpan(cursor, cursor);
-    return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: after };
+    return { change: { document: result.document, dirtyIds: result.dirtyIds }, selection: after };
   }
 
   // No-span path. Caret target: same column in the next row, else
@@ -62,15 +62,15 @@ export function handleDeleteTableRow(editor: EditorState): Edit | null {
 
   // The plain delete composes `removeBlock` + a `headerRowCount` re-derive in
   // ONE transaction, so deleting a header row keeps the count valid (one undo entry).
-  const result = deleteTableRow(editor.state, ctx);
-  if (result.state === editor.state) return null;
+  const result = deleteTableRow(editor.document, ctx);
+  if (result.document === editor.document) return null;
 
   // Read the target cell's first paragraph from the POST-op state.
-  const targetCell = targetCellId !== null ? getBlock(result.state, targetCellId) : null;
+  const targetCell = targetCellId !== null ? getBlock(result.document, targetCellId) : null;
   const caretBlockId = targetCell?.firstChildId ?? null;
   if (caretBlockId === null) return null; // defensive: non-ragged rowCount>1 always has a target
 
   const cursor = createPosition(caretBlockId, 0);
   const after = createSpan(cursor, cursor);
-  return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: after };
+  return { change: { document: result.document, dirtyIds: result.dirtyIds }, selection: after };
 }

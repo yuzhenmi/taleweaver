@@ -24,7 +24,7 @@ function makeContainerView(
 // A typed RenderContext fixture. sectionComponent reads none of these.
 function makeContext(): RenderContext {
   return {
-    state: {} as RenderContext["state"],
+    document: {} as RenderContext["document"],
     footnoteNumber: (_id: BlockId): string | undefined => undefined,
   };
 }

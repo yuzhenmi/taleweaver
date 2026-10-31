@@ -9,13 +9,13 @@ import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
 import { createPosition } from "@taleweaver/core";
-import type { BlockId, State } from "@taleweaver/core";
+import type { BlockId, Document } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 import type { PageConfig } from "../layout/page-config";
 import type { WritingMode } from "@taleweaver/core";
@@ -28,11 +28,11 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 }
 
 function pipeline(
-  state: State,
+  document: Document,
   containerInlineSize: number = 800,
 ): { layout: LayoutBox; shaper: TextShaper } {
   const root = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -42,11 +42,11 @@ function pipeline(
 }
 
 /** Build a single-paragraph doc that soft-wraps to multiple lines. */
-function softWrappingState(): State {
+function softWrappingDocument(): Document {
   // 800px container, 8px/char → ~100 chars/line. Use 25-char prefix.
   let s = "";
   for (let i = 0; i < 20; i++) s += "abcdefghi "; // 200 chars
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -67,10 +67,10 @@ function softWrappingState(): State {
 
 describe("moveToLine (new)", () => {
   it("moves down from line 0 to line 1, preserving x", () => {
-    const state = softWrappingState();
-    const { layout, shaper } = pipeline(state, 800);
+    const document = softWrappingDocument();
+    const { layout, shaper } = pipeline(document, 800);
     const pos = createPosition("p" as BlockId, 5); // line 0, x=40
-    const result = moveToLine(state, pos, layout, shaper, "down", null);
+    const result = moveToLine(document, pos, layout, shaper, "down", null);
     expect(result).not.toBeNull();
     if (result === null) return;
     // New position should be in p (same block) on a later line.
@@ -80,10 +80,10 @@ describe("moveToLine (new)", () => {
   });
 
   it("moves up from line 1 to line 0", () => {
-    const state = softWrappingState();
-    const { layout, shaper } = pipeline(state, 800);
+    const document = softWrappingDocument();
+    const { layout, shaper } = pipeline(document, 800);
     const pos = createPosition("p" as BlockId, 105); // line 1
-    const result = moveToLine(state, pos, layout, shaper, "up", null);
+    const result = moveToLine(document, pos, layout, shaper, "up", null);
     expect(result).not.toBeNull();
     if (result === null) return;
     expect(result.position.blockId).toBe("p");
@@ -99,8 +99,8 @@ describe("moveToLine (new)", () => {
     // onto), not line 1. Without the threading the default ("after") prefers line
     // 1's start (`resolvePositionInOwnLines` soft-wrap rule) — the boundary caret
     // would render a row too low, the single-column face of the multicol no-op bug.
-    const state = softWrappingState();
-    const { layout, shaper } = pipeline(state, 800);
+    const document = softWrappingDocument();
+    const { layout, shaper } = pipeline(document, 800);
     const lines = getLineIndex(layout).byBlock.get("p" as BlockId) ?? [];
     expect(lines.length).toBeGreaterThanOrEqual(2);
     const line0 = nth(lines, 0, "line0");
@@ -110,7 +110,7 @@ describe("moveToLine (new)", () => {
     // clamps to line 0's END — the shared boundary offset.
     const pos = createPosition("p" as BlockId, line1.line.inlineOffsetStart + 3);
     const farRightGoalX = 100_000;
-    const result = moveToLine(state, pos, layout, shaper, "up", farRightGoalX);
+    const result = moveToLine(document, pos, layout, shaper, "up", farRightGoalX);
     expect(result).not.toBeNull();
     if (result === null) return;
     // Landed on the shared boundary offset (line0.end), threaded affinity "before"
@@ -118,7 +118,7 @@ describe("moveToLine (new)", () => {
     // "after" → line 1.)
     expect(result.position.offset).toBe(line0.line.inlineOffsetEnd);
     expect(result.caretAffinity).toBe("before");
-    const pixel = resolvePixelPosition(state, result.position, layout, shaper, undefined, result.caretAffinity);
+    const pixel = resolvePixelPosition(document, result.position, layout, shaper, undefined, result.caretAffinity);
     expect(pixel).not.toBeNull();
     if (pixel === null) return;
     expect(pixel.y).toBe(line0.absoluteY);
@@ -126,7 +126,7 @@ describe("moveToLine (new)", () => {
   });
 
   it("moves down across a paragraph break", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -151,9 +151,9 @@ describe("moveToLine (new)", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state);
+    const { layout, shaper } = pipeline(document);
     const pos = createPosition("p1" as BlockId, 2);
-    const result = moveToLine(state, pos, layout, shaper, "down", null);
+    const result = moveToLine(document, pos, layout, shaper, "down", null);
     expect(result).not.toBeNull();
     if (result === null) return;
     expect(result.position.blockId).toBe("p2");
@@ -163,7 +163,7 @@ describe("moveToLine (new)", () => {
     // Structure: [A] / [empty] / [B]. Cursor on A; ArrowDown should land at
     // offset 0 of the empty paragraph (not fall through to B). See #170 and
     // the line-nav bug.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -196,9 +196,9 @@ describe("moveToLine (new)", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state);
+    const { layout, shaper } = pipeline(document);
     const pos = createPosition("pA" as BlockId, 1);
-    const result = moveToLine(state, pos, layout, shaper, "down", null);
+    const result = moveToLine(document, pos, layout, shaper, "down", null);
     expect(result).not.toBeNull();
     if (result === null) return;
     expect(result.position.blockId).toBe("pEmpty");
@@ -207,7 +207,7 @@ describe("moveToLine (new)", () => {
 
   it("ArrowUp into an empty paragraph lands at offset 0 of that paragraph", () => {
     // Same structure; cursor on B at offset 1; ArrowUp lands on the empty.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -240,9 +240,9 @@ describe("moveToLine (new)", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state);
+    const { layout, shaper } = pipeline(document);
     const pos = createPosition("pB" as BlockId, 1);
-    const result = moveToLine(state, pos, layout, shaper, "up", null);
+    const result = moveToLine(document, pos, layout, shaper, "up", null);
     expect(result).not.toBeNull();
     if (result === null) return;
     expect(result.position.blockId).toBe("pEmpty");
@@ -252,7 +252,7 @@ describe("moveToLine (new)", () => {
   it("multi-empty: ArrowUp steps through each empty paragraph in turn", () => {
     // Structure: [A] / [empty1] / [empty2] / [B]. Cursor at B:1.
     // ArrowUp 1 → empty2:0; ArrowUp 2 → empty1:0; ArrowUp 3 → in A.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -293,10 +293,10 @@ describe("moveToLine (new)", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state);
+    const { layout, shaper } = pipeline(document);
 
     const step1 = moveToLine(
-      state,
+      document,
       createPosition("pB" as BlockId, 1),
       layout,
       shaper,
@@ -308,20 +308,20 @@ describe("moveToLine (new)", () => {
     expect(step1.position.blockId).toBe("pE2");
     expect(step1.position.offset).toBe(0);
 
-    const step2 = moveToLine(state, step1.position, layout, shaper, "up", step1.targetX);
+    const step2 = moveToLine(document, step1.position, layout, shaper, "up", step1.targetX);
     expect(step2).not.toBeNull();
     if (step2 === null) return;
     expect(step2.position.blockId).toBe("pE1");
     expect(step2.position.offset).toBe(0);
 
-    const step3 = moveToLine(state, step2.position, layout, shaper, "up", step2.targetX);
+    const step3 = moveToLine(document, step2.position, layout, shaper, "up", step2.targetX);
     expect(step3).not.toBeNull();
     if (step3 === null) return;
     expect(step3.position.blockId).toBe("pA");
   });
 
   it("at last line moving down returns end-of-doc (last block, max offset)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -338,9 +338,9 @@ describe("moveToLine (new)", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state);
+    const { layout, shaper } = pipeline(document);
     const pos = createPosition("p" as BlockId, 2);
-    const result = moveToLine(state, pos, layout, shaper, "down", null);
+    const result = moveToLine(document, pos, layout, shaper, "down", null);
     // Legacy fallback: at last line going down → position at end of doc.
     expect(result).not.toBeNull();
     if (result === null) return;
@@ -351,10 +351,10 @@ describe("moveToLine (new)", () => {
 
 describe("moveToLineBoundary (new)", () => {
   it("returns offset at line start (Home)", () => {
-    const state = softWrappingState();
-    const { layout, shaper } = pipeline(state, 800);
+    const document = softWrappingDocument();
+    const { layout, shaper } = pipeline(document, 800);
     const pos = createPosition("p" as BlockId, 50); // mid line 0
-    const result = moveToLineBoundary(state, pos, layout, shaper, "start");
+    const result = moveToLineBoundary(document, pos, layout, shaper, "start");
     expect(result).not.toBeNull();
     if (result === null) return;
     expect(result.blockId).toBe("p");
@@ -369,7 +369,7 @@ describe("moveToLineBoundary (new)", () => {
     // (End); a correct visual-line implementation returns the line-1 seam.
     let s = "";
     for (let i = 0; i < 30; i++) s += "abcdefghi "; // 300 chars, 3 lines
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -381,10 +381,10 @@ describe("moveToLineBoundary (new)", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state, 800);
+    const { layout, shaper } = pipeline(document, 800);
     const at = (o: number) => createPosition("p" as BlockId, o);
-    const homeOf = (o: number) => moveToLineBoundary(state, at(o), layout, shaper, "start");
-    const endOf = (o: number) => moveToLineBoundary(state, at(o), layout, shaper, "end");
+    const homeOf = (o: number) => moveToLineBoundary(document, at(o), layout, shaper, "start");
+    const endOf = (o: number) => moveToLineBoundary(document, at(o), layout, shaper, "end");
 
     // Two carets safely inside line 1 (between ~100 and ~200).
     const home150 = homeOf(150);
@@ -409,7 +409,7 @@ describe("moveToLineBoundary (new)", () => {
   });
 
   it("returns offset at line end (End)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -426,9 +426,9 @@ describe("moveToLineBoundary (new)", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state);
+    const { layout, shaper } = pipeline(document);
     const pos = createPosition("p" as BlockId, 2);
-    const result = moveToLineBoundary(state, pos, layout, shaper, "end");
+    const result = moveToLineBoundary(document, pos, layout, shaper, "end");
     expect(result).not.toBeNull();
     if (result === null) return;
     expect(result.blockId).toBe("p");
@@ -458,7 +458,7 @@ describe("moveToLineBoundary (new)", () => {
     // step needed: item boundaries are coarser than grapheme boundaries
     // and never split a surrogate pair (because surrogate pairs live
     // within a single text-item's text).
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -475,9 +475,9 @@ describe("moveToLineBoundary (new)", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state, 8);
+    const { layout, shaper } = pipeline(document, 8);
     const pos = createPosition("p" as BlockId, 0);
-    const result = moveToLineBoundary(state, pos, layout, shaper, "end");
+    const result = moveToLineBoundary(document, pos, layout, shaper, "end");
     expect(result).not.toBeNull();
     if (result === null) return;
     expect(result.blockId).toBe("p");
@@ -512,7 +512,7 @@ describe("moveToLineBoundary (new)", () => {
 //   vertical-rl: line0 absX=984, line1 absX=968, line2 absX=952 (absY=0 each).
 //   vertical-lr: line0 absX=0,  line1 absX=16,  line2 absX=32  (absY=0 each).
 //   each line inlineSize=20, blockSize=16; leaves "aa"/"bb"/"cc" w=16 h=16.
-// State offsets ("aa bb cc"): line0 "aa" [0,3] (end incl. space), line1 "bb"
+// Document offsets ("aa bb cc"): line0 "aa" [0,3] (end incl. space), line1 "bb"
 // [3,6], line2 "cc" [6,8].
 //
 // These assertions are RED against the old `(x, target.absoluteY)` code: with
@@ -530,8 +530,8 @@ const vPageConfig: PageConfig = {
   pageGap: 20,
 };
 
-function vDoc(wm: WritingMode): State {
-  return buildState({
+function vDoc(wm: WritingMode): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -552,8 +552,8 @@ function vDoc(wm: WritingMode): State {
   });
 }
 
-function vPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
-  const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
+function vPipeline(document: Document): { layout: LayoutBox; shaper: TextShaper } {
+  const root = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
   const shaper = createMockShaper(V_CHAR_W, V_LINE_CROSS);
   const layout = positionTreeForTest(
     layoutTree(root, vPageConfig.pageInlineSize, shaper, vPageConfig),
@@ -566,8 +566,8 @@ function vLines(layout: LayoutBox): ReturnType<typeof getLineIndex>["all"] {
 }
 
 describe("P3.6 vertical line-navigation — vertical-rl", () => {
-  const state = vDoc("vertical-rl");
-  const { layout, shaper } = vPipeline(state);
+  const document = vDoc("vertical-rl");
+  const { layout, shaper } = vPipeline(document);
   const lines = vLines(layout);
 
   it("layout sanity: three lines, descending physical X, absY=0", () => {
@@ -579,7 +579,7 @@ describe("P3.6 vertical line-navigation — vertical-rl", () => {
 
   it("ArrowDown preserves the inline column (line0 → line1 → line2)", () => {
     // Caret at offset 1 ("a|a") on line0: inline coord (physical Y) = 8.
-    const step1 = moveToLine(state, createPosition("p" as BlockId, 1), layout, shaper, "down", null);
+    const step1 = moveToLine(document, createPosition("p" as BlockId, 1), layout, shaper, "down", null);
     expect(step1).not.toBeNull();
     if (step1 === null) return;
     expect(step1.position.blockId).toBe("p");
@@ -587,7 +587,7 @@ describe("P3.6 vertical line-navigation — vertical-rl", () => {
     expect(step1.position.offset).toBe(4);
     expect(step1.targetX).toBe(8);
 
-    const step2 = moveToLine(state, step1.position, layout, shaper, "down", step1.targetX);
+    const step2 = moveToLine(document, step1.position, layout, shaper, "down", step1.targetX);
     expect(step2).not.toBeNull();
     if (step2 === null) return;
     expect(step2.position.blockId).toBe("p");
@@ -598,13 +598,13 @@ describe("P3.6 vertical line-navigation — vertical-rl", () => {
 
   it("ArrowUp preserves the inline column (line2 → line1 → line0)", () => {
     // Caret at offset 7 ("c|c") on line2: inline coord = 8.
-    const step1 = moveToLine(state, createPosition("p" as BlockId, 7), layout, shaper, "up", null);
+    const step1 = moveToLine(document, createPosition("p" as BlockId, 7), layout, shaper, "up", null);
     expect(step1).not.toBeNull();
     if (step1 === null) return;
     expect(step1.position.offset).toBe(4); // line1 "b|b"
     expect(step1.targetX).toBe(8);
 
-    const step2 = moveToLine(state, step1.position, layout, shaper, "up", step1.targetX);
+    const step2 = moveToLine(document, step1.position, layout, shaper, "up", step1.targetX);
     expect(step2).not.toBeNull();
     if (step2 === null) return;
     expect(step2.position.offset).toBe(1); // line0 "a|a"
@@ -613,8 +613,8 @@ describe("P3.6 vertical line-navigation — vertical-rl", () => {
 });
 
 describe("P3.6 vertical line-navigation — vertical-lr", () => {
-  const state = vDoc("vertical-lr");
-  const { layout, shaper } = vPipeline(state);
+  const document = vDoc("vertical-lr");
+  const { layout, shaper } = vPipeline(document);
   const lines = vLines(layout);
 
   it("layout sanity: three lines, ascending physical X, absY=0", () => {
@@ -625,25 +625,25 @@ describe("P3.6 vertical line-navigation — vertical-lr", () => {
   });
 
   it("ArrowDown preserves the inline column (block axis ascending physical-X)", () => {
-    const step1 = moveToLine(state, createPosition("p" as BlockId, 1), layout, shaper, "down", null);
+    const step1 = moveToLine(document, createPosition("p" as BlockId, 1), layout, shaper, "down", null);
     expect(step1).not.toBeNull();
     if (step1 === null) return;
     expect(step1.position.offset).toBe(4);
     expect(step1.targetX).toBe(8);
 
-    const step2 = moveToLine(state, step1.position, layout, shaper, "down", step1.targetX);
+    const step2 = moveToLine(document, step1.position, layout, shaper, "down", step1.targetX);
     expect(step2).not.toBeNull();
     if (step2 === null) return;
     expect(step2.position.offset).toBe(7);
   });
 
   it("ArrowUp preserves the inline column", () => {
-    const step1 = moveToLine(state, createPosition("p" as BlockId, 7), layout, shaper, "up", null);
+    const step1 = moveToLine(document, createPosition("p" as BlockId, 7), layout, shaper, "up", null);
     expect(step1).not.toBeNull();
     if (step1 === null) return;
     expect(step1.position.offset).toBe(4);
 
-    const step2 = moveToLine(state, step1.position, layout, shaper, "up", step1.targetX);
+    const step2 = moveToLine(document, step1.position, layout, shaper, "up", step1.targetX);
     expect(step2).not.toBeNull();
     if (step2 === null) return;
     expect(step2.position.offset).toBe(1);
@@ -657,8 +657,8 @@ describe("P3.6 vertical line-navigation — goal-coord memory across a short lin
   // clamps to the short line's end, but the goal column is retained, so Down
   // again returns to the original column on the next long line. Mirrors the h-tb
   // goal-memory contract for a vertical layout.
-  function goalState(wm: WritingMode): State {
-    return buildState({
+  function goalDocument(wm: WritingMode): Document {
+    return buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -705,8 +705,8 @@ describe("P3.6 vertical line-navigation — goal-coord memory across a short lin
     pageGap: 20,
   };
 
-  function goalPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
-    const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
+  function goalPipeline(document: Document): { layout: LayoutBox; shaper: TextShaper } {
+    const root = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
     const shaper = createMockShaper(V_CHAR_W, V_LINE_CROSS);
     const layout = positionTreeForTest(
       layoutTree(root, goalPageConfig.pageInlineSize, shaper, goalPageConfig),
@@ -715,10 +715,10 @@ describe("P3.6 vertical line-navigation — goal-coord memory across a short lin
   }
 
   it("vertical-rl: column C is restored on the second long line after clamping to the short line", () => {
-    const state = goalState("vertical-rl");
-    const { layout, shaper } = goalPipeline(state);
+    const document = goalDocument("vertical-rl");
+    const { layout, shaper } = goalPipeline(document);
     // Caret on p1 at offset 3 ("aaa|a"): inline goal = 24 (physical Y).
-    const step1 = moveToLine(state, createPosition("p1" as BlockId, 3), layout, shaper, "down", null);
+    const step1 = moveToLine(document, createPosition("p1" as BlockId, 3), layout, shaper, "down", null);
     expect(step1).not.toBeNull();
     if (step1 === null) return;
     expect(step1.position.blockId).toBe("p2");
@@ -727,7 +727,7 @@ describe("P3.6 vertical line-navigation — goal-coord memory across a short lin
     // The goal column is RETAINED across the clamp.
     expect(step1.targetX).toBe(24);
 
-    const step2 = moveToLine(state, step1.position, layout, shaper, "down", step1.targetX);
+    const step2 = moveToLine(document, step1.position, layout, shaper, "down", step1.targetX);
     expect(step2).not.toBeNull();
     if (step2 === null) return;
     expect(step2.position.blockId).toBe("p3");
@@ -737,17 +737,17 @@ describe("P3.6 vertical line-navigation — goal-coord memory across a short lin
   });
 
   it("vertical-lr: column C is restored symmetrically (ArrowUp through the short line)", () => {
-    const state = goalState("vertical-lr");
-    const { layout, shaper } = goalPipeline(state);
+    const document = goalDocument("vertical-lr");
+    const { layout, shaper } = goalPipeline(document);
     // Caret on p3 at offset 3: inline goal = 24.
-    const step1 = moveToLine(state, createPosition("p3" as BlockId, 3), layout, shaper, "up", null);
+    const step1 = moveToLine(document, createPosition("p3" as BlockId, 3), layout, shaper, "up", null);
     expect(step1).not.toBeNull();
     if (step1 === null) return;
     expect(step1.position.blockId).toBe("p2");
     expect(step1.position.offset).toBe(1); // short line clamp
     expect(step1.targetX).toBe(24);
 
-    const step2 = moveToLine(state, step1.position, layout, shaper, "up", step1.targetX);
+    const step2 = moveToLine(document, step1.position, layout, shaper, "up", step1.targetX);
     expect(step2).not.toBeNull();
     if (step2 === null) return;
     expect(step2.position.blockId).toBe("p1");
@@ -757,10 +757,10 @@ describe("P3.6 vertical line-navigation — goal-coord memory across a short lin
 
 describe("P3.6 vertical line-navigation — document edges", () => {
   it("vertical-rl: ArrowUp at the top line returns start-of-document", () => {
-    const state = vDoc("vertical-rl");
-    const { layout, shaper } = vPipeline(state);
+    const document = vDoc("vertical-rl");
+    const { layout, shaper } = vPipeline(document);
     // Caret on line 0 (top of doc): ArrowUp falls to start-of-document.
-    const r = moveToLine(state, createPosition("p" as BlockId, 1), layout, shaper, "up", null);
+    const r = moveToLine(document, createPosition("p" as BlockId, 1), layout, shaper, "up", null);
     expect(r).not.toBeNull();
     if (r === null) return;
     expect(r.position.blockId).toBe("p");
@@ -768,10 +768,10 @@ describe("P3.6 vertical line-navigation — document edges", () => {
   });
 
   it("vertical-lr: ArrowDown at the bottom line returns end-of-document", () => {
-    const state = vDoc("vertical-lr");
-    const { layout, shaper } = vPipeline(state);
+    const document = vDoc("vertical-lr");
+    const { layout, shaper } = vPipeline(document);
     // Caret on line 2 (bottom of doc): ArrowDown falls to end-of-document.
-    const r = moveToLine(state, createPosition("p" as BlockId, 7), layout, shaper, "down", null);
+    const r = moveToLine(document, createPosition("p" as BlockId, 7), layout, shaper, "down", null);
     expect(r).not.toBeNull();
     if (r === null) return;
     expect(r.position.blockId).toBe("p");

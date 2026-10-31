@@ -1,11 +1,11 @@
 import type { BookmarkRange } from "../state";
-import type { BlockId, ReadonlyAttrs, InlineContent, State, SuggestionView } from "../state";
+import type { BlockId, ReadonlyAttrs, InlineContent, Document, SuggestionView } from "../state";
 import type { ComputedStyle } from "../styles";
 import type { CounterValue } from "../numbering/types";
 
 /**
  * Render-time view of a single block. Components receive this; the
- * renderer constructs it from the underlying State during traversal.
+ * renderer constructs it from the underlying Document during traversal.
  *
  * Decision B: push-model rendering. The renderer owns traversal;
  * components receive `childRenderNodes` (containers) or `inlineRenderNodes`
@@ -46,11 +46,11 @@ export type BlockView = ContainerBlockView | LeafBlockView;
 
 /**
  * Per-render-cycle context handed to every component's `render`. Carries the
- * read-only `State` and the footnote-number lookup; keeps `BlockView` focused
+ * read-only `Document` and the footnote-number lookup; keeps `BlockView` focused
  * on "this block's data."
  */
 export interface RenderContext {
-  readonly state: State;
+  readonly document: Document;
   /**
    * The footnote number (its formatted string, e.g. `"1"`) for a footnote
    * BODY whose root id is `contentBlockId`, or `undefined` if that id is not a

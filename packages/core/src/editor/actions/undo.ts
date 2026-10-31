@@ -14,7 +14,7 @@ export function handleUndo(editor: EditorState): Edit | null {
   // dead-StackItem pop returns null (handled above) rather than an empty-dirty
   // result.
   return {
-    change: { state: result.state, dirtyIds: result.dirtyIds },
+    change: { document: result.document, dirtyIds: result.dirtyIds },
     // An unresolvable stored selection (its block is gone, or its anchor character
     // was deleted and not restored) falls back to the selection this undo's own
     // change produces: the current selection rebased through it.

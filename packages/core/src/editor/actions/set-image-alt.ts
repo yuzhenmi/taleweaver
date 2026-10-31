@@ -27,7 +27,7 @@ export function handleSetImageAlt(
   editor: EditorState,
   { blockId, alt }: ActionOf<"SET_IMAGE_ALT">,
 ): Edit | null {
-  const block = getBlock(editor.state, blockId);
+  const block = getBlock(editor.document, blockId);
   if (block === null || block.type !== "image") return null;
 
   // A string (incl. "") SETS alt; null CLEARS it. The empty string is a distinct
@@ -35,11 +35,11 @@ export function handleSetImageAlt(
   // absence the way SET_IMAGE_WRAP collapses its "break" default.
   const incoming = alt === null ? { alt: undefined } : { alt };
   const result = mergeBlockAttrs(
-    editor.state,
+    editor.document,
     blockId,
     incoming,
   );
-  if (result.state === editor.state) return null;
+  if (result.document === editor.document) return null;
 
   return { change: result };
 }

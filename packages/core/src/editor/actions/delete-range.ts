@@ -23,15 +23,14 @@ import type { ActionOf } from "../editor-action";
  * runs, struck text stays).
  */
 export function handleDeleteRange(editor: EditorState, { span }: ActionOf<"DELETE_RANGE">): Edit | null {
-  const { config } = editor;
   // Normalized, and grown over any atomic mark it only partly covers.
-  const norm = expandSpanOverAtomicMarks(editor.state, span);
-  const result = deleteRangeOrSuggest(editor.state, norm, config);
-  if (result.state === editor.state) return null;
+  const norm = expandSpanOverAtomicMarks(editor.document, span);
+  const result = deleteRangeOrSuggest(editor, norm);
+  if (result.document === editor.document) return null;
   // Direct mode: the seam in the survivor R, as Backspace over a selection.
-  const start = isSuggestingInBlock(editor.state, spanStart(editor.state, norm).blockId, config)
-    ? clipSpanToText(editor.state, norm).anchor
-    : expandedSpanCollapsePoint(editor.state, norm) ?? bookmarkDeletionSpan(editor.state, norm).span.anchor;
+  const start = isSuggestingInBlock(editor, spanStart(editor.document, norm).blockId)
+    ? clipSpanToText(editor.document, norm).anchor
+    : expandedSpanCollapsePoint(editor.document, norm) ?? bookmarkDeletionSpan(editor.document, norm).span.anchor;
   const newCursor = createPosition(start.blockId, start.offset);
   const newSelection = createSpan(newCursor, newCursor);
   return { change: result, selection: newSelection };

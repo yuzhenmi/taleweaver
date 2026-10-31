@@ -21,10 +21,10 @@ import {
   firstChildId,
   createPosition,
 } from "./test-helpers";
-import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { createEditorStateFromDocument, type EditorState } from "../editor-state";
 import { getBlock } from "../../state";
-import type { State, BlockId } from "../../state";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import type { Document, BlockId } from "../../state";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 import { render } from "../../render/render";
 import { cascadePass } from "../../cascade";
 import { layoutTree } from "@taleweaver/print";
@@ -35,11 +35,11 @@ import { getLineIndex } from "@taleweaver/print";
  * Phase 0b: core's `EditorState` is geometry-free — the layout tree lives in the
  * backend driver, not on the state. These editor-action tests assert the
  * alignment GEOMETRY by running core's `render → cascadePass → layoutTree`
- * pipeline directly over `editor.state` (all barrel-exported from core), exactly
+ * pipeline directly over `editor.document` (all barrel-exported from core), exactly
  * what the backend driver does. The state/selection assertions stay on `editor`.
  */
-function layoutOf(state: State): LayoutBox {
-  const rendered = render(state, config.componentRegistry, config.attrRegistry);
+function layoutOf(document: Document): LayoutBox {
+  const rendered = render(document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   const tree = layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
   if (tree.type === "virtual-root") {
@@ -73,23 +73,23 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
   it("collapsed selection: aligns the focus block + centers the laid-out line", () => {
     const initial = createInitialEditorState(config);
     let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.state) as BlockId;
+    const paraId = firstChildId(editor.document) as BlockId;
 
     // Baseline: default alignment (start) → line begins at x === 0.
-    expect(getBlock(editor.state, paraId)?.attrs.textAlign).toBeUndefined();
-    const startX = firstLineX(layoutOf(editor.state), paraId);
+    expect(getBlock(editor.document, paraId)?.attrs.textAlign).toBeUndefined();
+    const startX = firstLineX(layoutOf(editor.document), paraId);
     expect(startX).toBe(0);
 
     const next = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
 
     // Attr set on the focus block.
-    expect(getBlock(next.state, paraId)?.attrs.textAlign).toBe("center");
+    expect(getBlock(next.document, paraId)?.attrs.textAlign).toBe("center");
     // A real change → new state reference.
-    expect(next.state).not.toBe(editor.state);
+    expect(next.document).not.toBe(editor.document);
 
     // GEOMETRY: the line is now centered — its absolute X moved RIGHT of 0.
     // "hi" = 2 chars × 8px = 16px content; containerWidth 200 ⇒ x = (200-16)/2 = 92.
-    const centeredX = firstLineX(layoutOf(next.state), paraId);
+    const centeredX = firstLineX(layoutOf(next.document), paraId);
     expect(centeredX).toBeGreaterThan(startX);
     expect(centeredX).toBe((200 - 16) / 2);
   });
@@ -108,7 +108,7 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
     // (container) whose list-item is a leaf, then a trailing paragraph. A span
     // from p0 → p2 covers p0 (leaf), the section (container), the list
     // (container), the list-item (leaf), and p2 (leaf).
-    const initialState = buildState({
+    const initialDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: "p2" }),
@@ -144,7 +144,7 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
         }),
       ],
     });
-    const editor: EditorState = createEditorStateFromState(initialState, {
+    const editor: EditorState = createEditorStateFromDocument(initialDocument, {
         anchor: createPosition("p0" as BlockId, 0),
         focus: createPosition("p2" as BlockId, 2),
       }, config);
@@ -152,15 +152,15 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
     const next = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
 
     // Every LEAF in the span is aligned.
-    expect(getBlock(next.state, "p0" as BlockId)?.attrs.textAlign).toBe("center");
-    expect(getBlock(next.state, "li" as BlockId)?.attrs.textAlign).toBe("center");
-    expect(getBlock(next.state, "p2" as BlockId)?.attrs.textAlign).toBe("center");
+    expect(getBlock(next.document, "p0" as BlockId)?.attrs.textAlign).toBe("center");
+    expect(getBlock(next.document, "li" as BlockId)?.attrs.textAlign).toBe("center");
+    expect(getBlock(next.document, "p2" as BlockId)?.attrs.textAlign).toBe("center");
 
     // Containers are NOT aligned (C-3): their attrs are untouched.
-    expect(getBlock(next.state, "sec" as BlockId)?.attrs.textAlign).toBeUndefined();
+    expect(getBlock(next.document, "sec" as BlockId)?.attrs.textAlign).toBeUndefined();
     // The flat list-item keeps exactly its original attrs (no textAlign smuggled
     // in beyond the one applied above — but it IS a leaf, so it gets aligned).
-    expect(getBlock(next.state, "li" as BlockId)?.attrs).toEqual({
+    expect(getBlock(next.document, "li" as BlockId)?.attrs).toEqual({
       listId: "L1",
       listLevel: 0,
       textAlign: "center",
@@ -170,17 +170,17 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
   it("undo restores the prior alignment", () => {
     const initial = createInitialEditorState(config);
     let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.state) as BlockId;
+    const paraId = firstChildId(editor.document) as BlockId;
 
     // First set to "end" so the prior alignment is a concrete value.
     editor = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "end" });
-    expect(getBlock(editor.state, paraId)?.attrs.textAlign).toBe("end");
+    expect(getBlock(editor.document, paraId)?.attrs.textAlign).toBe("end");
 
     const centered = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
-    expect(getBlock(centered.state, paraId)?.attrs.textAlign).toBe("center");
+    expect(getBlock(centered.document, paraId)?.attrs.textAlign).toBe("center");
 
     const undone = reduceEditor(centered, { type: "UNDO" });
-    expect(getBlock(undone.state, paraId)?.attrs.textAlign).toBe("end");
+    expect(getBlock(undone.document, paraId)?.attrs.textAlign).toBe("end");
   });
 
   it("no-op: setting the alignment a block already has returns the same editor", () => {
@@ -190,12 +190,12 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
 
     const again = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
 
-    // No commit, no state change (the identity-no-op contract): the `state` is the SAME
+    // No commit, no state change (the identity-no-op contract): the `document` is the SAME
     // reference. Phase 0b: the reducer entry-clears `lastDirtyIds` to null at the
     // start of every dispatch, so a no-op AFTER a mutating action returns a new
-    // top-level object (lastDirtyIds null) — but the underlying `state` is
+    // top-level object (lastDirtyIds null) — but the underlying `document` is
     // untouched, which is the actual no-op contract the driver keys off.
-    expect(again.state).toBe(editor.state);
+    expect(again.document).toBe(editor.document);
     expect(again.lastDirtyIds).toBeNull();
   });
 
@@ -219,13 +219,13 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
   it("all four keywords dispatch and set the attr", () => {
     const initial = createInitialEditorState(config);
     const base = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(base.state) as BlockId;
+    const paraId = firstChildId(base.document) as BlockId;
 
     for (const align of ["start", "center", "end", "justify"] as const) {
       // Start from a different alignment each time so the merge is never a no-op.
       let editor = reduceEditor(base, { type: "SET_TEXT_ALIGN", align: align === "start" ? "center" : "start" });
       editor = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align });
-      expect(getBlock(editor.state, paraId)?.attrs.textAlign).toBe(align);
+      expect(getBlock(editor.document, paraId)?.attrs.textAlign).toBe(align);
     }
   });
 });

@@ -42,16 +42,16 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 /** Returns the (only) paragraph block in a freshly-created editor. */
 function firstParagraph(editor: EditorState): Block {
   // the root holds sections only — descend to the first paragraph.
-  const firstId = firstLeafBlock(editor.state, editor.state.rootId);
+  const firstId = firstLeafBlock(editor.document, editor.document.rootId);
   if (firstId === null) throw new Error("test setup: no paragraph");
-  const block = getBlock(editor.state, firstId);
+  const block = getBlock(editor.document, firstId);
   if (block === null) throw new Error("test setup: first child block not found");
   return block;
 }
 
 /** Returns the text contents of a leaf block's first text item, or "" if none. */
 function blockText(editor: EditorState, blockId: BlockId): string {
-  const block = getBlock(editor.state, blockId);
+  const block = getBlock(editor.document, blockId);
   if (block === null || block.inlineContent === null) return "";
   let out = "";
   for (const item of block.inlineContent.items) {
@@ -76,7 +76,7 @@ describe("editor flow: typing characters builds inline text", () => {
 
     ctx = typeString(ctx, "hello");
 
-    const block = getBlock(ctx.editor.state, blockId);
+    const block = getBlock(ctx.editor.document, blockId);
     expect(block).not.toBeNull();
     if (block === null) return;
     expect(block.inlineContent).not.toBeNull();
@@ -116,7 +116,7 @@ describe("editor flow: multi-paragraph editing", () => {
     // split head = new id; the tail (focused, typed into) keeps the original id.
     const secondId = ctx.editor.selection.focus.blockId;
     expect(secondId).toBe(firstId);
-    const headId = getBlock(ctx.editor.state, secondId)?.prevSiblingId ?? null;
+    const headId = getBlock(ctx.editor.document, secondId)?.prevSiblingId ?? null;
     if (headId === null) throw new Error("expected a head paragraph");
     expect(headId).not.toBe(secondId);
 
@@ -124,8 +124,8 @@ describe("editor flow: multi-paragraph editing", () => {
     expect(blockText(ctx.editor, secondId)).toBe("def");
 
     // Head's nextSibling chains to the tail; both share the section parent.
-    const firstBlock = getBlock(ctx.editor.state, headId);
-    const secondBlock = getBlock(ctx.editor.state, secondId);
+    const firstBlock = getBlock(ctx.editor.document, headId);
+    const secondBlock = getBlock(ctx.editor.document, secondId);
     expect(firstBlock?.nextSiblingId).toBe(secondId);
     expect(secondBlock?.prevSiblingId).toBe(headId);
     expect(firstBlock?.parentId).toBe(secondBlock?.parentId);
@@ -150,14 +150,14 @@ describe("editor flow: cross-block backspace merges paragraphs", () => {
 
     // the split head (holding "abc") got a new id; the tail kept firstId.
     expect(secondId).toBe(firstId);
-    const headId = getBlock(ctx.editor.state, secondId)?.prevSiblingId ?? null;
+    const headId = getBlock(ctx.editor.document, secondId)?.prevSiblingId ?? null;
     if (headId === null) throw new Error("expected a head paragraph");
 
     ctx = dispatch(ctx, { type: "DELETE_BACKWARD" });
 
     // merge keeps the RIGHT block's id (survivor R); the left one is removed.
     expect(blockText(ctx.editor, secondId)).toBe("abcdef");
-    expect(getBlock(ctx.editor.state, headId)).toBeNull();
+    expect(getBlock(ctx.editor.document, headId)).toBeNull();
     expect(ctx.editor.selection.focus).toEqual(createPosition(secondId, 3));
   });
 });
@@ -215,7 +215,7 @@ describe("editor flow: TOGGLE_STYLE applies bold over a selection", () => {
 
     ctx = dispatch(ctx, { type: "TOGGLE_STYLE", style: "bold" });
 
-    const block = getBlock(ctx.editor.state, blockId);
+    const block = getBlock(ctx.editor.document, blockId);
     expect(block).not.toBeNull();
     if (block === null || block.inlineContent === null) return;
     expect(block.inlineContent.items.length).toBe(1);
@@ -244,7 +244,7 @@ describe("editor flow: TOGGLE_STYLE strikethrough over a selection", () => {
     ctx = dispatch(ctx, { type: "TOGGLE_STYLE", style: "strikethrough" });
 
     {
-      const block = getBlock(ctx.editor.state, blockId);
+      const block = getBlock(ctx.editor.document, blockId);
       expect(block).not.toBeNull();
       if (block === null || block.inlineContent === null) return;
       expect(block.inlineContent.items.length).toBe(1);
@@ -260,7 +260,7 @@ describe("editor flow: TOGGLE_STYLE strikethrough over a selection", () => {
     ctx = dispatch(ctx, { type: "TOGGLE_STYLE", style: "strikethrough" });
 
     {
-      const block = getBlock(ctx.editor.state, blockId);
+      const block = getBlock(ctx.editor.document, blockId);
       expect(block).not.toBeNull();
       if (block === null || block.inlineContent === null) return;
       const item = nth(block.inlineContent.items, 0, "inline item");
@@ -294,7 +294,7 @@ describe("editor flow: undo / redo", () => {
     // ONE undo removes the whole coalesced burst.
     ctx = dispatch(ctx, { type: "UNDO" });
 
-    const afterUndoBlock = getBlock(ctx.editor.state, blockId);
+    const afterUndoBlock = getBlock(ctx.editor.document, blockId);
     expect(afterUndoBlock).not.toBeNull();
     if (afterUndoBlock !== null && afterUndoBlock.inlineContent !== null) {
       expect(inlineContentLength(afterUndoBlock.inlineContent)).toBe(0);
@@ -323,7 +323,7 @@ describe("editor flow: MOVE_CURSOR across block boundary", () => {
     const secondId = ctx.editor.selection.focus.blockId;
     // split head = new id ("ab"); the tail keeps firstId ("cd").
     expect(secondId).toBe(firstId);
-    const headId = getBlock(ctx.editor.state, secondId)?.prevSiblingId ?? null;
+    const headId = getBlock(ctx.editor.document, secondId)?.prevSiblingId ?? null;
     if (headId === null) throw new Error("expected a head paragraph");
 
     // Place cursor at offset 2 of first block (its end).
@@ -361,12 +361,12 @@ describe("editor flow: EXPAND_WORD selects the surrounding word", () => {
 
 // The incremental RENDER pipeline (RenderCache + dirtyIds) left core's
 // `EditorState` in Phase 0b — `render()` is now driven by the print backend's
-// LayoutDriver with `{prev, prevState, dirtyIds}`, keyed off the geometry-free
+// LayoutDriver with `{prev, prevDocument, dirtyIds}`, keyed off the geometry-free
 // `editor.lastDirtyIds` core still surfaces after each dispatch. These tests
 // drive that exact seam directly (the same call the driver makes) and assert the
 // same ref-equality the old `EditorState.renderOutput` assertions did.
 describe("R-D incremental pipeline (end-to-end)", () => {
-  /** Render `editor.state`, reusing `prev`/`prevState` against the just-applied
+  /** Render `editor.document`, reusing `prev`/`prevDocument` against the just-applied
    *  `editor.lastDirtyIds` (the incremental path the driver takes). */
   function renderIncremental(
     editor: EditorState,
@@ -375,9 +375,9 @@ describe("R-D incremental pipeline (end-to-end)", () => {
     prevState: EditorState,
   ): RenderOutput {
     if (editor.lastDirtyIds === null) throw new Error("expected a dirty set after the edit");
-    return render(editor.state, config.componentRegistry, config.attrRegistry, {
+    return render(editor.document, config.componentRegistry, config.attrRegistry, {
       prev,
-      prevState: prevState.state,
+      prevDocument: prevState.document,
       dirtyIds: editor.lastDirtyIds,
     });
   }
@@ -390,7 +390,7 @@ describe("R-D incremental pipeline (end-to-end)", () => {
   }
 
   function renderFull(editor: EditorState, config: EditorConfig): RenderOutput {
-    return render(editor.state, config.componentRegistry, config.attrRegistry);
+    return render(editor.document, config.componentRegistry, config.attrRegistry);
   }
 
   it("INSERT_TEXT on a leaf: prev unchanged paragraphs ref-equal in renderOutput across render calls", () => {

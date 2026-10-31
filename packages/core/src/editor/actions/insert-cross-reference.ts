@@ -3,7 +3,7 @@ import type { Edit } from "../edit";
 import {
   insertCrossReference,
   getBlock,
-  getListDefsForState,
+  getListDefsForDocument,
   classifyListDef,
   selectionContextOf,
   createPosition,
@@ -63,12 +63,12 @@ export function handleInsertCrossReference(
 
   // Body-text-only: refuse a cross-reference inside a footnote / header / footer
   // body (a non-root context), matching the main-tree host index.
-  if (selectionContextOf(editor.state, focus.blockId) !== editor.state.rootId) {
+  if (selectionContextOf(editor.document, focus.blockId) !== editor.document.rootId) {
     return null;
   }
 
   // Structural target validation (the op trusts targetId; we gate it here).
-  const target = getBlock(editor.state, targetId);
+  const target = getBlock(editor.document, targetId);
   if (target === null) return null; // dangling / non-main-tree target
   if (refMode === "number") {
     // A number ref needs an ORDERED list-item — an unordered (bulleted) item has
@@ -78,7 +78,7 @@ export function handleInsertCrossReference(
     const listIdRaw = target.attrs["listId"];
     const def =
       typeof listIdRaw === "string"
-        ? getListDefsForState(editor.state).get(listIdRaw)
+        ? getListDefsForDocument(editor.document).get(listIdRaw)
         : undefined;
     if (def === undefined || classifyListDef(def) !== "ordered") return null;
   }
@@ -97,11 +97,11 @@ export function handleInsertCrossReference(
   // happened to span the target block and the delete merged it away, the ref is
   // now dangling — a documented LEGAL state that renders as broken-ref (see the
   // cross-references section of state-of-branch.md), not a bug.
-  const prep = prepareEmbedInsertPoint(editor.state, editor.selection);
+  const prep = prepareEmbedInsertPoint(editor.document, editor.selection);
   if (!prep.ok) return null;
 
   const result = insertCrossReference(
-    prep.state,
+    prep.document,
     prep.position,
     targetId,
     refMode,
@@ -111,7 +111,7 @@ export function handleInsertCrossReference(
   );
   // Identity invariant: nothing changed (no delete AND a no-op insert) → return
   // the editor unchanged so the "no change → same reference" contract holds.
-  if (result.state === prep.state && prep.dirtyIds.size === 0) return null;
+  if (result.document === prep.document && prep.dirtyIds.size === 0) return null;
   const dirtyIds = new Set<BlockId>(prep.dirtyIds);
   for (const id of result.dirtyIds) dirtyIds.add(id);
 
@@ -119,5 +119,5 @@ export function handleInsertCrossReference(
   const cursor = createPosition(prep.position.blockId, prep.position.offset + 1);
   const selectionAfter = createSpan(cursor, cursor);
 
-  return { change: { state: result.state, dirtyIds }, selection: selectionAfter };
+  return { change: { document: result.document, dirtyIds }, selection: selectionAfter };
 }

@@ -9,7 +9,7 @@ import {
   resolveBlock,
 } from "../state";
 import { findPrevContentBlock } from "./cursor-ops";
-import type { State, Selection, Position, BlockId } from "../state";
+import type { Document, Selection, Position, BlockId } from "../state";
 
 /**
  * Keep a RANGE selection from partly covering a table (Google Docs / Word: once a
@@ -25,14 +25,14 @@ import type { State, Selection, Position, BlockId } from "../state";
  * endpoint (the reducer first restores the user's own anchor, `anchorBeforeLift`).
  * Returns `selection` itself when nothing moves. Cost: O(depth) per endpoint.
  */
-export function normalizeSelectionForObjects(state: State, selection: Selection): Selection {
+export function normalizeSelectionForObjects(document: Document, selection: Selection): Selection {
   if (positionsEqual(selection.anchor, selection.focus)) return selection;
-  const anchorChain = ancestorChain(state, selection.anchor.blockId);
-  const focusChain = ancestorChain(state, selection.focus.blockId);
+  const anchorChain = ancestorChain(document, selection.anchor.blockId);
+  const focusChain = ancestorChain(document, selection.focus.blockId);
   if (holdsOther(selection.anchor, focusChain)) return createSpan(selection.focus, selection.focus);
   if (holdsOther(selection.focus, anchorChain)) return createSpan(selection.anchor, selection.anchor);
-  const anchor = liftOutOfTables(state, selection.anchor, anchorChain, focusChain);
-  const focus = liftOutOfTables(state, selection.focus, focusChain, anchorChain);
+  const anchor = liftOutOfTables(document, selection.anchor, anchorChain, focusChain);
+  const focus = liftOutOfTables(document, selection.focus, focusChain, anchorChain);
   return anchor === selection.anchor && focus === selection.focus ? selection : createSpan(anchor, focus);
 }
 
@@ -49,21 +49,21 @@ function holdsOther(pos: Position, otherChain: readonly BlockId[]): boolean {
  * document edge.
  */
 export function stepOffObject(
-  state: State,
+  document: Document,
   focus: Position,
   direction: "forward" | "backward",
 ): Position | null | undefined {
-  const block = resolveBlock(state, focus.blockId)?.block;
+  const block = resolveBlock(document, focus.blockId)?.block;
   if (block === undefined || focus.offset !== 0 || !isObjectBlock(block)) return undefined;
-  if (direction === "forward") return firstTextAfter(state, block.id);
-  const prev = findPrevContentBlock(state, block.id);
-  const content = prev === null ? null : resolveBlock(state, prev)?.block.inlineContent ?? null;
+  if (direction === "forward") return firstTextAfter(document, block.id);
+  const prev = findPrevContentBlock(document, block.id);
+  const content = prev === null ? null : resolveBlock(document, prev)?.block.inlineContent ?? null;
   return prev === null || content === null ? null : createPosition(prev, inlineContentLength(content));
 }
 
 /** `pos` lifted to the outermost table among its ancestors that `otherChain` lacks, else `pos`. */
 function liftOutOfTables(
-  state: State,
+  document: Document,
   pos: Position,
   chain: readonly BlockId[],
   otherChain: readonly BlockId[],
@@ -72,7 +72,7 @@ function liftOutOfTables(
   for (let i = chain.length - 1; i >= 0; i--) {
     const id = chain[i];
     if (id === undefined || otherChain.includes(id)) continue;
-    if (resolveBlock(state, id)?.block.type !== "table") continue;
+    if (resolveBlock(document, id)?.block.type !== "table") continue;
     return id === pos.blockId && pos.offset === 0 ? pos : createPosition(id, 0);
   }
   return pos;

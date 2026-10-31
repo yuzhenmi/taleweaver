@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import { cascadeTemplateContents } from "./cascade-template-contents";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "./attr-registry";
-import type { State, BlockId } from "../state";
+import type { Document, BlockId } from "../state";
 import { render, type RenderOutput } from "../render/render";
 import type { ElementBox, RenderNode } from "../render/render-node";
-import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
+import { buildDocument, buildBlock, inlineContent, text } from "../test-utils/document-builders";
 
 const componentRegistry = createDefaultComponentRegistry();
 const attrRegistry = createDefaultAttrRegistry();
@@ -50,12 +50,12 @@ function headerBody(rootId: string, leafId: string, leafText: string) {
   ];
 }
 
-/** Render `state` and cascade its template bodies (full path). */
-function cascadeFull(state: State): {
+/** Render `document` and cascade its template bodies (full path). */
+function cascadeFull(document: Document): {
   rendered: RenderOutput;
   cascaded: ReadonlyMap<BlockId, ElementBox>;
 } {
-  const rendered = render(state, componentRegistry, attrRegistry);
+  const rendered = render(document, componentRegistry, attrRegistry);
   const cascaded = cascadeTemplateContents(rendered, null, null);
   return { rendered, cascaded };
 }
@@ -74,13 +74,13 @@ function findByKey(node: RenderNode, key: string): RenderNode | undefined {
 
 describe("cascadeTemplateContents: cascade templateContents bodies (C.2c T3)", () => {
   it("full path: a templateContents body is cascaded — body root has non-null computedStyle and cascaded children", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: mainDoc(),
       templateContents: headerBody("hdr-root", "hdr-p", "header text"),
     });
 
-    const { cascaded } = cascadeFull(state);
+    const { cascaded } = cascadeFull(document);
 
     const body = cascaded.get("hdr-root" as BlockId);
     expect(body).toBeDefined();
@@ -94,7 +94,7 @@ describe("cascadeTemplateContents: cascade templateContents bodies (C.2c T3)", (
   });
 
   it("incremental: editing a block inside a body re-cascades that body; an unchanged second body is reused by reference", () => {
-    const state1 = buildState({
+    const document1 = buildDocument({
       rootId: "doc",
       blocks: mainDoc(),
       templateContents: [
@@ -102,10 +102,10 @@ describe("cascadeTemplateContents: cascade templateContents bodies (C.2c T3)", (
         ...headerBody("hdr-b-root", "hdr-b-p", "B unchanged"),
       ],
     });
-    const { rendered: rendered1, cascaded: cascaded1 } = cascadeFull(state1);
+    const { rendered: rendered1, cascaded: cascaded1 } = cascadeFull(document1);
 
     // Edit the leaf inside body A only.
-    const state2 = buildState({
+    const document2 = buildDocument({
       rootId: "doc",
       blocks: mainDoc(),
       templateContents: [
@@ -114,9 +114,9 @@ describe("cascadeTemplateContents: cascade templateContents bodies (C.2c T3)", (
       ],
     });
     const dirty = new Set(["hdr-a-p" as BlockId]);
-    const rendered2 = render(state2, componentRegistry, attrRegistry, {
+    const rendered2 = render(document2, componentRegistry, attrRegistry, {
       prev: rendered1,
-      prevState: state1,
+      prevDocument: document1,
       dirtyIds: dirty,
     });
     const cascaded2 = cascadeTemplateContents(rendered2, rendered1, cascaded1, dirty);
@@ -138,15 +138,15 @@ describe("cascadeTemplateContents: cascade templateContents bodies (C.2c T3)", (
   });
 
   it("incremental: a doc-body-only edit (no template change) reuses ALL template bodies by reference", () => {
-    const state1 = buildState({
+    const document1 = buildDocument({
       rootId: "doc",
       blocks: mainDoc(),
       templateContents: headerBody("hdr-root", "hdr-p", "header"),
     });
-    const { rendered: rendered1, cascaded: cascaded1 } = cascadeFull(state1);
+    const { rendered: rendered1, cascaded: cascaded1 } = cascadeFull(document1);
 
     // Edit a main-document block; the template body is untouched.
-    const state2 = buildState({
+    const document2 = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -160,9 +160,9 @@ describe("cascadeTemplateContents: cascade templateContents bodies (C.2c T3)", (
       templateContents: headerBody("hdr-root", "hdr-p", "header"),
     });
     const dirty = new Set(["p" as BlockId]);
-    const rendered2 = render(state2, componentRegistry, attrRegistry, {
+    const rendered2 = render(document2, componentRegistry, attrRegistry, {
       prev: rendered1,
-      prevState: state1,
+      prevDocument: document1,
       dirtyIds: dirty,
     });
     const cascaded2 = cascadeTemplateContents(rendered2, rendered1, cascaded1, dirty);
@@ -171,14 +171,14 @@ describe("cascadeTemplateContents: cascade templateContents bodies (C.2c T3)", (
   });
 
   it("no-regression: a doc WITHOUT template bodies → cascaded template map is empty", () => {
-    const state = buildState({ rootId: "doc", blocks: mainDoc() });
-    const { rendered: rendered1, cascaded: cascaded1 } = cascadeFull(state);
+    const document = buildDocument({ rootId: "doc", blocks: mainDoc() });
+    const { rendered: rendered1, cascaded: cascaded1 } = cascadeFull(document);
 
     // Full path.
     expect(cascaded1.size).toBe(0);
 
     // Incremental path (a doc edit).
-    const state2 = buildState({
+    const document2 = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -191,9 +191,9 @@ describe("cascadeTemplateContents: cascade templateContents bodies (C.2c T3)", (
       ],
     });
     const dirty = new Set(["p" as BlockId]);
-    const rendered2 = render(state2, componentRegistry, attrRegistry, {
+    const rendered2 = render(document2, componentRegistry, attrRegistry, {
       prev: rendered1,
-      prevState: state,
+      prevDocument: document,
       dirtyIds: dirty,
     });
     const cascaded2 = cascadeTemplateContents(rendered2, rendered1, cascaded1, dirty);

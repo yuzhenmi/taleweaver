@@ -27,16 +27,16 @@ import { markParagraphMarkDeletion } from "./merge-blocks";
 import { acceptSuggestion, rejectSuggestion, mintInsertion } from "./suggestion-ops";
 import { getSuggestions, type SuggestionId } from "../suggestions";
 import { createHistory } from "../history";
-import { getBlock } from "../state";
-import type { State } from "../state";
+import { getBlock } from "../document";
+import type { Document } from "../document";
 import {
   buildBlock,
-  buildState,
+  buildDocument,
   text,
   inlineContent,
-} from "../../test-utils/state-builders";
+} from "../../test-utils/document-builders";
 import { createPosition } from "../block-position";
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { createTestAllocator, type BlockId } from "../block-id";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -53,8 +53,8 @@ const INS_ID = "ins-1" as SuggestionId;
 const INS_INPUT = { id: INS_ID, author: "alice", createdAt: 3000 } as const;
 
 /** doc > [ p("abcdef") ] — one text run, used for the suggested-SPLIT cases. */
-function oneBlock(): State {
-  return buildState({
+function oneBlock(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -69,8 +69,8 @@ function oneBlock(): State {
 }
 
 /** doc > [ p1("abc"), p2("def") ] — two linked blocks, used for the suggested-JOIN cases. */
-function twoBlocks(): State {
-  return buildState({
+function twoBlocks(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -93,12 +93,12 @@ function twoBlocks(): State {
 }
 
 /** The inline items of a block, or []. */
-function itemsOf(s: State, id: string) {
+function itemsOf(s: Document, id: string) {
   return getBlock(s, id as BlockId)?.inlineContent?.items ?? [];
 }
 
 /** The concatenated text of a block's text runs (embeds contribute nothing). */
-function textOf(s: State, id: string): string {
+function textOf(s: Document, id: string): string {
   let out = "";
   for (const it of itemsOf(s, id)) {
     if (it.kind === "text") out += it.text;
@@ -107,12 +107,12 @@ function textOf(s: State, id: string): string {
 }
 
 /** True iff the block carries ANY paragraph-break suggestion tag. */
-function hasBreakTag(s: State, id: string): boolean {
+function hasBreakTag(s: Document, id: string): boolean {
   return getBlock(s, id as BlockId)?.breakSuggestion !== undefined;
 }
 
 /** The count of body paragraphs (children of the final section). */
-function bodyBlockCount(s: State): number {
+function bodyBlockCount(s: Document): number {
   let count = 0;
   let id: BlockId | null = getBlock(s, finalSectionOf(s))?.firstChildId ?? null;
   for (let guard = 0; id !== null && guard < 100; guard++) {
@@ -130,13 +130,13 @@ describe("resolve break — SPLIT ACCEPT (keep split)", () => {
       createPosition("p" as BlockId, 3),
       allocator,
       SPLIT_INPUT,
-    ).state;
+    ).document;
     // Sanity: the seed produced head H="abc" (new id, keyed ¶), p="def", one insertion record.
     expect(hasBreakTag(seeded, "p2-0")).toBe(true);
     expect(getSuggestions(seeded).length).toBe(1);
     expect(nth(getSuggestions(seeded), 0, "suggestion").kind).toBe("insertion");
 
-    const s = acceptSuggestion(seeded, SPLIT_ID).state;
+    const s = acceptSuggestion(seeded, SPLIT_ID).document;
 
     // Key gone from ¶H; still TWO blocks "abc" | "def".
     expect(hasBreakTag(s, "p2-0")).toBe(false);
@@ -159,9 +159,9 @@ describe("resolve break — SPLIT REJECT (merge / undo the split)", () => {
       createPosition("p" as BlockId, 3),
       allocator,
       SPLIT_INPUT,
-    ).state;
+    ).document;
 
-    const s = rejectSuggestion(seeded, SPLIT_ID).state;
+    const s = rejectSuggestion(seeded, SPLIT_ID).document;
 
     // ONE block "abcdef" (¶H deleted; the survivor is p), no key.
     expect(textOf(s, "p")).toBe("abcdef");
@@ -178,14 +178,14 @@ describe("resolve break — SPLIT REJECT (merge / undo the split)", () => {
 
 describe("resolve break — JOIN ACCEPT (do the join / merge)", () => {
   it("deletes ¶p1 → ONE block 'abcdef' that keeps p2's id, key + record gone", () => {
-    const seeded = markParagraphMarkDeletion(twoBlocks(), "p1" as BlockId, JOIN_INPUT).state;
+    const seeded = markParagraphMarkDeletion(twoBlocks(), "p1" as BlockId, JOIN_INPUT).document;
     // Sanity: ¶p1 carries the deletion key; one deletion record; still two blocks.
     expect(hasBreakTag(seeded, "p1")).toBe(true);
     expect(getSuggestions(seeded).length).toBe(1);
     expect(nth(getSuggestions(seeded), 0, "suggestion").kind).toBe("deletion");
     expect(bodyBlockCount(seeded)).toBe(2);
 
-    const s = acceptSuggestion(seeded, JOIN_ID).state;
+    const s = acceptSuggestion(seeded, JOIN_ID).document;
 
     // ONE block "abcdef" (¶p1 deleted; the survivor is p2), no key.
     expect(textOf(s, "p2")).toBe("abcdef");
@@ -201,9 +201,9 @@ describe("resolve break — JOIN ACCEPT (do the join / merge)", () => {
 
 describe("resolve break — JOIN REJECT (keep split)", () => {
   it("deletes the tag, keeps TWO blocks 'abc' | 'def', removes the record", () => {
-    const seeded = markParagraphMarkDeletion(twoBlocks(), "p1" as BlockId, JOIN_INPUT).state;
+    const seeded = markParagraphMarkDeletion(twoBlocks(), "p1" as BlockId, JOIN_INPUT).document;
 
-    const s = rejectSuggestion(seeded, JOIN_ID).state;
+    const s = rejectSuggestion(seeded, JOIN_ID).document;
 
     // Key gone from ¶p1; still TWO blocks "abc" | "def".
     expect(hasBreakTag(s, "p1")).toBe(false);
@@ -225,11 +225,11 @@ describe("resolve break — text-run resolution still works alongside", () => {
       "XY",
       {},
       INS_INPUT,
-    ).state;
+    ).document;
     expect(getSuggestions(seeded).length).toBe(1);
 
     // Accept the insertion → the suggested text becomes plain, permanent text.
-    const accepted = acceptSuggestion(seeded, INS_ID).state;
+    const accepted = acceptSuggestion(seeded, INS_ID).document;
     expect(textOf(accepted, "p")).toBe("abcXYdef");
     // The provenance id was stripped (no run still carries it).
     expect(
@@ -247,9 +247,9 @@ describe("resolve break — text-run resolution still works alongside", () => {
       "XY",
       {},
       INS_INPUT,
-    ).state;
+    ).document;
 
-    const rejected = rejectSuggestion(seeded, INS_ID).state;
+    const rejected = rejectSuggestion(seeded, INS_ID).document;
     expect(textOf(rejected, "p")).toBe("abcdef");
     expect(getSuggestions(rejected).length).toBe(0);
   });
@@ -263,7 +263,7 @@ describe("resolve break — UNDOABLE (the resolve is one undo step)", () => {
       createPosition("p" as BlockId, 3),
       alloc,
       SPLIT_INPUT,
-    ).state;
+    ).document;
 
     const history = createHistory(seeded);
     expect(history.canUndo()).toBe(false);
@@ -271,12 +271,12 @@ describe("resolve break — UNDOABLE (the resolve is one undo step)", () => {
     history.beginEntry("command", 0);
     const resolved = rejectSuggestion(seeded, SPLIT_ID);
     history.commit(resolved, { before: null, after: null });
-    expect(textOf(resolved.state, "p")).toBe("abcdef");
-    expect(getSuggestions(resolved.state).length).toBe(0);
+    expect(textOf(resolved.document, "p")).toBe("abcdef");
+    expect(getSuggestions(resolved.document).length).toBe(0);
     expect(history.canUndo()).toBe(true);
     const undone = history.undo();
-    expect(undone === null ? [] : getSuggestions(undone.state).map((x) => x.id)).toEqual([SPLIT_ID]);
-    expect(undone === null ? "" : textOf(undone.state, "p")).toBe("def");
+    expect(undone === null ? [] : getSuggestions(undone.document).map((x) => x.id)).toEqual([SPLIT_ID]);
+    expect(undone === null ? "" : textOf(undone.document, "p")).toBe("def");
 
     history.destroy();
   });

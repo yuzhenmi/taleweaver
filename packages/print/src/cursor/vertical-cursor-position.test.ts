@@ -40,9 +40,9 @@ import type { PageConfig } from "../layout/page-config";
 import type { WritingMode } from "@taleweaver/core";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import type { ComputedStyle } from "@taleweaver/core";
-import { buildState, buildBlock, inlineContent, text } from "@taleweaver/core";
+import { buildDocument, buildBlock, inlineContent, text } from "@taleweaver/core";
 import { createPosition } from "@taleweaver/core";
-import type { BlockId, State } from "@taleweaver/core";
+import type { BlockId, Document } from "@taleweaver/core";
 import { getLineIndex } from "./line-flatten";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -63,8 +63,8 @@ const pageConfig: PageConfig = {
   pageGap: 20,
 };
 
-function verticalDoc(wm: WritingMode): State {
-  return buildState({
+function verticalDoc(wm: WritingMode): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -85,8 +85,8 @@ function verticalDoc(wm: WritingMode): State {
   });
 }
 
-function pipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
-  const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
+function pipeline(document: Document): { layout: LayoutBox; shaper: TextShaper } {
+  const root = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
   const shaper = createMockShaper(CHAR_W, LINE_CROSS);
   const layout = positionTreeForTest(layoutTree(root, pageConfig.pageInlineSize, shaper, pageConfig));
   return { layout, shaper };
@@ -98,8 +98,8 @@ function pLines(layout: LayoutBox): ReturnType<typeof getLineIndex>["all"] {
 }
 
 describe("P3.5a vertical caret coordinate — vertical-rl", () => {
-  const state0Vrl = verticalDoc("vertical-rl");
-  const { layout, shaper } = pipeline(state0Vrl);
+  const document0Vrl = verticalDoc("vertical-rl");
+  const { layout, shaper } = pipeline(document0Vrl);
   const lines = pLines(layout);
 
   it("layout sanity: three lines stacking right→left along physical X", () => {
@@ -115,7 +115,7 @@ describe("P3.5a vertical caret coordinate — vertical-rl", () => {
   it("offset 1 (mid first word): x=inline coord (physical Y), y/lineY=block coord (physical X)", () => {
     const line0X = nth(lines, 0, "line").absoluteX; // 984 in the probe
     const pos = createPosition("p" as BlockId, 1); // after "a"
-    const r = resolvePixelPosition(state0Vrl, pos, layout, shaper);
+    const r = resolvePixelPosition(document0Vrl, pos, layout, shaper);
     expect(r).not.toBeNull();
     if (r === null) return;
     // x = caret INLINE coord = one char (8px) down from the line's inline start
@@ -131,7 +131,7 @@ describe("P3.5a vertical caret coordinate — vertical-rl", () => {
 
   it("offset 0 (start): x=0 (inline start), y=first line's physical x", () => {
     const pos = createPosition("p" as BlockId, 0);
-    const r = resolvePixelPosition(state0Vrl, pos, layout, shaper);
+    const r = resolvePixelPosition(document0Vrl, pos, layout, shaper);
     expect(r).not.toBeNull();
     if (r === null) return;
     expect(r.x).toBe(0);
@@ -141,7 +141,7 @@ describe("P3.5a vertical caret coordinate — vertical-rl", () => {
   it("offset 3 (soft-wrap to line 1): x back to inline start, y=line 1's physical x", () => {
     // Offset 3 is line0's inlineOffsetEnd; soft-wrap prefers line1's start.
     const pos = createPosition("p" as BlockId, 3);
-    const r = resolvePixelPosition(state0Vrl, pos, layout, shaper);
+    const r = resolvePixelPosition(document0Vrl, pos, layout, shaper);
     expect(r).not.toBeNull();
     if (r === null) return;
     expect(r.x).toBe(0); // start of line 1's "bb"
@@ -150,8 +150,8 @@ describe("P3.5a vertical caret coordinate — vertical-rl", () => {
 });
 
 describe("P3.5a vertical caret coordinate — vertical-lr", () => {
-  const state = verticalDoc("vertical-lr");
-  const { layout, shaper } = pipeline(state);
+  const document = verticalDoc("vertical-lr");
+  const { layout, shaper } = pipeline(document);
   const lines = pLines(layout);
 
   it("layout sanity: three lines stacking left→right along physical X (no mirror)", () => {
@@ -162,7 +162,7 @@ describe("P3.5a vertical caret coordinate — vertical-lr", () => {
 
   it("offset 1: x=inline coord (physical Y), y/lineY=block coord (physical X), height=blockSize", () => {
     const pos = createPosition("p" as BlockId, 1);
-    const r = resolvePixelPosition(state, pos, layout, shaper);
+    const r = resolvePixelPosition(document, pos, layout, shaper);
     expect(r).not.toBeNull();
     if (r === null) return;
     expect(r.x).toBe(8); // one char down the inline (physical-Y) axis
@@ -174,7 +174,7 @@ describe("P3.5a vertical caret coordinate — vertical-lr", () => {
 
   it("offset 4 (mid second word on line 1): x=8, y=line 1's physical x", () => {
     const pos = createPosition("p" as BlockId, 4); // after "b" of "bb" (line1 inOff 3..6)
-    const r = resolvePixelPosition(state, pos, layout, shaper);
+    const r = resolvePixelPosition(document, pos, layout, shaper);
     expect(r).not.toBeNull();
     if (r === null) return;
     expect(r.x).toBe(8);
@@ -184,17 +184,17 @@ describe("P3.5a vertical caret coordinate — vertical-lr", () => {
 
 describe("P3.5a empty/strut-only vertical line — inline content edge (I1)", () => {
   it("vertical-lr LTR empty paragraph: caret at the line's inline start (x = physical Y), not physical X", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", attrs: { writingMode: "vertical-lr" }, firstChildId: "p", lastChildId: "p" }),
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", attrs: { writingMode: "vertical-lr" }, inlineContent: inlineContent([text("")]) }),
       ],
     });
-    const { layout, shaper } = pipeline(state);
+    const { layout, shaper } = pipeline(document);
     const lines = pLines(layout);
     expect(lines.length).toBe(1);
-    const r = resolvePixelPosition(state, createPosition("p" as BlockId, 0), layout, shaper);
+    const r = resolvePixelPosition(document, createPosition("p" as BlockId, 0), layout, shaper);
     expect(r).not.toBeNull();
     if (r === null) return;
     // Inline start: not reversed (LTR) → x = the line's inline-axis coord = absY.
@@ -230,7 +230,7 @@ describe("P3.5a empty/strut-only vertical line — inline content edge (I1)", ()
     expect(al.length).toBe(1);
     const lineAbsY = nth(al, 0, "line").absoluteY;
 
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -238,7 +238,7 @@ describe("P3.5a empty/strut-only vertical line — inline content edge (I1)", ()
       ],
     });
     const shaper = createMockShaper(CHAR_W, LINE_CROSS);
-    const r = resolvePixelPosition(state, createPosition("p" as BlockId, 0), block, shaper);
+    const r = resolvePixelPosition(document, createPosition("p" as BlockId, 0), block, shaper);
     expect(r).not.toBeNull();
     if (r === null) return;
     // inlineReversed → caret at the FAR inline edge = lineAbsY + inlineSize.
@@ -270,8 +270,8 @@ describe("P3.7 vertical bidi caret — RTL run on the inline (physical-Y) axis",
     pageGap: 20,
   };
 
-  function bidiDoc(wm: WritingMode): State {
-    return buildState({
+  function bidiDoc(wm: WritingMode): Document {
+    return buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", attrs: { writingMode: wm }, firstChildId: "p", lastChildId: "p" }),
@@ -280,8 +280,8 @@ describe("P3.7 vertical bidi caret — RTL run on the inline (physical-Y) axis",
     });
   }
 
-  function bidiPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
-    const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
+  function bidiPipeline(document: Document): { layout: LayoutBox; shaper: TextShaper } {
+    const root = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
     const shaper = createMockShaper(CHAR_W, LINE_CROSS);
     const layout = positionTreeForTest(layoutTree(root, wideBidiPage.pageInlineSize, shaper, wideBidiPage));
     return { layout, shaper };
@@ -289,14 +289,14 @@ describe("P3.7 vertical bidi caret — RTL run on the inline (physical-Y) axis",
 
   for (const wm of ["vertical-lr", "vertical-rl"] as const) {
     it(`${wm}: caret coords across the LTR↔RTL boundary run down the inline (physical-Y) axis`, () => {
-      const state = bidiDoc(wm);
-      const { layout, shaper } = bidiPipeline(state);
+      const document = bidiDoc(wm);
+      const { layout, shaper } = bidiPipeline(document);
       const lines = pLines(layout);
       expect(lines.length).toBe(1);
       const blockCoord = nth(lines, 0, "line").absoluteX; // BLOCK axis = physical X.
 
       const xAt = (off: number): number => {
-        const r = resolvePixelPosition(state, createPosition("p" as BlockId, off), layout, shaper);
+        const r = resolvePixelPosition(document, createPosition("p" as BlockId, off), layout, shaper);
         expect(r).not.toBeNull();
         if (r === null) throw new Error("null");
         // The BLOCK coord (y/lineY) is the line's physical x in every offset.
@@ -321,18 +321,18 @@ describe("P3.5a #338 trailing-space clamp — vertical (I2)", () => {
     // trailing spaces clamp to the content edge. The caret at the line end must
     // pin to the leaf's inline-axis box edge, not run past it (the #338 clamp,
     // mirrored to the inline axis for vertical).
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", attrs: { writingMode: "vertical-rl" }, firstChildId: "p", lastChildId: "p" }),
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", attrs: { writingMode: "vertical-rl" }, inlineContent: inlineContent([text("ab   ")]) }),
       ],
     });
-    const { layout, shaper } = pipeline(state);
+    const { layout, shaper } = pipeline(document);
     const lines = pLines(layout);
     expect(lines.length).toBe(1);
     const lineEnd = nth(lines, 0, "line").line.inlineOffsetEnd; // 5
-    const r = resolvePixelPosition(state, createPosition("p" as BlockId, lineEnd), layout, shaper);
+    const r = resolvePixelPosition(document, createPosition("p" as BlockId, lineEnd), layout, shaper);
     expect(r).not.toBeNull();
     if (r === null) return;
     // The caret's inline coord (x, a physical-Y value) must be within the line's

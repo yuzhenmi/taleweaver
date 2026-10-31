@@ -6,7 +6,7 @@ import type { ActionOf } from "../editor-action";
 
 export function handleExpandWord(editor: EditorState, { direction }: ActionOf<"EXPAND_WORD">): Edit | null {
   const newFocus = moveByWord(
-    editor.state,
+    editor.document,
     editor.selection.focus,
     direction,
   );

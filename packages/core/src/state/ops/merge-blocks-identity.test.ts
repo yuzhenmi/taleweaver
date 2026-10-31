@@ -6,12 +6,12 @@
 import { describe, it, expect } from "vitest";
 import { mergeAdjacentBlocks } from "./merge-blocks";
 import type { BlockId } from "../block-id";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 import { relAt, survives } from "../../test-utils/relpos-survival";
 
 /** doc > [ p1(left runs), p2(right runs) ] — two sibling leaf paragraphs. */
 function twoBlocks(left: ReturnType<typeof text>[], right: ReturnType<typeof text>[]) {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -27,7 +27,7 @@ describe("mergeAdjacentBlocks — character survival", () => {
     const relA = relAt(s, "p1", 0);
     const relX = relAt(s, "p1", 1);
     const relY = relAt(s, "p2", 0);
-    const after = mergeAdjacentBlocks(s, "p1" as BlockId, "p2" as BlockId).state;
+    const after = mergeAdjacentBlocks(s, "p1" as BlockId, "p2" as BlockId).document;
     expect(survives(relA, after, "A")).toBe(true);
     expect(survives(relX, after, "X")).toBe(true);
     expect(survives(relY, after, "Y")).toBe(true);

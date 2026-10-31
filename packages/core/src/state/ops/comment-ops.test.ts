@@ -7,7 +7,7 @@
  * mutation; (2) a comment is UNDOABLE AS A UNIT (markers + record revert
  * together) because the `comments` Y.Map is in the UndoManager's tracked scopes;
  * (3) per-transaction tracking means a pure text edit's undo never touches a
- * comment; (4) identity no-ops short-circuit (return the same State reference).
+ * comment; (4) identity no-ops short-circuit (return the same Document reference).
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -25,11 +25,11 @@ import {
 import { insertText } from "./insert-text";
 import { deleteRange } from "./delete-range";
 import { createHistory } from "../history";
-import { getBlock } from "../state";
+import { getBlock } from "../document";
 import { createPosition, createSpan } from "../block-position";
 import type { BlockId } from "../block-id";
-import { buildBlock, buildState, text, inlineContent, embed } from "../../test-utils/state-builders";
-import type { State } from "../state";
+import { buildBlock, buildDocument, text, inlineContent, embed } from "../../test-utils/document-builders";
+import type { Document } from "../document";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -40,8 +40,8 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 const CID = "c1" as CommentId;
 
 /** doc > [ p("hello world") ] */
-function oneBlock(): State {
-  return buildState({
+function oneBlock(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -64,13 +64,13 @@ function worldSpan() {
 }
 
 /** Reconstruct p's text from its inline items (embeds — incl. markers — omit). */
-function pText(s: State): string {
+function pText(s: Document): string {
   const items = getBlock(s, "p" as BlockId)?.inlineContent?.items ?? [];
   return items.map((it) => (it.kind === "text" ? it.text : "")).join("");
 }
 
 /** Count comment-start/-end markers carrying `cid` in a block's inline content. */
-function markerCount(s: State, blockId: string, cid: CommentId): number {
+function markerCount(s: Document, blockId: string, cid: CommentId): number {
   const items = getBlock(s, blockId as BlockId)?.inlineContent?.items ?? [];
   return items.filter(
     (it) =>
@@ -84,7 +84,7 @@ const ADD = { id: CID, author: "alice", body: "look here", createdAt: 1000 } as 
 
 describe("addComment — insert markers + write record in ONE tracked op", () => {
   it("appears in getComments with author/body/resolved=false + a live range", () => {
-    const s = addComment(oneBlock(), worldSpan(), ADD).state;
+    const s = addComment(oneBlock(), worldSpan(), ADD).document;
 
     const comments = getComments(s);
     expect(comments.length).toBe(1);
@@ -101,14 +101,14 @@ describe("addComment — insert markers + write record in ONE tracked op", () =>
   });
 
   it("markers are inserted into content (buildCommentRangeIndex sees the pair)", () => {
-    const s = addComment(oneBlock(), worldSpan(), ADD).state;
+    const s = addComment(oneBlock(), worldSpan(), ADD).document;
     expect(buildCommentRangeIndex(s).get(CID)?.orphaned).toBe(false);
     // Markers are zero-width: extracted text is unchanged.
     expect(pText(s)).toBe("hello world");
   });
 
   it("output is frozen", () => {
-    const s = addComment(oneBlock(), worldSpan(), ADD).state;
+    const s = addComment(oneBlock(), worldSpan(), ADD).document;
     const c = nth(getComments(s), 0, "comment");
     expect(Object.isFrozen(c)).toBe(true);
     expect(Object.isFrozen(c.replies)).toBe(true);
@@ -120,56 +120,56 @@ describe("addComment — insert markers + write record in ONE tracked op", () =>
     // error. The op must short-circuit to the input state BEFORE planning/splicing
     // a second marker pair — otherwise the duplicate markers are the exact
     // precondition the I-1 deleteComment fix had to defend against.
-    const s1 = addComment(oneBlock(), worldSpan(), ADD).state;
+    const s1 = addComment(oneBlock(), worldSpan(), ADD).document;
     expect(getComments(s1).length).toBe(1);
     expect(markerCount(s1, "p", CID)).toBe(2);
 
     const r2 = addComment(s1, worldSpan(), ADD);
-    expect(r2.state).toBe(s1); // identity (same reference)
+    expect(r2.document).toBe(s1); // identity (same reference)
     expect(r2.dirtyIds.size).toBe(0);
-    expect(getComments(r2.state).length).toBe(1);
-    expect(markerCount(r2.state, "p", CID)).toBe(2); // NOT 4
+    expect(getComments(r2.document).length).toBe(1);
+    expect(markerCount(r2.document, "p", CID)).toBe(2); // NOT 4
   });
 });
 
 describe("resolveComment / reopenComment", () => {
   it("resolveComment flips resolved=true; reopenComment flips it back", () => {
-    let s = addComment(oneBlock(), worldSpan(), ADD).state;
-    s = resolveComment(s, CID).state;
+    let s = addComment(oneBlock(), worldSpan(), ADD).document;
+    s = resolveComment(s, CID).document;
     expect(nth(getComments(s), 0, "comment").resolved).toBe(true);
-    s = reopenComment(s, CID).state;
+    s = reopenComment(s, CID).document;
     expect(nth(getComments(s), 0, "comment").resolved).toBe(false);
   });
 
-  it("resolving an already-resolved comment is an identity no-op (same State ref)", () => {
-    const s = resolveComment(addComment(oneBlock(), worldSpan(), ADD).state, CID).state;
+  it("resolving an already-resolved comment is an identity no-op (same Document ref)", () => {
+    const s = resolveComment(addComment(oneBlock(), worldSpan(), ADD).document, CID).document;
     const r = resolveComment(s, CID);
-    expect(r.state).toBe(s);
+    expect(r.document).toBe(s);
     expect(r.dirtyIds.size).toBe(0);
   });
 
   it("reopening an already-open comment is an identity no-op", () => {
-    const s = addComment(oneBlock(), worldSpan(), ADD).state;
+    const s = addComment(oneBlock(), worldSpan(), ADD).document;
     const r = reopenComment(s, CID);
-    expect(r.state).toBe(s);
+    expect(r.document).toBe(s);
   });
 
   it("resolving an absent comment is an identity no-op", () => {
     const s = oneBlock();
     const r = resolveComment(s, "nope" as CommentId);
-    expect(r.state).toBe(s);
+    expect(r.document).toBe(s);
   });
 });
 
 describe("addReply", () => {
   it("pushes a reply onto the thread", () => {
-    let s = addComment(oneBlock(), worldSpan(), ADD).state;
+    let s = addComment(oneBlock(), worldSpan(), ADD).document;
     s = addReply(s, CID, {
       replyId: "r1",
       author: "bob",
       body: "agreed",
       createdAt: 2000,
-    }).state;
+    }).document;
     const c = nth(getComments(s), 0, "comment");
     expect(c.replies).toEqual([
       { id: "r1", author: "bob", body: "agreed", createdAt: 2000 },
@@ -177,9 +177,9 @@ describe("addReply", () => {
   });
 
   it("appends multiple replies in order", () => {
-    let s = addComment(oneBlock(), worldSpan(), ADD).state;
-    s = addReply(s, CID, { replyId: "r1", author: "bob", body: "one", createdAt: 2000 }).state;
-    s = addReply(s, CID, { replyId: "r2", author: "cat", body: "two", createdAt: 3000 }).state;
+    let s = addComment(oneBlock(), worldSpan(), ADD).document;
+    s = addReply(s, CID, { replyId: "r1", author: "bob", body: "one", createdAt: 2000 }).document;
+    s = addReply(s, CID, { replyId: "r2", author: "cat", body: "two", createdAt: 3000 }).document;
     expect(nth(getComments(s), 0, "comment").replies.map((r) => r.id)).toEqual(["r1", "r2"]);
   });
 
@@ -191,16 +191,16 @@ describe("addReply", () => {
       body: "x",
       createdAt: 2000,
     });
-    expect(r.state).toBe(s);
+    expect(r.document).toBe(s);
   });
 });
 
 describe("deleteComment", () => {
   it("removes the record AND both markers from content", () => {
-    let s = addComment(oneBlock(), worldSpan(), ADD).state;
+    let s = addComment(oneBlock(), worldSpan(), ADD).document;
     expect(getComments(s).length).toBe(1);
 
-    s = deleteComment(s, CID).state;
+    s = deleteComment(s, CID).document;
     expect(getComments(s).length).toBe(0);
     // Markers gone from content: the scan no longer finds the pair.
     expect(buildCommentRangeIndex(s).has(CID)).toBe(false);
@@ -211,23 +211,23 @@ describe("deleteComment", () => {
   it("deleting an absent comment is an identity no-op", () => {
     const s = oneBlock();
     const r = deleteComment(s, "nope" as CommentId);
-    expect(r.state).toBe(s);
+    expect(r.document).toBe(s);
   });
 
   it("strips a one-sided surviving marker (orphaned comment)", () => {
     // addComment over "world" (6..11) → start marker at 6, end marker at 12.
-    let s = addComment(oneBlock(), worldSpan(), ADD).state;
+    let s = addComment(oneBlock(), worldSpan(), ADD).document;
     // Delete ONLY the end marker (offset [12, 13)), leaving the start marker +
     // the record → a one-sided/orphaned comment.
     s = deleteRange(
       s,
       createSpan(createPosition("p" as BlockId, 12), createPosition("p" as BlockId, 13)),
-    ).state;
+    ).document;
     const idx = buildCommentRangeIndex(s);
     expect(idx.has(CID)).toBe(true); // surviving start marker → one-sided entry
     expect(idx.get(CID)?.orphaned).toBe(true);
 
-    s = deleteComment(s, CID).state;
+    s = deleteComment(s, CID).document;
     expect(getComments(s).length).toBe(0);
     // The surviving start marker was stripped too.
     expect(buildCommentRangeIndex(s).has(CID)).toBe(false);
@@ -239,13 +239,13 @@ describe("deleteComment", () => {
   it("removes the record when both markers are already gone (orphaned-by-absence)", () => {
     // addComment over "world" (6..11) → start marker at 6, "world" at 7..12,
     // end marker at 12.
-    let s = addComment(oneBlock(), worldSpan(), ADD).state;
+    let s = addComment(oneBlock(), worldSpan(), ADD).document;
     // Delete the FULL commented span INCLUDING both markers (offset [6, 13)) —
     // removes "world" and both markers. The record remains; no markers survive.
     s = deleteRange(
       s,
       createSpan(createPosition("p" as BlockId, 6), createPosition("p" as BlockId, 13)),
-    ).state;
+    ).document;
     // No markers in content (orphaned-by-absence) but the record is still there.
     expect(buildCommentRangeIndex(s).has(CID)).toBe(false);
     expect(getComments(s).length).toBe(1);
@@ -257,34 +257,34 @@ describe("deleteComment", () => {
     // affected dirtyId so the record delete advances state (not an identity
     // no-op) and lands a tracked, undoable entry.
     const result = deleteComment(s, CID);
-    expect(result.state).not.toBe(s);
+    expect(result.document).not.toBe(s);
     expect(result.dirtyIds.size).toBeGreaterThan(0);
-    s = result.state;
+    s = result.document;
     expect(getComments(s).length).toBe(0);
     expect(pText(s)).toBe("hello ");
   });
 
   it("orphaned-by-absence delete is UNDOABLE (tracked even with no markers)", () => {
     // Set up an orphaned-by-absence comment (record present, both markers gone).
-    let s = addComment(oneBlock(), worldSpan(), ADD).state;
+    let s = addComment(oneBlock(), worldSpan(), ADD).document;
     s = deleteRange(
       s,
       createSpan(createPosition("p" as BlockId, 6), createPosition("p" as BlockId, 13)),
-    ).state;
+    ).document;
     expect(getComments(s).length).toBe(1);
 
     const history = createHistory(s);
     history.beginEntry("command", 0);
     const del = deleteComment(s, CID);
     history.commit(del, { before: null, after: null });
-    expect(getComments(del.state).length).toBe(0);
+    expect(getComments(del.document).length).toBe(0);
     // The record-only delete is tracked (dirtyIds non-empty → a StackItem
     // exists), so it can be undone — restoring the record.
     expect(history.canUndo()).toBe(true);
 
     const undone = history.undo();
     if (undone === null) throw new Error("expected undo to return a result");
-    expect(getComments(undone.state).length).toBe(1);
+    expect(getComments(undone.document).length).toBe(1);
 
     history.destroy();
   });
@@ -297,7 +297,7 @@ describe("deleteComment", () => {
     // trusted those two indexed blocks would leave the `p2` marker orphaned in
     // content forever. `deleteComment` must strip EVERY marker for CID — uniform
     // with the resolver's full-document scan.
-    let s = buildState({
+    let s = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p2" }),
@@ -317,11 +317,11 @@ describe("deleteComment", () => {
     });
     // addComment over "world" in `p` → record CID + start/end markers in `p`. CID
     // now has THREE markers: the pair in `p` plus the stray start in `p2`.
-    s = addComment(s, worldSpan(), ADD).state;
+    s = addComment(s, worldSpan(), ADD).document;
     expect(markerCount(s, "p", CID)).toBe(2);
     expect(markerCount(s, "p2", CID)).toBe(1);
 
-    s = deleteComment(s, CID).state;
+    s = deleteComment(s, CID).document;
     expect(getComments(s).length).toBe(0);
     // EVERY marker is gone, including the non-endpoint `p2` duplicate (was 1 before
     // the strip scanned all blocks).
@@ -344,20 +344,20 @@ describe("undo atomicity (§2 — undoable-as-content)", () => {
     history.beginEntry("command", 0);
     const added = addComment(s0, worldSpan(), ADD);
     history.commit(added, { before: null, after: null });
-    const s1 = added.state;
+    const s1 = added.document;
     expect(getComments(s1).length).toBe(1);
     expect(buildCommentRangeIndex(s1).get(CID)?.orphaned).toBe(false);
 
     const undone = history.undo();
     if (undone === null) throw new Error("expected undo to return a result");
-    const s2 = undone.state;
+    const s2 = undone.document;
     expect(getComments(s2).length).toBe(0);
     expect(buildCommentRangeIndex(s2).has(CID)).toBe(false);
     expect(pText(s2)).toBe("hello world");
 
     const redone = history.redo();
     if (redone === null) throw new Error("expected redo to return a result");
-    const s3 = redone.state;
+    const s3 = redone.document;
     expect(getComments(s3).length).toBe(1);
     expect(buildCommentRangeIndex(s3).get(CID)?.orphaned).toBe(false);
 
@@ -372,7 +372,7 @@ describe("undo atomicity (§2 — undoable-as-content)", () => {
     history.beginEntry("command", 0);
     const added = addComment(s0, worldSpan(), ADD);
     history.commit(added, { before: null, after: null });
-    const s1 = added.state;
+    const s1 = added.document;
 
     // A pure text edit (insert "X" at offset 0) + commit — a SEPARATE undo
     // entry (beginEntry closes the prior group) whose transaction never
@@ -380,14 +380,14 @@ describe("undo atomicity (§2 — undoable-as-content)", () => {
     history.beginEntry("insert", 10_000);
     const typed = insertText(s1, createPosition("p" as BlockId, 0), "X", {});
     history.commit(typed, { before: null, after: null });
-    const s2 = typed.state;
+    const s2 = typed.document;
     expect(pText(s2)).toBe("Xhello world");
     expect(getComments(s2).length).toBe(1);
 
     // Undo the TEXT edit only. The comment (markers + record) is unaffected.
     const undone = history.undo();
     if (undone === null) throw new Error("expected undo to return a result");
-    const s3 = undone.state;
+    const s3 = undone.document;
     expect(pText(s3)).toBe("hello world");
     expect(getComments(s3).length).toBe(1);
     expect(nth(getComments(s3), 0, "comment").range.orphaned).toBe(false);

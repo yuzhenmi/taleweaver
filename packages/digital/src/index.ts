@@ -7,7 +7,7 @@
 // line-break, intrinsic sizing), and core's `cursor/` is ID-based selection primitives — neither is
 // pixel geometry. So `digital → core` pulls a geometry-free dependency.
 
-// Read-only DOM viewer: render a document State into real, browser-flowed DOM via the styled tree.
+// Read-only DOM viewer: render a document Document into real, browser-flowed DOM via the styled tree.
 export { renderDocumentToDom, renderNodeToDom } from "./dom-view/render-to-dom";
 export type { RenderDocumentToDomOptions } from "./dom-view/render-to-dom";
 export { computedStyleToInlineStyle } from "./dom-view/computed-style-to-css";

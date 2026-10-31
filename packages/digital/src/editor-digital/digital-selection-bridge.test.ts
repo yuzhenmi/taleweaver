@@ -295,7 +295,7 @@ describe("DigitalSelectionBridge — range endpoints on object blocks", () => {
     });
     controller.dispatch({ type: "INSERT_TEXT", text: "abcd" });
     controller.dispatch(object);
-    const st = controller.editorState.state;
+    const st = controller.editorState.document;
     const first = firstLeafBlock(st, st.rootId);
     const section = first === null ? null : getBlock(st, first)?.parentId ?? null;
     const ids: BlockId[] = [];

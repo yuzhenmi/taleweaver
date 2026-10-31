@@ -3,18 +3,18 @@ import {
   assertNoOrphanedEmbedContent,
   assertNoSharedEmbedContent,
 } from "./embed-content-cascade";
-import { applyOperation, freshStateFromDoc, getBlock, getEmbedContent } from "./state";
-import { STATE_INTERNAL } from "./state-internal";
+import { applyOperation, freshDocumentFromDoc, getBlock, getEmbedContent } from "./document";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import { removeBlock } from "./ops/remove-block";
 import { insertText } from "./ops/insert-text";
 import { clonePastedSubtree } from "./clone-pasted-subtree";
 import {
   buildBlock,
-  buildState,
+  buildDocument,
   embed,
   inlineContent,
   text,
-} from "../test-utils/state-builders";
+} from "../test-utils/document-builders";
 import { getRegistry } from "./registry";
 import type { BlockId } from "./block-id";
 import { createTestAllocator } from "./block-id";
@@ -22,7 +22,7 @@ import { createTestAllocator } from "./block-id";
 describe("assertNoOrphanedEmbedContent", () => {
   describe("happy paths", () => {
     it("no-throw on a state with no EmbedItems at all", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -40,12 +40,12 @@ describe("assertNoOrphanedEmbedContent", () => {
         ],
       });
       expect(() =>
-        assertNoOrphanedEmbedContent(state, "test"),
+        assertNoOrphanedEmbedContent(document, "test"),
       ).not.toThrow();
     });
 
     it("no-throw on a valid footnote anchor (EmbedItem -> existing embedContent root)", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -73,12 +73,12 @@ describe("assertNoOrphanedEmbedContent", () => {
         ],
       });
       expect(() =>
-        assertNoOrphanedEmbedContent(state, "test"),
+        assertNoOrphanedEmbedContent(document, "test"),
       ).not.toThrow();
     });
 
     it("no-throw when the EmbedItem has no contentBlockId (inline-data embed)", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -99,12 +99,12 @@ describe("assertNoOrphanedEmbedContent", () => {
         ],
       });
       expect(() =>
-        assertNoOrphanedEmbedContent(state, "test"),
+        assertNoOrphanedEmbedContent(document, "test"),
       ).not.toThrow();
     });
 
     it("no-throw on a valid nested embed (footnote inside a footnote)", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -138,12 +138,12 @@ describe("assertNoOrphanedEmbedContent", () => {
         ],
       });
       expect(() =>
-        assertNoOrphanedEmbedContent(state, "test"),
+        assertNoOrphanedEmbedContent(document, "test"),
       ).not.toThrow();
     });
 
     it("no-throw on a valid EmbedItem in a templateContents body", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -177,7 +177,7 @@ describe("assertNoOrphanedEmbedContent", () => {
         ],
       });
       expect(() =>
-        assertNoOrphanedEmbedContent(state, "test"),
+        assertNoOrphanedEmbedContent(document, "test"),
       ).not.toThrow();
     });
   });
@@ -186,7 +186,7 @@ describe("assertNoOrphanedEmbedContent", () => {
     it("throws when an EmbedItem's contentBlockId references a missing embedContent root", () => {
       // Synthesized orphan: the fixture provides an EmbedItem with
       // `contentBlockId: "missing-id"` and NO matching embedContent root.
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -206,20 +206,20 @@ describe("assertNoOrphanedEmbedContent", () => {
         ],
       });
       expect(() =>
-        assertNoOrphanedEmbedContent(state, "test-op"),
+        assertNoOrphanedEmbedContent(document, "test-op"),
       ).toThrow(/test-op/);
       expect(() =>
-        assertNoOrphanedEmbedContent(state, "test-op"),
+        assertNoOrphanedEmbedContent(document, "test-op"),
       ).toThrow(/missing-id/);
       expect(() =>
-        assertNoOrphanedEmbedContent(state, "test-op"),
+        assertNoOrphanedEmbedContent(document, "test-op"),
       ).toThrow(/p1/);
     });
 
     it("throws when a nested EmbedItem (inside an embedContent body) references a missing root", () => {
       // The outer body exists, but its own EmbedItem points at a non-existent
       // inner body.
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -248,12 +248,12 @@ describe("assertNoOrphanedEmbedContent", () => {
         ],
       });
       expect(() =>
-        assertNoOrphanedEmbedContent(state, "nested-test"),
+        assertNoOrphanedEmbedContent(document, "nested-test"),
       ).toThrow(/gone/);
     });
 
     it("throws when a templateContents body's EmbedItem references a missing root", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -280,14 +280,14 @@ describe("assertNoOrphanedEmbedContent", () => {
         ],
       });
       expect(() =>
-        assertNoOrphanedEmbedContent(state, "template-test"),
+        assertNoOrphanedEmbedContent(document, "template-test"),
       ).toThrow(/missing-header-fn/);
     });
   });
 
   describe("integration via real ops", () => {
     it("passes after removeBlock cascade-deletes the embedContent body", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -324,18 +324,18 @@ describe("assertNoOrphanedEmbedContent", () => {
       });
       // Sanity-check the input has no orphans.
       expect(() =>
-        assertNoOrphanedEmbedContent(state, "pre"),
+        assertNoOrphanedEmbedContent(document, "pre"),
       ).not.toThrow();
       // Remove the anchor block. The cascade helper inside removeBlock should
       // delete the embedContent body, preserving the invariant.
-      const result = removeBlock(state, "p1" as BlockId);
+      const result = removeBlock(document, "p1" as BlockId);
       expect(() =>
-        assertNoOrphanedEmbedContent(result.state, "post"),
+        assertNoOrphanedEmbedContent(result.document, "post"),
       ).not.toThrow();
     });
 
     it("passes after a typing op that doesn't touch embeds", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -363,16 +363,16 @@ describe("assertNoOrphanedEmbedContent", () => {
         ],
       });
       const result = insertText(
-        state,
+        document,
         { blockId: "p1" as BlockId, offset: 0 },
         "X",
         {},
       );
       expect(() =>
-        assertNoOrphanedEmbedContent(result.state, "insertText"),
+        assertNoOrphanedEmbedContent(result.document, "insertText"),
       ).not.toThrow();
       // Sanity-check the insert landed.
-      const p1 = getBlock(result.state, "p1" as BlockId);
+      const p1 = getBlock(result.document, "p1" as BlockId);
       expect(p1?.inlineContent?.items[0]?.kind).toBe("text");
     });
   });
@@ -383,7 +383,7 @@ describe("assertNoOrphanedEmbedContent", () => {
       // remove (or rewrite) the EmbedItem anchor. Run the assertion directly
       // (NOT via applyOperation) so we can inspect the bad state's invariant
       // result with full control over the opName threading.
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -411,7 +411,7 @@ describe("assertNoOrphanedEmbedContent", () => {
       });
       // Pre-condition: no orphans.
       expect(() =>
-        assertNoOrphanedEmbedContent(state, "pre"),
+        assertNoOrphanedEmbedContent(document, "pre"),
       ).not.toThrow();
 
       // Bypass the cascade helper: delete the embedContent root directly via
@@ -419,19 +419,19 @@ describe("assertNoOrphanedEmbedContent", () => {
       // transaction, mint a fresh state so the snapshot cache sees the
       // deletion. (We do NOT go through applyOperation here because
       // applyOperation itself would fire the invariant assertion.)
-      const doc = state[STATE_INTERNAL].doc;
+      const doc = document[DOCUMENT_INTERNAL].doc;
       doc.transact(() => {
         getRegistry(doc).delete("fn-body-1");
       });
       // Fresh state with full cache invalidation reflects the bypass write.
-      const badState = freshStateFromDoc(state);
+      const badDocument = freshDocumentFromDoc(document);
 
       // The invariant must fire on the bad state.
       expect(() =>
-        assertNoOrphanedEmbedContent(badState, "bypass-op"),
+        assertNoOrphanedEmbedContent(badDocument, "bypass-op"),
       ).toThrow(/fn-body-1/);
       expect(() =>
-        assertNoOrphanedEmbedContent(badState, "bypass-op"),
+        assertNoOrphanedEmbedContent(badDocument, "bypass-op"),
       ).toThrow(/bypass-op/);
     });
 
@@ -440,7 +440,7 @@ describe("assertNoOrphanedEmbedContent", () => {
       // so a bypass transaction throws WITHIN the applyOperation call rather
       // than returning a bad state. This is the real-world catch for future
       // ops that drop EmbedItems without going through the cascade.
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -467,8 +467,8 @@ describe("assertNoOrphanedEmbedContent", () => {
         ],
       });
       expect(() =>
-        applyOperation(state, () => {
-          getRegistry(state[STATE_INTERNAL].doc).delete("fn-body-1");
+        applyOperation(document, () => {
+          getRegistry(document[DOCUMENT_INTERNAL].doc).delete("fn-body-1");
         }),
       ).toThrow(/fn-body-1/);
     });
@@ -478,7 +478,7 @@ describe("assertNoOrphanedEmbedContent", () => {
 describe("assertNoSharedEmbedContent", () => {
   describe("happy paths", () => {
     it("no-throw on a state with no EmbedItems at all", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -496,12 +496,12 @@ describe("assertNoSharedEmbedContent", () => {
         ],
       });
       expect(() =>
-        assertNoSharedEmbedContent(state, "test"),
+        assertNoSharedEmbedContent(document, "test"),
       ).not.toThrow();
     });
 
     it("no-throw on a valid 1:1 anchor->body state (single anchor owns its body)", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -545,12 +545,12 @@ describe("assertNoSharedEmbedContent", () => {
         ],
       });
       expect(() =>
-        assertNoSharedEmbedContent(state, "test"),
+        assertNoSharedEmbedContent(document, "test"),
       ).not.toThrow();
     });
 
     it("no-throw when the EmbedItem has no contentBlockId (inline-data embed)", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -573,12 +573,12 @@ describe("assertNoSharedEmbedContent", () => {
         ],
       });
       expect(() =>
-        assertNoSharedEmbedContent(state, "test"),
+        assertNoSharedEmbedContent(document, "test"),
       ).not.toThrow();
     });
 
     it("no-throw on a valid nested embed (distinct bodies at each level)", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -612,7 +612,7 @@ describe("assertNoSharedEmbedContent", () => {
         ],
       });
       expect(() =>
-        assertNoSharedEmbedContent(state, "test"),
+        assertNoSharedEmbedContent(document, "test"),
       ).not.toThrow();
     });
   });
@@ -623,7 +623,7 @@ describe("assertNoSharedEmbedContent", () => {
       // SAME contentBlockId, which has exactly one real embedContent root. This
       // bypasses the production path (clonePastedSubtree remaps on paste), so we
       // construct the bad state directly via the builder.
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -660,21 +660,21 @@ describe("assertNoSharedEmbedContent", () => {
         ],
       });
       expect(() =>
-        assertNoSharedEmbedContent(state, "share-op"),
+        assertNoSharedEmbedContent(document, "share-op"),
       ).toThrow(/share-op/);
       expect(() =>
-        assertNoSharedEmbedContent(state, "share-op"),
+        assertNoSharedEmbedContent(document, "share-op"),
       ).toThrow(/shared/);
       expect(() =>
-        assertNoSharedEmbedContent(state, "share-op"),
+        assertNoSharedEmbedContent(document, "share-op"),
       ).toThrow(/p1/);
       expect(() =>
-        assertNoSharedEmbedContent(state, "share-op"),
+        assertNoSharedEmbedContent(document, "share-op"),
       ).toThrow(/p2/);
     });
 
     it("throws when two anchors WITHIN the same block share one body", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -703,18 +703,18 @@ describe("assertNoSharedEmbedContent", () => {
         ],
       });
       expect(() =>
-        assertNoSharedEmbedContent(state, "same-block-op"),
+        assertNoSharedEmbedContent(document, "same-block-op"),
       ).toThrow(/same-block-op/);
       expect(() =>
-        assertNoSharedEmbedContent(state, "same-block-op"),
+        assertNoSharedEmbedContent(document, "same-block-op"),
       ).toThrow(/shared/);
       expect(() =>
-        assertNoSharedEmbedContent(state, "same-block-op"),
+        assertNoSharedEmbedContent(document, "same-block-op"),
       ).toThrow(/p1/);
     });
 
     it("throws when a body is shared across a body-tree anchor and a main-tree anchor", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -748,20 +748,20 @@ describe("assertNoSharedEmbedContent", () => {
         ],
       });
       expect(() =>
-        assertNoSharedEmbedContent(state, "cross-tree-op"),
+        assertNoSharedEmbedContent(document, "cross-tree-op"),
       ).toThrow(/cross-tree-op/);
       expect(() =>
-        assertNoSharedEmbedContent(state, "cross-tree-op"),
+        assertNoSharedEmbedContent(document, "cross-tree-op"),
       ).toThrow(/shared/);
       // Both owning blocks named: the main-tree anchor (p1) and the body-tree
       // anchor (the outer body's paragraph — its inline content became the body
       // flow's first paragraph).
       expect(() =>
-        assertNoSharedEmbedContent(state, "cross-tree-op"),
+        assertNoSharedEmbedContent(document, "cross-tree-op"),
       ).toThrow(/p1/);
-      const outerPara = getEmbedContent(state, "outer" as BlockId)?.firstChildId ?? "missing";
+      const outerPara = getEmbedContent(document, "outer" as BlockId)?.firstChildId ?? "missing";
       expect(() =>
-        assertNoSharedEmbedContent(state, "cross-tree-op"),
+        assertNoSharedEmbedContent(document, "cross-tree-op"),
       ).toThrow(new RegExp(outerPara));
     });
   });
@@ -773,7 +773,7 @@ describe("assertNoSharedEmbedContent", () => {
       // the cloned anchor's contentBlockId to a freshly-cloned body. A combined
       // state holding BOTH the original and the clone must therefore be
       // sharing-free. If clonePastedSubtree had a hole, this test would throw.
-      const sourceState = buildState({
+      const sourceDocument = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -803,7 +803,7 @@ describe("assertNoSharedEmbedContent", () => {
 
       const allocator = createTestAllocator("paste");
       const cloned = clonePastedSubtree(
-        sourceState,
+        sourceDocument,
         "p1" as BlockId,
         allocator,
       );
@@ -827,7 +827,7 @@ describe("assertNoSharedEmbedContent", () => {
       // Build a combined state holding original + clone, both anchors and both
       // bodies, and confirm the sharing invariant is satisfied.
       const clonedRootId = cloned.rootId;
-      const combined = buildState({
+      const combined = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -882,7 +882,7 @@ describe("assertNoSharedEmbedContent", () => {
 
   describe("scope-down (dirtyIds fast path)", () => {
     it("a plain insertText op (no embed in the dirty block) does not throw and leaves a separate valid embed untouched", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -921,15 +921,15 @@ describe("assertNoSharedEmbedContent", () => {
       // the sharing check's scope-down skips the full sweep. It must not throw,
       // and the unrelated valid embed in p2 stays intact.
       const result = insertText(
-        state,
+        document,
         { blockId: "p1" as BlockId, offset: 0 },
         "X",
         {},
       );
       expect(() =>
-        assertNoSharedEmbedContent(result.state, "insertText", result.dirtyIds),
+        assertNoSharedEmbedContent(result.document, "insertText", result.dirtyIds),
       ).not.toThrow();
-      const p2 = getBlock(result.state, "p2" as BlockId);
+      const p2 = getBlock(result.document, "p2" as BlockId);
       const embedItem = p2?.inlineContent?.items.find(
         (item) => item.kind === "embed",
       );
@@ -940,7 +940,7 @@ describe("assertNoSharedEmbedContent", () => {
     });
 
     it("passes when the op IS embed-touching but introduces no duplicate (full sweep path, clean)", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -970,7 +970,7 @@ describe("assertNoSharedEmbedContent", () => {
       // takes the full-sweep branch; the state is sharing-free, so no throw.
       expect(() =>
         assertNoSharedEmbedContent(
-          state,
+          document,
           "embed-touching",
           new Set<BlockId>(["p1" as BlockId]),
         ),
@@ -978,7 +978,7 @@ describe("assertNoSharedEmbedContent", () => {
     });
 
     it("fires from the full sweep even via the dirtyIds path when a dirty block introduces a duplicate", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({
@@ -1019,7 +1019,7 @@ describe("assertNoSharedEmbedContent", () => {
       // duplicate is caught.
       expect(() =>
         assertNoSharedEmbedContent(
-          state,
+          document,
           "dup-op",
           new Set<BlockId>(["p2" as BlockId]),
         ),

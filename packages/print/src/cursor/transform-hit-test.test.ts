@@ -19,7 +19,7 @@ import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import { makeRootContext } from "../layout/layout-context";
 import { getLineIndex, type AbsoluteLineBox } from "./line-flatten";
 import { resolvePositionFromPixel } from "./hit-test";
-import { buildState, buildBlock, inlineContent, text } from "@taleweaver/core";
+import { buildDocument, buildBlock, inlineContent, text } from "@taleweaver/core";
 import { computeStackingContextRole } from "@taleweaver/core";
 import { establishesAbsoluteContainingBlock } from "../layout/layout-context";
 import type { ElementBox } from "@taleweaver/core";
@@ -45,12 +45,12 @@ function layoutDoc(pStyle: Record<string, unknown>, content = "hello world"): La
   return r.box;
 }
 
-// A minimal State whose single paragraph "p" owns the text — so the hit-test's
+// A minimal Document whose single paragraph "p" owns the text — so the hit-test's
 // `resolveBlock` defensive check passes. (Block ids match the render tree above;
 // the BFC may wrap text in `p/anon[..]`, but ownerBlockId resolves through the
 // anon to "p"'s context — the state just needs "p" present.)
-function docState(content = "hello world"): ReturnType<typeof buildState> {
-  return buildState({
+function docDocument(content = "hello world"): ReturnType<typeof buildDocument> {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -84,20 +84,20 @@ describe("transform hit-test (approach b)", () => {
   });
 
   it("click inside a translateX(40) paragraph resolves to the correct offset", () => {
-    const state = docState();
+    const document = docDocument();
     const untransformed = layoutDoc({});
     const transformed = layoutDoc({ transform: [{ fn: "translateX", tx: 40 }] });
 
     // Pick a click that lands on offset ~4 ("hell|o") in the UNTRANSFORMED doc.
     // The mock shaper is 8px/glyph, so x≈4*8=32 lands mid-paragraph. Resolve the
     // baseline offset there.
-    const base = resolvePositionFromPixel(state, untransformed, shaper, 34, 8);
+    const base = resolvePositionFromPixel(document, untransformed, shaper, 34, 8);
     expect(base).not.toBeNull();
     if (base === null) return;
 
     // In the TRANSFORMED doc the SAME glyph is painted 40px to the right, so a
     // click at x = 34 + 40 must map back to the SAME offset.
-    const shifted = resolvePositionFromPixel(state, transformed, shaper, 34 + 40, 8);
+    const shifted = resolvePositionFromPixel(document, transformed, shaper, 34 + 40, 8);
     expect(shifted).not.toBeNull();
     if (shifted === null) return;
     expect(shifted.position.offset).toBe(base.position.offset);
@@ -105,7 +105,7 @@ describe("transform hit-test (approach b)", () => {
   });
 
   it("click inside a scale(2) paragraph resolves to the correct offset", () => {
-    const state = docState();
+    const document = docDocument();
     const untransformed = layoutDoc({});
     // scale 2 about top-left so the pre-transform origin stays put and a glyph at
     // pre-transform x maps to painted x*2 (origin 0,0).
@@ -115,32 +115,32 @@ describe("transform hit-test (approach b)", () => {
     });
 
     // Click mid-glyph (x=20 ≈ glyph 2.5 at 8px/glyph) to avoid a boundary tie.
-    const base = resolvePositionFromPixel(state, untransformed, shaper, 20, 8);
+    const base = resolvePositionFromPixel(document, untransformed, shaper, 20, 8);
     expect(base).not.toBeNull();
     if (base === null) return;
     // Painted at 2× → click at 2×20=40 (y also ×2) maps back to the same offset.
-    const scaled = resolvePositionFromPixel(state, transformed, shaper, 40, 16);
+    const scaled = resolvePositionFromPixel(document, transformed, shaper, 40, 16);
     expect(scaled).not.toBeNull();
     if (scaled === null) return;
     expect(scaled.position.offset).toBe(base.position.offset);
   });
 
   it("scale(0) → singular → line is skipped (no hit, no throw)", () => {
-    const state = docState();
+    const document = docDocument();
     const layout = layoutDoc({ transform: [{ fn: "scale", sx: 0, sy: 0 }] });
     const lines = getLineIndex(layout).all;
     const singular = lines.filter((l) => l.inverseTransform === "singular");
     expect(singular.length).toBeGreaterThan(0);
     // A click anywhere does not throw; with every body line singular the hit-test
     // either returns null or falls through defensively — never crashes.
-    expect(() => resolvePositionFromPixel(state, layout, shaper, 10, 10)).not.toThrow();
+    expect(() => resolvePositionFromPixel(document, layout, shaper, 10, 10)).not.toThrow();
   });
 
   it("an untransformed hit-test is byte-identical to pre-slice behavior", () => {
-    const state = docState();
+    const document = docDocument();
     const layout = layoutDoc({});
-    const a = resolvePositionFromPixel(state, layout, shaper, 18, 8);
-    const b = resolvePositionFromPixel(state, layout, shaper, 18, 8);
+    const a = resolvePositionFromPixel(document, layout, shaper, 18, 8);
+    const b = resolvePositionFromPixel(document, layout, shaper, 18, 8);
     expect(a).not.toBeNull();
     expect(a?.position.offset).toBe(b?.position.offset);
     // A click at x≈18 (just past 2 glyphs) on an untransformed line resolves to a

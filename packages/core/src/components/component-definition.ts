@@ -10,7 +10,7 @@ import type { RenderNode } from "../render/render-node";
  * Component definition for a container block type. Receives a
  * ContainerBlockView, a RenderContext, and the pre-rendered children.
  *
- * Decision B (push-model rendering): the renderer walks the State,
+ * Decision B (push-model rendering): the renderer walks the Document,
  * dispatches by `view.type` to the right component (container or leaf),
  * and hands in already-rendered children. Components don't traverse —
  * they compose pre-rendered RenderNodes.

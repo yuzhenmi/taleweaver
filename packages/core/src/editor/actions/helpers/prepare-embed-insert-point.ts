@@ -1,5 +1,5 @@
 import { deleteRange } from "../../../state";
-import type { State, Position, Selection, BlockId } from "../../../state";
+import type { Document, Position, Selection, BlockId } from "../../../state";
 import { isCollapsed } from "../../../cursor/selection";
 import { isCrossContextSelection } from "./is-cross-context-selection";
 import { expandedSpanCollapsePoint } from "./expanded-span-collapse-point";
@@ -10,7 +10,7 @@ const EMPTY_DIRTY_IDS: ReadonlySet<BlockId> = new Set();
 export type EmbedInsertPoint =
   | {
       readonly ok: true;
-      readonly state: State;
+      readonly document: Document;
       readonly position: Position;
       readonly dirtyIds: ReadonlySet<BlockId>;
     }
@@ -32,15 +32,15 @@ export type EmbedInsertPoint =
  *    `{ ok: false }`; the caller returns the editor unchanged.
  */
 export function prepareEmbedInsertPoint(
-  state: State,
+  document: Document,
   selection: Selection,
 ): EmbedInsertPoint {
   if (isCollapsed(selection)) {
-    return { ok: true, state, position: selection.focus, dirtyIds: EMPTY_DIRTY_IDS };
+    return { ok: true, document, position: selection.focus, dirtyIds: EMPTY_DIRTY_IDS };
   }
-  if (isCrossContextSelection(state, selection)) return { ok: false };
-  const collapse = expandedSpanCollapsePoint(state, selection);
+  if (isCrossContextSelection(document, selection)) return { ok: false };
+  const collapse = expandedSpanCollapsePoint(document, selection);
   if (collapse === null) return { ok: false };
-  const result = deleteRange(state, selection);
-  return { ok: true, state: result.state, position: collapse, dirtyIds: result.dirtyIds };
+  const result = deleteRange(document, selection);
+  return { ok: true, document: result.document, position: collapse, dirtyIds: result.dirtyIds };
 }

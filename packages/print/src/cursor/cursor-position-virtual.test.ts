@@ -26,13 +26,13 @@ import {
   __resetGetPageDriverCountForTest,
 } from "../layout/virtual-layout-tree";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
 import { createPosition, getBlock, inlineContentLength } from "@taleweaver/core";
-import type { BlockId, State } from "@taleweaver/core";
+import type { BlockId, Document } from "@taleweaver/core";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -58,7 +58,7 @@ function pageConfig(pageBlockSize = 96, pageInlineSize = 320, pageGap = 24): Pag
 }
 
 interface Built {
-  state: State;
+  document: Document;
   virtual: VirtualLayoutTree;
   shaper: TextShaper;
 }
@@ -71,7 +71,7 @@ interface Built {
  */
 function buildDoc(paragraphTexts: readonly string[], cfg: PageConfig): Built {
   const blockIds = paragraphTexts.map((_, i) => `p${i}`);
-  const state = buildState({
+  const document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -93,7 +93,7 @@ function buildDoc(paragraphTexts: readonly string[], cfg: PageConfig): Built {
     ],
   });
   const root = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -102,7 +102,7 @@ function buildDoc(paragraphTexts: readonly string[], cfg: PageConfig): Built {
   if (lt.type !== "virtual-root") {
     throw new Error("expected a VirtualLayoutTree (paginated supported doc)");
   }
-  return { state, virtual: lt, shaper };
+  return { document, virtual: lt, shaper };
 }
 
 /**
@@ -133,7 +133,7 @@ describe("resolvePixelPosition (virtual tree) — oracle equivalence", () => {
     // margin in the mock pipeline) this spans multiple pages.
     const texts = Array.from({ length: 20 }, (_, i) => `para ${i} hello`);
     const cfg = pageConfig();
-    const { state, virtual, shaper } = buildDoc(texts, cfg);
+    const { document, virtual, shaper } = buildDoc(texts, cfg);
     const positioned = positionTreeForTest(virtual);
     expect(virtual.plan.entries.length).toBeGreaterThan(1);
 
@@ -141,8 +141,8 @@ describe("resolvePixelPosition (virtual tree) — oracle equivalence", () => {
       const blockId = `p${i}` as BlockId;
       for (const offset of [0, 3, nth(texts, i, "text").length]) {
         const pos = createPosition(blockId, offset);
-        const got = resolvePixelPosition(state, pos, virtual, shaper);
-        const oracle = resolvePixelPosition(state, pos, positioned, shaper);
+        const got = resolvePixelPosition(document, pos, virtual, shaper);
+        const oracle = resolvePixelPosition(document, pos, positioned, shaper);
         expect(got, `p${i} offset ${offset}`).toEqual(oracle);
       }
     }
@@ -150,18 +150,18 @@ describe("resolvePixelPosition (virtual tree) — oracle equivalence", () => {
 
   it("spanning paragraph: caret at offsets across all pages matches the oracle", () => {
     const cfg = pageConfig();
-    const { state, virtual, shaper } = buildSpanningParagraph(600, cfg);
+    const { document, virtual, shaper } = buildSpanningParagraph(600, cfg);
     const positioned = positionTreeForTest(virtual);
     expect(virtual.plan.entries.length).toBeGreaterThan(2);
 
     // The paragraph's total inline length (offsets are state-model offsets).
-    const blk = getBlock(state, "p0" as BlockId);
+    const blk = getBlock(document, "p0" as BlockId);
     const total = blk?.inlineContent ? inlineContentLength(blk.inlineContent) : 0;
     // Sample offsets spread across the whole paragraph (start, interiors, end).
     for (const offset of [0, 1, 40, 41, 200, Math.floor(total / 2), total - 1, total]) {
       const pos = createPosition("p0" as BlockId, offset);
-      const got = resolvePixelPosition(state, pos, virtual, shaper);
-      const oracle = resolvePixelPosition(state, pos, positioned, shaper);
+      const got = resolvePixelPosition(document, pos, virtual, shaper);
+      const oracle = resolvePixelPosition(document, pos, positioned, shaper);
       expect(got, `offset ${offset}`).toEqual(oracle);
     }
   });
@@ -170,7 +170,7 @@ describe("resolvePixelPosition (virtual tree) — oracle equivalence", () => {
 describe("resolvePixelPosition (virtual tree) — cross-page soft-wrap edge", () => {
   it("offset at the soft-wrap end of a page's last line snaps to the next page's first line", () => {
     const cfg = pageConfig();
-    const { state, virtual, shaper } = buildSpanningParagraph(600, cfg);
+    const { document, virtual, shaper } = buildSpanningParagraph(600, cfg);
     const positioned = positionTreeForTest(virtual);
 
     // Find a page boundary: the offset that is the inlineOffsetEnd of some
@@ -189,8 +189,8 @@ describe("resolvePixelPosition (virtual tree) — cross-page soft-wrap edge", ()
     expect(nth(p1Lines, 0, "p1 first line").line.inlineOffsetStart).toBe(boundaryOffset);
 
     const pos = createPosition("p0" as BlockId, boundaryOffset);
-    const got = resolvePixelPosition(state, pos, virtual, shaper);
-    const oracle = resolvePixelPosition(state, pos, positioned, shaper);
+    const got = resolvePixelPosition(document, pos, virtual, shaper);
+    const oracle = resolvePixelPosition(document, pos, positioned, shaper);
     expect(got).not.toBeNull();
     if (got === null) return;
     // The caret lands on page 1, not page 0.
@@ -201,7 +201,7 @@ describe("resolvePixelPosition (virtual tree) — cross-page soft-wrap edge", ()
 
   it("caretAffinity 'before' pins the caret to page N's last line (cross-page #474 B2)", () => {
     const cfg = pageConfig();
-    const { state, virtual, shaper } = buildSpanningParagraph(600, cfg);
+    const { document, virtual, shaper } = buildSpanningParagraph(600, cfg);
 
     const page0 = virtual.getPage(0);
     const page1 = virtual.getPage(1);
@@ -214,7 +214,7 @@ describe("resolvePixelPosition (virtual tree) — cross-page soft-wrap edge", ()
 
     const pos = createPosition("p0" as BlockId, boundaryOffset);
     // Default snaps to page 1 (above). "before" must stay on page 0's last line.
-    const before = resolvePixelPosition(state, pos, virtual, shaper, undefined, "before");
+    const before = resolvePixelPosition(document, pos, virtual, shaper, undefined, "before");
     expect(before).not.toBeNull();
     if (before === null) return;
     expect(before.pageIndex).toBe(0);
@@ -228,7 +228,7 @@ describe("resolvePixelPosition (virtual tree) — materializes only the cursor p
   it("a caret on a single-page block positions exactly ONE page (not all)", () => {
     const texts = Array.from({ length: 30 }, (_, i) => `para ${i}`);
     const cfg = pageConfig();
-    const { state, virtual, shaper } = buildDoc(texts, cfg);
+    const { document, virtual, shaper } = buildDoc(texts, cfg);
     const totalPages = virtual.plan.entries.length;
     expect(totalPages).toBeGreaterThan(3);
 
@@ -239,7 +239,7 @@ describe("resolvePixelPosition (virtual tree) — materializes only the cursor p
 
     __resetGetPageDriverCountForTest();
     const pos = createPosition(lastBlock, 2);
-    const got = resolvePixelPosition(state, pos, virtual, shaper);
+    const got = resolvePixelPosition(document, pos, virtual, shaper);
     expect(got).not.toBeNull();
 
     // Exactly one per-page layoutBlock driver call — page `targetPage` only.
@@ -267,7 +267,7 @@ describe("resolvePixelPosition (virtual tree) — materializes only the cursor p
     // assert the virtual path deep-equals the positioned-tree oracle for BOTH
     // offset 0 and an interior offset on the off-page-0 block.
     {
-      const { state, virtual, shaper } = buildDoc(texts, cfg);
+      const { document, virtual, shaper } = buildDoc(texts, cfg);
       const positioned = positionTreeForTest(virtual);
       expect(virtual.plan.entries.length).toBeGreaterThan(1);
 
@@ -282,8 +282,8 @@ describe("resolvePixelPosition (virtual tree) — materializes only the cursor p
 
       for (const offset of [0, lastOffset]) {
         const pos = createPosition(lastBlock, offset);
-        const got = resolvePixelPosition(state, pos, virtual, shaper);
-        const oracle = resolvePixelPosition(state, pos, positioned, shaper);
+        const got = resolvePixelPosition(document, pos, virtual, shaper);
+        const oracle = resolvePixelPosition(document, pos, positioned, shaper);
         expect(got, `offset ${offset}`).toEqual(oracle);
       }
     }
@@ -302,7 +302,7 @@ describe("resolvePixelPosition (virtual tree) — materializes only the cursor p
 
       __resetGetPageDriverCountForTest();
       const pos = createPosition(lastBlock, offset);
-      const got = resolvePixelPosition(fresh.state, pos, fresh.virtual, fresh.shaper);
+      const got = resolvePixelPosition(fresh.document, pos, fresh.virtual, fresh.shaper);
       expect(got).not.toBeNull();
       // Exactly the block's own page span — and strictly fewer than the
       // `span.first` pages 0..N-1 a floor-at-0 walk would have materialized.
@@ -326,7 +326,7 @@ describe("resolvePixelPosition (virtual tree) — materializes only the cursor p
     __resetGetPageDriverCountForTest();
     // Offset near the END of the paragraph (last page).
     const pos = createPosition("p0" as BlockId, 595);
-    const got = resolvePixelPosition(fresh.state, pos, fresh.virtual, fresh.shaper);
+    const got = resolvePixelPosition(fresh.document, pos, fresh.virtual, fresh.shaper);
     expect(got).not.toBeNull();
     // The back-walk starts at the last page and the offset is on it ⇒ 1 page.
     expect(__getGetPageDriverCountForTest()).toBe(1);

@@ -69,7 +69,7 @@ function selectionHasAttr(
 ): boolean {
   let sawTextItem = false;
   for (const { block, rangeStart, rangeEnd } of iterateSpan(
-    editor.state,
+    editor.document,
     editor.selection,
   )) {
     if (!block.inlineContent) continue;
@@ -97,7 +97,7 @@ function cursorHasAttr(editor: EditorState, attrKey: string): boolean {
   // Pending typing attrs (a format command at the caret) are what typing gets.
   if (editor.storedAttrs !== undefined) return editor.storedAttrs[attrKey] !== undefined;
   const { blockId, offset } = editor.selection.focus;
-  const block = getBlock(editor.state, blockId);
+  const block = getBlock(editor.document, blockId);
   if (!block || !block.inlineContent) return false;
   let cursor = 0;
   for (const item of block.inlineContent.items) {
@@ -133,7 +133,7 @@ function selectionCommonAttrValue(
   let sawTextItem = false;
   let common: unknown;
   for (const { block, rangeStart, rangeEnd } of iterateSpan(
-    editor.state,
+    editor.document,
     editor.selection,
   )) {
     if (!block.inlineContent) continue;
@@ -167,7 +167,7 @@ function selectionCommonAttrValue(
 function cursorAttrValue(editor: EditorState, attrKey: string): unknown {
   if (editor.storedAttrs !== undefined) return editor.storedAttrs[attrKey];
   const { blockId, offset } = editor.selection.focus;
-  const block = getBlock(editor.state, blockId);
+  const block = getBlock(editor.document, blockId);
   if (!block || !block.inlineContent) return undefined;
   let cursor = 0;
   for (const item of block.inlineContent.items) {
@@ -190,7 +190,7 @@ function cursorAttrValue(editor: EditorState, attrKey: string): unknown {
  * `undefined` when the focus block is missing or carries no such attr.
  */
 function focusBlockAttr(editor: EditorState, attrKey: string): unknown {
-  const block = getBlock(editor.state, editor.selection.focus.blockId);
+  const block = getBlock(editor.document, editor.selection.focus.blockId);
   if (!block) return undefined;
   return block.attrs[attrKey];
 }
@@ -206,10 +206,10 @@ function asStringOrNull(value: unknown): string | null {
 }
 
 export function getFormatState(editor: EditorState): FormatState {
-  const { state, selection, history } = editor;
+  const { document, selection, history } = editor;
 
   // Block type and heading level from the focus block.
-  const focusBlock = getBlock(state, selection.focus.blockId);
+  const focusBlock = getBlock(document, selection.focus.blockId);
   let blockType = "paragraph";
   let headingLevel: number | null = null;
   // Alignment defaults to "start" (the CSS initial textAlign) when the focus

@@ -24,7 +24,7 @@ import {
 
 /** The caret's pixel X on its line (the goal column targetX preserves). */
 function caretX(ctx: NavCtx): number {
-  const px = resolvePixelPosition(ctx.editor.state, ctx.editor.selection.focus, layoutOf(ctx), ctx.measurer);
+  const px = resolvePixelPosition(ctx.editor.document, ctx.editor.selection.focus, layoutOf(ctx), ctx.measurer);
   if (px === null) throw new Error("caret did not resolve to a pixel position");
   return px.x;
 }

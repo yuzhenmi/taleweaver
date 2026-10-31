@@ -3,15 +3,15 @@ import { render } from "./render";
 import type { RenderNode, ElementBox, TextBox } from "./render-node";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
-import { TEST_RESOLVER, buildState } from "../test-utils/state-builders";
-import { buildStateWithListDefs } from "../state/build-state-from-blocks";
-import { buildBlock, inlineContent, text, embed } from "../test-utils/state-builders";
+import { TEST_RESOLVER, buildDocument } from "../test-utils/document-builders";
+import { buildDocumentWithListDefs } from "../state/build-document-from-blocks";
+import { buildBlock, inlineContent, text, embed } from "../test-utils/document-builders";
 import * as Y from "yjs";
-import { asBlockId, getBlock, createHistory, insertText, removeBlock, setBlockAttrs, reparentChildren, deleteRange, createSpan, createPosition, insertCrossReference, splitBlockAtPosition, createState, freshState, subscribeForeignChanges, type ListDef, type BlockId } from "../state";
+import { asBlockId, getBlock, createHistory, insertText, removeBlock, setBlockAttrs, reparentChildren, deleteRange, createSpan, createPosition, insertCrossReference, splitBlockAtPosition, createDocument, freshDocument, subscribeForeignChanges, type ListDef, type BlockId } from "../state";
 import { createTestAllocator } from "../state/block-id";
-import { STATE_INTERNAL } from "../state/state-internal";
+import { DOCUMENT_INTERNAL } from "../state/document-internal";
 import { resetPerfTrace, setPerfTraceEnabled, report } from "../perf/perf-trace";
-import { CROSS_REFERENCE_EMBED_TYPE, PAGE_FIELD_RESERVED_GLYPHS, BOOKMARK_START_EMBED_TYPE, BOOKMARK_END_EMBED_TYPE, type InlineItem, type State } from "../state";
+import { CROSS_REFERENCE_EMBED_TYPE, PAGE_FIELD_RESERVED_GLYPHS, BOOKMARK_START_EMBED_TYPE, BOOKMARK_END_EMBED_TYPE, type InlineItem, type Document } from "../state";
 import { BROKEN_CROSS_REFERENCE_TEXT } from "./resolve-cross-reference";
 import { buildCrossReferenceIndex, updateCrossReferenceIndex } from "./collect-cross-references";
 
@@ -56,7 +56,7 @@ function crossRefText(el: ElementBox): string {
 
 describe("render — cross-reference field wiring", () => {
   it("renders a text-mode reference as an inline-block atom carrying the target's text", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "p" }),
@@ -80,7 +80,7 @@ describe("render — cross-reference field wiring", () => {
         }),
       ],
     });
-    const out = render(state, reg, attrReg);
+    const out = render(document, reg, attrReg);
     const el = findCrossRef(out.root);
     expect(el).not.toBeNull();
     // The atom is an inline-block (one IFC token), NOT a bare text box that would
@@ -93,7 +93,7 @@ describe("render — cross-reference field wiring", () => {
   });
 
   it("renders a number-mode reference as the target list-item's counter", () => {
-    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
+    const document = buildDocumentWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "i1", lastChildId: "p" }),
@@ -127,7 +127,7 @@ describe("render — cross-reference field wiring", () => {
       ],
       listDefs: { L1: ORDERED_DEF },
     });
-    const out = render(state, reg, attrReg);
+    const out = render(document, reg, attrReg);
     const el = findCrossRef(out.root);
     // i2 is the 2nd list-item → counter `formatted` "2". A cross-reference shows
     // the bare number (Word's paragraph-number field); the trailing "." in the
@@ -139,7 +139,7 @@ describe("render — cross-reference field wiring", () => {
   });
 
   it("renders the broken-reference text for a dangling target", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -153,7 +153,7 @@ describe("render — cross-reference field wiring", () => {
         }),
       ],
     });
-    const out = render(state, reg, attrReg);
+    const out = render(document, reg, attrReg);
     const el = findCrossRef(out.root);
     expect(crossRefText(el as ElementBox)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
   });
@@ -161,7 +161,7 @@ describe("render — cross-reference field wiring", () => {
   it("renders the broken-reference text for a number ref to an unnumbered target", () => {
     // A `number` ref to a plain (non-list-item) paragraph: the target is absent
     // from the list-counter map → broken-ref.
-    const state = buildState({
+    const document = buildDocument({
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "p" }),
@@ -183,13 +183,13 @@ describe("render — cross-reference field wiring", () => {
         }),
       ],
     });
-    const out = render(state, reg, attrReg);
+    const out = render(document, reg, attrReg);
     const el = findCrossRef(out.root);
     expect(crossRefText(el as ElementBox)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
   });
 
   it("reflects an edit to the target's text on full re-render", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "p" }),
@@ -211,10 +211,10 @@ describe("render — cross-reference field wiring", () => {
         }),
       ],
     });
-    expect(crossRefText(findCrossRef(render(state, reg, attrReg).root) as ElementBox)).toBe("Intro");
+    expect(crossRefText(findCrossRef(render(document, reg, attrReg).root) as ElementBox)).toBe("Intro");
 
     // Append to the target; a fresh full render must show the new text.
-    const { state: next } = insertText(state, createPosition(asBlockId("h"), 6), "duction", {});
+    const { document: next } = insertText(document, createPosition(asBlockId("h"), 6), "duction", {});
     expect(crossRefText(findCrossRef(render(next, reg, attrReg).root) as ElementBox)).toBe("Introduction");
   });
 
@@ -223,7 +223,7 @@ describe("render — cross-reference field wiring", () => {
     // known at render time, so it renders a PLACEHOLDER atom (like a page-field),
     // carrying the metadata the later layout field-resolution pass discriminates
     // on. The number/text branches still resolve at render time (unchanged).
-    const state = buildState({
+    const document = buildDocument({
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "p" }),
@@ -250,7 +250,7 @@ describe("render — cross-reference field wiring", () => {
         }),
       ],
     });
-    const out = render(state, reg, attrReg);
+    const out = render(document, reg, attrReg);
     const el = findCrossRef(out.root);
     expect(el).not.toBeNull();
     // One inline-block atom = one IFC token = one cursor stop (#407).
@@ -266,7 +266,7 @@ describe("render — cross-reference field wiring", () => {
   });
 
   it("renders the atom on the incremental path when the ref host is invalidated", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "p" }),
@@ -288,16 +288,16 @@ describe("render — cross-reference field wiring", () => {
         }),
       ],
     });
-    const prev = render(state, reg, attrReg);
+    const prev = render(document, reg, attrReg);
     expect(crossRefText(findCrossRef(prev.root) as ElementBox)).toBe("Title");
 
     // Re-render incrementally with the ref host "p" invalidated (a no-op state
     // change for the assertion's purposes): the incremental walker must still
     // produce the inline-block atom with the resolved text, not crash on the
     // newly-threaded `numbering` map.
-    const out = render(state, reg, attrReg, {
+    const out = render(document, reg, attrReg, {
       prev,
-      prevState: state,
+      prevDocument: document,
       dirtyIds: new Set([asBlockId("p")]),
     });
     const el = findCrossRef(out.root);
@@ -308,7 +308,7 @@ describe("render — cross-reference field wiring", () => {
 
 describe("render — cross-reference incremental dirty-propagation (XR.S4)", () => {
   it("re-renders the ref host when the TARGET's text is edited (host not in dirtyIds)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "p" }),
@@ -330,25 +330,25 @@ describe("render — cross-reference incremental dirty-propagation (XR.S4)", () 
         }),
       ],
     });
-    const prev = render(state, reg, attrReg);
+    const prev = render(document, reg, attrReg);
     expect(crossRefText(findCrossRef(prev.root) as ElementBox)).toBe("Intro");
 
     // Edit the TARGET only. dirtyIds names "h" (and the doc chain), NOT the host
     // "p". Without the crossReferenceIndex expansion the incremental walk would
     // REUSE p's cached node with the stale "Intro"; the expansion must invalidate
     // p because its target "h" changed value.
-    const { state: next, dirtyIds } = insertText(state, createPosition(asBlockId("h"), 6), "duction", {});
+    const { document: next, dirtyIds } = insertText(document, createPosition(asBlockId("h"), 6), "duction", {});
     expect(dirtyIds.has(asBlockId("p"))).toBe(false); // host genuinely not dirty
-    const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
+    const out = render(next, reg, attrReg, { prev, prevDocument: document, dirtyIds });
     expect(crossRefText(findCrossRef(out.root) as ElementBox)).toBe("Introduction");
     // `prev`'s index was consumed by that render; reusing `prev` rebuilds it (and still refreshes the host).
-    const again = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
+    const again = render(next, reg, attrReg, { prev, prevDocument: document, dirtyIds });
     expect(crossRefText(findCrossRef(again.root) as ElementBox)).toBe("Introduction");
   });
 
   it("re-renders the ref host to broken-ref when the bookmarked text is deleted (host not in dirtyIds)", () => {
     // "h" is the target; "mid" sits between it and the host "p".
-    const state = buildState({
+    const document = buildDocument({
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "p" }),
@@ -378,25 +378,25 @@ describe("render — cross-reference incremental dirty-propagation (XR.S4)", () 
         }),
       ],
     });
-    const prev = render(state, reg, attrReg);
+    const prev = render(document, reg, attrReg);
     expect(crossRefText(findCrossRef(prev.root) as ElementBox)).toBe("Intro");
 
     // Deleting exactly the bookmarked text removes the bookmark; only "h" is dirty
     // (a whole-block removal would also dirty the root and re-render every block).
-    const history = createHistory(state);
+    const history = createHistory(document);
     const caret = createSpan(createPosition(asBlockId("h"), 1), createPosition(asBlockId("h"), 1));
     history.beginEntry("delete", 0, caret);
-    const deleted = deleteRange(state, createSpan(createPosition(asBlockId("h"), 1), createPosition(asBlockId("h"), 6)));
+    const deleted = deleteRange(document, createSpan(createPosition(asBlockId("h"), 1), createPosition(asBlockId("h"), 6)));
     history.commit(deleted, { before: caret, after: caret });
-    const { state: next, dirtyIds } = deleted;
+    const { document: next, dirtyIds } = deleted;
     expect([...dirtyIds]).toEqual([asBlockId("h")]);
-    const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
+    const out = render(next, reg, attrReg, { prev, prevDocument: document, dirtyIds });
     expect(crossRefText(findCrossRef(out.root) as ElementBox)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
     // Undo restores the markers: the bookmark pairs again (broken → paired), host still not dirty.
     const undone = history.undo();
     if (undone === null) throw new Error("expected an undo");
     expect(undone.dirtyIds.has(asBlockId("p"))).toBe(false);
-    const restored = render(undone.state, reg, attrReg, { prev: out, prevState: next, dirtyIds: undone.dirtyIds });
+    const restored = render(undone.document, reg, attrReg, { prev: out, prevDocument: next, dirtyIds: undone.dirtyIds });
     expect(crossRefText(findCrossRef(restored.root) as ElementBox)).toBe("Intro");
   });
 
@@ -405,7 +405,7 @@ describe("render — cross-reference incremental dirty-propagation (XR.S4)", () 
     // only i1 is dirty (an attribute change — not the root, whose invalidation would
     // re-render every block), so only the list-renumber diff surfaces i3, and the
     // cross-reference expansion must pick the host up via that set.
-    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
+    const document = buildDocumentWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "i1", lastChildId: "p" }),
@@ -426,13 +426,13 @@ describe("render — cross-reference incremental dirty-propagation (XR.S4)", () 
       ],
       listDefs: { L1: ORDERED_DEF, L2: ORDERED_DEF },
     });
-    const prev = render(state, reg, attrReg);
+    const prev = render(document, reg, attrReg);
     expect(crossRefText(findCrossRef(prev.root) as ElementBox)).toBe("3");
 
-    const { state: next, dirtyIds } = setBlockAttrs(state, asBlockId("i1"), { listId: "L2", listLevel: 0 });
+    const { document: next, dirtyIds } = setBlockAttrs(document, asBlockId("i1"), { listId: "L2", listLevel: 0 });
     expect([...dirtyIds]).toEqual([asBlockId("i1")]);
     expect(dirtyIds.has(asBlockId("p"))).toBe(false); // host not dirty either
-    const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
+    const out = render(next, reg, attrReg, { prev, prevDocument: document, dirtyIds });
     expect(crossRefText(findCrossRef(out.root) as ElementBox)).toBe("2");
     // Only the START's paragraph decides the number: a renumbered block the range merely
     // covers re-renders no host.
@@ -442,7 +442,7 @@ describe("render — cross-reference incremental dirty-propagation (XR.S4)", () 
   });
 
   it("populates RenderOutput.crossReferenceIndex (bookmark → hosts, bookmark → range) on the full path", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "p" }),
@@ -458,7 +458,7 @@ describe("render — cross-reference incremental dirty-propagation (XR.S4)", () 
         }),
       ],
     });
-    const out = render(state, reg, attrReg);
+    const out = render(document, reg, attrReg);
     expect([...(out.crossReferenceIndex.hosts.get("h") ?? [])]).toEqual([asBlockId("p")]);
     expect(out.crossReferenceIndex.bookmarks.get("h")).toEqual({ start: createPosition(asBlockId("h"), 1), end: createPosition(asBlockId("h"), 6) });
   });
@@ -467,7 +467,7 @@ describe("render — cross-reference incremental dirty-propagation (XR.S4)", () 
     // n paragraphs, a bookmark over every 10th, a text-mode field to it in the next.
     const visitedForKeystroke = (n: number): number => {
       const ids = Array.from({ length: n }, (_, i) => `p${i}`);
-      const state = buildState({
+      const document = buildDocument({
         rootId: asBlockId("doc"),
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: ids[n - 1] ?? "p0" }),
@@ -489,11 +489,11 @@ describe("render — cross-reference incremental dirty-propagation (XR.S4)", () 
           ),
         ],
       });
-      const prev = render(state, reg, attrReg);
-      const { state: next, dirtyIds } = insertText(state, createPosition(asBlockId("p0"), 3), "x", {});
+      const prev = render(document, reg, attrReg);
+      const { document: next, dirtyIds } = insertText(document, createPosition(asBlockId("p0"), 3), "x", {});
       resetPerfTrace();
       setPerfTraceEnabled(true);
-      const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
+      const out = render(next, reg, attrReg, { prev, prevDocument: document, dirtyIds });
       setPerfTraceEnabled(false);
       const visited = report().entries.find((e) => e.label === "crossReferences.blockRead")?.count ?? 0;
       // The field still resolves the edited text, and the range shifted in place.
@@ -508,7 +508,7 @@ describe("render — cross-reference incremental dirty-propagation (XR.S4)", () 
 
   it("keeps the incrementally maintained index equal to a full rebuild across edits (bookmark insert, typing inside / outside a multi-block span, Enter inside it, deleting its start block, moving its end block)", () => {
     // h1 … h4 then the host paragraph; a bookmark spanning h1 … h3 (start in h1, end in h3).
-    const state0 = buildState({
+    const document0 = buildDocument({
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "h1", lastChildId: "p" }),
@@ -519,35 +519,35 @@ describe("render — cross-reference incremental dirty-propagation (XR.S4)", () 
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", prevSiblingId: "h4", inlineContent: inlineContent([embed(CROSS_REFERENCE_EMBED_TYPE, { bookmarkId: "s", refMode: "text" })]) }),
       ],
     });
-    let state = state0;
-    let out = render(state, reg, attrReg);
-    const step = (r: { state: typeof state; dirtyIds: ReadonlySet<ReturnType<typeof asBlockId>> }, expected: string): void => {
-      out = render(r.state, reg, attrReg, { prev: out, prevState: state, dirtyIds: r.dirtyIds });
-      state = r.state;
-      const full = render(state, reg, attrReg).crossReferenceIndex;
+    let document = document0;
+    let out = render(document, reg, attrReg);
+    const step = (r: { document: typeof document; dirtyIds: ReadonlySet<ReturnType<typeof asBlockId>> }, expected: string): void => {
+      out = render(r.document, reg, attrReg, { prev: out, prevDocument: document, dirtyIds: r.dirtyIds });
+      document = r.document;
+      const full = render(document, reg, attrReg).crossReferenceIndex;
       expect(out.crossReferenceIndex.bookmarks).toEqual(full.bookmarks);
       expect(out.crossReferenceIndex.hosts).toEqual(full.hosts);
       expect(crossRefText(findCrossRef(out.root) as ElementBox)).toBe(expected);
     };
     // Typing in a MIDDLE block of the span (neither marker's block is dirty).
-    step(insertText(state, createPosition(asBlockId("h2"), 1), "X", {}), "bc\nmXid\nde");
+    step(insertText(document, createPosition(asBlockId("h2"), 1), "X", {}), "bc\nmXid\nde");
     // Enter in the middle block: the new (head) block is inside the span; typing in it shows.
-    const split = splitBlockAtPosition(state, createPosition(asBlockId("h2"), 2), createTestAllocator("n"));
+    const split = splitBlockAtPosition(document, createPosition(asBlockId("h2"), 2), createTestAllocator("n"));
     step(split, "bc\nmX\nid\nde");
-    step(insertText(state, createPosition(split.newBlockId, 0), "Y", {}), "bc\nYmX\nid\nde");
+    step(insertText(document, createPosition(split.newBlockId, 0), "Y", {}), "bc\nYmX\nid\nde");
     // Typing before the start marker in the start block shifts the range in place.
-    step(insertText(state, createPosition(asBlockId("h1"), 0), "Z", {}), "bc\nYmX\nid\nde");
+    step(insertText(document, createPosition(asBlockId("h1"), 0), "Z", {}), "bc\nYmX\nid\nde");
     // Typing after the end block (outside the span) does not touch the field.
-    step(insertText(state, createPosition(asBlockId("h4"), 0), "Q", {}), "bc\nYmX\nid\nde");
+    step(insertText(document, createPosition(asBlockId("h4"), 0), "Q", {}), "bc\nYmX\nid\nde");
     // A new bookmark + field (insertCrossReference writes markers around h4).
-    step(insertCrossReference(state, createPosition(asBlockId("p"), 1), asBlockId("h4"), "text"), "bc\nYmX\nid\nde");
+    step(insertCrossReference(document, createPosition(asBlockId("p"), 1), asBlockId("h4"), "text"), "bc\nYmX\nid\nde");
     // Deleting the START block keeps the bookmark on the remaining text (its start
     // marker moves to the next block: a pairing change).
-    step(removeBlock(state, asBlockId("h1")), "YmX\nid\nde");
+    step(removeBlock(document, asBlockId("h1")), "YmX\nid\nde");
     // MOVING the end block before the start breaks the bookmark; moving it back repairs it.
-    const parent = getBlock(state, asBlockId("h3"))?.parentId ?? asBlockId("doc");
-    step(reparentChildren(state, [asBlockId("h3")], parent, split.newBlockId), BROKEN_CROSS_REFERENCE_TEXT);
-    step(reparentChildren(state, [asBlockId("h3")], parent, asBlockId("h4")), "YmX\nid\nde");
+    const parent = getBlock(document, asBlockId("h3"))?.parentId ?? asBlockId("doc");
+    step(reparentChildren(document, [asBlockId("h3")], parent, split.newBlockId), BROKEN_CROSS_REFERENCE_TEXT);
+    step(reparentChildren(document, [asBlockId("h3")], parent, asBlockId("h4")), "YmX\nid\nde");
   });
 
   describe("MOVES (block ids kept; neither the parent nor a marker block's neighbour is dirty)", () => {
@@ -563,18 +563,18 @@ describe("render — cross-reference incremental dirty-propagation (XR.S4)", () 
     const end = (id: string) => embed(BOOKMARK_END_EMBED_TYPE, { bookmarkId: id });
     const field = (id: string) => embed(CROSS_REFERENCE_EMBED_TYPE, { bookmarkId: id, refMode: "text" });
     /** Move `block` before `before`, render incrementally, and check against a full render. */
-    const moveAndRender = (state: State, block: string, before: string) => {
-      const prev = render(state, reg, attrReg);
-      const parent = getBlock(state, asBlockId(block))?.parentId ?? asBlockId("doc");
-      const r = reparentChildren(state, [asBlockId(block)], parent, asBlockId(before));
+    const moveAndRender = (document: Document, block: string, before: string) => {
+      const prev = render(document, reg, attrReg);
+      const parent = getBlock(document, asBlockId(block))?.parentId ?? asBlockId("doc");
+      const r = reparentChildren(document, [asBlockId(block)], parent, asBlockId(before));
       expect(r.dirtyIds.has(parent)).toBe(false);
-      const out = render(r.state, reg, attrReg, { prev, prevState: state, dirtyIds: r.dirtyIds });
-      expect(out.crossReferenceIndex.bookmarks).toEqual(render(r.state, reg, attrReg).crossReferenceIndex.bookmarks);
+      const out = render(r.document, reg, attrReg, { prev, prevDocument: document, dirtyIds: r.dirtyIds });
+      expect(out.crossReferenceIndex.bookmarks).toEqual(render(r.document, reg, attrReg).crossReferenceIndex.bookmarks);
       return { r, out };
     };
 
     it("moving a paragraph holding a bookmark END before its start breaks the bookmark", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: asBlockId("doc"),
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "Q0", lastChildId: "H" }),
@@ -587,12 +587,12 @@ describe("render — cross-reference incremental dirty-propagation (XR.S4)", () 
           para("H", "P2", undefined, [field("s")]),
         ],
       });
-      const { out } = moveAndRender(state, "E", "Q1");
+      const { out } = moveAndRender(document, "E", "Q1");
       expect(crossRefText(findCrossRef(out.root) as ElementBox)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
     });
 
     it("moving a table whose cell holds a bookmark END before its start breaks the bookmark", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: asBlockId("doc"),
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "Q0", lastChildId: "H" }),
@@ -605,13 +605,13 @@ describe("render — cross-reference incremental dirty-propagation (XR.S4)", () 
           para("H", "P2", undefined, [field("s")]),
         ],
       });
-      const { r, out } = moveAndRender(state, "T", "Q1");
+      const { r, out } = moveAndRender(document, "T", "Q1");
       expect(r.dirtyIds.has(asBlockId("c1"))).toBe(false);
       expect(crossRefText(findCrossRef(out.root) as ElementBox)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
     });
 
     it("a table moved INTO a bookmark's span is covered: typing in its (not dirty) cell refreshes the field", () => {
-      const state = buildState({
+      const document = buildDocument({
         rootId: asBlockId("doc"),
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "X", lastChildId: "H" }),
@@ -624,16 +624,16 @@ describe("render — cross-reference incremental dirty-propagation (XR.S4)", () 
           para("H", "T", undefined, [field("w")]),
         ],
       });
-      const { r, out: prev } = moveAndRender(state, "T", "M2");
-      const typed = insertText(r.state, createPosition(asBlockId("c1"), 4), "!", {});
+      const { r, out: prev } = moveAndRender(document, "T", "M2");
+      const typed = insertText(r.document, createPosition(asBlockId("c1"), 4), "!", {});
       expect([...typed.dirtyIds]).toEqual([asBlockId("c1")]);
-      const out = render(typed.state, reg, attrReg, { prev, prevState: r.state, dirtyIds: typed.dirtyIds });
+      const out = render(typed.document, reg, attrReg, { prev, prevDocument: r.document, dirtyIds: typed.dirtyIds });
       expect(crossRefText(findCrossRef(out.root) as ElementBox)).toBe("x\nm1\ncell!\nm2\ny");
     });
   });
 
   it("refreshes a field when a REMOTE edit changes its bookmarked text", () => {
-    const base = buildState({
+    const base = buildDocument({
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "p" }),
@@ -642,17 +642,17 @@ describe("render — cross-reference incremental dirty-propagation (XR.S4)", () 
       ],
     });
     const localDoc = new Y.Doc();
-    Y.applyUpdate(localDoc, Y.encodeStateAsUpdate(base[STATE_INTERNAL].doc));
-    const local = createState({ rootId: base.rootId, doc: localDoc, resolver: TEST_RESOLVER });
+    Y.applyUpdate(localDoc, Y.encodeStateAsUpdate(base[DOCUMENT_INTERNAL].doc));
+    const local = createDocument({ rootId: base.rootId, doc: localDoc, resolver: TEST_RESOLVER });
     const prev = render(local, reg, attrReg);
     let dirty: ReadonlySet<ReturnType<typeof asBlockId>> = new Set();
     subscribeForeignChanges(local, "self", (ids) => {
       dirty = ids;
     }, () => {});
-    base[STATE_INTERNAL].doc.on("update", (u: Uint8Array) => Y.applyUpdate(localDoc, u, "peer"));
+    base[DOCUMENT_INTERNAL].doc.on("update", (u: Uint8Array) => Y.applyUpdate(localDoc, u, "peer"));
     insertText(base, createPosition(asBlockId("h"), 6), "!", {});
-    const next = freshState(local, dirty);
-    const out = render(next, reg, attrReg, { prev, prevState: local, dirtyIds: dirty });
+    const next = freshDocument(local, dirty);
+    const out = render(next, reg, attrReg, { prev, prevDocument: local, dirtyIds: dirty });
     expect(dirty.has(asBlockId("p"))).toBe(false);
     expect(crossRefText(findCrossRef(out.root) as ElementBox)).toBe("Intro!");
   });

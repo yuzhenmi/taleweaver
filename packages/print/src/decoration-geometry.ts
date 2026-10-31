@@ -11,7 +11,7 @@ import {
   type DecorationStyle,
   type InlineDecoration,
   type Position,
-  type State,
+  type Document,
   type TextMeasurer,
   type TextShaper,
 } from "@taleweaver/core";
@@ -61,7 +61,7 @@ const UNDERLINE_GAP = 2;
 const UNDERLINE_HALF_EXTENT = 2;
 
 export interface DecorationGeometryInput {
-  readonly state: State;
+  readonly document: Document;
   readonly decorations: DecorationSet;
   /** A positioned `PageBox` (paginated) or the whole positioned tree (single canvas). */
   readonly root: LayoutBox;
@@ -172,7 +172,7 @@ function pushInline(
   lines: readonly AbsoluteLineBox[],
   rel: RelShift | undefined,
 ): void {
-  const { state, root, pageIndex, measurer } = input;
+  const { document, root, pageIndex, measurer } = input;
   for (const seg of input.decorations.forBlock(blockId).inline) {
     const style = seg.decoration.style;
     if (style?.backgroundColor === undefined && style?.underline === undefined) continue;
@@ -194,11 +194,11 @@ function pushInline(
     let rects: SelectionRect[];
     let cacheable = true;
     if (pageIndex === null) {
-      rects = computeSelectionRects(state, span, root, measurer);
+      rects = computeSelectionRects(document, span, root, measurer);
     } else {
       const pages = input.pageSpanOf(blockId);
       if (pages !== null && pages.first === pages.last) {
-        rects = computeSelectionRectsForPageRange(state, span, root, pageIndex, pages.first, pages.last, measurer);
+        rects = computeSelectionRectsForPageRange(document, span, root, pageIndex, pages.first, pages.last, measurer);
       } else {
         // A block straddling pages (or outside the page plan): its endpoints'
         // pages depend on the whole tree, so resolve them and do not cache.
@@ -206,7 +206,7 @@ function pushInline(
         const startPos = input.resolve(span.anchor);
         const endPos = input.resolve(span.focus);
         if (startPos === null || endPos === null) continue;
-        rects = computeSelectionRectsForPageRange(state, span, root, pageIndex, startPos.pageIndex, endPos.pageIndex, measurer);
+        rects = computeSelectionRectsForPageRange(document, span, root, pageIndex, startPos.pageIndex, endPos.pageIndex, measurer);
       }
     }
     // Line geometry is the un-shifted layout frame; a `position: relative`

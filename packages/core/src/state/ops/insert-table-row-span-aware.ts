@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
-import { applyOperation, getBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, getBlock } from "../document";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { requireInTransaction } from "../yjs-doc";
@@ -43,17 +43,17 @@ export interface InsertTableRowSpanAwarePlan {
  *
  * Caller (the editor handler) resolves `ctx` and routes here only for a SPANNED,
  * non-ragged table (1×1 tables go through the byte-identical plain `insertTableRow`).
- * NO-OP (same `state`) when the grid can't be built. MAIN-TREE ONLY.
+ * NO-OP (same `document`) when the grid can't be built. MAIN-TREE ONLY.
  */
 export function insertTableRowSpanAware(
-  state: State,
+  document: Document,
   ctx: TableContext,
   position: RowPosition,
   allocator: IdAllocator,
 ): OperationResult {
-  const plan = planInsertTableRowSpanAware(state, ctx, position, allocator);
-  if (plan === null) return { state, dirtyIds: new Set<BlockId>() };
-  return applyOperation(state, (doc) => {
+  const plan = planInsertTableRowSpanAware(document, ctx, position, allocator);
+  if (plan === null) return { document, dirtyIds: new Set<BlockId>() };
+  return applyOperation(document, (doc) => {
     insertTableRowSpanAwareInTx(doc, plan);
   });
 }
@@ -64,12 +64,12 @@ export function insertTableRowSpanAware(
  * caret cell: insert-above → its origin row; insert-below → just past its last row.
  */
 export function planInsertTableRowSpanAware(
-  state: State,
+  document: Document,
   ctx: TableContext,
   position: RowPosition,
   allocator: IdAllocator,
 ): InsertTableRowSpanAwarePlan | null {
-  const grid = buildTableGrid(state, ctx.tableId);
+  const grid = buildTableGrid(document, ctx.tableId);
   if (grid === null) return null;
   const caret = grid.cells.find((c) => c.cellId === ctx.cellId);
   if (caret === undefined) return null;
@@ -91,7 +91,7 @@ export function planInsertTableRowSpanAware(
 
   const crossingBumps = [...crossingIds].map((cellId) => {
     const cell = grid.cells.find((c) => c.cellId === cellId);
-    const block = getBlock(state, cellId);
+    const block = getBlock(document, cellId);
     // Unreachable by construction: crossingIds come from the occupancy grid, which
     // was just built from these same blocks. Throw rather than silently default to
     // `{}` — setBlockAttrsInTx REPLACES, so a bare `{rowSpan}` would wipe colSpan etc.
@@ -111,7 +111,7 @@ export function planInsertTableRowSpanAware(
 
   // The new row's destination grid-row index is `gr` (the insertion
   // boundary). Keep `headerRowCount` naming the leading block.
-  const headerAttrs = headerRowAttrsAfterRowEdit(state, ctx.tableId, "insert", gr);
+  const headerAttrs = headerRowAttrsAfterRowEdit(document, ctx.tableId, "insert", gr);
 
   return {
     tableId: ctx.tableId,

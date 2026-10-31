@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { iterateBlocksInDocumentOrder, iterateLeafBlocksInDocumentOrder } from "./document-order";
-import { TEST_RESOLVER, testContainer, buildState, buildBlock } from "../test-utils/state-builders";
-import { getBlock } from "./state";
+import { TEST_RESOLVER, testContainer, buildDocument, buildBlock } from "../test-utils/document-builders";
+import { getBlock } from "./document";
 import type { BlockId } from "./block-id";
 
 // Host container types the default registry lacks (file-local registry instance).
@@ -10,7 +10,7 @@ TEST_RESOLVER.register(testContainer("blockquote"));
 describe("iterateBlocksInDocumentOrder", () => {
   it("yields blocks depth-first: parent, children, then next sibling", () => {
     // root → [a (with child a1), b]
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [
         buildBlock({ id: "root", type: "doc", firstChildId: "a", lastChildId: "b" }),
@@ -19,9 +19,9 @@ describe("iterateBlocksInDocumentOrder", () => {
         buildBlock({ id: "b", type: "paragraph", parentId: "root", prevSiblingId: "a", inlineContent: { items: [] } }),
       ],
     });
-    const ids = [...iterateBlocksInDocumentOrder(state)].map((b) => b.id);
+    const ids = [...iterateBlocksInDocumentOrder(document)].map((b) => b.id);
     // The root's child is its final section, which holds the top-level blocks.
-    expect(ids).toEqual(["root", getBlock(state, "root" as BlockId)?.firstChildId, "a", "a1", "b"]);
+    expect(ids).toEqual(["root", getBlock(document, "root" as BlockId)?.firstChildId, "a", "a1", "b"]);
   });
 
   it("walks a long flat chain in linear time", () => {
@@ -43,7 +43,7 @@ describe("iterateBlocksInDocumentOrder", () => {
       ),
     ];
     const t = performance.now();
-    expect([...iterateBlocksInDocumentOrder(buildState({ rootId: "root", blocks }))].length).toBe(n + 2); // + the final section
+    expect([...iterateBlocksInDocumentOrder(buildDocument({ rootId: "root", blocks }))].length).toBe(n + 2); // + the final section
     // Coarse bound (shared machines are noisy): linear is milliseconds; the quadratic bug was
     // tens of seconds (~60M map iterations).
     expect(performance.now() - t).toBeLessThan(5000);
@@ -52,11 +52,11 @@ describe("iterateBlocksInDocumentOrder", () => {
 
   it("yields the root, its final section and the one empty paragraph of a childless doc", () => {
     // Rev 11: the creator writes a childless flow's one ¶; the root always holds its final section.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "doc" })],
     });
-    const got = [...iterateBlocksInDocumentOrder(state)];
+    const got = [...iterateBlocksInDocumentOrder(document)];
     expect(got.map((b) => b.type)).toEqual(["doc", "section", "paragraph"]);
     expect(got[2]?.inlineContent).toEqual({ items: [] });
   });
@@ -65,7 +65,7 @@ describe("iterateBlocksInDocumentOrder", () => {
 describe("iterateLeafBlocksInDocumentOrder", () => {
   it("yields only leaf blocks (no firstChildId) in document order, skipping containers", () => {
     // root → [a (container, child a1), b]. Only a1 and b are leaves.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "root",
       blocks: [
         buildBlock({ id: "root", type: "doc", firstChildId: "a", lastChildId: "b" }),
@@ -74,6 +74,6 @@ describe("iterateLeafBlocksInDocumentOrder", () => {
         buildBlock({ id: "b", type: "paragraph", parentId: "root", prevSiblingId: "a", inlineContent: { items: [] } }),
       ],
     });
-    expect([...iterateLeafBlocksInDocumentOrder(state)].map((b) => b.id)).toEqual(["a1", "b"]);
+    expect([...iterateLeafBlocksInDocumentOrder(document)].map((b) => b.id)).toEqual(["a1", "b"]);
   });
 });

@@ -11,7 +11,7 @@
  * engine backstop verified at the reducer level.
  */
 import { describe, it, expect } from "vitest";
-import { finalSectionOf } from "../test-utils/state-builders";
+import { finalSectionOf } from "../test-utils/document-builders";
 import { config, reduceEditor, createInitialEditorState } from "./actions/test-helpers";
 import type { EditorState } from "./editor-state";
 import { selectionContextOf, getActiveFormatting, inlineContentLength, resolveBlock } from "../state";
@@ -40,10 +40,10 @@ describe("#424 — SET_SELECTION rejects cross-context spans", () => {
   it("throws in dev mode when anchor and focus are in different contexts", () => {
     const { editor, hostId, bodyId } = withFootnote();
     // Sanity: the two blocks really are in different contexts.
-    expect(selectionContextOf(editor.state, hostId)).not.toBeNull();
-    expect(selectionContextOf(editor.state, bodyId)).not.toBeNull();
-    expect(selectionContextOf(editor.state, hostId)).not.toBe(
-      selectionContextOf(editor.state, bodyId),
+    expect(selectionContextOf(editor.document, hostId)).not.toBeNull();
+    expect(selectionContextOf(editor.document, bodyId)).not.toBeNull();
+    expect(selectionContextOf(editor.document, hostId)).not.toBe(
+      selectionContextOf(editor.document, bodyId),
     );
 
     expect(() =>
@@ -128,9 +128,9 @@ describe("document-boundary handlers stay in the caret's selection context", () 
     const { editor } = withFootnote();
     const typed = reduceEditor(editor, { type: "INSERT_TEXT", text });
     const bodyBlockId = typed.selection.focus.blockId;
-    const bodyRoot = selectionContextOf(typed.state, bodyBlockId);
+    const bodyRoot = selectionContextOf(typed.document, bodyBlockId);
     if (bodyRoot === null) throw new Error("test setup: footnote body has no context root");
-    const block = resolveBlock(typed.state, bodyBlockId)?.block ?? null;
+    const block = resolveBlock(typed.document, bodyBlockId)?.block ?? null;
     if (block === null || block.inlineContent === null) {
       throw new Error("test setup: footnote body block missing inline content");
     }
@@ -145,8 +145,8 @@ describe("document-boundary handlers stay in the caret's selection context", () 
     const { editor, bodyRoot, bodyLength } = withFootnoteBodyText("note text");
     const next = reduceEditor(editor, { type: "EXPAND_DOCUMENT_BOUNDARY", boundary: "end" });
 
-    const anchorCtx = selectionContextOf(next.state, next.selection.anchor.blockId);
-    const focusCtx = selectionContextOf(next.state, next.selection.focus.blockId);
+    const anchorCtx = selectionContextOf(next.document, next.selection.anchor.blockId);
+    const focusCtx = selectionContextOf(next.document, next.selection.focus.blockId);
     expect(anchorCtx).not.toBeNull();
     expect(focusCtx).not.toBeNull();
     expect(anchorCtx).toBe(bodyRoot);
@@ -154,24 +154,24 @@ describe("document-boundary handlers stay in the caret's selection context", () 
     // Focus lands at the footnote body's last position.
     expect(next.selection.focus.offset).toBe(bodyLength);
     // The resulting (in-context) span is iterable — no cross-context throw.
-    expect(() => getActiveFormatting(next.state, next.selection)).not.toThrow();
+    expect(() => getActiveFormatting(next.document, next.selection)).not.toThrow();
   });
 
   it("EXPAND_DOCUMENT_BOUNDARY start from a footnote keeps both endpoints in the footnote", () => {
     const { editor, bodyRoot } = withFootnoteBodyText("note text");
     const next = reduceEditor(editor, { type: "EXPAND_DOCUMENT_BOUNDARY", boundary: "start" });
 
-    expect(selectionContextOf(next.state, next.selection.anchor.blockId)).toBe(bodyRoot);
-    expect(selectionContextOf(next.state, next.selection.focus.blockId)).toBe(bodyRoot);
+    expect(selectionContextOf(next.document, next.selection.anchor.blockId)).toBe(bodyRoot);
+    expect(selectionContextOf(next.document, next.selection.focus.blockId)).toBe(bodyRoot);
     expect(next.selection.focus.offset).toBe(0);
-    expect(() => getActiveFormatting(next.state, next.selection)).not.toThrow();
+    expect(() => getActiveFormatting(next.document, next.selection)).not.toThrow();
   });
 
   it("MOVE_DOCUMENT_BOUNDARY end from a footnote collapses at the footnote's last position", () => {
     const { editor, bodyRoot, bodyLength } = withFootnoteBodyText("note text");
     const next = reduceEditor(editor, { type: "MOVE_DOCUMENT_BOUNDARY", boundary: "end" });
 
-    expect(selectionContextOf(next.state, next.selection.focus.blockId)).toBe(bodyRoot);
+    expect(selectionContextOf(next.document, next.selection.focus.blockId)).toBe(bodyRoot);
     expect(next.selection.anchor).toEqual(next.selection.focus); // collapsed
     expect(next.selection.focus.offset).toBe(bodyLength);
   });
@@ -180,7 +180,7 @@ describe("document-boundary handlers stay in the caret's selection context", () 
     const { editor, bodyRoot } = withFootnoteBodyText("note text");
     const next = reduceEditor(editor, { type: "MOVE_DOCUMENT_BOUNDARY", boundary: "start" });
 
-    expect(selectionContextOf(next.state, next.selection.focus.blockId)).toBe(bodyRoot);
+    expect(selectionContextOf(next.document, next.selection.focus.blockId)).toBe(bodyRoot);
     expect(next.selection.anchor).toEqual(next.selection.focus); // collapsed
     expect(next.selection.focus.offset).toBe(0);
   });
@@ -190,17 +190,17 @@ describe("document-boundary handlers stay in the caret's selection context", () 
     const a = reduceEditor(initial, { type: "INSERT_TEXT", text: "first" });
     const b = reduceEditor(a, { type: "SPLIT_NODE" });
     const c = reduceEditor(b, { type: "INSERT_TEXT", text: "second" });
-    const mainRoot = c.state.rootId;
+    const mainRoot = c.document.rootId;
     // Caret is at the end of the second (last) paragraph; expand to start.
     const expanded = reduceEditor(c, { type: "EXPAND_DOCUMENT_BOUNDARY", boundary: "start" });
 
-    expect(selectionContextOf(expanded.state, expanded.selection.focus.blockId)).toBe(mainRoot);
+    expect(selectionContextOf(expanded.document, expanded.selection.focus.blockId)).toBe(mainRoot);
     expect(expanded.selection.focus.offset).toBe(0);
     // Focus is the FIRST content block of the main document.
-    const firstBlock = resolveBlock(expanded.state, expanded.selection.focus.blockId)?.block ?? null;
+    const firstBlock = resolveBlock(expanded.document, expanded.selection.focus.blockId)?.block ?? null;
     if (firstBlock === null) throw new Error("expected a resolvable first block");
     // a top-level block's parent is its section (the final one here).
-    expect(firstBlock.parentId).toBe(finalSectionOf(expanded.state));
+    expect(firstBlock.parentId).toBe(finalSectionOf(expanded.document));
     expect(firstBlock.prevSiblingId).toBeNull();
   });
 
@@ -209,14 +209,14 @@ describe("document-boundary handlers stay in the caret's selection context", () 
     const a = reduceEditor(initial, { type: "INSERT_TEXT", text: "first" });
     const b = reduceEditor(a, { type: "SPLIT_NODE" });
     const c = reduceEditor(b, { type: "INSERT_TEXT", text: "second" });
-    const mainRoot = c.state.rootId;
+    const mainRoot = c.document.rootId;
     // Move caret to start, then jump to document end.
     const atStart = reduceEditor(c, { type: "MOVE_DOCUMENT_BOUNDARY", boundary: "start" });
     const atEnd = reduceEditor(atStart, { type: "MOVE_DOCUMENT_BOUNDARY", boundary: "end" });
 
-    expect(selectionContextOf(atEnd.state, atEnd.selection.focus.blockId)).toBe(mainRoot);
+    expect(selectionContextOf(atEnd.document, atEnd.selection.focus.blockId)).toBe(mainRoot);
     expect(atEnd.selection.anchor).toEqual(atEnd.selection.focus); // collapsed
-    const lastBlock = resolveBlock(atEnd.state, atEnd.selection.focus.blockId)?.block ?? null;
+    const lastBlock = resolveBlock(atEnd.document, atEnd.selection.focus.blockId)?.block ?? null;
     if (lastBlock === null || lastBlock.inlineContent === null) {
       throw new Error("expected a resolvable last content block");
     }

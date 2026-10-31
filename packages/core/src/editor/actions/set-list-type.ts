@@ -3,12 +3,12 @@ import type { Edit } from "../edit";
 import {
   getBlock,
   setListType,
-  getListDefsForState,
+  getListDefsForDocument,
   classifyListDef,
   iterateBlocksInSpan,
   positionsEqual,
 } from "../../state";
-import type { Block, BlockId, State } from "../../state";
+import type { Block, BlockId, Document } from "../../state";
 import type { ActionOf } from "../editor-action";
 
 type ListType = "ordered" | "unordered";
@@ -31,32 +31,32 @@ export function handleSetListType(editor: EditorState, { listType }: ActionOf<"S
   const listIds = distinctSelectedListIds(editor);
   if (listIds.size === 0) return null;
 
-  const defs = getListDefsForState(editor.state);
+  const defs = getListDefsForDocument(editor.document);
   const currentType = (listId: string): ListType | undefined => {
     const def = defs.get(listId);
     return def === undefined ? undefined : classifyListDef(def);
   };
 
-  let state: State = editor.state;
+  let document: Document = editor.document;
   const dirtyIds = new Set<BlockId>();
   for (const listId of listIds) {
     // Skip lists already of the requested type — avoids a redundant def rewrite
     // (which would otherwise produce a no-op history entry, since the def write
     // always mutates the Y.Doc even with identical content).
     if (currentType(listId) === listType) continue;
-    const result = setListType(state, listId, listType);
-    state = result.state;
+    const result = setListType(document, listId, listType);
+    document = result.document;
     for (const id of result.dirtyIds) dirtyIds.add(id);
   }
 
-  if (state === editor.state) return null;
+  if (document === editor.document) return null;
 
-  return { change: { state, dirtyIds } };
+  return { change: { document, dirtyIds } };
 }
 
 /** The distinct `listId`s of list-items the selection touches. */
 function distinctSelectedListIds(editor: EditorState): Set<string> {
-  const { state, selection } = editor;
+  const { document, selection } = editor;
   const ids = new Set<string>();
   const addFrom = (block: Block | null): void => {
     if (block !== null && block.type === "list-item") {
@@ -66,9 +66,9 @@ function distinctSelectedListIds(editor: EditorState): Set<string> {
   };
 
   if (positionsEqual(selection.anchor, selection.focus)) {
-    addFrom(getBlock(state, selection.focus.blockId));
+    addFrom(getBlock(document, selection.focus.blockId));
     return ids;
   }
-  for (const block of iterateBlocksInSpan(state, selection)) addFrom(block);
+  for (const block of iterateBlocksInSpan(document, selection)) addFrom(block);
   return ids;
 }

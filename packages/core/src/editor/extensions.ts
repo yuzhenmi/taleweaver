@@ -1,9 +1,8 @@
 import { resolveBlock, createPosition, createSpan, positionsEqual } from "../state";
-import type { Position, State, BlockId } from "../state";
+import type { Position, Document, BlockId } from "../state";
 import { isCollapsed } from "../cursor/selection";
 import { transitionMapping } from "../decorations/decoration-layers";
 import type { EditorAction } from "./editor-action";
-import type { EditorConfig } from "./editor-config";
 import type { EditorState } from "./editor-state";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import type { ComponentRegistry } from "../components/component-registry";
@@ -135,7 +134,7 @@ export function runTransaction(
           );
         }
         const next = reduce(current, action);
-        if (next.state !== current.state) {
+        if (next.document !== current.document) {
           if (next.lastDirtyIds === null) unknown = true;
           else for (const id of next.lastDirtyIds) dirty.add(id);
         }
@@ -149,7 +148,7 @@ export function runTransaction(
     if (ok) editor.history.endBatch();
     else editor.history.abortBatch();
   }
-  if (current.state === editor.state) return { ...current, lastDirtyIds: null };
+  if (current.document === editor.document) return { ...current, lastDirtyIds: null };
   return { ...current, lastDirtyIds: unknown ? null : dirty };
 }
 
@@ -165,8 +164,8 @@ export function unionDirty(
 // ─── Text before the caret ────────────────────────────────────────────────
 
 /** The block's text in `[from, to)` (embeds as U+FFFC). */
-function blockText(state: State, blockId: BlockId, from: number, to: number): string {
-  const items = resolveBlock(state, blockId)?.block.inlineContent?.items ?? [];
+function blockText(document: Document, blockId: BlockId, from: number, to: number): string {
+  const items = resolveBlock(document, blockId)?.block.inlineContent?.items ?? [];
   let out = "";
   let pos = 0;
   for (const item of items) {
@@ -188,12 +187,12 @@ const INPUT_RULE_WINDOW = 500;
  * as its OWN undo entry (typing coalescing is broken first), so one Undo reverts just the
  * transform back to the typed text. Returns `editor` when no rule fires.
  */
-export function applyInputRules(editor: EditorState, config: EditorConfig, reduce: Reduce): EditorState {
-  const rules = config.extensions?.inputRules;
+export function applyInputRules(editor: EditorState, reduce: Reduce): EditorState {
+  const rules = editor.config.extensions?.inputRules;
   if (rules === undefined || rules.length === 0 || !isCollapsed(editor.selection)) return editor;
   const caret = editor.selection.focus;
   const start = Math.max(0, caret.offset - INPUT_RULE_WINDOW);
-  const before = blockText(editor.state, caret.blockId, start, caret.offset);
+  const before = blockText(editor.document, caret.blockId, start, caret.offset);
   for (const rule of rules) {
     rule.pattern.lastIndex = 0;
     const match = rule.pattern.exec(before);
@@ -212,7 +211,7 @@ export function applyInputRules(editor: EditorState, config: EditorConfig, reduc
     if (actions.length === 0) continue;
     editor.history.breakCoalescing();
     const next = reduce(editor, { type: "TRANSACTION", run: (tx) => actions.forEach((a) => tx.dispatch(a)) });
-    if (next.state === editor.state && next.selection === editor.selection) continue;
+    if (next.document === editor.document && next.selection === editor.selection) continue;
     return { ...next, lastDirtyIds: unionDirty(editor.lastDirtyIds, next.lastDirtyIds) };
   }
   return editor;
@@ -227,10 +226,10 @@ const WORD_START_BEFORE = /^[\s\p{Ps}\p{Pi}\p{Pf}"']$/u;
 
 /** The trigger at `from` in `editor`, if the text from it to the caret is still a valid one. */
 /** True when any run in `[from, to)` of the block carries an atomic mark (a picked mention). */
-function hasAtomicMark(state: State, blockId: BlockId, from: number, to: number, registry: AttrRegistry): boolean {
+function hasAtomicMark(document: Document, blockId: BlockId, from: number, to: number, registry: AttrRegistry): boolean {
   if (!registry.hasAtomicMarks()) return false;
   let pos = 0;
-  for (const item of resolveBlock(state, blockId)?.block.inlineContent?.items ?? []) {
+  for (const item of resolveBlock(document, blockId)?.block.inlineContent?.items ?? []) {
     const end = pos + (item.kind === "text" ? item.text.length : 1);
     if (end > from && pos < to && Object.keys(item.attrs).some((k) => registry.isAtomic(k))) return true;
     if (end >= to) break;
@@ -240,11 +239,11 @@ function hasAtomicMark(state: State, blockId: BlockId, from: number, to: number,
 }
 
 function validTrigger(spec: TriggerSpec, editor: EditorState, from: Position, registry: AttrRegistry): ActiveTrigger | undefined {
-  const { selection, state } = editor;
+  const { selection, document } = editor;
   if (!isCollapsed(selection)) return undefined;
   const caret = selection.focus;
   if (caret.blockId !== from.blockId || caret.offset < from.offset + spec.text.length) return undefined;
-  const text = blockText(state, caret.blockId, from.offset, caret.offset);
+  const text = blockText(document, caret.blockId, from.offset, caret.offset);
   if (!text.startsWith(spec.text)) return undefined;
   const query = text.slice(spec.text.length);
   if (query.includes("￼") || query.includes("\n")) return undefined;
@@ -252,7 +251,7 @@ function validTrigger(spec: TriggerSpec, editor: EditorState, from: Position, re
   if (query.length > (spec.maxQueryLength ?? 64)) return undefined;
   // Text already turned into an atomic mark (a picked mention "@Anna") is never a
   // trigger again, even though it still spells one.
-  if (hasAtomicMark(state, caret.blockId, from.offset, caret.offset, registry)) return undefined;
+  if (hasAtomicMark(document, caret.blockId, from.offset, caret.offset, registry)) return undefined;
   return { id: spec.id, from, to: caret, query };
 }
 
@@ -277,8 +276,8 @@ export function updateActiveTrigger(
   before: EditorState,
   result: EditorState,
   action: EditorAction,
-  config: EditorConfig,
 ): EditorState {
+  const { config } = result;
   // A transaction's steps are not separate edits: its intermediate selections (a step
   // moving the caret elsewhere) must not end the trigger — it is mapped and checked
   // once, across the whole transaction, when the outer action finishes.
@@ -292,7 +291,7 @@ export function updateActiveTrigger(
   if (prev !== undefined && action.type !== "ESCAPE") {
     const spec = specs.find((s) => s.id === prev.id);
     let from: Position | null = prev.from;
-    if (result.state !== before.state) {
+    if (result.document !== before.document) {
       const mapped = transitionMapping(before, result).map(prev.from, 1);
       from = mapped.position;
     }
@@ -305,12 +304,12 @@ export function updateActiveTrigger(
     const typedStart = caret.offset - action.text.length;
     for (const spec of specs) {
       const windowStart = Math.max(0, typedStart - spec.text.length);
-      const text = blockText(result.state, caret.blockId, windowStart, caret.offset);
+      const text = blockText(result.document, caret.blockId, windowStart, caret.offset);
       const idx = text.lastIndexOf(spec.text);
       if (idx < 0 || windowStart + idx + spec.text.length <= typedStart) continue;
       const start = windowStart + idx;
       if (spec.startOfWord !== false && start > 0) {
-        const prevChar = blockText(result.state, caret.blockId, start - 1, start);
+        const prevChar = blockText(result.document, caret.blockId, start - 1, start);
         if (!WORD_START_BEFORE.test(prevChar)) continue;
       }
       next = validTrigger(spec, result, createPosition(caret.blockId, start), config.attrRegistry);
@@ -471,7 +470,7 @@ const parsedKeymaps = new WeakMap<Keymap, ReadonlyArray<{ name: string; parsed: 
 
 /**
  * Parse (and cache) every binding of `keymap`, throwing on a malformed name.
- * `createEditorStateFromState` calls this, so a bad binding fails at configuration time.
+ * `createEditorStateFromDocument` calls this, so a bad binding fails at configuration time.
  */
 export function compileKeymap(keymap: Keymap): ReadonlyArray<{ name: string; parsed: ParsedBinding }> {
   let compiled = parsedKeymaps.get(keymap);
@@ -531,5 +530,5 @@ export function runKeyBinding(
  * with nothing to dismiss still reaches the page (e.g. closes a containing dialog).
  */
 export function escapeWouldChange(editor: EditorState, componentRegistry: ComponentRegistry): boolean {
-  return editor.activeTrigger !== undefined || isObjectSelection(editor.state, editor.selection, componentRegistry) !== null;
+  return editor.activeTrigger !== undefined || isObjectSelection(editor.document, editor.selection, componentRegistry) !== null;
 }

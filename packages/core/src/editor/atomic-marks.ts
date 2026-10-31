@@ -8,13 +8,13 @@ import {
   normalizeSpan,
   positionsEqual,
 } from "../state";
-import type { State, Position, Selection, Span } from "../state";
+import type { Document, Position, Selection, Span } from "../state";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import { requireAttrRegistry } from "../state/mark-attrs";
-import { STATE_INTERNAL } from "../state/state-internal";
+import { DOCUMENT_INTERNAL } from "../state/document-internal";
 
 /** The attr registry bound to the editor's doc (its atomic marks). */
-const registryOf = (state: State): AttrRegistry => requireAttrRegistry(state[STATE_INTERNAL].doc);
+const registryOf = (document: Document): AttrRegistry => requireAttrRegistry(document[DOCUMENT_INTERNAL].doc);
 
 /**
  * The atomic UNIT `pos` lies strictly inside, or null: the connected component of
@@ -24,11 +24,11 @@ const registryOf = (state: State): AttrRegistry => requireAttrRegistry(state[STA
  * shared edge is a valid caret position.
  */
 function atomicUnitAround(
-  state: State,
+  document: Document,
   pos: Position,
   registry: AttrRegistry,
 ): { start: number; end: number } | null {
-  const content = resolveBlock(state, pos.blockId)?.block.inlineContent ?? null;
+  const content = resolveBlock(document, pos.blockId)?.block.inlineContent ?? null;
   if (content === null) return null;
   const ranges = blockMarkRanges(content, (key) => registry.isAtomic(key), markEqualityOf(registry));
   let unit: { start: number; end: number } | null = null;
@@ -62,7 +62,7 @@ function atomicUnitAround(
  * - Otherwise a caret lands on the nearest edge (ties → end).
  */
 function normalizeEndpoint(
-  state: State,
+  document: Document,
   pos: Position,
   prev: Position,
   travels: boolean,
@@ -70,7 +70,7 @@ function normalizeEndpoint(
   isStart: boolean,
   registry: AttrRegistry,
 ): Position {
-  const r = atomicUnitAround(state, pos, registry);
+  const r = atomicUnitAround(document, pos, registry);
   if (r === null) return pos;
   const fromEdge = travels && prev.blockId === pos.blockId && prev.offset !== pos.offset;
   let offset: number;
@@ -89,20 +89,20 @@ function normalizeEndpoint(
  * focus (and anchor) block's items.
  */
 export function normalizeSelectionForAtomicMarks(
-  state: State,
+  document: Document,
   selection: Selection,
   prev: Selection,
 ): Selection {
-  const registry = registryOf(state);
+  const registry = registryOf(document);
   if (!registry.hasAtomicMarks()) return selection;
   const collapsed = positionsEqual(selection.anchor, selection.focus);
   if (collapsed) {
-    const focus = normalizeEndpoint(state, selection.focus, prev.focus, true, true, false, registry);
+    const focus = normalizeEndpoint(document, selection.focus, prev.focus, true, true, false, registry);
     return focus === selection.focus ? selection : createSpan(focus, focus);
   }
-  const focusFirst = comparePositions(state, selection.focus, selection.anchor) < 0;
-  const anchor = normalizeEndpoint(state, selection.anchor, prev.anchor, false, false, !focusFirst, registry);
-  const focus = normalizeEndpoint(state, selection.focus, prev.focus, true, false, focusFirst, registry);
+  const focusFirst = comparePositions(document, selection.focus, selection.anchor) < 0;
+  const anchor = normalizeEndpoint(document, selection.anchor, prev.anchor, false, false, !focusFirst, registry);
+  const focus = normalizeEndpoint(document, selection.focus, prev.focus, true, false, focusFirst, registry);
   return anchor === selection.anchor && focus === selection.focus ? selection : createSpan(anchor, focus);
 }
 
@@ -111,12 +111,12 @@ export function normalizeSelectionForAtomicMarks(
  * partly inside it — a delete touching part of an atomic unit (overlapping atomic
  * ranges count as one) removes all of it.
  */
-export function expandSpanOverAtomicMarks(state: State, span: Span): Span {
-  const norm = normalizeSpan(state, span);
-  const registry = registryOf(state);
+export function expandSpanOverAtomicMarks(document: Document, span: Span): Span {
+  const norm = normalizeSpan(document, span);
+  const registry = registryOf(document);
   if (!registry.hasAtomicMarks()) return norm;
-  const s = atomicUnitAround(state, norm.anchor, registry);
-  const e = atomicUnitAround(state, norm.focus, registry);
+  const s = atomicUnitAround(document, norm.anchor, registry);
+  const e = atomicUnitAround(document, norm.focus, registry);
   if (s === null && e === null) return norm;
   return createSpan(
     s === null ? norm.anchor : createPosition(norm.anchor.blockId, s.start),

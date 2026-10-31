@@ -10,12 +10,12 @@ import { createPosition, createSpan } from "../block-position";
 import type { BlockId } from "../block-id";
 import { createHistory } from "../history";
 import { extractText } from "../extract-text";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 import { relAt, survives } from "../../test-utils/relpos-survival";
 
 /** doc > [ p( ...runs ) ] — one leaf paragraph whose inline content is `runs`. */
 function blockOf(runs: ReturnType<typeof text>[]) {
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -31,21 +31,21 @@ describe("same-block deleteRange — character survival", () => {
   it("a position in the PREFIX (before the deleted range) survives", () => {
     const s = blockOf([text("ABCDEF")]);
     const rel = relAt(s, "p", 1); // 'B', before the deletion
-    const after = deleteRange(s, span(2, 4)).state; // delete "CD"
+    const after = deleteRange(s, span(2, 4)).document; // delete "CD"
     expect(survives(rel, after, "B")).toBe(true);
   });
 
   it("a position in the SUFFIX (after the deleted range) survives", () => {
     const s = blockOf([text("ABCDEF")]);
     const rel = relAt(s, "p", 5); // 'F', after the deletion
-    const after = deleteRange(s, span(2, 4)).state; // delete "CD"
+    const after = deleteRange(s, span(2, 4)).document; // delete "CD"
     expect(survives(rel, after, "F")).toBe(true);
   });
 
   it("a position before an intra-run deletion (both endpoints in one run) survives", () => {
     const s = blockOf([text("ABCDEF")]);
     const rel = relAt(s, "p", 0); // 'A', before a deletion fully inside the run
-    const after = deleteRange(s, span(2, 4)).state; // delete "CD" — single yText.delete
+    const after = deleteRange(s, span(2, 4)).document; // delete "CD" — single yText.delete
     expect(survives(rel, after, "A")).toBe(true);
   });
 
@@ -55,7 +55,7 @@ describe("same-block deleteRange — character survival", () => {
     const s = blockOf([text("AB"), text("CD", { strong: true })]);
     const relA = relAt(s, "p", 0); // 'A', in the run trimmed at its end
     const relD = relAt(s, "p", 3); // 'D', in the run trimmed at its start
-    const after = deleteRange(s, span(1, 3)).state;
+    const after = deleteRange(s, span(1, 3)).document;
     expect(survives(relA, after, "A")).toBe(true);
     expect(survives(relD, after, "D")).toBe(true);
   });
@@ -66,14 +66,14 @@ describe("same-block deleteRange — character survival", () => {
     // as "B" is appended into its Y.Text.
     const s = blockOf([text("A"), text("del", { strong: true }), text("B")]);
     const rel = relAt(s, "p", 0); // 'A', the seam-merge receiver
-    const after = deleteRange(s, span(1, 4)).state; // delete "del"
+    const after = deleteRange(s, span(1, 4)).document; // delete "del"
     expect(survives(rel, after, "A")).toBe(true);
   });
 
   it("SEAM: the chars after the seam survive too (no run is re-minted)", () => {
     const s = blockOf([text("A"), text("del", { strong: true }), text("B")]);
     const rel = relAt(s, "p", 4); // 'B', after the deleted run
-    const after = deleteRange(s, span(1, 4)).state;
+    const after = deleteRange(s, span(1, 4)).document;
     expect(survives(rel, after, "B")).toBe(true);
   });
 
@@ -85,12 +85,12 @@ describe("same-block deleteRange — character survival", () => {
     const rel = relAt(s, "p", 5); // 'F', in the suffix
     const op = deleteRange(s, span(2, 4)); // delete "CD" → "ABEF"
     history.commit(op, { before: span(2, 4), after: span(2, 2) });
-    expect(survives(rel, op.state, "F")).toBe(true); // survives the delete itself
+    expect(survives(rel, op.document, "F")).toBe(true); // survives the delete itself
 
     const undone = history.undo();
     expect(undone).not.toBeNull();
     if (undone === null) throw new Error("expected undo to succeed");
-    expect(extractText(undone.state, span(0, 6))).toBe("ABCDEF"); // content restored
-    expect(survives(rel, undone.state, "F")).toBe(true); // undo did not orphan the suffix anchor
+    expect(extractText(undone.document, span(0, 6))).toBe("ABCDEF"); // content restored
+    expect(survives(rel, undone.document, "F")).toBe(true); // undo did not orphan the suffix anchor
   });
 });

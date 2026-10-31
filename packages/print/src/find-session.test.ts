@@ -193,7 +193,7 @@ describe("find session + navigation (#433)", () => {
     // at/after offset 4 is the 2nd occurrence (offset 8) → activeIndex 1.
     const cfg = config();
     let editor = seededEditorState("foo bar foo baz foo");
-    const blockId = finalSection(editor.state)?.firstChildId;
+    const blockId = finalSection(editor.document)?.firstChildId;
     if (blockId === null || blockId === undefined) throw new Error("no block");
     editor = core.reduceEditor(
       { ...editor, config: cfg },
@@ -221,10 +221,10 @@ describe("find session + navigation (#433)", () => {
     editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "hello hello" });
     editor = core.reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     // Sanity: the caret is now in a different context than the main body.
-    const bodyBlockId = finalSection(editor.state)?.firstChildId;
+    const bodyBlockId = finalSection(editor.document)?.firstChildId;
     if (bodyBlockId === null || bodyBlockId === undefined) throw new Error("no body block");
-    expect(core.selectionContextOf(editor.state, editor.selection.focus.blockId)).not.toBe(
-      core.selectionContextOf(editor.state, bodyBlockId),
+    expect(core.selectionContextOf(editor.document, editor.selection.focus.blockId)).not.toBe(
+      core.selectionContextOf(editor.document, bodyBlockId),
     );
 
     const { container } = mount();
@@ -421,7 +421,7 @@ describe("find session + navigation (#433)", () => {
       const cfg = config();
       let editor = core.createInitialEditorState(cfg);
       editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "foo" });
-      const topBlockId = finalSection(editor.state)?.firstChildId;
+      const topBlockId = finalSection(editor.document)?.firstChildId;
       if (topBlockId === null || topBlockId === undefined) throw new Error("no top block");
       for (let i = 0; i < 8; i++) {
         editor = core.reduceEditor(editor, { type: "SPLIT_NODE" });
@@ -446,7 +446,7 @@ describe("find session + navigation (#433)", () => {
       // caret pinned at the top. The live recompute refreshes the matches; with
       // the caret in view at the top, cursor-scroll is inert. The recompute must
       // not smooth-scroll (no rAF scheduled).
-      const lastBlockId = finalSection(editor.state)?.lastChildId;
+      const lastBlockId = finalSection(editor.document)?.lastChildId;
       if (lastBlockId === null || lastBlockId === undefined) throw new Error("no last block");
       editor = core.reduceEditor(
         editor,
@@ -485,7 +485,7 @@ describe("find session + navigation (#433)", () => {
     // "foo foo" → 2 matches. Active = index 1 (the 2nd). Delete the whole doc's
     // text down to "foo" → only 1 match survives; activeIndex clamps 1 → 0.
     let editor = seededEditorState("foo foo");
-    const blockId = finalSection(editor.state)?.firstChildId;
+    const blockId = finalSection(editor.document)?.firstChildId;
     if (blockId === null || blockId === undefined) throw new Error("no block");
 
     const { container, lastCtx } = mount();

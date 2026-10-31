@@ -25,10 +25,10 @@ export { physicalBorderSides, resolveLogicalSides } from "./styles";
 
 export { isOpenableLinkUrl, isExportSafeLinkUrl } from "./url-safety";
 
-// State (Y.Doc-backed) — re-exported through the `state/` barrel
+// Document (Y.Doc-backed) — re-exported through the `state/` barrel
 // (`./state/index.ts`), the intra-core API contract for the document model.
 export type {
-  State,
+  Document,
   OperationResult,
   ResolvedBlock,
   ResolvedBlockKind,
@@ -38,9 +38,9 @@ export type {
   IncompatibleDocumentReport,
 } from "./state";
 export {
-  createState,
+  createDocument,
   applyOperation,
-  freshState,
+  freshDocument,
   subscribeForeignChanges,
   type CompatibilityGateOptions,
   upgradeDocument,
@@ -68,7 +68,7 @@ export { MAX_CHANGE_CHAIN } from "./editor/document-change";
 export type { FindRefresh } from "./editor/find-session";
 export type { MappingLog } from "./editor/mapping-log";
 export { createMappingLog, composeMappings, DEFAULT_MAPPING_LOG_CAPACITY } from "./editor/mapping-log";
-// Declarative construction: lower a nested `BlockNode` tree → `State` (mints
+// Declarative construction: lower a nested `BlockNode` tree → `Document` (mints
 // ids, derives all structural links). The safe public counterpart to the
 // internal bulk constructor; the foundation importers (e.g. the HTML
 // serializer) target.
@@ -160,7 +160,7 @@ export type { ActiveFormatting, MarkRange } from "./state";
 // List numbering definitions — surfaced for human-friendly serializers that
 // classify a list as ordered/unordered and mint fresh list ids on decode.
 export type { ListDef } from "./state";
-export { getListDefsForState, classifyListDef, newListId } from "./state";
+export { getListDefsForDocument, classifyListDef, newListId } from "./state";
 
 // Content-bearing inline-embed type ids — surfaced so a lossy human serializer
 // can detect (and dev-warn about) dropped footnote-anchor / cross-reference
@@ -409,7 +409,7 @@ export type { ContainerBlockView, RenderContext } from "./render/block-view";
 // Test-support builders consumed by the geometry tests that relocated to
 // `@taleweaver/print` (those tests cross the package boundary now, so the
 // builders they use must be on the barrel). Pure document-construction helpers.
-export { buildBlock, buildState, inlineContent, text, embed } from "./test-utils/state-builders";
+export { buildBlock, buildDocument, inlineContent, text, embed } from "./test-utils/document-builders";
 
 // Components (new pipeline)
 export type {
@@ -506,21 +506,21 @@ export type { EditorState } from "./editor/editor-state";
 export type { EditorConfig } from "./editor/editor-config";
 export {
   createInitialEditorState,
-  // Build an `EditorState` from an arbitrary seed `State` + initial `Selection`
+  // Build an `EditorState` from an arbitrary seed `Document` + initial `Selection`
   // (the full render → cascade → layout build). The public seam for hosts/tests
   // that need a non-default seed document (e.g. a TOC + headings doc) without an
   // editor-from-state injection.
-  createEditorStateFromState,
+  createEditorStateFromDocument,
 } from "./editor/editor-state";
 export { reduceEditor } from "./editor/reduce-editor";
 export { findFirstContentBlock, findLastContentBlock } from "./editor/actions";
 // Live collab: apply a peer's edit (foreign dirty block ids from
-// `subscribeForeignChanges`) to the local `EditorState` — `freshState` cache
+// `subscribeForeignChanges`) to the local `EditorState` — `freshDocument` cache
 // invalidation + incremental `lastDirtyIds`, selection/history passthrough.
 export { reconcileForeignChange } from "./editor/reconcile-foreign-change";
-// Derive the default collapsed caret for a freshly-loaded `State` (first
-// content block, offset 0). Pairs with `createEditorStateFromState`.
-export { initialSelectionForState } from "./editor/actions";
+// Derive the default collapsed caret for a freshly-loaded `Document` (first
+// content block, offset 0). Pairs with `createEditorStateFromDocument`.
+export { initialSelectionForDocument } from "./editor/actions";
 // Geometry-free editor helpers the print backend's NavIntent resolver imports:
 // the anchor-affinity seed (focus-only extenders), the object-nav
 // selection, and the line-delete span guards. `seedAnchorAffinity` lives on

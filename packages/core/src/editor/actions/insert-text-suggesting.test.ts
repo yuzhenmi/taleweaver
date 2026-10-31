@@ -18,7 +18,7 @@
  * text.length`. Direct mode (suggestingAuthor unset) keeps the destructive
  * `replaceRange`.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,
@@ -41,7 +41,7 @@ import { getBlock, getSuggestions, type BlockId } from "../../state";
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, finalSectionOf(editor.state));
+  const root = getBlock(editor.document, finalSectionOf(editor.document));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -70,16 +70,16 @@ describe("handleInsertText — suggesting mode (slice 4b)", () => {
     const next = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
 
     // The text landed.
-    expect(getTextOf(next.state, paraId)).toBe("hi");
+    expect(getTextOf(next.document, paraId)).toBe("hi");
 
     // Exactly one insertion suggestion, by "alice", covering the inserted run.
-    const suggestions = getSuggestions(next.state);
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
     expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
 
     // The run carries the insertion-suggestion provenance attr = the record id.
-    const items = getBlock(next.state, paraId)?.inlineContent?.items ?? [];
+    const items = getBlock(next.document, paraId)?.inlineContent?.items ?? [];
     const textItem = items.find((it) => it.kind === "text");
     expect(textItem?.kind).toBe("text");
     if (textItem?.kind === "text") {
@@ -95,8 +95,8 @@ describe("handleInsertText — suggesting mode (slice 4b)", () => {
     expect(typed.history.canUndo()).toBe(true);
 
     const undone = reduceEditor(typed, { type: "UNDO" });
-    expect(getTextOf(undone.state, paraId)).toBe("");
-    expect(getSuggestions(undone.state)).toHaveLength(0);
+    expect(getTextOf(undone.document, paraId)).toBe("");
+    expect(getSuggestions(undone.document)).toHaveLength(0);
   });
 
   it("coalesces consecutive adjacent inserts into ONE insertion suggestion", () => {
@@ -106,8 +106,8 @@ describe("handleInsertText — suggesting mode (slice 4b)", () => {
     // Caret is now after "a"; the next insert is immediately adjacent.
     const ab = reduceEditor(a, { type: "INSERT_TEXT", text: "b" });
 
-    expect(getTextOf(ab.state, paraId)).toBe("ab");
-    const suggestions = getSuggestions(ab.state);
+    expect(getTextOf(ab.document, paraId)).toBe("ab");
+    const suggestions = getSuggestions(ab.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
     expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
@@ -118,8 +118,8 @@ describe("handleInsertText — suggesting mode (slice 4b)", () => {
     const paraId = bodyParaId(initial);
     const next = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
 
-    expect(getTextOf(next.state, paraId)).toBe("hi");
-    expect(getSuggestions(next.state)).toHaveLength(0);
+    expect(getTextOf(next.document, paraId)).toBe("hi");
+    expect(getSuggestions(next.document)).toHaveLength(0);
   });
 
   it("collapsed insert at a non-start caret mints a suggestion covering only the new run", () => {
@@ -131,8 +131,8 @@ describe("handleInsertText — suggesting mode (slice 4b)", () => {
     const placed = caretAt(seeded, paraId, 3); // caret between "abc" and "def"
     const next = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" });
 
-    expect(getTextOf(next.state, paraId)).toBe("abcZdef");
-    const suggestions = getSuggestions(next.state);
+    expect(getTextOf(next.document, paraId)).toBe("abcZdef");
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
   });
@@ -163,7 +163,7 @@ function suggestionIdAt(
   idx: number,
   attr: "insertionSuggestionId" | "deletionSuggestionId",
 ): unknown {
-  const items = getBlock(editor.state, paraId)?.inlineContent?.items ?? [];
+  const items = getBlock(editor.document, paraId)?.inlineContent?.items ?? [];
   let offset = 0;
   for (const it of items) {
     if (it.kind !== "text") continue;
@@ -188,10 +188,10 @@ describe("handleInsertText — type over a selection, suggesting mode (slice 4d-
     const next = reduceEditor(selected, { type: "INSERT_TEXT", text: "X" });
 
     // The struck "bcd" STAYS — "X" lands BEFORE it → content text "aXbcdef".
-    expect(getTextOf(next.state, paraId)).toBe("aXbcdef");
+    expect(getTextOf(next.document, paraId)).toBe("aXbcdef");
 
     // Exactly two records: one insertion + one deletion, both by "alice".
-    const suggestions = getSuggestions(next.state);
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(2);
     const insertion = suggestions.find((s) => s.kind === "insertion");
     const deletion = suggestions.find((s) => s.kind === "deletion");
@@ -230,8 +230,8 @@ describe("handleInsertText — type over a selection, suggesting mode (slice 4d-
 
     // A SINGLE undo undoes both the strike and the insert (atomic composite).
     const undone = reduceEditor(typed, { type: "UNDO" });
-    expect(getTextOf(undone.state, paraId)).toBe("abcdef");
-    expect(getSuggestions(undone.state)).toHaveLength(0);
+    expect(getTextOf(undone.document, paraId)).toBe("abcdef");
+    expect(getSuggestions(undone.document)).toHaveLength(0);
   });
 
   it("direct mode (regression): the SAME type-over REMOVES the selection (replaceRange), no suggestion", () => {
@@ -251,8 +251,8 @@ describe("handleInsertText — type over a selection, suggesting mode (slice 4d-
     const next = reduceEditor(selected, { type: "INSERT_TEXT", text: "X" });
 
     // Destructive replace: "bcd" is GONE, "X" inserted → "aXef"; no suggestion.
-    expect(getTextOf(next.state, paraId)).toBe("aXef");
-    expect(getSuggestions(next.state)).toHaveLength(0);
+    expect(getTextOf(next.document, paraId)).toBe("aXef");
+    expect(getSuggestions(next.document)).toHaveLength(0);
     // Caret at start.offset (1) + text.length (1) = offset 2.
     expect(next.selection.anchor).toEqual(next.selection.focus);
     expect(next.selection.focus.offset).toBe(2);
@@ -265,7 +265,7 @@ describe("handleInsertText — type over a selection, suggesting mode (slice 4d-
     s = reduceEditor(s, { type: "SPLIT_NODE" });
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" });
 
-    const root = getBlock(s.state, finalSectionOf(s.state));
+    const root = getBlock(s.document, finalSectionOf(s.document));
     const p1 = root?.firstChildId ?? null;
     const p2 = root?.lastChildId ?? null;
     if (p1 === null || p2 === null || p1 === p2) {
@@ -285,10 +285,10 @@ describe("handleInsertText — type over a selection, suggesting mode (slice 4d-
 
     // Soft delete keeps the struck text: p1 = "a" + "X"(insertion) + struck "bc";
     // p2 = struck "de" + "f". The inserted run lands at the selection START (p1).
-    expect(getTextOf(next.state, p1)).toBe("aXbc");
-    expect(getTextOf(next.state, p2)).toBe("def");
+    expect(getTextOf(next.document, p1)).toBe("aXbc");
+    expect(getTextOf(next.document, p2)).toBe("def");
 
-    const suggestions = getSuggestions(next.state);
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(2);
     const insertion = suggestions.find((sg) => sg.kind === "insertion");
     const deletion = suggestions.find((sg) => sg.kind === "deletion");
@@ -317,14 +317,14 @@ describe("suggesting typing keeps ¶P's markAttrs", () => {
     const suggesting: EditorConfig = { ...directConfig, suggestingAuthor: "alice" };
     let editor = reduceEditor(createInitialEditorState(directConfig), { type: "INSERT_TEXT", text: "ab" });
     const p = bodyParaId(editor);
-    expect(getBlock(editor.state, p)?.markAttrs).toBeUndefined();
+    expect(getBlock(editor.document, p)?.markAttrs).toBeUndefined();
     editor = reduceEditor({ ...editor, config: suggesting }, { type: "TOGGLE_STYLE", style: "bold" });
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "c" });
     // The registry reached the suggesting writer: ¶P carries bold, never the provenance id.
-    expect(getBlock(editor.state, p)?.markAttrs).toEqual({ bold: true });
+    expect(getBlock(editor.document, p)?.markAttrs).toEqual({ bold: true });
     editor = reduceEditor(editor, { type: "SPLIT_NODE" });
     // The caret block is the empty tail (B keeps its id); its ¶ keeps the bold props only.
-    const tail = getBlock(editor.state, editor.selection.focus.blockId);
+    const tail = getBlock(editor.document, editor.selection.focus.blockId);
     expect(tail?.markAttrs).toEqual({ bold: true });
   });
 });

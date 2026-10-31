@@ -20,11 +20,11 @@ function bodyView(): ContainerBlockView {
   };
 }
 
-/** The render fn reads NOTHING from context; `state` throws to make any use loud. */
+/** The render fn reads NOTHING from context; `document` throws to make any use loud. */
 function stubRenderContext(): RenderContext {
   return {
-    get state(): never {
-      throw new Error("template-body render must not read context.state");
+    get document(): never {
+      throw new Error("template-body render must not read context.document");
     },
     footnoteNumber(): string | undefined {
       return undefined;

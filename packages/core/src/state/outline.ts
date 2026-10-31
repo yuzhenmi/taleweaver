@@ -1,5 +1,5 @@
-import type { State } from "./state";
-import { getBlock } from "./state";
+import type { Document } from "./document";
+import { getBlock } from "./document";
 import type { BlockId } from "./block-id";
 import { createPosition, createSpan } from "./block-position";
 import { inlineContentLength } from "./inline-content";
@@ -43,7 +43,7 @@ export interface OutlineOptions {
 }
 
 /**
- * Read the document outline of `state` — the flat, document-ordered list of
+ * Read the document outline of `document` — the flat, document-ordered list of
  * heading blocks behind Google Docs' outline panel (View ▸ Show outline).
  *
  * Read-only query over state; no mutation, no paint. Walks the MAIN document
@@ -64,11 +64,11 @@ export interface OutlineOptions {
  * the `level` field) is a consumer concern. An empty document, or one with no
  * headings, yields `[]`.
  */
-export function getOutline(state: State, options?: OutlineOptions): OutlineEntry[] {
+export function getOutline(document: Document, options?: OutlineOptions): OutlineEntry[] {
   const entries: OutlineEntry[] = [];
 
-  for (const blockId of iterateTargetBlocks(state, options?.blockIds)) {
-    const block = getBlock(state, blockId);
+  for (const blockId of iterateTargetBlocks(document, options?.blockIds)) {
+    const block = getBlock(document, blockId);
     // Only leaf blocks carry inline content; skip containers / non-leaf blocks.
     if (!block || block.inlineContent === null) continue;
     if (block.type !== "heading") continue;
@@ -78,7 +78,7 @@ export function getOutline(state: State, options?: OutlineOptions): OutlineEntry
       length === 0
         ? ""
         : extractText(
-            state,
+            document,
             createSpan(createPosition(blockId, 0), createPosition(blockId, length)),
             captionEmbedSerializer,
             options?.suggestionView ?? "suggesting",
@@ -126,7 +126,7 @@ export const EMPTY_OUTLINE_SIGNATURE: OutlineSignature = Object.freeze({
 });
 
 /**
- * Compute the {@link OutlineSignature} for `state` under `suggestionView`.
+ * Compute the {@link OutlineSignature} for `document` under `suggestionView`.
  *
  * Reuses {@link getOutline} for the heading entries so the signature text is
  * EXACTLY the text a TOC renders (same `extractText` + `suggestionView`
@@ -136,17 +136,17 @@ export const EMPTY_OUTLINE_SIGNATURE: OutlineSignature = Object.freeze({
  * carry no inlineContent).
  */
 export function computeOutlineSignature(
-  state: State,
+  document: Document,
   suggestionView: SuggestionView,
 ): OutlineSignature {
-  const entries = getOutline(state, { suggestionView });
+  const entries = getOutline(document, { suggestionView });
   const signature: OutlineSigEntry[] = entries.map((e) => ({
     blockId: e.blockId,
     level: e.level,
     text: e.text,
   }));
   const tocAnchorIds = new Set<BlockId>();
-  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+  for (const block of iterateLeafBlocksInDocumentOrder(document)) {
     if (block.type === "table-of-contents") tocAnchorIds.add(block.id);
   }
   return Object.freeze({
@@ -197,14 +197,14 @@ function levelOf(level: unknown): number {
  * are NOT filtered here; `getOutline` skips them.
  */
 function* iterateTargetBlocks(
-  state: State,
+  document: Document,
   blockIds: Iterable<BlockId> | undefined,
 ): Iterable<BlockId> {
   if (blockIds !== undefined) {
     yield* blockIds;
     return;
   }
-  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+  for (const block of iterateLeafBlocksInDocumentOrder(document)) {
     yield block.id;
   }
 }

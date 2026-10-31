@@ -5,11 +5,11 @@
  * without importing any DOM or HTML-parsing library, keeping `@taleweaver/core`
  * DOM-free.
  */
-import { TEST_RESOLVER } from "../../test-utils/state-builders";
+import { TEST_RESOLVER } from "../../test-utils/document-builders";
 import { topLevelBlockIds } from "../block-traversal";
 import { describe, it, expect } from "vitest";
 import { decodeHtml, createTestAllocator, resolveBlock } from "../../index";
-import type { HtmlNode, HtmlParser, State } from "../../index";
+import type { HtmlNode, HtmlParser, Document } from "../../index";
 import type { BlockId } from "../../index";
 
 // ---------------------------------------------------------------------------
@@ -207,9 +207,9 @@ export const testParser: HtmlParser = (html: string): HtmlNode => {
 // ---------------------------------------------------------------------------
 
 /** Concatenate the text of all inline text items in a block. */
-function blockPlainText(state: State, id: BlockId): string {
+function blockPlainText(document: Document, id: BlockId): string {
   return (
-    resolveBlock(state, id)
+    resolveBlock(document, id)
       ?.block.inlineContent?.items.map((i) => (i.kind === "text" ? i.text : ""))
       .join("") ?? ""
   );
@@ -222,25 +222,25 @@ function blockPlainText(state: State, id: BlockId): string {
 describe("decodeHtml — CSS white-space:normal collapsing (G1)", () => {
   it("collapses inter-tag whitespace/newlines from real-world HTML (G1)", () => {
     const html = "<body><p>Hello\n    world</p>\n  <p>  second  </p></body>";
-    const state = decodeHtml(html, createTestAllocator("ws"), testParser, TEST_RESOLVER);
-    const paras = topLevelBlockIds(state);
+    const document = decodeHtml(html, createTestAllocator("ws"), testParser, TEST_RESOLVER);
+    const paras = topLevelBlockIds(document);
     expect(paras.length).toBe(2); // whitespace-only inter-block text node dropped
-    expect(blockPlainText(state, paras[0]!)).toBe("Hello world"); // internal run collapsed to single space
-    expect(blockPlainText(state, paras[1]!)).toBe("second"); // leading/trailing trimmed at block edge
+    expect(blockPlainText(document, paras[0]!)).toBe("Hello world"); // internal run collapsed to single space
+    expect(blockPlainText(document, paras[1]!)).toBe("second"); // leading/trailing trimmed at block edge
   });
 
   it("preserves a single significant space between inline marks", () => {
     const html = "<body><p><strong>bold</strong> <em>italic</em></p></body>";
-    const state = decodeHtml(html, createTestAllocator("ws2"), testParser, TEST_RESOLVER);
-    expect(blockPlainText(state, topLevelBlockIds(state)[0]!)).toBe("bold italic");
+    const document = decodeHtml(html, createTestAllocator("ws2"), testParser, TEST_RESOLVER);
+    expect(blockPlainText(document, topLevelBlockIds(document)[0]!)).toBe("bold italic");
   });
 });
 
 describe("decodeHtml — bookmarks (Word's HTML import)", () => {
   it("an empty <a id|name> → an EMPTY bookmark (start + end adjacent); <a href=\"#x\"> → a link to #x", () => {
-    const state = decodeHtml('<body><p><a name="_Ref1"></a>Intro <a href="#_Ref1">here</a></p></body>', createTestAllocator("bm"), testParser, TEST_RESOLVER);
-    const first = topLevelBlockIds(state)[0];
-    const items = first === undefined ? [] : (resolveBlock(state, first)?.block.inlineContent?.items ?? []);
+    const document = decodeHtml('<body><p><a name="_Ref1"></a>Intro <a href="#_Ref1">here</a></p></body>', createTestAllocator("bm"), testParser, TEST_RESOLVER);
+    const first = topLevelBlockIds(document)[0];
+    const items = first === undefined ? [] : (resolveBlock(document, first)?.block.inlineContent?.items ?? []);
     expect(items).toEqual([
       { kind: "embed", embedType: "bookmark-start", attrs: {}, properties: { bookmarkId: "_Ref1" } },
       { kind: "embed", embedType: "bookmark-end", attrs: {}, properties: { bookmarkId: "_Ref1" } },

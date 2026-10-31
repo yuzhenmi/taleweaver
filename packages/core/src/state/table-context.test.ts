@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { resolveTableContext, getChildIds, buildTableGrid } from "./table-context";
-import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent } from "../test-utils/document-builders";
 import type { BlockId } from "./block-id";
 import type { Block } from "./block";
 
@@ -17,10 +17,10 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
  *     └ row1 → cC(pC), cD(pD)
  * Extra cell attrs let individual tests inject a span / ragged shape.
  */
-function buildTableState(opts?: {
+function buildTableDocument(opts?: {
   cAattrs?: Record<string, unknown>;
   dropCellD?: boolean;
-}): ReturnType<typeof buildState> {
+}): ReturnType<typeof buildDocument> {
   const blocks: Block[] = [
     buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
     buildBlock({
@@ -43,26 +43,26 @@ function buildTableState(opts?: {
       buildBlock({ id: "pD", type: "paragraph", parentId: "cD", inlineContent: inlineContent([]) }),
     );
   }
-  return buildState({ rootId: "doc", blocks });
+  return buildDocument({ rootId: "doc", blocks });
 }
 
 describe("getChildIds", () => {
   it("returns the document-order child ids of a parent", () => {
-    const state = buildTableState();
-    expect(getChildIds(state, "table" as BlockId)).toEqual(["row0", "row1"]);
-    expect(getChildIds(state, "row0" as BlockId)).toEqual(["cA", "cB"]);
+    const document = buildTableDocument();
+    expect(getChildIds(document, "table" as BlockId)).toEqual(["row0", "row1"]);
+    expect(getChildIds(document, "row0" as BlockId)).toEqual(["cA", "cB"]);
   });
   it("returns [] for a missing or childless block", () => {
-    const state = buildTableState();
-    expect(getChildIds(state, "nope" as BlockId)).toEqual([]);
-    expect(getChildIds(state, "pA" as BlockId)).toEqual([]);
+    const document = buildTableDocument();
+    expect(getChildIds(document, "nope" as BlockId)).toEqual([]);
+    expect(getChildIds(document, "pA" as BlockId)).toEqual([]);
   });
 });
 
 describe("resolveTableContext", () => {
   it("resolves the full grid context from a caret inside a cell's paragraph", () => {
-    const state = buildTableState();
-    const ctx = resolveTableContext(state, "pD" as BlockId);
+    const document = buildTableDocument();
+    const ctx = resolveTableContext(document, "pD" as BlockId);
     expect(ctx).not.toBeNull();
     if (ctx === null) throw new Error("expected ctx");
     expect(ctx.tableId).toBe("table");
@@ -78,29 +78,29 @@ describe("resolveTableContext", () => {
   });
 
   it("resolves when given the cell id directly", () => {
-    const state = buildTableState();
-    const ctx = resolveTableContext(state, "cA" as BlockId);
+    const document = buildTableDocument();
+    const ctx = resolveTableContext(document, "cA" as BlockId);
     expect(ctx?.colIndex).toBe(0);
     expect(ctx?.rowIndex).toBe(0);
   });
 
   it("returns null when the block is not inside a table", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
       ],
     });
-    expect(resolveTableContext(state, "p" as BlockId)).toBeNull();
-    expect(resolveTableContext(state, "missing" as BlockId)).toBeNull();
+    expect(resolveTableContext(document, "p" as BlockId)).toBeNull();
+    expect(resolveTableContext(document, "missing" as BlockId)).toBeNull();
   });
 
   it("returns null for a table inside a NON-main tree (header/footer body) — ops are main-tree-only", () => {
     // A full table tree lives in templateContents (a header/footer body), not the
     // main tree. ancestorChain resolves it (cross-tree), but getBlock is main-tree
     // only, so no table-cell matches → null (the main-tree guard).
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -114,15 +114,15 @@ describe("resolveTableContext", () => {
         buildBlock({ id: "tplPara", type: "paragraph", parentId: "tplCell", inlineContent: inlineContent([]) }),
       ],
     });
-    expect(resolveTableContext(state, "tplPara" as BlockId)).toBeNull();
+    expect(resolveTableContext(document, "tplPara" as BlockId)).toBeNull();
   });
 
   it("flags hasSpans/spanned when any cell carries a real rowSpan/colSpan", () => {
     // cA colSpan 2 on the 2×2 fixture: cB is pushed to grid col 2; row1's slot
     // (1,2) reads as an implicit cell (grid model), so the table is spanned and
     // never ragged.
-    const state = buildTableState({ cAattrs: { colSpan: 2 } });
-    const ctx = resolveTableContext(state, "pA" as BlockId);
+    const document = buildTableDocument({ cAattrs: { colSpan: 2 } });
+    const ctx = resolveTableContext(document, "pA" as BlockId);
     expect(ctx?.hasSpans).toBe(true);
     expect(ctx?.spanned).toBe(true);
     expect(ctx?.ragged).toBe(false);
@@ -130,7 +130,7 @@ describe("resolveTableContext", () => {
 
   it("a WELL-FORMED spanned table tiles fully: spanned=true, ragged=false (P15b runs)", () => {
     // row0 = [A(colSpan 2)]; row1 = [C, D]. occupancy [[A,A],[C,D]] — no holes.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
@@ -145,21 +145,21 @@ describe("resolveTableContext", () => {
         buildBlock({ id: "Dp", type: "paragraph", parentId: "D", inlineContent: inlineContent([]) }),
       ],
     });
-    const ctx = resolveTableContext(state, "Ap" as BlockId);
+    const ctx = resolveTableContext(document, "Ap" as BlockId);
     expect(ctx?.spanned).toBe(true);
     expect(ctx?.ragged).toBe(false);
     expect(ctx?.hasSpans).toBe(true);
   });
 
   it("does NOT flag a malformed (non-integer) span — agrees with the component predicate", () => {
-    const state = buildTableState({ cAattrs: { colSpan: 1.5 } });
-    const ctx = resolveTableContext(state, "pA" as BlockId);
+    const document = buildTableDocument({ cAattrs: { colSpan: 1.5 } });
+    const ctx = resolveTableContext(document, "pA" as BlockId);
     expect(ctx?.hasSpans).toBe(false);
   });
 
   it("a table cannot be ragged: a missing slot reads as an implicit cell (grid model)", () => {
-    const state = buildTableState({ dropCellD: true }); // row1 written with 1 cell, row0 with 2
-    const ctx = resolveTableContext(state, "pA" as BlockId);
+    const document = buildTableDocument({ dropCellD: true }); // row1 written with 1 cell, row0 with 2
+    const ctx = resolveTableContext(document, "pA" as BlockId);
     expect(ctx).not.toBeNull();
     expect(ctx?.cellIdsByRow).toEqual([["cA", "cB"], ["cC", "row1|table:c1"]]);
     expect(ctx?.hasSpans).toBe(false);
@@ -169,9 +169,9 @@ describe("resolveTableContext", () => {
 });
 
 describe("buildTableGrid", () => {
-  it("builds the occupancy grid for a uniform 2×2 table from the State tree", () => {
-    const state = buildTableState();
-    const grid = buildTableGrid(state, "table" as BlockId);
+  it("builds the occupancy grid for a uniform 2×2 table from the Document tree", () => {
+    const document = buildTableDocument();
+    const grid = buildTableGrid(document, "table" as BlockId);
     expect(grid).not.toBeNull();
     if (grid === null) throw new Error("expected a grid");
     expect(grid.columnCount).toBe(2);
@@ -186,8 +186,8 @@ describe("buildTableGrid", () => {
   });
 
   it("reads spans via spanValue: a colSpan-2 cell claims two grid columns (state-built grid matches layout)", () => {
-    const state = buildTableState({ cAattrs: { colSpan: 2 } });
-    const grid = buildTableGrid(state, "table" as BlockId);
+    const document = buildTableDocument({ cAattrs: { colSpan: 2 } });
+    const grid = buildTableGrid(document, "table" as BlockId);
     if (grid === null) throw new Error("expected a grid");
     // cA spans cols 0–1, cB lands at col 2 → columnCount 3. Grid model: row1's
     // missing slot reads as the implicit cell `${row}|${col}` (no ragged tail).
@@ -197,8 +197,8 @@ describe("buildTableGrid", () => {
   });
 
   it("ignores a malformed (non-integer) span — agrees with the component's spanValue predicate", () => {
-    const state = buildTableState({ cAattrs: { colSpan: 2.9 } });
-    const grid = buildTableGrid(state, "table" as BlockId);
+    const document = buildTableDocument({ cAattrs: { colSpan: 2.9 } });
+    const grid = buildTableGrid(document, "table" as BlockId);
     if (grid === null) throw new Error("expected a grid");
     // spanValue(2.9) → undefined → 1×1 (NOT clampSpan(2.9)=2). Byte-identical to layout.
     expect(grid.columnCount).toBe(2);
@@ -209,8 +209,8 @@ describe("buildTableGrid", () => {
     // row0 = [cA(rowSpan 2), cB], row1 = [cC] (dropCellD). cA fills (0,0) AND (1,0),
     // so cC lands at col 1 — the grid is rectangular even though the rows have
     // differing CELL counts. Exercises assignTableGrid's freeAtRow carryover.
-    const state = buildTableState({ cAattrs: { rowSpan: 2 }, dropCellD: true });
-    const grid = buildTableGrid(state, "table" as BlockId);
+    const document = buildTableDocument({ cAattrs: { rowSpan: 2 }, dropCellD: true });
+    const grid = buildTableGrid(document, "table" as BlockId);
     if (grid === null) throw new Error("expected a grid");
     expect(grid.columnCount).toBe(2);
     expect(grid.occupancy).toEqual([["cA", "cB"], ["cA", "cC"]]);
@@ -219,8 +219,8 @@ describe("buildTableGrid", () => {
   });
 
   it("returns null when the id is not a main-tree table block", () => {
-    const state = buildTableState();
-    expect(buildTableGrid(state, "row0" as BlockId)).toBeNull();
-    expect(buildTableGrid(state, "missing" as BlockId)).toBeNull();
+    const document = buildTableDocument();
+    expect(buildTableGrid(document, "row0" as BlockId)).toBeNull();
+    expect(buildTableGrid(document, "missing" as BlockId)).toBeNull();
   });
 });

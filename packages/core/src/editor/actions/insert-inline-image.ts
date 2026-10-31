@@ -34,13 +34,13 @@ export function handleInsertInlineImage(
   // Delete a non-collapsed selection first (Google Docs replaces the selection),
   // then splice the image at the collapse point. A cross-context / cross-parent
   // expanded selection is un-deletable → no-op.
-  const prep = prepareEmbedInsertPoint(editor.state, editor.selection);
+  const prep = prepareEmbedInsertPoint(editor.document, editor.selection);
   if (!prep.ok) return null;
 
-  const result = insertInlineImage(prep.state, prep.position, { src, width, height, alt });
+  const result = insertInlineImage(prep.document, prep.position, { src, width, height, alt });
   // Identity invariant: nothing changed (no delete AND a no-op insert) → return the
   // editor unchanged so the "no change → same reference" contract holds.
-  if (result.state === prep.state && prep.dirtyIds.size === 0) return null;
+  if (result.document === prep.document && prep.dirtyIds.size === 0) return null;
   const dirtyIds = new Set<BlockId>(prep.dirtyIds);
   for (const id of result.dirtyIds) dirtyIds.add(id);
 
@@ -48,5 +48,5 @@ export function handleInsertInlineImage(
   const cursor = createPosition(prep.position.blockId, prep.position.offset + 1);
   const selectionAfter = createSpan(cursor, cursor);
 
-  return { change: { state: result.state, dirtyIds }, selection: selectionAfter };
+  return { change: { document: result.document, dirtyIds }, selection: selectionAfter };
 }

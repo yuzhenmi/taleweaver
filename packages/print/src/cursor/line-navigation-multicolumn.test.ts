@@ -52,12 +52,12 @@ import type { ColumnConfig } from "@taleweaver/core";
 import type { LayoutBox, MultiColumnBox } from "../layout/layout-box";
 import type { TextShaper } from "@taleweaver/core";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
-import type { State, BlockId } from "@taleweaver/core";
+import type { Document, BlockId } from "@taleweaver/core";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -86,7 +86,7 @@ function columnSectionPlan(columnConfig: ColumnConfig): SectionPlan {
 }
 
 interface Built {
-  state: State;
+  document: Document;
   layout: LayoutBox;
   shaper: TextShaper;
   page0: LayoutBox;
@@ -104,7 +104,7 @@ function buildMulticolumnDoc(
   columnConfig: ColumnConfig,
 ): Built {
   const blockIds = paragraphTexts.map((_, i) => `p${i}`);
-  const state = buildState({
+  const document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -126,7 +126,7 @@ function buildMulticolumnDoc(
     ],
   });
   const rendered = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -159,7 +159,7 @@ function buildMulticolumnDoc(
 
   const layout = positionTreeForTest(virtual);
   const page0 = virtual.getPage(0);
-  return { state, layout, shaper, page0 };
+  return { document, layout, shaper, page0 };
 }
 
 describe("line-navigation — multi-column column-aware ArrowUp/Down (slice 3b)", () => {
@@ -218,7 +218,7 @@ describe("line-navigation — multi-column column-aware ArrowUp/Down (slice 3b)"
   });
 
   it("ArrowDown from the LAST line of column 0 crosses into a column-1 block (not back into column 0, not the next page)", () => {
-    const { state, layout, shaper, col0Lines, col0Set, col1Set } = geometry();
+    const { document, layout, shaper, col0Lines, col0Set, col1Set } = geometry();
 
     // Caret on the LAST (bottom-most) line of column 0.
     const lastCol0 = nth(col0Lines, col0Lines.length - 1, "col0 last line");
@@ -229,7 +229,7 @@ describe("line-navigation — multi-column column-aware ArrowUp/Down (slice 3b)"
     // back into column 0 (wrong).
     const goalX = lastCol0.absoluteX + 1;
 
-    const result = moveToLine(state, caret, layout, shaper, "down", goalX);
+    const result = moveToLine(document, caret, layout, shaper, "down", goalX);
     expect(result).not.toBeNull();
     if (result === null) return;
 
@@ -239,7 +239,7 @@ describe("line-navigation — multi-column column-aware ArrowUp/Down (slice 3b)"
   });
 
   it("ArrowUp from the FIRST line of column 1 crosses into a column-0 block", () => {
-    const { state, layout, shaper, col1Lines, col0Set, col1Set } = geometry();
+    const { document, layout, shaper, col1Lines, col0Set, col1Set } = geometry();
 
     // Caret on the FIRST (top-most) line of column 1.
     const firstCol1 = nth(col1Lines, 0, "col1 first line");
@@ -248,7 +248,7 @@ describe("line-navigation — multi-column column-aware ArrowUp/Down (slice 3b)"
     // Goal X squarely inside column 1 (the SOURCE column's X).
     const goalX = firstCol1.absoluteX + 1;
 
-    const result = moveToLine(state, caret, layout, shaper, "up", goalX);
+    const result = moveToLine(document, caret, layout, shaper, "up", goalX);
     expect(result).not.toBeNull();
     if (result === null) return;
 
@@ -258,7 +258,7 @@ describe("line-navigation — multi-column column-aware ArrowUp/Down (slice 3b)"
   });
 
   it("ArrowDown WITHIN column 0 stays in column 0 (no single-column-style regression)", () => {
-    const { state, layout, shaper, col0Lines, col0Set } = geometry();
+    const { document, layout, shaper, col0Lines, col0Set } = geometry();
     expect(col0Lines.length).toBeGreaterThanOrEqual(2);
 
     // Caret on a NON-last line of column 0 (the first).
@@ -266,7 +266,7 @@ describe("line-navigation — multi-column column-aware ArrowUp/Down (slice 3b)"
     const caret = createPosition(firstCol0.line.ownerBlockId, firstCol0.line.inlineOffsetStart);
     const goalX = firstCol0.absoluteX + 1;
 
-    const result = moveToLine(state, caret, layout, shaper, "down", goalX);
+    const result = moveToLine(document, caret, layout, shaper, "down", goalX);
     expect(result).not.toBeNull();
     if (result === null) return;
 
@@ -277,13 +277,13 @@ describe("line-navigation — multi-column column-aware ArrowUp/Down (slice 3b)"
   });
 
   it("Down across the boundary then Up returns to a column-0 block (original-targetX preservation)", () => {
-    const { state, layout, shaper, col0Lines, col0Set, col1Set } = geometry();
+    const { document, layout, shaper, col0Lines, col0Set, col1Set } = geometry();
 
     const lastCol0 = nth(col0Lines, col0Lines.length - 1, "col0 last line");
     const caret = createPosition(lastCol0.line.ownerBlockId, lastCol0.line.inlineOffsetStart);
     const goalX = lastCol0.absoluteX + 1;
 
-    const down = moveToLine(state, caret, layout, shaper, "down", goalX);
+    const down = moveToLine(document, caret, layout, shaper, "down", goalX);
     expect(down).not.toBeNull();
     if (down === null) return;
     expect(col1Set.has(down.position.blockId as BlockId)).toBe(true);
@@ -291,7 +291,7 @@ describe("line-navigation — multi-column column-aware ArrowUp/Down (slice 3b)"
     // column-0 goal across the next move.
     expect(down.targetX).toBe(goalX);
 
-    const up = moveToLine(state, down.position, layout, shaper, "up", down.targetX);
+    const up = moveToLine(document, down.position, layout, shaper, "up", down.targetX);
     expect(up).not.toBeNull();
     if (up === null) return;
     // Back into column 0 (the original column) — preserved goal X re-clamps to
@@ -339,7 +339,7 @@ describe("line-navigation — multi-column WITHIN-BLOCK column boundary (same bl
   });
 
   it("ArrowDown from the LAST line of column 0 lands on the FIRST line of column 1 (same block, next visual line, larger offset)", () => {
-    const { state, layout, shaper, col0Lines, col1Lines } = geometry();
+    const { document, layout, shaper, col0Lines, col1Lines } = geometry();
 
     const lastCol0 = nth(col0Lines, col0Lines.length - 1, "col0 last line");
     const firstCol1 = nth(col1Lines, 0, "col1 first line");
@@ -347,7 +347,7 @@ describe("line-navigation — multi-column WITHIN-BLOCK column boundary (same bl
     // Goal X inside column 0 (the SOURCE column).
     const goalX = lastCol0.absoluteX + 1;
 
-    const result = moveToLine(state, caret, layout, shaper, "down", goalX);
+    const result = moveToLine(document, caret, layout, shaper, "down", goalX);
     expect(result).not.toBeNull();
     if (result === null) return;
 
@@ -382,7 +382,7 @@ describe("line-navigation — multi-column WITHIN-BLOCK column boundary (same bl
   // RED until the move-up across a within-block column boundary seeds the
   // "before" affinity (or otherwise lands a column-0-disambiguated position).
   it("ArrowUp from the FIRST line of column 1 lands back in COLUMN 0 (same block) — FOUND BUG: caret stays in column 1", () => {
-    const { state, layout, shaper, col0Lines, col1Lines } = geometry();
+    const { document, layout, shaper, col0Lines, col1Lines } = geometry();
 
     const firstCol1 = nth(col1Lines, 0, "col1 first line");
     const lastCol0 = nth(col0Lines, col0Lines.length - 1, "col0 last line");
@@ -390,7 +390,7 @@ describe("line-navigation — multi-column WITHIN-BLOCK column boundary (same bl
     // Goal X inside column 1 (the SOURCE column).
     const goalX = firstCol1.absoluteX + 1;
 
-    const result = moveToLine(state, caret, layout, shaper, "up", goalX);
+    const result = moveToLine(document, caret, layout, shaper, "up", goalX);
     expect(result).not.toBeNull();
     if (result === null) return;
 
@@ -414,7 +414,7 @@ describe("line-navigation — multi-column WITHIN-BLOCK column boundary (same bl
     // mid-gap point, so the column-membership check is "left of column 1's left
     // edge", NOT "left of the gap center".)
     const col1MinX = Math.min(...col1Lines.map((l) => l.absoluteX));
-    const pixel = resolvePixelPosition(state, result.position, layout, shaper, undefined, result.caretAffinity);
+    const pixel = resolvePixelPosition(document, result.position, layout, shaper, undefined, result.caretAffinity);
     expect(pixel).not.toBeNull();
     if (pixel === null) return;
     expect(pixel.x).toBeLessThan(col1MinX);

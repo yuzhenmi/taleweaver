@@ -34,7 +34,7 @@ export function handleToggleSectionLandscape(editor: EditorState): Edit | null {
   const sectionId = resolveActiveSection(editor, editor.selection.focus.blockId);
   if (sectionId === null) return null;
 
-  const section = getBlock(editor.state, sectionId);
+  const section = getBlock(editor.document, sectionId);
   if (section === null) return null;
 
   // "Currently landscape" iff the section carries a numeric inline-size
@@ -48,10 +48,10 @@ export function handleToggleSectionLandscape(editor: EditorState): Edit | null {
         pageBlockSize: pageConfig.pageInlineSize,
       };
 
-  const result = mergeBlockAttrs(editor.state, sectionId, incoming);
+  const result = mergeBlockAttrs(editor.document, sectionId, incoming);
 
   // the identity-no-op contract: a no-op merge returns the same state reference.
-  if (result.state === editor.state) return null;
+  if (result.document === editor.document) return null;
 
-  return { change: { state: result.state, dirtyIds: result.dirtyIds } };
+  return { change: { document: result.document, dirtyIds: result.dirtyIds } };
 }

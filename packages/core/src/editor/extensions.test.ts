@@ -1,4 +1,4 @@
-import { finalSectionOf } from "../test-utils/state-builders";
+import { finalSectionOf } from "../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   createInitialEditorState,
@@ -57,7 +57,7 @@ function type(editor: EditorState, text: string): EditorState {
 }
 
 const textOf = (s: EditorState, id: BlockId = s.selection.focus.blockId): string =>
-  (getBlock(s.state, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "￼")).join("");
+  (getBlock(s.document, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "￼")).join("");
 
 const caret = (id: BlockId, o: number): EditorAction => ({ type: "SET_SELECTION", selection: createSpan(createPosition(id, o), createPosition(id, o)) });
 
@@ -66,7 +66,7 @@ describe("TRANSACTION", () => {
     const config = makeConfig();
     let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "ab" }, { type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "cd" });
     const second = s.selection.focus.blockId;
-    const first = getBlock(s.state, second)?.prevSiblingId ?? null;
+    const first = getBlock(s.document, second)?.prevSiblingId ?? null;
     if (first === null) throw new Error("setup");
     s = run(s, config, {
       type: "TRANSACTION",
@@ -100,7 +100,7 @@ describe("TRANSACTION", () => {
         tx.dispatch({ type: "INSERT_TEXT", text: "!" });
       },
     });
-    const items = getBlock(s.state, s.selection.focus.blockId)?.inlineContent?.items ?? [];
+    const items = getBlock(s.document, s.selection.focus.blockId)?.inlineContent?.items ?? [];
     expect(items.every((i) => i.attrs[INSERTION_SUGGESTION_ATTR] !== undefined)).toBe(true);
     expect(textOf(run(s, config, { type: "UNDO" }))).toBe("");
   });
@@ -126,7 +126,7 @@ describe("input rules", () => {
   it("an autoformat keeps the matched text's formatting", () => {
     const config = makeConfig();
     const s = type(run(createInitialEditorState(config), config, { type: "TOGGLE_STYLE", style: "bold" }), "a--");
-    const items = getBlock(s.state, s.selection.focus.blockId)?.inlineContent?.items ?? [];
+    const items = getBlock(s.document, s.selection.focus.blockId)?.inlineContent?.items ?? [];
     expect(items.map((i) => (i.kind === "text" ? [i.text, i.attrs] : null))).toEqual([["a—", { bold: true }]]);
   });
 });
@@ -182,7 +182,7 @@ describe("triggers", () => {
     if (t === undefined) throw new Error("no trigger");
     s = run(s, config, replaceRangeWithMarkedText(t, "Anna", { key: "mention", value: { ref: "p1" } }, " "));
     expect(textOf(s)).toBe("hi Anna ");
-    expect(getMarkRanges(s.state, "mention").map((r) => [r.from.offset, r.to.offset])).toEqual([[3, 7]]);
+    expect(getMarkRanges(s.document, "mention").map((r) => [r.from.offset, r.to.offset])).toEqual([[3, 7]]);
     expect(s.activeTrigger).toBeUndefined();
     s = run(s, config, { type: "UNDO" });
     expect(textOf(s)).toBe("hi @an");
@@ -252,8 +252,8 @@ describe("TRANSACTION rollback", () => {
     expect(textOf(s)).toBe("abc");
     s = run(s, config, { type: "INSERT_TEXT", text: "!" });
     expect(textOf(s)).toBe("abc!");
-    const root = getBlock(s.state, finalSectionOf(s.state)); // the root holds sections
-    expect(getBlock(s.state, root?.firstChildId ?? ("" as BlockId))?.nextSiblingId ?? null).toBeNull();
+    const root = getBlock(s.document, finalSectionOf(s.document)); // the root holds sections
+    expect(getBlock(s.document, root?.firstChildId ?? ("" as BlockId))?.nextSiblingId ?? null).toBeNull();
     s = run(s, config, { type: "UNDO" });
     expect(textOf(s)).toBe("abc");
     s = run(s, config, { type: "REDO" });
@@ -340,7 +340,7 @@ describe("TRANSACTION steps must be undoable", () => {
     const suggest = makeConfig({ suggestingAuthor: "A" });
     const config = makeConfig();
     let s = run(createInitialEditorState(suggest), suggest, { type: "INSERT_TEXT", text: "abc" });
-    const [suggestion] = getSuggestions(s.state);
+    const [suggestion] = getSuggestions(s.document);
     if (suggestion === undefined) throw new Error("setup");
     s = run(s, config, {
       type: "TRANSACTION",
@@ -349,11 +349,11 @@ describe("TRANSACTION steps must be undoable", () => {
         tx.dispatch({ type: "INSERT_TEXT", text: "!" });
       },
     });
-    expect(getSuggestions(s.state)).toHaveLength(0);
+    expect(getSuggestions(s.document)).toHaveLength(0);
     expect(textOf(s)).toBe("abc!");
     s = run(s, config, { type: "UNDO" });
     expect(textOf(s)).toBe("abc");
-    expect(getSuggestions(s.state)).toHaveLength(1);
+    expect(getSuggestions(s.document)).toHaveLength(1);
   });
 
 });

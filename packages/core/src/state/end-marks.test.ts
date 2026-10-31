@@ -8,9 +8,9 @@ import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import type { BlockId } from "./block-id";
 import { createTestAllocator } from "./block-id";
-import { createState, getBlock, getEmbedContent, getTemplateContent, applyOperation, type State } from "./state";
-import { STATE_INTERNAL } from "./state-internal";
-import { createEmptyDocument } from "./initial-state";
+import { createDocument, getBlock, getEmbedContent, getTemplateContent, applyOperation, type Document } from "./document";
+import { DOCUMENT_INTERNAL } from "./document-internal";
+import { createEmptyDocument } from "./create-empty-document";
 import { splitBlockAtPosition } from "./ops/split-block";
 import { mergeAdjacentBlocks } from "./ops/merge-blocks";
 import { removeBlock } from "./ops/remove-block";
@@ -23,27 +23,27 @@ import { liveMarks } from "./mark-index";
 import { deleteUnits, insertChildren, splitAt, type TreeNode } from "./flow-ops";
 import { firstUnitOfFlow, nextUnit } from "./y-flow";
 import { upgradeDocument } from "./upgrade";
-import { TEST_RESOLVER, buildBlock, buildState, buildFlowDoc, inlineContent, text, withTestAttrs } from "../test-utils/state-builders";
+import { TEST_RESOLVER, buildBlock, buildDocument, buildFlowDoc, inlineContent, text, withTestAttrs } from "../test-utils/document-builders";
 import { assertInvariantI, flowShape } from "../test-utils/invariant-i";
 
 const id = (s: string) => s as BlockId;
 const pos = (b: string, o: number): Position => createPosition(id(b), o);
-const docOf = (s: State) => s[STATE_INTERNAL].doc;
+const docOf = (s: Document) => s[DOCUMENT_INTERNAL].doc;
 
 const build = buildFlowDoc;
 
-const shape = (s: State) => flowShape(s, "doc");
-const childIds = (s: State, parent: string): string[] => {
+const shape = (s: Document) => flowShape(s, "doc");
+const childIds = (s: Document, parent: string): string[] => {
   const out: string[] = [];
   for (let c = getBlock(s, id(parent))?.firstChildId ?? null; c !== null; c = getBlock(s, c)?.nextSiblingId ?? null) out.push(c);
   return out;
 };
-const finalSection = (s: State): string => {
+const finalSection = (s: Document): string => {
   const f = getRegistry(docOf(s)).get(s.rootId)?.get("finalSection");
   if (typeof f !== "string") throw new Error("no final section");
   return f;
 };
-const paraMark = (s: State, b: string): Y.Item => {
+const paraMark = (s: Document, b: string): Y.Item => {
   const m = [...liveMarks(docOf(s), b)].find((it) => {
     const e: unknown = it.content instanceof Y.ContentEmbed ? it.content.embed : null;
     return typeof e === "object" && e !== null && (e as { end?: unknown }).end === b;
@@ -51,23 +51,23 @@ const paraMark = (s: State, b: string): Y.Item => {
   if (m === undefined) throw new Error(`no ¶ for ${b}`);
   return m;
 };
-const op = (s: State, fn: (doc: Y.Doc) => void): State => applyOperation(s, fn).state;
+const op = (s: Document, fn: (doc: Y.Doc) => void): Document => applyOperation(s, fn).document;
 
 describe("storage — expected shapes (invariant I through the primitives)", () => {
   it("removeEntity of the flow's last paragraph keeps its ¶ (I2): [L a][P end] → [L a][P ]", () => {
-    const s = removeBlock(build([{ p: "L", t: "a" }, { p: "P", t: "end" }]), id("P")).state;
+    const s = removeBlock(build([{ p: "L", t: "a" }, { p: "P", t: "end" }]), id("P")).document;
     expect(shape(s)).toBe('L:"a" P:""');
     assertInvariantI(s, "storage");
   });
 
   it("removeEntity of the paragraph after a table goes when the next ¶ terminates it: [T][P x][Q y] → [T][Q y]", () => {
-    const s = removeBlock(build([{ img: "T" }, { p: "P", t: "x" }, { p: "Q", t: "y" }]), id("P")).state;
+    const s = removeBlock(build([{ img: "T" }, { p: "P", t: "x" }, { p: "Q", t: "y" }]), id("P")).document;
     expect(shape(s)).toBe('[T] Q:"y"');
     assertInvariantI(s, "storage");
   });
 
   it("removeEntity of the required paragraph between two tables keeps its ¶: [T1][P][T2]", () => {
-    const s = removeBlock(build([{ img: "T1" }, { p: "P", t: "x" }, { img: "T2" }, { p: "Z", t: "z" }]), id("P")).state;
+    const s = removeBlock(build([{ img: "T1" }, { p: "P", t: "x" }, { img: "T2" }, { p: "Z", t: "z" }]), id("P")).document;
     expect(shape(s)).toBe('[T1] P:"" [T2] Z:"z"');
     assertInvariantI(s, "storage");
   });
@@ -100,7 +100,7 @@ describe("storage — expected shapes (invariant I through the primitives)", () 
 
   it("moving the required paragraph to the end leaves a FRESH ¶ between the tables; P occurs once", () => {
     const s0 = build([{ img: "T1" }, { p: "P", t: "x" }, { img: "T2" }, { p: "Z", t: "z" }]);
-    const s = reparentChildren(s0, [id("P")], id(finalSection(s0)), null).state;
+    const s = reparentChildren(s0, [id("P")], id(finalSection(s0)), null).document;
     const m = /^\[T1\] (\S+):"" \[T2\] Z:"z" P:"x"$/.exec(shape(s));
     expect(m, shape(s)).not.toBeNull();
     expect(m?.[1]).not.toBe("P");
@@ -122,26 +122,26 @@ describe("storage — expected shapes (invariant I through the primitives)", () 
 
   it("moving a table to the flow end, and away from between two tables, repairs with one fresh ¶ each", () => {
     const s0 = build([{ img: "T" }, { p: "P", t: "p" }, { p: "Z", t: "z" }]);
-    const s = reparentChildren(s0, [id("T")], id(finalSection(s0)), null).state;
+    const s = reparentChildren(s0, [id("T")], id(finalSection(s0)), null).document;
     expect(shape(s)).toMatch(/^P:"p" Z:"z" \[T\] \S+:""$/);
     assertInvariantI(s, "storage");
     const t0 = build([{ img: "T1" }, { p: "Q", t: "" }, { img: "T2" }, { p: "M", t: "" }, { img: "T3" }, { p: "Z", t: "z" }]);
     // Move T2 out from between T1 / T3 to the end: Q and M stay; the end gets a fresh ¶.
-    const t = reparentChildren(t0, [id("T2")], id(finalSection(t0)), null).state;
+    const t = reparentChildren(t0, [id("T2")], id(finalSection(t0)), null).document;
     expect(shape(t)).toMatch(/^\[T1\] Q:"" M:"" \[T3\] Z:"z" \[T2\] \S+:""$/);
     assertInvariantI(t, "storage");
   });
 
   it("moving the final section's paragraph before a section-end leaves a fresh final PLAIN ¶", () => {
     const s0 = build([{ sec: "S1", children: [{ p: "A", t: "a" }] }, { sec: "F", children: [{ p: "P", t: "final" }] }]);
-    const s = reparentChildren(s0, [id("P")], id("S1"), id("A")).state;
+    const s = reparentChildren(s0, [id("P")], id("S1"), id("A")).document;
     expect(shape(s)).toMatch(/^P:"final" A:"a"\/S1 (\S+):""$/);
     assertInvariantI(s, "storage");
   });
 
   it("a moved paragraph carries its section-end: [A/S1][B][Z] move A to the end → [B][Z][a/S1][N]", () => {
     const s0 = build([{ sec: "S1", children: [{ p: "A", t: "a" }] }, { sec: "F", children: [{ p: "B", t: "b" }, { p: "Z", t: "z" }] }]);
-    const s = reparentChildren(s0, [id("A")], id("F"), null).state;
+    const s = reparentChildren(s0, [id("A")], id("F"), null).document;
     expect(shape(s)).toMatch(/^B:"b" Z:"z" A:"a"\/S1 (\S+):""$/);
     assertInvariantI(s, "storage");
   });
@@ -162,16 +162,16 @@ describe("storage — expected shapes (invariant I through the primitives)", () 
 
   it("concurrent removal of the two paragraphs leaves one empty paragraph (structural-identity :149)", () => {
     const base = build([{ p: "P1", t: "a" }, { p: "P2", t: "b" }]);
-    const peer = (c: number): State => {
+    const peer = (c: number): Document => {
       const d = new Y.Doc();
       d.clientID = c;
       Y.applyUpdate(d, Y.encodeStateAsUpdate(docOf(base)));
-      return createState({ resolver: TEST_RESOLVER, rootId: base.rootId, doc: d });
+      return createDocument({ resolver: TEST_RESOLVER, rootId: base.rootId, doc: d });
     };
-    const a = removeBlock(peer(1), id("P1")).state;
-    const b = removeBlock(peer(2), id("P2")).state;
+    const a = removeBlock(peer(1), id("P1")).document;
+    const b = removeBlock(peer(2), id("P2")).document;
     Y.applyUpdate(docOf(a), Y.encodeStateAsUpdate(docOf(b)));
-    const merged = createState({ resolver: TEST_RESOLVER, rootId: a.rootId, doc: docOf(a) });
+    const merged = createDocument({ resolver: TEST_RESOLVER, rootId: a.rootId, doc: docOf(a) });
     expect(shape(merged)).toBe('P2:""');
     assertInvariantI(merged, "read");
   });
@@ -180,7 +180,7 @@ describe("storage — expected shapes (invariant I through the primitives)", () 
 describe("storage: Enter keeps content identity", () => {
   it("Enter at (B, k) keeps every text item's Yjs id; the head gets the new id, the tail keeps B", () => {
     const s0 = build([{ p: "B", t: "abcdef" }]);
-    const ids = (s: State): string[] => {
+    const ids = (s: Document): string[] => {
       const out: string[] = [];
       const flow = entryFlow(getRegistry(docOf(s)).get("doc") ?? new Y.Map());
       for (let u = flow === null ? null : firstUnitOfFlow(flow); u !== null; u = nextUnit(u)) {
@@ -189,13 +189,13 @@ describe("storage: Enter keeps content identity", () => {
       return out;
     };
     const before = ids(s0);
-    const s = splitBlockAtPosition(s0, pos("B", 3), createTestAllocator("n")).state;
+    const s = splitBlockAtPosition(s0, pos("B", 3), createTestAllocator("n")).document;
     expect(shape(s)).toBe('n-0:"abc" B:"def"');
     expect(ids(s)).toEqual(before);
   });
 
   it("Enter at (B, 0) keeps B's id on the content (the new empty paragraph is above)", () => {
-    const s = splitBlockAtPosition(build([{ p: "B", t: "abc" }]), pos("B", 0), createTestAllocator("n")).state;
+    const s = splitBlockAtPosition(build([{ p: "B", t: "abc" }]), pos("B", 0), createTestAllocator("n")).document;
     expect(shape(s)).toBe('n-0:"" B:"abc"');
   });
 
@@ -205,16 +205,16 @@ describe("storage: Enter keeps content identity", () => {
       const m = getRegistry(doc).get("L")?.get("markAttrs");
       if (m instanceof Y.Map) m.set("bold", true);
     });
-    s = mergeAdjacentBlocks(s, id("L"), id("R")).state;
+    s = mergeAdjacentBlocks(s, id("L"), id("R")).document;
     expect(shape(s)).toBe('R:"abcd"');
     expect(getBlock(s, id("R"))?.type).toBe("heading");
     expect(getBlock(s, id("R"))?.attrs).toEqual({ level: 1 });
     expect((getRegistry(docOf(s)).get("R")?.get("markAttrs") as Y.Map<unknown>).toJSON()).toEqual({ bold: true });
-    const h = mergeAdjacentBlocks(build([{ p: "L", t: "", type: "heading", attrs: { level: 1 } }, { p: "R", t: "cd", attrs: { align: "center" } }]), id("L"), id("R")).state;
+    const h = mergeAdjacentBlocks(build([{ p: "L", t: "", type: "heading", attrs: { level: 1 } }, { p: "R", t: "cd", attrs: { align: "center" } }]), id("L"), id("R")).document;
     expect(shape(h)).toBe('R:"cd"');
     expect(getBlock(h, id("R"))?.type).toBe("heading");
     expect(getBlock(h, id("R"))?.attrs).toEqual({ level: 1 });
-    const e = mergeAdjacentBlocks(build([{ p: "L", t: "" }, { p: "R", t: "cd", attrs: { align: "center" } }]), id("L"), id("R")).state;
+    const e = mergeAdjacentBlocks(build([{ p: "L", t: "" }, { p: "R", t: "cd", attrs: { align: "center" } }]), id("L"), id("R")).document;
     expect(shape(e)).toBe('R:"cd"');
     expect(getBlock(e, id("R"))?.type).toBe("paragraph");
     expect(getBlock(e, id("R"))?.attrs).toEqual({ align: "center" });
@@ -223,7 +223,7 @@ describe("storage: Enter keeps content identity", () => {
   it("an empty document / cell / footnote body / header body holds exactly one ¶", () => {
     const empty = createEmptyDocument({ resolver: TEST_RESOLVER, allocator: createTestAllocator("e") });
     expect(flowShape(empty, empty.rootId)).toMatch(/^\S+:""$/);
-    const table = buildState({
+    const table = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "t", lastChildId: "z" }),
@@ -275,7 +275,7 @@ describe("storage: Enter keeps content identity", () => {
     expect(childIds(s0, s0.rootId)).toEqual([F]);
     expect(getBlock(s0, id(F))?.type).toBe("section");
     if (p === null) throw new Error("no paragraph");
-    const s1 = insertText(s0, pos(p, 0), "abcd", {}).state;
+    const s1 = insertText(s0, pos(p, 0), "abcd", {}).document;
     const s2 = op(s1, (doc) => {
       getRegistry(doc).set("S1", getRegistryEntryLike(doc, F));
       splitAt(doc, p, 2, "H", { type: "paragraph", attrs: {}, tree: "block" }, { section: "S1" });
@@ -322,7 +322,7 @@ describe("storage: Enter keeps content identity", () => {
       doc.getMap("meta").set("schemaVersion", 2);
     });
     upgradeDocument(withTestAttrs(doc), { resolver: TEST_RESOLVER });
-    const s = createState({ resolver: TEST_RESOLVER, rootId: id("doc"), doc });
+    const s = createDocument({ resolver: TEST_RESOLVER, rootId: id("doc"), doc });
     expect(shape(s)).toMatch(/^a:"ab" \[t\] (\S+):""\/s1 b:""$/);
     expect(getRegistry(doc).get("doc")?.get("finalSection")).toBe("s2");
     expect(childIds(s, "doc")).toEqual(["s1", "s2"]);
@@ -347,7 +347,7 @@ describe("positions — the ¶ is one unit of the index model", () => {
   it("tx-mapping: Enter inserts one unit — (B, k) maps to (H, k) with assoc −1 and (B, 0) with assoc 1", () => {
     const prev = build([{ p: "B", t: "abcdef" }]);
     const r = splitBlockAtPosition(prev, pos("B", 3), createTestAllocator("n"));
-    const m = createPositionMapping(prev, r.state, r.dirtyIds);
+    const m = createPositionMapping(prev, r.document, r.dirtyIds);
     expect(m.map(pos("B", 3), -1).position).toEqual(pos("n-0", 3));
     expect(m.map(pos("B", 3), 1).position).toEqual(pos("B", 0));
     expect(m.map(pos("B", 5), 1).position).toEqual(pos("B", 2));
@@ -357,7 +357,7 @@ describe("positions — the ¶ is one unit of the index model", () => {
   it("an anchor at (P, len) across a split at (P, len) lands at (H, len) with assoc −1 and (P, 0) with assoc 1", () => {
     const prev = build([{ p: "P", t: "abc" }]);
     const r = splitBlockAtPosition(prev, pos("P", 3), createTestAllocator("n"));
-    const m = createPositionMapping(prev, r.state, r.dirtyIds);
+    const m = createPositionMapping(prev, r.document, r.dirtyIds);
     expect(m.map(pos("P", 3), -1).position).toEqual(pos("n-0", 3));
     expect(m.map(pos("P", 3), 1).position).toEqual(pos("P", 0));
   });
@@ -365,7 +365,7 @@ describe("positions — the ¶ is one unit of the index model", () => {
   it("tx-mapping: Backspace-merge deletes one unit — (L, len) and (R, 0) meet at (R, len(L))", () => {
     const prev = build([{ p: "L", t: "abc" }, { p: "R", t: "def" }]);
     const r = mergeAdjacentBlocks(prev, id("L"), id("R"));
-    const m = createPositionMapping(prev, r.state, r.dirtyIds);
+    const m = createPositionMapping(prev, r.document, r.dirtyIds);
     expect(m.map(pos("L", 3), 1).position).toEqual(pos("R", 3));
     expect(m.map(pos("R", 0), -1).position).toEqual(pos("R", 3));
     expect(m.map(pos("L", 1), 1).position).toEqual(pos("R", 1));

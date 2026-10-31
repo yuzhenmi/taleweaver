@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { requireInTransaction } from "../yjs-doc";
@@ -13,7 +13,7 @@ import { largestCleanHeaderCount, readHeaderRowCount, withHeaderRowCount } from 
  * and the FINAL attrs bag to write (with `headerRowCount` spliced in, or dropped
  * when the clamped count is 0). `unchanged` is true when the clamped count equals
  * the table's current `headerRowCount` — the InTx applier then writes nothing, so
- * `applyOperation` returns the input `state` reference (the no-op contract).
+ * `applyOperation` returns the input `document` reference (the no-op contract).
  */
 export interface SetTableHeaderRowsPlan {
   readonly tableId: BlockId;
@@ -30,7 +30,7 @@ export interface SetTableHeaderRowsPlan {
  * body row. `count === 0` (the default) turns the header OFF.
  *
  * One `applyOperation` transaction → one undo entry. No-op (returns the input
- * `state` reference unchanged, per the `applyOperation` no-op contract) when the
+ * `document` reference unchanged, per the `applyOperation` no-op contract) when the
  * clamped count already equals the table's `headerRowCount`. Throws if `tableId`
  * does not resolve to a `table` block.
  *
@@ -38,12 +38,12 @@ export interface SetTableHeaderRowsPlan {
  * body is out of scope (mirrors the other table ops).
  */
 export function setTableHeaderRows(
-  state: State,
+  document: Document,
   tableId: BlockId,
   count: number,
 ): OperationResult {
-  const plan = planSetTableHeaderRows(state, tableId, count);
-  return applyOperation(state, (doc) => {
+  const plan = planSetTableHeaderRows(document, tableId, count);
+  return applyOperation(document, (doc) => {
     setTableHeaderRowsInTx(doc, plan);
   });
 }
@@ -55,11 +55,11 @@ export function setTableHeaderRows(
  * (the clean-cut invariant).
  */
 export function planSetTableHeaderRows(
-  state: State,
+  document: Document,
   tableId: BlockId,
   count: number,
 ): SetTableHeaderRowsPlan {
-  const resolved = resolveBlock(state, tableId);
+  const resolved = resolveBlock(document, tableId);
   if (resolved === null) {
     throw new Error(`setTableHeaderRows: block "${tableId}" not found`);
   }
@@ -69,8 +69,8 @@ export function planSetTableHeaderRows(
   const table = resolved.block;
 
   // rowCount = the table's `table-row` children (mirrors resolveTableContext).
-  const rowCount = getChildIds(state, tableId).filter(
-    (id) => resolveBlock(state, id)?.block.type === "table-row",
+  const rowCount = getChildIds(document, tableId).filter(
+    (id) => resolveBlock(document, id)?.block.type === "table-row",
   ).length;
 
   // Clamp to [0, rowCount], then DOWN to the largest clean-cut boundary. The grid
@@ -78,7 +78,7 @@ export function planSetTableHeaderRows(
   const inRange = Math.max(0, Math.min(count, rowCount));
   let clamped = inRange;
   if (inRange > 0) {
-    const grid = buildTableGrid(state, tableId);
+    const grid = buildTableGrid(document, tableId);
     // `grid` is null only for a non-`table` block, ruled out above; the `?? 0`
     // is unreachable defence (no header rather than a wrong header on a corrupt
     // tree). The clamp uses `inRange` so the validator's own rowCount clamp does

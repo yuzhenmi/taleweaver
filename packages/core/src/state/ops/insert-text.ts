@@ -1,7 +1,7 @@
 import type * as Y from "yjs";
 import { requireBlockText } from "../block-text";
-import type { State, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
 import type { BlockId } from "../block-id";
 import type { Position } from "../block-position";
 import type { ReadonlyAttrs } from "../attrs";
@@ -48,17 +48,17 @@ export interface InsertTextPlan {
  * `replaceRange` to compose delete + insert in a single Y.Doc transaction.
  */
 export function insertText(
-  state: State,
+  document: Document,
   position: Position,
   text: string,
   attrs: ReadonlyAttrs,
 ): OperationResult {
   if (text === "") {
-    return { state, dirtyIds: new Set<BlockId>() };
+    return { document, dirtyIds: new Set<BlockId>() };
   }
 
-  const plan = planInsertText(state, position, text, attrs);
-  return applyOperation(state, (doc) => {
+  const plan = planInsertText(document, position, text, attrs);
+  return applyOperation(document, (doc) => {
     insertTextInTx(doc, plan);
   });
 }
@@ -82,17 +82,17 @@ export function insertTextInTx(doc: Y.Doc, plan: InsertTextPlan): void {
 }
 
 /**
- * Validate `position` + `text` against `state` and produce an `InsertTextPlan`.
+ * Validate `position` + `text` against `document` and produce an `InsertTextPlan`.
  * All validation reads happen here, BEFORE the surrounding `applyOperation` is
  * opened. Throws on every condition `insertText`'s docstring lists.
  */
 export function planInsertText(
-  state: State,
+  document: Document,
   position: Position,
   text: string,
   attrs: ReadonlyAttrs,
 ): InsertTextPlan {
-  const resolved = resolveBlock(state, position.blockId);
+  const resolved = resolveBlock(document, position.blockId);
   if (resolved === null) {
     throw new Error(`insertText: block "${position.blockId}" not found`);
   }

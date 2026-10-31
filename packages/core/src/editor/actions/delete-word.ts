@@ -17,7 +17,7 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
   // Object selection: Ctrl+Delete on a selected atomic-leaf (image)
   // removes the object as a unit. Routes BEFORE the collapsed word-delete path,
   // whose cross-block guard would otherwise silently no-op on the atomic block.
-  const objId = isObjectSelection(editor.state, editor.selection, config.componentRegistry);
+  const objId = isObjectSelection(editor.document, editor.selection, config.componentRegistry);
   if (objId !== null) return deleteObjectSelection(editor, objId);
 
   const { selection } = editor;
@@ -30,11 +30,11 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
     // cross-CONTEXT refusal + the tree-aware (resolveBlock) deletable-span
     // guard. Using getBlock here (main-tree only) would early-return a no-op for
     // a body-context range.
-    if (isCrossContextSelection(editor.state, selection)) return null;
-    const start = expandedSpanCollapsePoint(editor.state, selection);
+    if (isCrossContextSelection(editor.document, selection)) return null;
+    const start = expandedSpanCollapsePoint(editor.document, selection);
     if (start === null) return null;
-    const result = deleteRangeOrSuggest(editor.state, selection, config);
-    if (result.state === editor.state) return null;
+    const result = deleteRangeOrSuggest(editor, selection);
+    if (result.document === editor.document) return null;
     // In suggesting mode a forward word-delete must leave the caret PAST the
     // struck span (its END) so a repeated Delete strikes the NEXT span rather than
     // re-targeting the already-struck text (markDeletion coalesces → no-op);
@@ -43,12 +43,11 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
     // outcome — a soft-delete tracks in ANY editing context (main body OR a
     // footnote/header/footer body); only with no valid context is it a direct delete.
     const suggesting = isSuggestingInBlock(
-      editor.state,
-      spanStart(editor.state, selection).blockId,
-      config,
+      editor,
+      spanStart(editor.document, selection).blockId,
     );
     // (The span's text: a covered object stays — `clipSpanToText`.)
-    const text = clipSpanToText(editor.state, selection);
+    const text = clipSpanToText(editor.document, selection);
     const collapseTo = suggesting ? (direction === "forward" ? text.focus : text.anchor) : start;
     const newCursor = createPosition(collapseTo.blockId, collapseTo.offset);
     const newSelection = createSpan(newCursor, newCursor);
@@ -56,7 +55,7 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
   }
 
   const pos = selection.focus;
-  const target = moveByWord(editor.state, pos, direction);
+  const target = moveByWord(editor.document, pos, direction);
   if (target.blockId !== pos.blockId) {
     // Cross-block word delete not supported by deleteRange's cross-parent
     // guard without additional handling — no-op to match safe semantics.
@@ -66,11 +65,11 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
 
   // A word step that ends inside an atomic mark deletes the whole mark.
   const span = expandSpanOverAtomicMarks(
-    editor.state,
+    editor.document,
     direction === "backward" ? createSpan(target, pos) : createSpan(pos, target),
   );
-  const result = deleteRangeOrSuggest(editor.state, span, config);
-  if (result.state === editor.state) return null;
+  const result = deleteRangeOrSuggest(editor, span);
+  if (result.document === editor.document) return null;
   // Soft-delete leaves the caret on the FAR edge of the struck span in the
   // deletion direction. For BACKWARD that far edge IS `target` (the word-boundary
   // before the caret = span start) in both modes. For FORWARD the far edge is the
@@ -81,9 +80,8 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
   // caret advances to `target`; only with no valid context is it a direct delete
   // with the caret at `pos`.
   const suggesting = isSuggestingInBlock(
-    editor.state,
-    spanStart(editor.state, span).blockId,
-    config,
+    editor,
+    spanStart(editor.document, span).blockId,
   );
   const newCursor = direction === "backward" ? span.anchor : suggesting ? span.focus : span.anchor;
   const newSelection = createSpan(newCursor, newCursor);

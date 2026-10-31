@@ -10,5 +10,5 @@ import { handleResolveComment } from "./resolve-comment";
  * write, identity no-op when absent or already open, selection unchanged.
  */
 export function handleReopenComment(editor: EditorState, { id }: ActionOf<"REOPEN_COMMENT">): Edit | null {
-  return { change: reopenComment(editor.state, id) };
+  return { change: reopenComment(editor.document, id) };
 }

@@ -1,5 +1,5 @@
 import { selectionContextOf } from "../../../state";
-import type { State, Span } from "../../../state";
+import type { Document, Span } from "../../../state";
 
 /**
  * Cross-CONTEXT selection predicate.
@@ -20,9 +20,9 @@ import type { State, Span } from "../../../state";
  *
  * Returns `true` when the span straddles two contexts (caller should refuse).
  */
-export function isCrossContextSelection(state: State, span: Span): boolean {
+export function isCrossContextSelection(document: Document, span: Span): boolean {
   return (
-    selectionContextOf(state, span.anchor.blockId) !==
-    selectionContextOf(state, span.focus.blockId)
+    selectionContextOf(document, span.anchor.blockId) !==
+    selectionContextOf(document, span.focus.blockId)
   );
 }

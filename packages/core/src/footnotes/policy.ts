@@ -17,7 +17,7 @@
  * a document that never sets them simply uses the default.
  */
 import { getBlock } from "../state";
-import type { State } from "../state";
+import type { Document } from "../state";
 import type { CounterFormat } from "./format-counter";
 import type { FootnoteNumberingPolicy } from "./types";
 
@@ -72,8 +72,8 @@ export function isValidFootnoteFormat(value: unknown): value is CounterFormat {
  * attrs. Each field is validated independently; an absent/invalid value falls
  * back to the corresponding `DEFAULT_FOOTNOTE_NUMBERING_POLICY` field.
  */
-export function documentFootnotePolicy(state: State): FootnoteNumberingPolicy {
-  const root = getBlock(state, state.rootId);
+export function documentFootnotePolicy(document: Document): FootnoteNumberingPolicy {
+  const root = getBlock(document, document.rootId);
   const attrs = root?.attrs;
   if (attrs === undefined) {
     return DEFAULT_FOOTNOTE_NUMBERING_POLICY;

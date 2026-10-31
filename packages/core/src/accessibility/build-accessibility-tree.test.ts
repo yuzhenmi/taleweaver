@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildAccessibilityTree } from "./build-accessibility-tree";
-import { registryWith, testLeaf, TEST_RESOLVER, buildState, buildBlock, inlineContent, text, embed } from "../test-utils/state-builders";
-import { buildStateWithListDefs } from "../state/build-state-from-blocks";
+import { registryWith, testLeaf, TEST_RESOLVER, buildDocument, buildBlock, inlineContent, text, embed } from "../test-utils/document-builders";
+import { buildDocumentWithListDefs } from "../state/build-document-from-blocks";
 import { inlineRenderKey } from "../render/inline-render-key";
 import {
   FOOTNOTE_ANCHOR_EMBED_TYPE,
@@ -29,11 +29,11 @@ const ORDERED_LIST_DEF: ListDef = {
 describe("buildAccessibilityTree", () => {
   it("maps an empty document to a document-role root holding one empty paragraph", () => {
     // An empty document holds one paragraph (its final ¶ — Word / GDocs).
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [buildBlock({ id: "doc", type: "document" })],
     });
-    const tree = buildAccessibilityTree(state);
+    const tree = buildAccessibilityTree(document);
     expect(tree.role).toBe("document");
     expect(tree.sourceBlockId).toBe("doc");
     expect(tree.children.map((c) => c.role)).toEqual(["paragraph"]);
@@ -41,7 +41,7 @@ describe("buildAccessibilityTree", () => {
   });
 
   it("renders a document with one paragraph as a paragraph node carrying its text run", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -49,7 +49,7 @@ describe("buildAccessibilityTree", () => {
           inlineContent: inlineContent([text("hello")]) }),
       ],
     });
-    const tree = buildAccessibilityTree(state);
+    const tree = buildAccessibilityTree(document);
     expect(tree.children).toHaveLength(1);
     const p = nth(tree.children, 0, "paragraph node");
     expect(p.role).toBe("paragraph");
@@ -58,7 +58,7 @@ describe("buildAccessibilityTree", () => {
   });
 
   it("maps heading blocks to role:heading with the level attr (out-of-range coerces to 1)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "h2", lastChildId: "h9" }),
@@ -68,7 +68,7 @@ describe("buildAccessibilityTree", () => {
           prevSiblingId: "h2", inlineContent: inlineContent([text("Bad")]) }),
       ],
     });
-    const children = buildAccessibilityTree(state).children;
+    const children = buildAccessibilityTree(document).children;
     expect(children).toHaveLength(2);
     const h2 = nth(children, 0, "h2 node");
     const h9 = nth(children, 1, "h9 node");
@@ -78,7 +78,7 @@ describe("buildAccessibilityTree", () => {
   });
 
   it("uses LITERAL block offsets that span an embed even when it serializes to FEWER display chars", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -89,7 +89,7 @@ describe("buildAccessibilityTree", () => {
           inlineContent: inlineContent([text("ab"), embed("image"), text("cd")]) }),
       ],
     });
-    const tree = buildAccessibilityTree(state);
+    const tree = buildAccessibilityTree(document);
     const runs = nth(tree.children, 0, "paragraph node").text;
     expect(runs).toHaveLength(1);
     const run0 = nth(runs ?? [], 0, "run");
@@ -99,7 +99,7 @@ describe("buildAccessibilityTree", () => {
   });
 
   it("splits a link run out with its href and literal offsets", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -111,7 +111,7 @@ describe("buildAccessibilityTree", () => {
           ]) }),
       ],
     });
-    const runs = nth(buildAccessibilityTree(state).children, 0, "paragraph node").text;
+    const runs = nth(buildAccessibilityTree(document).children, 0, "paragraph node").text;
     expect(runs).toEqual([
       { text: "see ", sourceOffsetStart: 0, sourceOffsetEnd: 4 },
       { text: "here", sourceOffsetStart: 4, sourceOffsetEnd: 8, link: "https://x.test" },
@@ -120,7 +120,7 @@ describe("buildAccessibilityTree", () => {
   });
 
   it("emits a footnote-anchor as its own noteref run pointing at the body id (properties.contentBlockId)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -134,7 +134,7 @@ describe("buildAccessibilityTree", () => {
         buildBlock({ id: "fn1", type: "footnote-body", inlineContent: inlineContent([text("note")]) }),
       ],
     });
-    const runs = nth(buildAccessibilityTree(state).children, 0, "paragraph node").text;
+    const runs = nth(buildAccessibilityTree(document).children, 0, "paragraph node").text;
     expect(runs).toContainEqual({ text: "", sourceOffsetStart: 1, sourceOffsetEnd: 2, noteref: "fn1" });
     expect(runs?.[0]).toEqual({ text: "x", sourceOffsetStart: 0, sourceOffsetEnd: 1 });
   });
@@ -143,7 +143,7 @@ describe("buildAccessibilityTree", () => {
     // Two adjacent footnote-anchors with NO text between them: each flushes/skips the
     // (null) open run and emits its own standalone noteref run. The first is at literal
     // offset 0 (the open === null path).
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -158,7 +158,7 @@ describe("buildAccessibilityTree", () => {
         buildBlock({ id: "fn2", type: "footnote-body", inlineContent: inlineContent([text("b")]) }),
       ],
     });
-    const runs = nth(buildAccessibilityTree(state).children, 0, "paragraph node").text;
+    const runs = nth(buildAccessibilityTree(document).children, 0, "paragraph node").text;
     expect(runs).toEqual([
       { text: "", sourceOffsetStart: 0, sourceOffsetEnd: 1, noteref: "fn1" },
       { text: "", sourceOffsetStart: 1, sourceOffsetEnd: 2, noteref: "fn2" },
@@ -169,7 +169,7 @@ describe("buildAccessibilityTree", () => {
     // An inline image flows IN LINE with text: it FLUSHES the open run and emits its
     // own standalone run carrying imageAlt + an empty display text "" (the alt is the
     // accessible name; AT announces it as an image). Mirrors footnote-anchor's flush.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -181,7 +181,7 @@ describe("buildAccessibilityTree", () => {
           ]) }),
       ],
     });
-    const runs = nth(buildAccessibilityTree(state).children, 0, "paragraph node").text;
+    const runs = nth(buildAccessibilityTree(document).children, 0, "paragraph node").text;
     expect(runs).toEqual([
       { text: "see ", sourceOffsetStart: 0, sourceOffsetEnd: 4 },
       { text: "", sourceOffsetStart: 4, sourceOffsetEnd: 5, imageAlt: "a cat" },
@@ -193,7 +193,7 @@ describe("buildAccessibilityTree", () => {
     // No `alt` property on the embed → collectRuns defaults imageAlt to "" (the
     // intentional empty-string default, consistent with the block-image path). Pin
     // it so a future reader doesn't "fix" the default to undefined or a placeholder.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -205,7 +205,7 @@ describe("buildAccessibilityTree", () => {
           ]) }),
       ],
     });
-    const runs = nth(buildAccessibilityTree(state).children, 0, "paragraph node").text;
+    const runs = nth(buildAccessibilityTree(document).children, 0, "paragraph node").text;
     expect(runs).toEqual([
       { text: "ab", sourceOffsetStart: 0, sourceOffsetEnd: 2 },
       { text: "", sourceOffsetStart: 2, sourceOffsetEnd: 3, imageAlt: "" },
@@ -214,7 +214,7 @@ describe("buildAccessibilityTree", () => {
   });
 
   it("attaches emphasis from the text item's format attrs in fixed order", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -222,12 +222,12 @@ describe("buildAccessibilityTree", () => {
           inlineContent: inlineContent([text("X", { bold: true, italic: true })]) }),
       ],
     });
-    const runs = nth(buildAccessibilityTree(state).children, 0, "paragraph node").text;
+    const runs = nth(buildAccessibilityTree(document).children, 0, "paragraph node").text;
     expect(runs).toEqual([{ text: "X", sourceOffsetStart: 0, sourceOffsetEnd: 1, emphasis: ["bold", "italic"] }]);
   });
 
   it("tags insertion/deletion runs with provenance, and merges adjacent same-suggestion items", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -242,7 +242,7 @@ describe("buildAccessibilityTree", () => {
           ]) }),
       ],
     });
-    const runs = nth(buildAccessibilityTree(state).children, 0, "paragraph node").text;
+    const runs = nth(buildAccessibilityTree(document).children, 0, "paragraph node").text;
     // Finding 4: adjacent same-suggestion items merge into a single run.
     const mergedIns = runs?.find((r) => r.suggestion === "insertion");
     expect(mergedIns).toBeDefined();
@@ -256,7 +256,7 @@ describe("buildAccessibilityTree", () => {
   });
 
   it("flags runs between comment-start and comment-end as inComment", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -273,7 +273,7 @@ describe("buildAccessibilityTree", () => {
           ]) }),
       ],
     });
-    const runs = nth(buildAccessibilityTree(state).children, 0, "paragraph node").text;
+    const runs = nth(buildAccessibilityTree(document).children, 0, "paragraph node").text;
     expect(runs?.find((r) => r.text === "inside")?.inComment).toBe(true);
     expect(runs?.find((r) => r.text === "a")?.inComment).toBeUndefined();
     // Finding 3: item inside comment WITH a suggestion → both flags present
@@ -283,7 +283,7 @@ describe("buildAccessibilityTree", () => {
   });
 
   it("drops a deletion run entirely under view:final, keeping surviving runs' literal offsets", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -294,7 +294,7 @@ describe("buildAccessibilityTree", () => {
           ]) }),
       ],
     });
-    const runs = nth(buildAccessibilityTree(state, { suggestionView: "final" }).children, 0, "paragraph node").text;
+    const runs = nth(buildAccessibilityTree(document, { suggestionView: "final" }).children, 0, "paragraph node").text;
     // Under "final", a deletion item is projected away entirely — NO run is emitted for it.
     // The "keep" run is emitted with its original literal offsets (the deletion item still
     // occupies its literal offset span, so the keep run's offsets don't shift — the deletion
@@ -307,7 +307,7 @@ describe("buildAccessibilityTree", () => {
   });
 
   it("groups consecutive list-items sharing a listId into a synthetic list node", () => {
-    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
+    const document = buildDocumentWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "li1", lastChildId: "p" }),
@@ -320,7 +320,7 @@ describe("buildAccessibilityTree", () => {
       ],
       listDefs: { L1: ORDERED_LIST_DEF },
     });
-    const children = buildAccessibilityTree(state).children;
+    const children = buildAccessibilityTree(document).children;
     expect(children.map((c) => c.role)).toEqual(["list", "paragraph"]);
     const list = nth(children, 0, "list node");
     expect(list.sourceBlockId).toBeNull();           // synthetic
@@ -332,7 +332,7 @@ describe("buildAccessibilityTree", () => {
   });
 
   it("stamps the resolved ordinal on ORDERED listitems so AT numbers start-at/restart lists correctly (#555)", () => {
-    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
+    const document = buildDocumentWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "li1", lastChildId: "li2" }),
@@ -344,13 +344,13 @@ describe("buildAccessibilityTree", () => {
       // A list whose level-0 numbering STARTS at 5: AT must announce 5, 6 — not 1, 2.
       listDefs: { L1: { levels: [{ style: "decimal", start: 5, restart: "after-break" }] } },
     });
-    const list = nth(buildAccessibilityTree(state).children, 0, "list node");
+    const list = nth(buildAccessibilityTree(document).children, 0, "list node");
     expect(nth(list.children, 0, "listitem").listOrdinal).toBe(5);
     expect(nth(list.children, 1, "listitem").listOrdinal).toBe(6);
   });
 
   it("does NOT stamp listOrdinal on UNORDERED (bullet) listitems (#555)", () => {
-    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
+    const document = buildDocumentWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "li1", lastChildId: "li1" }),
@@ -359,12 +359,12 @@ describe("buildAccessibilityTree", () => {
       ],
       listDefs: { L1: { levels: [{ style: "disc", start: 1, restart: "after-break" }] } },
     });
-    const list = nth(buildAccessibilityTree(state).children, 0, "list node");
+    const list = nth(buildAccessibilityTree(document).children, 0, "list node");
     expect(nth(list.children, 0, "listitem").listOrdinal).toBeUndefined();
   });
 
   it("starts a new list when listId changes", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "a", lastChildId: "b" }),
@@ -374,11 +374,11 @@ describe("buildAccessibilityTree", () => {
           attrs: { listId: "L2", listLevel: 0 }, inlineContent: inlineContent([text("b")]) }),
       ],
     });
-    expect(buildAccessibilityTree(state).children.map((c) => c.role)).toEqual(["list", "list"]);
+    expect(buildAccessibilityTree(document).children.map((c) => c.role)).toEqual(["list", "list"]);
   });
 
   it("nests a deeper-level list inside the preceding listitem (same listId)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "o", lastChildId: "i" }),
@@ -388,7 +388,7 @@ describe("buildAccessibilityTree", () => {
           attrs: { listId: "L1", listLevel: 1 }, inlineContent: inlineContent([text("inner")]) }),
       ],
     });
-    const top = buildAccessibilityTree(state).children;
+    const top = buildAccessibilityTree(document).children;
     expect(top.map((c) => c.role)).toEqual(["list"]);
     const outerList = nth(top, 0, "outer list");
     expect(outerList.children.map((c) => c.role)).toEqual(["listitem"]);
@@ -409,7 +409,7 @@ describe("buildAccessibilityTree", () => {
     // Table cells are CONTAINER blocks — they hold block children (paragraphs),
     // not inline content directly. This mirrors the real model in table-cell.ts
     // and how all table tests in state/ops/* are structured.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "t", lastChildId: "t" }),
@@ -429,7 +429,7 @@ describe("buildAccessibilityTree", () => {
           inlineContent: inlineContent([text("D")]) }),
       ],
     });
-    const table = nth(buildAccessibilityTree(state).children, 0, "table node");
+    const table = nth(buildAccessibilityTree(document).children, 0, "table node");
     expect(table.role).toBe("table");
     expect(table.sourceBlockId).toBe("t");
     const r0 = nth(table.children, 0, "row 0");
@@ -449,7 +449,7 @@ describe("buildAccessibilityTree", () => {
   });
 
   it("treats all cells as plain cells when headerRowCount is absent (default 0)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "t", lastChildId: "t" }),
@@ -463,7 +463,7 @@ describe("buildAccessibilityTree", () => {
           inlineContent: inlineContent([text("x")]) }),
       ],
     });
-    const table = nth(buildAccessibilityTree(state).children, 0, "table node");
+    const table = nth(buildAccessibilityTree(document).children, 0, "table node");
     // no header rows → all cells are plain "cell"
     expect(nth(nth(table.children, 0, "row").children, 0, "cell").role).toBe("cell");
   });
@@ -473,7 +473,7 @@ describe("buildAccessibilityTree", () => {
   // ---------------------------------------------------------------------------
 
   it("maps image (absent alt → name \"\"), horizontal-line, table-of-contents, and flattens section", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "img", lastChildId: "sec" }),
@@ -490,7 +490,7 @@ describe("buildAccessibilityTree", () => {
           inlineContent: inlineContent([text("in section")]) }),
       ],
     });
-    const children = buildAccessibilityTree(state).children;
+    const children = buildAccessibilityTree(document).children;
     // section is flattened: img, hr, toc, then the section's child paragraph inline. A
     // paragraph follows every block object (invariant I — Word / GDocs), so
     // consecutive objects are separated by an empty paragraph.
@@ -511,7 +511,7 @@ describe("buildAccessibilityTree", () => {
     //   non-empty → name === the alt string (labeled).
     //   "" (decorative) → name === "" (AT skips it).
     //   absent → name === "" (unlabeled; AT announces "image"/filename).
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "labeled", lastChildId: "bare" }),
@@ -524,7 +524,7 @@ describe("buildAccessibilityTree", () => {
       ],
     });
     // A paragraph follows every image (invariant I); only the images are checked.
-    const images = buildAccessibilityTree(state).children.filter((c) => c.role === "img");
+    const images = buildAccessibilityTree(document).children.filter((c) => c.role === "img");
     expect(images).toHaveLength(3);
     expect(images[0]).toMatchObject({ role: "img", sourceBlockId: "labeled", name: "A red barn" });
     expect(images[1]).toMatchObject({ role: "img", sourceBlockId: "deco", name: "" });
@@ -536,7 +536,7 @@ describe("buildAccessibilityTree", () => {
     // section is a grouping boundary — the three items must NOT merge into one
     // list: three separate synthetic "list" nodes. (sections partition the
     // root flow, so every root child is a section once one exists.)
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "s1", lastChildId: "s3" }),
@@ -553,7 +553,7 @@ describe("buildAccessibilityTree", () => {
           attrs: { listId: "L1", listLevel: 0 }, inlineContent: inlineContent([text("outer-2")]) }),
       ],
     });
-    const children = buildAccessibilityTree(state).children;
+    const children = buildAccessibilityTree(document).children;
     // each section (flattened) → its own list
     // Three separate lists, NOT merged across the section boundary.
     expect(children.map((c) => c.role)).toEqual(["list", "list", "list"]);
@@ -563,7 +563,7 @@ describe("buildAccessibilityTree", () => {
   });
 
   it("appends footnote bodies (doc-footnote) and template bodies (banner/contentinfo) after the main body", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", attrs: { headerBlockId: "hdr", footerBlockId: "ftr" },
@@ -588,7 +588,7 @@ describe("buildAccessibilityTree", () => {
           inlineContent: inlineContent([text("Footer")]) }),
       ],
     });
-    const top = buildAccessibilityTree(state);
+    const top = buildAccessibilityTree(document);
     expect(top.children.map((c) => c.role)).toEqual(
       ["paragraph", "doc-footnote", "doc-footnote", "banner", "contentinfo"],
     );
@@ -605,7 +605,7 @@ describe("buildAccessibilityTree", () => {
   });
 
   it("classifies a template-body as contentinfo when a block links it via footerBlockId", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [buildBlock({ id: "doc", type: "document", attrs: { footerBlockId: "ftr" } })],
       templateContents: [
@@ -615,11 +615,11 @@ describe("buildAccessibilityTree", () => {
       ],
     });
     // The childless doc reads one implicit empty paragraph, then the footer body.
-    expect(buildAccessibilityTree(state).children.map((c) => c.role)).toEqual(["paragraph", "contentinfo"]);
+    expect(buildAccessibilityTree(document).children.map((c) => c.role)).toEqual(["paragraph", "contentinfo"]);
   });
 
   it("THROWS on an unmapped block type (a missing-from-AT node is an invisible regression)", () => {
-    const state = buildState({
+    const document = buildDocument({
       resolver: registryWith(testLeaf("totally-unknown-block", "inline-bearing")), // state knows it; the AT role map does not
       rootId: "doc",
       blocks: [
@@ -631,7 +631,7 @@ describe("buildAccessibilityTree", () => {
     // Assert the distinctive new-guard phrase so this test genuinely fails if the
     // guard regresses to a vaguer message (the block-type name itself contains
     // "unknown", which a broader regex would spuriously match).
-    expect(() => buildAccessibilityTree(state)).toThrow(/no accessibility role mapped/i);
+    expect(() => buildAccessibilityTree(document)).toThrow(/no accessibility role mapped/i);
   });
 
   it("is exported from the core barrel", async () => {
@@ -643,7 +643,7 @@ describe("buildAccessibilityTree", () => {
 describe("collectRuns — page-valued field runs", () => {
   /** Build a one-paragraph doc whose block "b1" carries `items` as its inline content. */
   function paragraphWith(items: ReadonlyArray<Parameters<typeof inlineContent>[0][number]>) {
-    return buildState({
+    return buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "b1", lastChildId: "b1" }),
@@ -655,11 +655,11 @@ describe("collectRuns — page-valued field runs", () => {
 
   it("emits a DISTINCT run with fieldKind + fieldKey + '' for a page-count field", () => {
     // inline items: [text "Page ", page-count embed] — the embed is array index 1.
-    const state = paragraphWith([
+    const document = paragraphWith([
       text("Page "),
       embed(PAGE_FIELD_EMBED_TYPE, { fieldKind: "page-count", numberStyle: "decimal" }),
     ]);
-    const para = nth(buildAccessibilityTree(state, { suggestionView: "suggesting" }).children, 0, "paragraph node");
+    const para = nth(buildAccessibilityTree(document, { suggestionView: "suggesting" }).children, 0, "paragraph node");
     const runs = para.text ?? [];
     const fieldRun = runs.find((r) => r.fieldKind !== undefined);
     expect(fieldRun).toBeDefined();
@@ -671,10 +671,10 @@ describe("collectRuns — page-valued field runs", () => {
   });
 
   it("emits fieldKind cross-ref-page for a cross-reference embed in page mode", () => {
-    const state = paragraphWith([
+    const document = paragraphWith([
       embed(CROSS_REFERENCE_EMBED_TYPE, { targetId: "tgt", refMode: "page" }),
     ]);
-    const para = nth(buildAccessibilityTree(state, { suggestionView: "suggesting" }).children, 0, "paragraph node");
+    const para = nth(buildAccessibilityTree(document, { suggestionView: "suggesting" }).children, 0, "paragraph node");
     const fieldRun = (para.text ?? []).find((r) => r.fieldKind !== undefined);
     expect(fieldRun?.fieldKind).toBe("cross-ref-page");
     expect(fieldRun?.text).toBe("");
@@ -682,10 +682,10 @@ describe("collectRuns — page-valued field runs", () => {
   });
 
   it("emits fieldKind page-number for a page-number field", () => {
-    const state = paragraphWith([
+    const document = paragraphWith([
       embed(PAGE_FIELD_EMBED_TYPE, { fieldKind: "page-number", numberStyle: "decimal" }),
     ]);
-    const para = nth(buildAccessibilityTree(state, { suggestionView: "suggesting" }).children, 0, "paragraph node");
+    const para = nth(buildAccessibilityTree(document, { suggestionView: "suggesting" }).children, 0, "paragraph node");
     const fieldRun = (para.text ?? []).find((r) => r.fieldKind !== undefined);
     expect(fieldRun?.fieldKind).toBe("page-number");
     expect(fieldRun?.text).toBe("");
@@ -694,10 +694,10 @@ describe("collectRuns — page-valued field runs", () => {
 
   // A cross-reference NOT in page mode is not a page-valued field → no fieldKind run.
   it("does NOT mark a non-page-mode cross-reference as a field run", () => {
-    const state = paragraphWith([
+    const document = paragraphWith([
       embed(CROSS_REFERENCE_EMBED_TYPE, { targetId: "tgt", refMode: "label" }),
     ]);
-    const para = nth(buildAccessibilityTree(state, { suggestionView: "suggesting" }).children, 0, "paragraph node");
+    const para = nth(buildAccessibilityTree(document, { suggestionView: "suggesting" }).children, 0, "paragraph node");
     expect((para.text ?? []).some((r) => r.fieldKind !== undefined)).toBe(false);
   });
 
@@ -707,29 +707,29 @@ describe("collectRuns — page-valued field runs", () => {
     // items: [a DELETION_SUGGESTION_ATTR text item, page-count] — field is array index 1.
     // Built with { suggestionView: "final" } so the deletion item is FILTERED by
     // itemVisibleInView (its invisible-skip `continue` still increments render-core's i).
-    const state = paragraphWith([
+    const document = paragraphWith([
       text("gone", { [DELETION_SUGGESTION_ATTR]: "s1" }),
       embed(PAGE_FIELD_EMBED_TYPE, { fieldKind: "page-count", numberStyle: "decimal" }),
     ]);
-    const para = nth(buildAccessibilityTree(state, { suggestionView: "final" }).children, 0, "paragraph node");
+    const para = nth(buildAccessibilityTree(document, { suggestionView: "final" }).children, 0, "paragraph node");
     const fieldRun = (para.text ?? []).find((r) => r.fieldKind !== undefined);
     expect(fieldRun?.fieldKey).toBe(inlineRenderKey(asBlockId("b1"), 1));
   });
 
   it("fieldKey index counts a comment-start marker before the field", () => {
     // items: [comment-start embed, page-count] → field is array index 1.
-    const state = paragraphWith([
+    const document = paragraphWith([
       embed(COMMENT_START_EMBED_TYPE, { commentId: "c1" }),
       embed(PAGE_FIELD_EMBED_TYPE, { fieldKind: "page-count", numberStyle: "decimal" }),
     ]);
-    const para = nth(buildAccessibilityTree(state, { suggestionView: "suggesting" }).children, 0, "paragraph node");
+    const para = nth(buildAccessibilityTree(document, { suggestionView: "suggesting" }).children, 0, "paragraph node");
     const fieldRun = (para.text ?? []).find((r) => r.fieldKind !== undefined);
     expect(fieldRun?.fieldKey).toBe(inlineRenderKey(asBlockId("b1"), 1));
   });
 
   it("fieldKey index counts a footnote-anchor before the field", () => {
     // items: [footnote-anchor embed, page-count] → field is array index 1.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "b1", lastChildId: "b1" }),
@@ -743,7 +743,7 @@ describe("collectRuns — page-valued field runs", () => {
         buildBlock({ id: "fn1", type: "footnote-body", inlineContent: inlineContent([text("note")]) }),
       ],
     });
-    const para = nth(buildAccessibilityTree(state, { suggestionView: "suggesting" }).children, 0, "paragraph node");
+    const para = nth(buildAccessibilityTree(document, { suggestionView: "suggesting" }).children, 0, "paragraph node");
     const fieldRun = (para.text ?? []).find((r) => r.fieldKind !== undefined);
     expect(fieldRun?.fieldKey).toBe(inlineRenderKey(asBlockId("b1"), 1));
   });
@@ -751,14 +751,14 @@ describe("collectRuns — page-valued field runs", () => {
 
 describe("collectRuns — TOC guard (OQ1)", () => {
   it("a table-of-contents block emits a navigation landmark with NO field runs and does not crash", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "toc", lastChildId: "toc" }),
         buildBlock({ id: "toc", type: "table-of-contents", parentId: "doc" }),
       ],
     });
-    const tree = buildAccessibilityTree(state, { suggestionView: "suggesting" });
+    const tree = buildAccessibilityTree(document, { suggestionView: "suggesting" });
     const nav = tree.children.find((c) => c.role === "navigation");
     expect(nav?.role).toBe("navigation");
     expect(nav?.text ?? []).toEqual([]); // no field runs

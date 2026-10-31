@@ -12,7 +12,7 @@
  *   - container (document, list, table, table-row, table-cell, etc.)
  *     carries `children: BlockInit[]`; `inlineContent` is omitted.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
@@ -20,10 +20,10 @@ import {
   reduceEditor,
 } from "./test-helpers";
 import { getBlock } from "../../state";
-import type { BlockId, State, BlockInit } from "../../state";
+import type { BlockId, Document, BlockInit } from "../../state";
 
-function lastChildOf(state: State, parentId: BlockId): BlockId {
-  const parent = getBlock(state, parentId);
+function lastChildOf(document: Document, parentId: BlockId): BlockId {
+  const parent = getBlock(document, parentId);
   if (parent === null) throw new Error(`lastChildOf: parent "${parentId}" not found`);
   const id = parent.lastChildId;
   if (id === null) throw new Error(`lastChildOf: parent "${parentId}" has no lastChild`);
@@ -33,7 +33,7 @@ function lastChildOf(state: State, parentId: BlockId): BlockId {
 describe("handleInsertNode — BlockInit shape (T31)", () => {
   it("inserts an inline-bearing-leaf paragraph with inlineContent items", () => {
     const initial = createInitialEditorState(config);
-    const root = getBlock(initial.state, finalSectionOf(initial.state)); // the root holds sections
+    const root = getBlock(initial.document, finalSectionOf(initial.document)); // the root holds sections
     const beforeLastId = root?.lastChildId ?? null;
 
     const init: BlockInit = {
@@ -55,9 +55,9 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
       { type: "INSERT_NODE", node: init },
     );
 
-    const newId = lastChildOf(next.state, finalSectionOf(next.state));
+    const newId = lastChildOf(next.document, finalSectionOf(next.document));
     expect(newId).not.toBe(beforeLastId);
-    const inserted = getBlock(next.state, newId);
+    const inserted = getBlock(next.document, newId);
     expect(inserted?.type).toBe("paragraph");
     expect(inserted?.inlineContent?.items.length).toBe(1);
     const first = inserted?.inlineContent?.items[0];
@@ -84,8 +84,8 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
       { type: "INSERT_NODE", node: init },
     );
 
-    const newId = lastChildOf(next.state, finalSectionOf(next.state));
-    const inserted = getBlock(next.state, newId);
+    const newId = lastChildOf(next.document, finalSectionOf(next.document));
+    const inserted = getBlock(next.document, newId);
     expect(inserted?.type).toBe("list-item");
     expect(inserted?.attrs).toEqual({ listType: "unordered" });
     expect(inserted?.inlineContent?.items.length).toBe(1);
@@ -106,10 +106,10 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
 
     // Invariant I: a paragraph always follows an object, so the image is
     // the block before the body's last (empty) paragraph.
-    const trailing = getBlock(next.state, lastChildOf(next.state, finalSectionOf(next.state)));
+    const trailing = getBlock(next.document, lastChildOf(next.document, finalSectionOf(next.document)));
     expect(trailing?.type).toBe("paragraph");
     const newId = trailing?.prevSiblingId as BlockId;
-    const inserted = getBlock(next.state, newId);
+    const inserted = getBlock(next.document, newId);
     expect(inserted?.type).toBe("image");
     expect(inserted?.attrs).toEqual({ src: "x.png" });
     expect(inserted?.inlineContent).toBeNull();
@@ -145,22 +145,22 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
     );
 
     // A paragraph always follows a table (invariant I).
-    const tableId = getBlock(next.state, lastChildOf(next.state, finalSectionOf(next.state)))?.prevSiblingId as BlockId;
-    const table = getBlock(next.state, tableId);
+    const tableId = getBlock(next.document, lastChildOf(next.document, finalSectionOf(next.document)))?.prevSiblingId as BlockId;
+    const table = getBlock(next.document, tableId);
     expect(table?.type).toBe("table");
     expect(table?.inlineContent).toBeNull();
 
-    const rowId = lastChildOf(next.state, tableId);
-    const row = getBlock(next.state, rowId);
+    const rowId = lastChildOf(next.document, tableId);
+    const row = getBlock(next.document, rowId);
     expect(row?.type).toBe("table-row");
     expect(row?.parentId).toBe(tableId);
 
-    const cellId = lastChildOf(next.state, rowId);
-    const cell = getBlock(next.state, cellId);
+    const cellId = lastChildOf(next.document, rowId);
+    const cell = getBlock(next.document, cellId);
     expect(cell?.type).toBe("table-cell");
 
-    const paraId = lastChildOf(next.state, cellId);
-    const para = getBlock(next.state, paraId);
+    const paraId = lastChildOf(next.document, cellId);
+    const para = getBlock(next.document, paraId);
     expect(para?.type).toBe("paragraph");
     expect(para?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "a" });
   });

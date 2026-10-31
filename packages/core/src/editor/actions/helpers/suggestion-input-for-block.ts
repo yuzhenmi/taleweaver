@@ -1,5 +1,5 @@
-import type { EditorConfig } from "../../editor-config";
-import { selectionContextOf, type SuggestionMintInput, type State, type BlockId } from "../../../state";
+import type { EditorState } from "../../editor-state";
+import { selectionContextOf, type SuggestionMintInput, type BlockId } from "../../../state";
 import { newSuggestionInput } from "./new-suggestion-input";
 
 /**
@@ -20,10 +20,9 @@ import { newSuggestionInput } from "./new-suggestion-input";
  * `newSuggestionInput` remains for the rare site where the context is already known.
  */
 export function suggestionInputForBlock(
-  state: State,
+  editor: EditorState,
   blockId: BlockId,
-  config: EditorConfig,
 ): SuggestionMintInput | null {
-  if (selectionContextOf(state, blockId) === null) return null;
-  return newSuggestionInput(config);
+  if (selectionContextOf(editor.document, blockId) === null) return null;
+  return newSuggestionInput(editor);
 }

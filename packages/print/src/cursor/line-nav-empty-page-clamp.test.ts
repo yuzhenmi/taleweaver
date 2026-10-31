@@ -28,9 +28,9 @@ import { createMockShaper } from "@taleweaver/core";
 import { makeVirtualLayoutTree, type VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import type { PageConfig } from "../layout/page-config";
 import type { PageBox } from "../layout/page-box";
-import { buildState, buildBlock, inlineContent, text } from "@taleweaver/core";
+import { buildDocument, buildBlock, inlineContent, text } from "@taleweaver/core";
 import { createPosition, firstLeafBlock, lastLeafBlock } from "@taleweaver/core";
-import type { State, BlockId } from "@taleweaver/core";
+import type { Document, BlockId } from "@taleweaver/core";
 
 const SHAPER_CHAR_W = 8;
 const SHAPER_LINE_H = 16;
@@ -45,7 +45,7 @@ function pageConfig(): PageConfig {
   };
 }
 
-function buildTwoPageDoc(): { state: State; tree: VirtualLayoutTree } {
+function buildTwoPageDoc(): { document: Document; tree: VirtualLayoutTree } {
   // Enough single-line paragraphs to overflow a 100px content band (≈6 lines).
   const paraCount = 12;
   const bodyBlocks = Array.from({ length: paraCount }, (_, i) =>
@@ -58,7 +58,7 @@ function buildTwoPageDoc(): { state: State; tree: VirtualLayoutTree } {
       inlineContent: inlineContent([text(`para ${i}`)]),
     }),
   );
-  const state = buildState({
+  const document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -71,7 +71,7 @@ function buildTwoPageDoc(): { state: State; tree: VirtualLayoutTree } {
     ],
   });
 
-  const out = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry());
+  const out = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry());
   const cascadedRoot = cascadePass(out.root);
   if (cascadedRoot.type !== "element") throw new Error("root cascade not element");
 
@@ -84,7 +84,7 @@ function buildTwoPageDoc(): { state: State; tree: VirtualLayoutTree } {
   const plan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, flattenContents(cascadedRoot.children));
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, cfg.pageInlineSize);
   const tree = makeVirtualLayoutTree(plan, cascadedRoot, ctx, shaper, cfg, undefined, undefined);
-  return { state, tree };
+  return { document, tree };
 }
 
 /** Wrap a tree so `getPage(emptyPage)` returns a PageBox with NO children.
@@ -118,7 +118,7 @@ describe("empty-adjacent-page guard clamps to a document boundary (per-page only
   });
 
   it("ArrowDown into an empty NEXT page clamps to end-of-document", () => {
-    const { state, tree } = buildTwoPageDoc();
+    const { document, tree } = buildTwoPageDoc();
     const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
     // Empty page 1; put the caret on the LAST body block of page 0 so ArrowDown
     // steps toward page 1.
@@ -132,15 +132,15 @@ describe("empty-adjacent-page guard clamps to a document boundary (per-page only
       throw new Error("no page-0 block found");
     })();
     const pos = createPosition(page0LastBlock, 0);
-    const moved = moveToLine(state, pos, guarded, shaper, "down", null);
+    const moved = moveToLine(document, pos, guarded, shaper, "down", null);
     expect(moved).not.toBeNull();
     // Clamp = end-of-document (last leaf, its content length).
-    const lastLeaf = lastLeafBlock(state, state.rootId);
+    const lastLeaf = lastLeafBlock(document, document.rootId);
     expect(moved?.position.blockId).toBe(lastLeaf);
   });
 
   it("ArrowUp into an empty PREVIOUS page clamps to start-of-document", () => {
-    const { state, tree } = buildTwoPageDoc();
+    const { document, tree } = buildTwoPageDoc();
     const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
     // Empty page 0; put the caret on the FIRST body block of page 1 so ArrowUp
     // steps toward page 0.
@@ -153,10 +153,10 @@ describe("empty-adjacent-page guard clamps to a document boundary (per-page only
       throw new Error("no page-1 block found");
     })();
     const pos = createPosition(page1FirstBlock, 0);
-    const moved = moveToLine(state, pos, guarded, shaper, "up", null);
+    const moved = moveToLine(document, pos, guarded, shaper, "up", null);
     expect(moved).not.toBeNull();
     // Clamp = start-of-document (first leaf, offset 0).
-    const firstLeaf = firstLeafBlock(state, state.rootId);
+    const firstLeaf = firstLeafBlock(document, document.rootId);
     expect(moved?.position.blockId).toBe(firstLeaf);
     expect(moved?.position.offset).toBe(0);
   });

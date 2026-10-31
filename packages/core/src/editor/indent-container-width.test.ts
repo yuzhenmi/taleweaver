@@ -32,7 +32,7 @@ describe("containerWidth is a core editing input (#417 indent cap)", () => {
     const maxIndent = 200 - MIN_INDENT_CONTENT_WIDTH; // 104
     let editor = reduceEditor(initial, { type: "SET_CONTAINER_WIDTH", width: 200 });
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.state) as BlockId;
+    const paraId = firstChildId(editor.document) as BlockId;
 
     // Indent well past the cap (10 × 48 = 480 ≫ 104).
     for (let i = 0; i < 10; i++) {
@@ -40,6 +40,6 @@ describe("containerWidth is a core editing input (#417 indent cap)", () => {
     }
 
     // Capped exactly at maxIndent — read from the resized width, not the initial config's.
-    expect(getBlock(editor.state, paraId)?.attrs.marginInlineStart).toBe(maxIndent);
+    expect(getBlock(editor.document, paraId)?.attrs.marginInlineStart).toBe(maxIndent);
   });
 });

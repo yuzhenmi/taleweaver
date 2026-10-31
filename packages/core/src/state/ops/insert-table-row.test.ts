@@ -1,15 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { insertTableRow } from "./insert-table-row";
 import { resolveTableContext } from "../table-context";
-import { getBlock } from "../state";
-import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+import { getBlock } from "../document";
+import { buildBlock, buildDocument, inlineContent } from "../../test-utils/document-builders";
 import { createTestAllocator } from "../block-id";
 import type { BlockId } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../document";
 
 // doc > table[0.5/0.5] > row0(cA,cB) / row1(cC,cD); each cell > paragraph.
-function tableState(): State {
-  return buildState({
+function tableDocument(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
@@ -28,17 +28,17 @@ function tableState(): State {
   });
 }
 
-const ctxAt = (state: State, blockId: string) => {
-  const ctx = resolveTableContext(state, blockId as BlockId);
+const ctxAt = (document: Document, blockId: string) => {
+  const ctx = resolveTableContext(document, blockId as BlockId);
   if (ctx === null) throw new Error("no ctx");
   return ctx;
 };
 
 describe("insertTableRow", () => {
   it("inserts a row BELOW the caret's row with one empty cell per column", () => {
-    const state = tableState();
-    const { state: next, newRowId } = insertTableRow(
-      state, ctxAt(state, "pA"), "below", createTestAllocator("n"),
+    const document = tableDocument();
+    const { document: next, newRowId } = insertTableRow(
+      document, ctxAt(document, "pA"), "below", createTestAllocator("n"),
     );
 
     const newRow = getBlock(next, newRowId);
@@ -71,9 +71,9 @@ describe("insertTableRow", () => {
   });
 
   it("inserts a row ABOVE the caret's row, updating the table's firstChild at the boundary", () => {
-    const state = tableState();
-    const { state: next, newRowId } = insertTableRow(
-      state, ctxAt(state, "pA"), "above", createTestAllocator("n"),
+    const document = tableDocument();
+    const { document: next, newRowId } = insertTableRow(
+      document, ctxAt(document, "pA"), "above", createTestAllocator("n"),
     );
     const newRow = getBlock(next, newRowId);
     expect(newRow?.prevSiblingId).toBeNull();
@@ -83,9 +83,9 @@ describe("insertTableRow", () => {
   });
 
   it("inserts below the LAST row, updating the table's lastChild at the boundary", () => {
-    const state = tableState();
-    const { state: next, newRowId } = insertTableRow(
-      state, ctxAt(state, "pD"), "below", createTestAllocator("n"),
+    const document = tableDocument();
+    const { document: next, newRowId } = insertTableRow(
+      document, ctxAt(document, "pD"), "below", createTestAllocator("n"),
     );
     expect(getBlock(next, newRowId)?.nextSiblingId).toBeNull();
     expect(getBlock(next, "table" as BlockId)?.lastChildId).toBe(newRowId);
@@ -93,9 +93,9 @@ describe("insertTableRow", () => {
   });
 
   it("dirtyIds covers the new row + its cells + paragraphs + touched sibling rows", () => {
-    const state = tableState();
-    const { state: next, dirtyIds, newRowId } = insertTableRow(
-      state, ctxAt(state, "pA"), "below", createTestAllocator("n"),
+    const document = tableDocument();
+    const { document: next, dirtyIds, newRowId } = insertTableRow(
+      document, ctxAt(document, "pA"), "below", createTestAllocator("n"),
     );
     expect(dirtyIds.has(newRowId)).toBe(true);
     expect(dirtyIds.has("row0" as BlockId)).toBe(true); // nextSiblingId rewired
@@ -113,8 +113,8 @@ describe("insertTableRow", () => {
 
   it("keeps headerRowCount naming the leading block across an insert (#487)", () => {
     // 4-row single-column table with headerRowCount=2 (rows 0–1 pinned).
-    const fourRowHeaderTable = (): State =>
-      buildState({
+    const fourRowHeaderTable = (): Document =>
+      buildDocument({
         rootId: "doc",
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
@@ -133,20 +133,20 @@ describe("insertTableRow", () => {
           buildBlock({ id: "p3", type: "paragraph", parentId: "c3", inlineContent: inlineContent([]) }),
         ],
       });
-    const hrc = (s: State) => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
+    const hrc = (s: Document) => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
     // Insert INSIDE the header (above row 1 → destination index 1 < 2) → 3.
     const inside = insertTableRow(fourRowHeaderTable(), ctxAt(fourRowHeaderTable(), "p1"), "above", createTestAllocator("n"));
-    expect(hrc(inside.state)).toBe(3);
+    expect(hrc(inside.document)).toBe(3);
     // Insert AT the boundary (below row 1 → destination index 2 === count) → 2 (body row).
     const atBoundary = insertTableRow(fourRowHeaderTable(), ctxAt(fourRowHeaderTable(), "p1"), "below", createTestAllocator("n"));
-    expect(hrc(atBoundary.state)).toBe(2);
+    expect(hrc(atBoundary.document)).toBe(2);
     // Insert PAST the boundary (below row 2 → destination index 3 > count) → 2.
     const past = insertTableRow(fourRowHeaderTable(), ctxAt(fourRowHeaderTable(), "p2"), "below", createTestAllocator("n"));
-    expect(hrc(past.state)).toBe(2);
+    expect(hrc(past.document)).toBe(2);
   });
 
   it("handles a 1-column table (single cell row; firstChild === lastChild)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
@@ -156,8 +156,8 @@ describe("insertTableRow", () => {
         buildBlock({ id: "p0", type: "paragraph", parentId: "c0", inlineContent: inlineContent([]) }),
       ],
     });
-    const { state: next, newRowId } = insertTableRow(
-      state, ctxAt(state, "p0"), "below", createTestAllocator("n"),
+    const { document: next, newRowId } = insertTableRow(
+      document, ctxAt(document, "p0"), "below", createTestAllocator("n"),
     );
     const newRow = getBlock(next, newRowId);
     expect(newRow?.firstChildId).toBe(newRow?.lastChildId); // the single cell

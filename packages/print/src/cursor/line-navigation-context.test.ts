@@ -41,13 +41,13 @@ import type { ElementBox, RenderNode } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
 import type { PageConfig } from "../layout/page-config";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
 import { createPosition, selectionContextOf } from "@taleweaver/core";
-import type { State, BlockId } from "@taleweaver/core";
+import type { Document, BlockId } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -79,7 +79,7 @@ function pageConfig(): PageConfig {
 }
 
 interface Built {
-  state: State;
+  document: Document;
   virtual: VirtualLayoutTree;
   positioned: LayoutBox;
   shaper: TextShaper;
@@ -147,7 +147,7 @@ function buildDoc(opts: {
       inlineContent: inlineContent([text(t)]),
     });
   });
-  const state = buildState({
+  const document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -161,7 +161,7 @@ function buildDoc(opts: {
     templateContents: templateBlocks,
   });
 
-  const out = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry());
+  const out = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry());
   const cascadedRoot = cascadePass(out.root);
   if (cascadedRoot.type !== "element") throw new Error("root cascade not element");
 
@@ -191,7 +191,7 @@ function buildDoc(opts: {
     plan, cascadedRoot, ctx, shaper, cfg, undefined, cascadedTemplateContents,
   );
   const positioned = positionTreeForTest(virtual);
-  return { state, virtual, positioned, shaper };
+  return { document, virtual, positioned, shaper };
 }
 
 /** Rebuild a PagePlan from base entries, overriding per-entry fields. */
@@ -241,67 +241,67 @@ beforeEach(() => {
 
 describe("#327 — line-navigation does NOT cross body↔header/footer (virtual tree)", () => {
   it("precondition: the header slot exists and its lines have a context distinct from the body", () => {
-    const { state, virtual } = buildDoc({
+    const { document, virtual } = buildDoc({
       bodyParas: ["body line one", "body line two"],
       headerParas: ["header"],
     });
     const p0 = virtual.getPage(0);
     expect(p0.headerSlot).not.toBeNull();
     // Header child's context = the header CONTAINER root, NOT state.rootId.
-    expect(selectionContextOf(state, HEADER_P1)).toBe(HEADER_ROOT);
-    expect(selectionContextOf(state, "bp0" as BlockId)).toBe(state.rootId);
-    expect(selectionContextOf(state, HEADER_P1)).not.toBe(state.rootId);
+    expect(selectionContextOf(document, HEADER_P1)).toBe(HEADER_ROOT);
+    expect(selectionContextOf(document, "bp0" as BlockId)).toBe(document.rootId);
+    expect(selectionContextOf(document, HEADER_P1)).not.toBe(document.rootId);
   });
 
   it("ArrowUp from the body's FIRST line is a no-op (does NOT enter the header)", () => {
-    const { state, virtual, shaper } = buildDoc({
+    const { document, virtual, shaper } = buildDoc({
       bodyParas: ["body line one", "body line two"],
       headerParas: ["header"],
     });
     const pos = createPosition("bp0" as BlockId, 2);
-    const result = moveToLine(state, pos, virtual, shaper, "up", null);
+    const result = moveToLine(document, pos, virtual, shaper, "up", null);
     // Must NOT land in the header. Either no-op (stays in body) or start-of-doc.
     if (result !== null) {
-      expect(selectionContextOf(state, result.position.blockId)).toBe(state.rootId);
+      expect(selectionContextOf(document, result.position.blockId)).toBe(document.rootId);
       expect(result.position.blockId).not.toBe(HEADER_P1);
     }
   });
 
   it("ArrowDown from the body's LAST line is a no-op (does NOT enter the footer)", () => {
-    const { state, virtual, shaper } = buildDoc({
+    const { document, virtual, shaper } = buildDoc({
       bodyParas: ["body line one", "body line two"],
       headerParas: ["header"],
       footerParas: ["footer"],
     });
     const pos = createPosition("bp1" as BlockId, 2);
-    const result = moveToLine(state, pos, virtual, shaper, "down", null);
+    const result = moveToLine(document, pos, virtual, shaper, "down", null);
     if (result !== null) {
-      expect(selectionContextOf(state, result.position.blockId)).toBe(state.rootId);
+      expect(selectionContextOf(document, result.position.blockId)).toBe(document.rootId);
       expect(result.position.blockId).not.toBe(FOOTER_P1);
     }
   });
 
   it("ArrowDown WITHIN a 2-line header moves to the 2nd header line (same-context nav works)", () => {
-    const { state, virtual, shaper } = buildDoc({
+    const { document, virtual, shaper } = buildDoc({
       bodyParas: ["body"],
       headerParas: ["header one", "header two"],
     });
     const pos = createPosition(HEADER_P1, 2);
-    const result = moveToLine(state, pos, virtual, shaper, "down", null);
+    const result = moveToLine(document, pos, virtual, shaper, "down", null);
     expect(result).not.toBeNull();
     if (result === null) return;
     // Stays in the header context, moves to the 2nd header paragraph.
-    expect(selectionContextOf(state, result.position.blockId)).toBe(HEADER_ROOT);
+    expect(selectionContextOf(document, result.position.blockId)).toBe(HEADER_ROOT);
     expect(result.position.blockId).toBe(HEADER_P2);
   });
 
   it("ArrowUp from the header's FIRST line is a no-op (does NOT exit to body)", () => {
-    const { state, virtual, shaper } = buildDoc({
+    const { document, virtual, shaper } = buildDoc({
       bodyParas: ["body line one", "body line two"],
       headerParas: ["header one", "header two"],
     });
     const pos = createPosition(HEADER_P1, 2);
-    const result = moveToLine(state, pos, virtual, shaper, "up", null);
+    const result = moveToLine(document, pos, virtual, shaper, "up", null);
     // Isolated slot: ArrowUp from the top of the header context is a no-op —
     // it must NOT exit to the body (and an isolated context has no document
     // boundary to fall to), so the result is null (caret stays put).
@@ -309,22 +309,22 @@ describe("#327 — line-navigation does NOT cross body↔header/footer (virtual 
   });
 
   it("body-internal ArrowDown still moves between body lines", () => {
-    const { state, virtual, shaper } = buildDoc({
+    const { document, virtual, shaper } = buildDoc({
       bodyParas: ["body line one", "body line two"],
       headerParas: ["header"],
     });
     const pos = createPosition("bp0" as BlockId, 2);
-    const result = moveToLine(state, pos, virtual, shaper, "down", null);
+    const result = moveToLine(document, pos, virtual, shaper, "down", null);
     expect(result).not.toBeNull();
     if (result === null) return;
-    expect(selectionContextOf(state, result.position.blockId)).toBe(state.rootId);
+    expect(selectionContextOf(document, result.position.blockId)).toBe(document.rootId);
     expect(result.position.blockId).toBe("bp1");
   });
 });
 
 describe("#327 — line-navigation context isolation (positioned tree)", () => {
   it("ArrowUp from the body's first line does NOT enter the header (positioned path)", () => {
-    const { state, positioned, shaper } = buildDoc({
+    const { document, positioned, shaper } = buildDoc({
       bodyParas: ["body line one", "body line two"],
       headerParas: ["header"],
     });
@@ -338,23 +338,23 @@ describe("#327 — line-navigation context isolation (positioned tree)", () => {
     expect(nth(hdr, 0, "header line").absoluteY).toBeLessThan(nth(body0, 0, "body line").absoluteY);
 
     const pos = createPosition("bp0" as BlockId, 2);
-    const result = moveToLine(state, pos, positioned, shaper, "up", null);
+    const result = moveToLine(document, pos, positioned, shaper, "up", null);
     if (result !== null) {
-      expect(selectionContextOf(state, result.position.blockId)).toBe(state.rootId);
+      expect(selectionContextOf(document, result.position.blockId)).toBe(document.rootId);
       expect(result.position.blockId).not.toBe(HEADER_P1);
     }
   });
 
   it("ArrowDown WITHIN a 2-line header moves to the 2nd header line (positioned path)", () => {
-    const { state, positioned, shaper } = buildDoc({
+    const { document, positioned, shaper } = buildDoc({
       bodyParas: ["body"],
       headerParas: ["header one", "header two"],
     });
     const pos = createPosition(HEADER_P1, 2);
-    const result = moveToLine(state, pos, positioned, shaper, "down", null);
+    const result = moveToLine(document, pos, positioned, shaper, "down", null);
     expect(result).not.toBeNull();
     if (result === null) return;
-    expect(selectionContextOf(state, result.position.blockId)).toBe(HEADER_ROOT);
+    expect(selectionContextOf(document, result.position.blockId)).toBe(HEADER_ROOT);
     expect(result.position.blockId).toBe(HEADER_P2);
   });
 });

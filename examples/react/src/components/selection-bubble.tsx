@@ -151,7 +151,7 @@ export function SelectionBubble({
 
   if (rect === null) return null;
 
-  const fmt = getActiveFormatting(editorState.state, editorState.selection, editorState.storedAttrs);
+  const fmt = getActiveFormatting(editorState.document, editorState.selection, editorState.storedAttrs);
   const styleBtn = (label: string, style: ToggleStyle, active: boolean, extraClass = "") => (
     <button
       type="button"

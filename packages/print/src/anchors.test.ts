@@ -77,7 +77,7 @@ function mount(
 }
 
 const textOf = (e: core.EditorState, id: core.BlockId): string =>
-  (core.getBlock(e.state, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
+  (core.getBlock(e.document, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
 const caretAt = (id: core.BlockId, o: number): core.EditorAction => ({
   type: "SET_SELECTION",
   selection: core.createSpan(core.createPosition(id, o), core.createPosition(id, o)),
@@ -110,11 +110,11 @@ describe("print — anchors and versions", () => {
 describe("print — collaboration", () => {
   it("a peer's update reaches the host as APPLY_FOREIGN_CHANGE: text, rebased caret, anchors", () => {
     let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" });
-    const docA = core.getYDoc(peerA.state);
+    const docA = core.getYDoc(peerA.document);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
-    const stateB = core.createState({ resolver: TEST_RESOLVER, rootId: peerA.state.rootId, doc: docB });
-    const m = mount(core.createEditorStateFromState(stateB, core.initialSelectionForState(stateB), cfg));
+    const documentB = core.createDocument({ resolver: TEST_RESOLVER, rootId: peerA.document.rootId, doc: docB });
+    const m = mount(core.createEditorStateFromDocument(documentB, core.initialSelectionForDocument(documentB), cfg));
     docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
     const id = peerA.selection.focus.blockId;
     m.controller.runCommand((_e, dispatch) => (dispatch?.(caretAt(id, 5)), true));
@@ -138,18 +138,18 @@ describe("print — collaboration", () => {
   });
 });
 
-/** Peer A (driven through the reducer) and a replica State over a second, synced Y.Doc. */
+/** Peer A (driven through the reducer) and a replica Document over a second, synced Y.Doc. */
 function peerPair(text = "hello world") {
   let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text });
-  const docA = core.getYDoc(peerA.state);
+  const docA = core.getYDoc(peerA.document);
   const docB = new Y.Doc();
   Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
   docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
-  const stateB = core.createState({ resolver: TEST_RESOLVER, rootId: peerA.state.rootId, doc: docB });
+  const documentB = core.createDocument({ resolver: TEST_RESOLVER, rootId: peerA.document.rootId, doc: docB });
   const id = peerA.selection.focus.blockId;
   return {
     id,
-    editorB: () => core.createEditorStateFromState(stateB, core.initialSelectionForState(stateB), cfg),
+    editorB: () => core.createEditorStateFromDocument(documentB, core.initialSelectionForDocument(documentB), cfg),
     type: (t: string) => {
       peerA = core.reduceEditor(peerA, { type: "INSERT_TEXT", text: t });
     },

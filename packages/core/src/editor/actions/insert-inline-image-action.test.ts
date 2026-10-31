@@ -16,7 +16,7 @@
 
 import { describe, it, expect } from "vitest";
 import { reduceEditor } from "../reduce-editor";
-import { type EditorState, createEditorStateFromState } from "../editor-state";
+import { type EditorState, createEditorStateFromDocument } from "../editor-state";
 import { type EditorConfig } from "../editor-config";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
@@ -26,8 +26,8 @@ import {
   getBlock,
   INLINE_IMAGE_EMBED_TYPE,
 } from "../../state";
-import type { State, BlockId, InlineItem, EmbedItem } from "../../state";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import type { Document, BlockId, InlineItem, EmbedItem } from "../../state";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 
 const componentRegistry = createDefaultComponentRegistry();
 const attrRegistry = createDefaultAttrRegistry();
@@ -37,8 +37,8 @@ const BODY_P = "p" as BlockId;
 
 const IMG = { src: "blob:img-1", width: 120, height: 80, alt: "a kitten" } as const;
 
-function buildStateWithBody(): State {
-  return buildState({
+function buildDocumentWithBody(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -57,9 +57,9 @@ function buildStateWithBody(): State {
  * INSERT_INLINE_IMAGE handler reads only caret/selection state (no layout), so
  * the synthetic state needs only the geometry-free fields.
  */
-function buildEditor(state: State, caret: { blockId: BlockId; offset: number }): EditorState {
+function buildEditor(document: Document, caret: { blockId: BlockId; offset: number }): EditorState {
   const cursor = createPosition(caret.blockId, caret.offset);
-  return createEditorStateFromState(state, createSpan(cursor, cursor), config);
+  return createEditorStateFromDocument(document, createSpan(cursor, cursor), config);
 }
 
 function inlineImageItemsOf(items: readonly InlineItem[] | undefined): EmbedItem[] {
@@ -67,20 +67,20 @@ function inlineImageItemsOf(items: readonly InlineItem[] | undefined): EmbedItem
     (it): it is EmbedItem => it.kind === "embed" && it.embedType === INLINE_IMAGE_EMBED_TYPE,
   );
 }
-function bodyInlineImages(state: State, id: BlockId): EmbedItem[] {
-  return inlineImageItemsOf(getBlock(state, id)?.inlineContent?.items);
+function bodyInlineImages(document: Document, id: BlockId): EmbedItem[] {
+  return inlineImageItemsOf(getBlock(document, id)?.inlineContent?.items);
 }
 
 describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
   it("splices an inline-image EmbedItem at a collapsed caret and advances the caret by 1 (one embed = one offset)", () => {
-    const editor = buildEditor(buildStateWithBody(), { blockId: BODY_P, offset: 1 }); // between "a" and "b"
+    const editor = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 1 }); // between "a" and "b"
     const out = reduceEditor(
       editor,
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
     );
 
     // (a) an inline-image embed carrying the supplied properties is inserted at the caret offset
-    const images = bodyInlineImages(out.state, BODY_P);
+    const images = bodyInlineImages(out.document, BODY_P);
     expect(images.length).toBe(1);
     expect(images[0]?.properties).toEqual({
       src: IMG.src,
@@ -90,7 +90,7 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
     });
 
     // The embed lands at offset 1 (between "a" and "b"): items are ["a", <img>, "b"].
-    const items = getBlock(out.state, BODY_P)?.inlineContent?.items ?? [];
+    const items = getBlock(out.document, BODY_P)?.inlineContent?.items ?? [];
     expect(items.length).toBe(3);
     expect(items[0]).toMatchObject({ kind: "text", text: "a" });
     expect(items[1]?.kind).toBe("embed");
@@ -100,21 +100,21 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
     expect(out.selection.focus.blockId).toBe(BODY_P);
     expect(out.selection.focus.offset).toBe(2);
     expect(out.selection.anchor).toEqual(out.selection.focus); // collapsed
-    expect(out.state).not.toBe(editor.state);
+    expect(out.document).not.toBe(editor.document);
   });
 
   it("removes the whole embed in ONE DELETE_BACKWARD step (atomic, #407)", () => {
-    const editor = buildEditor(buildStateWithBody(), { blockId: BODY_P, offset: 1 });
+    const editor = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 1 });
     const inserted = reduceEditor(
       editor,
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
     );
-    expect(bodyInlineImages(inserted.state, BODY_P).length).toBe(1);
+    expect(bodyInlineImages(inserted.document, BODY_P).length).toBe(1);
     // caret is just after the embed (offset 2) — one DELETE_BACKWARD must remove the
     // entire embed in a single step, leaving the text "ab" intact.
     const deleted = reduceEditor(inserted, { type: "DELETE_BACKWARD" });
-    expect(bodyInlineImages(deleted.state, BODY_P).length).toBe(0);
-    const items = getBlock(deleted.state, BODY_P)?.inlineContent?.items ?? [];
+    expect(bodyInlineImages(deleted.document, BODY_P).length).toBe(0);
+    const items = getBlock(deleted.document, BODY_P)?.inlineContent?.items ?? [];
     expect(items.map((it) => (it.kind === "text" ? it.text : "<embed>")).join("")).toBe("ab");
     expect(deleted.selection.focus.offset).toBe(1); // caret collapses to where the embed was
   });
@@ -124,28 +124,28 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
     // suggestingAuthor — they splice directly. This handler mirrors them, so a
     // configured suggestingAuthor must NOT throw or alter the direct-insert path.
     const suggestingConfig: EditorConfig = { ...config, suggestingAuthor: "alice" };
-    const editor = buildEditor(buildStateWithBody(), { blockId: BODY_P, offset: 1 });
+    const editor = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 1 });
     const out = reduceEditor(
       { ...editor, config: suggestingConfig },
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
     );
-    expect(bodyInlineImages(out.state, BODY_P).length).toBe(1);
+    expect(bodyInlineImages(out.document, BODY_P).length).toBe(1);
   });
 
   it("is its own undo unit — UNDO removes the inserted image", () => {
-    const editor = buildEditor(buildStateWithBody(), { blockId: BODY_P, offset: 1 });
+    const editor = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 1 });
     const inserted = reduceEditor(
       editor,
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
     );
-    expect(bodyInlineImages(inserted.state, BODY_P).length).toBe(1);
+    expect(bodyInlineImages(inserted.document, BODY_P).length).toBe(1);
     const undone = reduceEditor(inserted, { type: "UNDO" });
-    expect(bodyInlineImages(undone.state, BODY_P).length).toBe(0);
+    expect(bodyInlineImages(undone.document, BODY_P).length).toBe(0);
   });
 
   it("REPLACES an expanded selection (delete-then-insert, one undo step) — Google Docs field behavior", () => {
     const editor: EditorState = (() => {
-      const base = buildEditor(buildStateWithBody(), { blockId: BODY_P, offset: 0 });
+      const base = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 0 });
       // select the whole "ab"
       return {
         ...base,
@@ -157,15 +157,15 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
     );
     // "ab" replaced by the single image embed; caret after it (offset 1).
-    expect(bodyInlineImages(out.state, BODY_P).length).toBe(1);
-    const items = getBlock(out.state, BODY_P)?.inlineContent?.items ?? [];
+    expect(bodyInlineImages(out.document, BODY_P).length).toBe(1);
+    const items = getBlock(out.document, BODY_P)?.inlineContent?.items ?? [];
     expect(items.length).toBe(1);
     expect(items[0]?.kind).toBe("embed");
     expect(out.selection.focus.offset).toBe(1);
 
     // delete+insert is ONE undo unit → a single UNDO restores "ab".
     const undone = reduceEditor(out, { type: "UNDO" });
-    const restored = getBlock(undone.state, BODY_P)?.inlineContent?.items ?? [];
+    const restored = getBlock(undone.document, BODY_P)?.inlineContent?.items ?? [];
     expect(restored.map((it) => (it.kind === "text" ? it.text : "<embed>")).join("")).toBe("ab");
   });
 });

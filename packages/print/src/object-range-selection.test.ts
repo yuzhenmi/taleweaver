@@ -64,7 +64,7 @@ function mount(object: core.EditorAction) {
   };
   controller = createEditorController(container, { measurer: core.createMockMeasurer(8, 16), dispatch, accessibilityMirror: true });
   controller.update(editor);
-  const st = editor.state;
+  const st = editor.document;
   const first = core.firstLeafBlock(st, st.rootId);
   const section = first === null ? null : core.getBlock(st, first)?.parentId ?? null;
   const ids: core.BlockId[] = [];
@@ -123,7 +123,7 @@ describe("print — range selections over object blocks through the controller",
 
   it("a drag from text into a table cell selects and paints the whole table", () => {
     const m = mount({ type: "INSERT_TABLE", rows: 1, cols: 1 });
-    const cell = core.firstLeafBlock(m.get().state, m.obj);
+    const cell = core.firstLeafBlock(m.get().document, m.obj);
     if (cell === null) throw new Error("no cell paragraph");
     drag(m, pointAt(m, at(m.text, 1)), pointAt(m, at(cell, 0)));
     expect(m.get().selection).toEqual(core.createSpan(at(m.text, 1), at(m.obj, 0)));
@@ -141,7 +141,7 @@ describe("print — range selections over object blocks through the controller",
 
   it("Shift+Arrow covers a table in one step and steps off it; a plain arrow collapses past it; back in, the original caret anchors", () => {
     const m = mount({ type: "INSERT_TABLE", rows: 1, cols: 1 });
-    const cell = core.firstLeafBlock(m.get().state, m.obj);
+    const cell = core.firstLeafBlock(m.get().document, m.obj);
     if (cell === null) throw new Error("no cell paragraph");
     const textarea = m.container.querySelector("textarea");
     if (textarea === null) throw new Error("no textarea");

@@ -8,7 +8,7 @@ import {
 import { createPosition } from "./block-position";
 import type { BlockId } from "./block-id";
 import type { InlineItem } from "./inline-content";
-import { buildBlock, buildState, inlineContent, text, embed } from "../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent, text, embed } from "../test-utils/document-builders";
 
 const S = (id: string): InlineItem => embed(BOOKMARK_START_EMBED_TYPE, { bookmarkId: id });
 const E = (id: string): InlineItem => embed(BOOKMARK_END_EMBED_TYPE, { bookmarkId: id });
@@ -16,7 +16,7 @@ const E = (id: string): InlineItem => embed(BOOKMARK_END_EMBED_TYPE, { bookmarkI
 describe("bookmarks", () => {
   it("duplicate ids: the first start pairs with the first end after it; every other marker is inert", () => {
     // p: units 0 E | 1 "a" | 2 S | 3 "b" | 4 S | 5 "c" | 6 E | 7 "d" | 8 E;  q: S "e" E.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "q" }),
@@ -31,7 +31,7 @@ describe("bookmarks", () => {
       ],
     });
     const p = "p" as BlockId;
-    expect([...collectBookmarks(state)]).toEqual([["x", { start: createPosition(p, 3), end: createPosition(p, 6) }]]);
+    expect([...collectBookmarks(document)]).toEqual([["x", { start: createPosition(p, 3), end: createPosition(p, 6) }]]);
   });
 
   it("a deletion removes a bookmark only by covering its start from the left and its end from the right", () => {

@@ -42,13 +42,13 @@ import type { ElementBox, RenderNode } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
 import type { PageConfig } from "../layout/page-config";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
 import { createPosition, createSpan, selectionContextOf } from "@taleweaver/core";
-import type { State, BlockId } from "@taleweaver/core";
+import type { Document, BlockId } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -76,7 +76,7 @@ function pageConfig(): PageConfig {
 }
 
 interface Built {
-  state: State;
+  document: Document;
   virtual: VirtualLayoutTree;
   positioned: LayoutBox;
   shaper: TextShaper;
@@ -135,7 +135,7 @@ function buildDoc(opts: {
       inlineContent: inlineContent([text(t)]),
     });
   });
-  const state = buildState({
+  const document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -149,7 +149,7 @@ function buildDoc(opts: {
     templateContents: templateBlocks,
   });
 
-  const out = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry());
+  const out = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry());
   const cascadedRoot = cascadePass(out.root);
   if (cascadedRoot.type !== "element") throw new Error("root cascade not element");
 
@@ -178,7 +178,7 @@ function buildDoc(opts: {
     plan, cascadedRoot, ctx, shaper, cfg, undefined, cascadedTemplateContents,
   );
   const positioned = positionTreeForTest(virtual);
-  return { state, virtual, positioned, shaper };
+  return { document, virtual, positioned, shaper };
 }
 
 function planWithEntries(
@@ -233,16 +233,16 @@ const LAST_BODY = `bp${MULTI_PAGE_BODY.length - 1}` as BlockId;
 
 describe("selection-geometry — context isolation (rects don't bleed into slots)", () => {
   it("precondition: a multi-page body interleaves header/footer slot lines between pages", () => {
-    const { state, virtual, positioned } = buildDoc({
+    const { document, virtual, positioned } = buildDoc({
       bodyParas: MULTI_PAGE_BODY,
       headerParas: ["header"],
       footerParas: ["footer"],
     });
     expect(virtual.plan.entries.length).toBeGreaterThan(1); // >1 page
     const all = getLineIndex(positioned).all;
-    const hdrLines = all.filter((al) => selectionContextOf(state, al.line.ownerBlockId) === HEADER_ROOT);
-    const ftrLines = all.filter((al) => selectionContextOf(state, al.line.ownerBlockId) === FOOTER_ROOT);
-    const bodyLines = all.filter((al) => selectionContextOf(state, al.line.ownerBlockId) === state.rootId);
+    const hdrLines = all.filter((al) => selectionContextOf(document, al.line.ownerBlockId) === HEADER_ROOT);
+    const ftrLines = all.filter((al) => selectionContextOf(document, al.line.ownerBlockId) === FOOTER_ROOT);
+    const bodyLines = all.filter((al) => selectionContextOf(document, al.line.ownerBlockId) === document.rootId);
     // Header/footer replicate per page, so MULTIPLE slot lines exist between the
     // body lines of consecutive pages — the bleed hazard.
     expect(hdrLines.length).toBeGreaterThan(1);
@@ -251,7 +251,7 @@ describe("selection-geometry — context isolation (rects don't bleed into slots
   });
 
   it("a body select-all produces rects ONLY for body lines (no header/footer band)", () => {
-    const { state, positioned, shaper } = buildDoc({
+    const { document, positioned, shaper } = buildDoc({
       bodyParas: MULTI_PAGE_BODY,
       headerParas: ["header"],
       footerParas: ["footer"],
@@ -261,13 +261,13 @@ describe("selection-geometry — context isolation (rects don't bleed into slots
       createPosition("bp0" as BlockId, 0),
       createPosition(LAST_BODY, nth(MULTI_PAGE_BODY, MULTI_PAGE_BODY.length - 1, "body line").length),
     );
-    const rects = computeSelectionRects(state, span, positioned, shaper);
+    const rects = computeSelectionRects(document, span, positioned, shaper);
     expect(rects.length).toBeGreaterThan(0);
 
     // Build the set of Y ranges owned by header/footer (non-body) lines; assert
     // no rect overlaps them. (A rect bleeding into a slot would have its y inside
     // a header/footer line's [absoluteY, absoluteY+blockSize) band on that page.)
-    const filterBody = makeContextFilter(state, state.rootId);
+    const filterBody = makeContextFilter(document, document.rootId);
     const all = getLineIndex(positioned).all;
     const slotLines = all.filter((al) => !filterBody([al]).length);
     expect(slotLines.length).toBeGreaterThan(0);
@@ -284,7 +284,7 @@ describe("selection-geometry — context isolation (rects don't bleed into slots
   });
 
   it("a header select-all produces rects ONLY in the header band (no body lines)", () => {
-    const { state, positioned, shaper } = buildDoc({
+    const { document, positioned, shaper } = buildDoc({
       bodyParas: ["body line one", "body line two"],
       headerParas: ["header one", "header two"],
       footerParas: ["footer"],
@@ -294,11 +294,11 @@ describe("selection-geometry — context isolation (rects don't bleed into slots
       createPosition(HEADER_P1, 0),
       createPosition(HEADER_P2, "header two".length),
     );
-    const rects = computeSelectionRects(state, span, positioned, shaper);
+    const rects = computeSelectionRects(document, span, positioned, shaper);
     expect(rects.length).toBeGreaterThan(0);
 
     // No rect may overlap a non-header (body or footer) line's band.
-    const filterHdr = makeContextFilter(state, HEADER_ROOT);
+    const filterHdr = makeContextFilter(document, HEADER_ROOT);
     const all = getLineIndex(positioned).all;
     const nonHeaderLines = all.filter((al) => !filterHdr([al]).length);
     for (const rect of rects) {
@@ -315,8 +315,8 @@ describe("selection-geometry — context isolation (rects don't bleed into slots
 // ── NO-REGRESSION: main-only doc → rects unchanged (filter is a no-op) ──────
 
 describe("selection-geometry — main-only doc unchanged (no context filter effect)", () => {
-  function mainOnly(textContent: string): State {
-    return buildState({
+  function mainOnly(textContent: string): Document {
+    return buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -331,13 +331,13 @@ describe("selection-geometry — main-only doc unchanged (no context filter effe
   }
 
   it("a single-paragraph main-doc span yields the same rects as before the filter", () => {
-    const state = mainOnly("hello world");
-    const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
+    const document = mainOnly("hello world");
+    const root = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
     const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
     // Non-paginated main-only layout (mirrors selection-geometry.test.ts pipeline).
     const layout = positionTreeForTest(dispatchLayout(root, 800, shaper));
     const span = createSpan(createPosition("p" as BlockId, 1), createPosition("p" as BlockId, 4));
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBe(1);
     // 8px/char: offset 1..4 → x=8, width=24 (unchanged from the pre-filter path).
     const rect = nth(rects, 0, "selection rect");

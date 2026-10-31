@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
-import { applyOperation } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation } from "../document";
 import type { BlockId } from "../block-id";
 import type { Span } from "../block-position";
 import type { ReadonlyAttrs } from "../attrs";
@@ -103,17 +103,17 @@ export interface ReplaceRangePlan {
  * deep-value compare.
  */
 export function replaceRange(
-  state: State,
+  document: Document,
   span: Span,
   text: string,
   attrs: ReadonlyAttrs,
 ): OperationResult {
-  const plan = planReplaceRange(state, span, text, attrs);
+  const plan = planReplaceRange(document, span, text, attrs);
   if (plan === null) {
     // No-op (collapsed + empty text, or re-collapsed delete with empty text).
-    return { state, dirtyIds: new Set<BlockId>() };
+    return { document, dirtyIds: new Set<BlockId>() };
   }
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     replaceRangeInTx(doc, plan);
   });
 }
@@ -146,7 +146,7 @@ export function replaceRangeInTx(doc: Y.Doc, plan: ReplaceRangePlan): void {
 }
 
 /**
- * Validate `span` + `text` against `state` and produce a
+ * Validate `span` + `text` against `document` and produce a
  * `ReplaceRangePlan` (or `null` for the pure no-op cases). All validation
  * reads happen here, BEFORE the surrounding `applyOperation` is opened —
  * snapshot reads against the pre-mutation Y.Doc state.
@@ -173,7 +173,7 @@ export function replaceRangeInTx(doc: Y.Doc, plan: ReplaceRangePlan): void {
  * in `planDeleteRange`, which runs after normalize.
  */
 export function planReplaceRange(
-  state: State,
+  document: Document,
   span: Span,
   text: string,
   attrs: ReadonlyAttrs,
@@ -192,7 +192,7 @@ export function planReplaceRange(
     // needed for a collapsed span. `planInsertText` validates the position.
     return {
       deletePlan: null,
-      insertPlan: planInsertText(state, span.anchor, text, attrs),
+      insertPlan: planInsertText(document, span.anchor, text, attrs),
     };
   }
 
@@ -204,19 +204,19 @@ export function planReplaceRange(
   // invokes compareBlocksInDocOrder, whose generic "block ... not found"
   // message would otherwise leak through to the caller and shadow this
   // operation's stated error contract.
-  assertDeleteRangeEndpoints(state, span);
+  assertDeleteRangeEndpoints(document, span);
 
   // Normalize FIRST so the read happens against the pre-delete state
   // where the focus block still exists in the Y.Doc. The normalized
   // anchor's blockId is the surviving anchor block; its offset is the
   // seam in the post-delete merged content.
-  const normalized = normalizeSpan(state, span);
+  const normalized = normalizeSpan(document, span);
 
   // Plan the deletion. planDeleteRange runs all the cross-parent /
   // offset / sibling-reachability checks that the legacy public
   // `deleteRange` ran. A `null` return means the span re-collapsed
   // after normalization — treat as no-op (no delete).
-  const deletePlan = planDeleteRange(state, span);
+  const deletePlan = planDeleteRange(document, span);
 
   // Delete-only path (insert is a no-op because text === "").
   if (text === "") {
@@ -232,7 +232,7 @@ export function planReplaceRange(
   if (deletePlan === null) {
     return {
       deletePlan: null,
-      insertPlan: planInsertText(state, normalized.anchor, text, attrs),
+      insertPlan: planInsertText(document, normalized.anchor, text, attrs),
     };
   }
 

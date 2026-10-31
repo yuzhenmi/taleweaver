@@ -107,7 +107,7 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
 
   it("replaceActive dispatches REPLACE_MATCH with the active TextMatch + replacement", () => {
     const editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
-    const blockId = finalSection(editor.state)?.firstChildId;
+    const blockId = finalSection(editor.document)?.firstChildId;
     if (blockId === null || blockId === undefined) throw new Error("no block");
     const dispatch = vi.fn();
     const ctrl = createEditorController(mount(), { measurer, dispatch });
@@ -157,11 +157,11 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
     // manual ++ would have skipped to index 1.
     expect(ctrl.findStatus()).toEqual({ total: 2, activeIndex: 0 });
     // The text actually changed.
-    const replacedBlockId = finalSection(editor.state)?.firstChildId;
+    const replacedBlockId = finalSection(editor.document)?.firstChildId;
     if (replacedBlockId === null || replacedBlockId === undefined) throw new Error("no block");
     expect(
       core.extractText(
-        editor.state,
+        editor.document,
         core.createSpan(
           core.createPosition(replacedBlockId, 0),
           core.createPosition(replacedBlockId, 3),
@@ -246,7 +246,7 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
 
   it("replaceAll dispatches REPLACE_ALL with all session matches + replacement", () => {
     const editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
-    const blockId = finalSection(editor.state)?.firstChildId;
+    const blockId = finalSection(editor.document)?.firstChildId;
     if (blockId === null || blockId === undefined) throw new Error("no block");
     const dispatch = vi.fn();
     const ctrl = createEditorController(mount(), { measurer, dispatch });

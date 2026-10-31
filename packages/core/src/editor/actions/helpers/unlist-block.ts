@@ -1,6 +1,5 @@
 import type { EditorState } from "../../editor-state";
 import type { Edit } from "../../edit";
-import type { EditorConfig } from "../../editor-config";
 import { setBlockType, mergeBlockAttrs } from "../../../state";
 import type { Block, BlockId } from "../../../state";
 
@@ -17,24 +16,23 @@ import type { Block, BlockId } from "../../../state";
 export function unlistBlock(
   editor: EditorState,
   block: Block,
-  config: EditorConfig,
 ): Edit | null {
   const typeResult = setBlockType(
-    editor.state,
+    editor.document,
     block.id,
     "paragraph",
-    config.componentRegistry,
+    editor.config.componentRegistry,
   );
   const attrResult = mergeBlockAttrs(
-    typeResult.state,
+    typeResult.document,
     block.id,
     { listId: undefined, listLevel: undefined, listCounterOverride: undefined },
   );
-  if (attrResult.state === editor.state) return null;
+  if (attrResult.document === editor.document) return null;
 
   const dirtyIds = new Set<BlockId>([
     ...typeResult.dirtyIds,
     ...attrResult.dirtyIds,
   ]);
-  return { change: { state: attrResult.state, dirtyIds } };
+  return { change: { document: attrResult.document, dirtyIds } };
 }

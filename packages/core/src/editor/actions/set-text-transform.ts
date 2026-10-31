@@ -34,7 +34,6 @@ export function handleSetTextTransform(
   editor: EditorState,
   { value }: ActionOf<"SET_TEXT_TRANSFORM">,
 ): Edit | null {
-  const { config } = editor;
   const { selection } = editor;
   // Collapsed caret: the transform applies to the next typed text (typing attrs).
   if (isCollapsed(selection)) {
@@ -45,8 +44,8 @@ export function handleSetTextTransform(
   // mergeAttrs) so the run re-merges with untransformed neighbours; any other
   // keyword is written explicitly.
   const attrValue = value === "none" ? undefined : value;
-  const result = applyAttrsOrSuggest(editor.state, selection, { textTransform: attrValue }, config);
-  if (result.state === editor.state) return null;
+  const result = applyAttrsOrSuggest(editor, selection, { textTransform: attrValue });
+  if (result.document === editor.document) return null;
 
   // An attr-only edit shifts no offsets, so the selection is unchanged — it is
   // committed and rebuilt AS-IS, preserving both endpoints and the anchor/focus

@@ -8,7 +8,7 @@
  * Phase 0b: `reduceEditor` no longer renders (core is geometry-free; rendering
  * — including the anchor walk — relocated to the backend layout-driver). These
  * tests therefore drive `render(state, componentRegistry, attrRegistry, {prev,
- * prevState, dirtyIds: editor.lastDirtyIds})` DIRECTLY — the EXACT call the
+ * prevDocument, dirtyIds: editor.lastDirtyIds})` DIRECTLY — the EXACT call the
  * driver's incremental cycle makes — and observe the walk being skipped vs
  * re-run via the cached anchor array: when the walk is skipped,
  * `rendered.footnoteAnchors === prev.footnoteAnchors` (the cached array is
@@ -24,11 +24,11 @@ import {
   attrRegistry,
 } from "./actions/test-helpers";
 import { render, type RenderOutput } from "../render/render";
-import type { State, BlockId } from "../state";
+import type { Document, BlockId } from "../state";
 
-/** A FULL render of `state` (the driver's first / non-incremental cycle). */
-function renderFull(state: State): RenderOutput {
-  return render(state, componentRegistry, attrRegistry);
+/** A FULL render of `document` (the driver's first / non-incremental cycle). */
+function renderFull(document: Document): RenderOutput {
+  return render(document, componentRegistry, attrRegistry);
 }
 
 /**
@@ -36,14 +36,14 @@ function renderFull(state: State): RenderOutput {
  * dispatch: prev render output + prev state + the dispatch's `lastDirtyIds`.
  */
 function renderIncrementalCycle(
-  state: State,
+  document: Document,
   prev: RenderOutput,
-  prevState: State,
+  prevDocument: Document,
   dirtyIds: ReadonlySet<BlockId>,
 ): RenderOutput {
-  return render(state, componentRegistry, attrRegistry, {
+  return render(document, componentRegistry, attrRegistry, {
     prev,
-    prevState,
+    prevDocument,
     dirtyIds,
   });
 }
@@ -55,14 +55,14 @@ describe("FN-8 — editor rebuild skips the anchor walk for footnote-free docs",
     // is reused BY REFERENCE.
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" });
-    const prevState = editor.state;
-    const prev = renderFull(prevState);
+    const prevDocument = editor.document;
+    const prev = renderFull(prevDocument);
 
     const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "d" });
     const rendered = renderIncrementalCycle(
-      after.state,
+      after.document,
       prev,
-      prevState,
+      prevDocument,
       after.lastDirtyIds ?? new Set<BlockId>(),
     );
     expect(rendered.footnoteAnchors).toBe(prev.footnoteAnchors);
@@ -87,14 +87,14 @@ describe("FN-8 — editor rebuild skips the anchor walk for footnote-free docs",
         },
       },
     );
-    const prevState = editor.state;
-    const prev = renderFull(prevState);
+    const prevDocument = editor.document;
+    const prev = renderFull(prevDocument);
 
     const after = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     const rendered = renderIncrementalCycle(
-      after.state,
+      after.document,
       prev,
-      prevState,
+      prevDocument,
       after.lastDirtyIds ?? new Set<BlockId>(),
     );
     expect(rendered.footnoteAnchors).not.toBe(prev.footnoteAnchors);
@@ -109,14 +109,14 @@ describe("FN-8 — editor rebuild skips the anchor walk for footnote-free docs",
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" });
     editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     // Caret is inside the footnote body after INSERT_FOOTNOTE.
-    const prevState = editor.state;
-    const prev = renderFull(prevState);
+    const prevDocument = editor.document;
+    const prev = renderFull(prevDocument);
 
     const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "d" });
     const rendered = renderIncrementalCycle(
-      after.state,
+      after.document,
       prev,
-      prevState,
+      prevDocument,
       after.lastDirtyIds ?? new Set<BlockId>(),
     );
     expect(rendered.footnoteAnchors).toBe(prev.footnoteAnchors);

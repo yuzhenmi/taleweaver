@@ -82,7 +82,7 @@ function mount(text = "", ext: core.EditorExtensions = extensions): {
 }
 
 const textOf = (e: core.EditorState): string =>
-  (core.getBlock(e.state, e.selection.focus.blockId)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
+  (core.getBlock(e.document, e.selection.focus.blockId)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
 
 function type(textarea: HTMLTextAreaElement, text: string): void {
   for (const ch of text) {
@@ -103,7 +103,7 @@ describe("print — host keymap", () => {
     const e = key(m.textarea, "M", { ctrlKey: true, shiftKey: true });
     expect(e.defaultPrevented).toBe(true);
     expect(textOf(m.get())).toBe("Hi Anna ");
-    expect(core.getMarkRanges(m.get().state, "mention").map((r) => [r.from.offset, r.to.offset])).toEqual([[3, 7]]);
+    expect(core.getMarkRanges(m.get().document, "mention").map((r) => [r.from.offset, r.to.offset])).toEqual([[3, 7]]);
     key(m.textarea, "z", { ctrlKey: true });
     expect(textOf(m.get())).toBe("Hi ");
     // Cmd is not Mod off-Mac.
@@ -116,8 +116,8 @@ describe("print — host keymap", () => {
     const e = key(m.textarea, "b", { ctrlKey: true });
     expect(e.defaultPrevented).toBe(true);
     type(m.textarea, "c");
-    expect(m.get().state).toBeDefined();
-    const items = core.getBlock(m.get().state, m.get().selection.focus.blockId)?.inlineContent?.items ?? [];
+    expect(m.get().document).toBeDefined();
+    const items = core.getBlock(m.get().document, m.get().selection.focus.blockId)?.inlineContent?.items ?? [];
     expect(items.map((i) => i.attrs)).toEqual([{}]); // not bold
     key(m.textarea, "Enter"); // no trigger open → pickTrigger declines → default SPLIT_NODE
     expect(textOf(m.get())).toBe("");

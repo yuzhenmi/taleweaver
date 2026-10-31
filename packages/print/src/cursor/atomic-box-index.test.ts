@@ -6,7 +6,7 @@
  * see them. This index is the geometry source the object-selection hit-test
  * (Task 3) and selection-geometry (Task 4) consume.
  *
- * Fixture pattern mirrors `cursor-position-virtual.test.ts` (buildState →
+ * Fixture pattern mirrors `cursor-position-virtual.test.ts` (buildDocument →
  * render → layoutTree → getPage(0)) and the image-block shape from
  * `object-selection.test.ts` (an atomic-leaf `image` block carrying
  * `attrs.{src,width,height}`; the floated one adds `attrs.wrap`).
@@ -28,13 +28,13 @@ import { makeVirtualLayoutTree } from "../layout/virtual-layout-tree";
 import type { ElementBox } from "@taleweaver/core";
 import type { PageConfig } from "../layout/page-config";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
 import { asBlockId } from "@taleweaver/core";
-import type { State, BlockId } from "@taleweaver/core";
+import type { Document, BlockId } from "@taleweaver/core";
 import type { LayoutBox, BlockBox } from "../layout/layout-box";
 import type { PageBox } from "../layout/page-box";
 import { getAtomicBoxIndex } from "./atomic-box-index";
@@ -68,8 +68,8 @@ function pageConfig(): PageConfig {
  * in-flow image is a plain `display:block` atomic leaf. Both are atomic-leaf
  * blocks (no children, no inlineContent).
  */
-function docWithImages(): State {
-  return buildState({
+function docWithImages(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -105,14 +105,14 @@ function docWithImages(): State {
 }
 
 interface Built {
-  state: State;
+  document: Document;
   page0: PageBox;
 }
 
 function build(): Built {
-  const state = docWithImages();
+  const document = docWithImages();
   const root = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -122,7 +122,7 @@ function build(): Built {
   if (lt.type !== "virtual-root") {
     throw new Error("expected a VirtualLayoutTree (paginated supported doc)");
   }
-  return { state, page0: lt.getPage(0) };
+  return { document, page0: lt.getPage(0) };
 }
 
 const HEADER_ROOT = asBlockId("hdr-root");
@@ -142,7 +142,7 @@ const HEADER_IMG_ID = asBlockId("hdr-img");
  * `header-slot-cursor.test.ts`.
  */
 function buildWithHeaderImage(): Built {
-  const state = buildState({
+  const document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -169,7 +169,7 @@ function buildWithHeaderImage(): Built {
     ],
   });
 
-  const out = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry());
+  const out = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry());
   const cascadedRoot = cascadePass(out.root);
   if (cascadedRoot.type !== "element") throw new Error("root cascade not element");
   const cascadedTemplateContents = new Map<BlockId, ElementBox>();
@@ -196,7 +196,7 @@ function buildWithHeaderImage(): Built {
   const virtual = makeVirtualLayoutTree(
     plan, cascadedRoot, ctx, shaper, cfg, undefined, cascadedTemplateContents,
   );
-  return { state, page0: virtual.getPage(0) };
+  return { document, page0: virtual.getPage(0) };
 }
 
 /**
@@ -348,9 +348,9 @@ function absRectOf(
 
 describe("getAtomicBoxIndex (#525)", () => {
   it("maps the in-flow image block id to its absolute physical rect", () => {
-    const { state, page0 } = build();
+    const { document, page0 } = build();
     const resolver = createDefaultComponentRegistry();
-    const index = getAtomicBoxIndex(page0, resolver, state);
+    const index = getAtomicBoxIndex(page0, resolver, document);
 
     // Sanity: the in-flow image box exists and carries image metadata.
     const imgBox = findBlockBoxByKey(page0, "inflow-img");
@@ -372,9 +372,9 @@ describe("getAtomicBoxIndex (#525)", () => {
   });
 
   it("maps the floated image block id to its float-placement absolute rect", () => {
-    const { state, page0 } = build();
+    const { document, page0 } = build();
     const resolver = createDefaultComponentRegistry();
-    const index = getAtomicBoxIndex(page0, resolver, state);
+    const index = getAtomicBoxIndex(page0, resolver, document);
 
     const expected = absRectOf(page0, "float-img", 0, 0);
     expect(expected).not.toBeNull();
@@ -390,17 +390,17 @@ describe("getAtomicBoxIndex (#525)", () => {
   });
 
   it("does NOT index inline-bearing (paragraph) blocks", () => {
-    const { state, page0 } = build();
+    const { document, page0 } = build();
     const resolver = createDefaultComponentRegistry();
-    const index = getAtomicBoxIndex(page0, resolver, state);
+    const index = getAtomicBoxIndex(page0, resolver, document);
     expect(index.has(PARA_ID)).toBe(false);
   });
 
   it("memoizes by page-box identity (same reference on repeat calls)", () => {
-    const { state, page0 } = build();
+    const { document, page0 } = build();
     const resolver = createDefaultComponentRegistry();
-    const a = getAtomicBoxIndex(page0, resolver, state);
-    const b = getAtomicBoxIndex(page0, resolver, state);
+    const a = getAtomicBoxIndex(page0, resolver, document);
+    const b = getAtomicBoxIndex(page0, resolver, document);
     expect(a).toBe(b);
   });
 
@@ -410,9 +410,9 @@ describe("getAtomicBoxIndex (#525)", () => {
   // the image was silently dropped; with `resolveBlock` it is indexed. The
   // cross-check `absRectOf` is now slot-aware so the assertion is non-vacuous.
   it("indexes an atomic image living in a header (templateContents) slot", () => {
-    const { state, page0 } = buildWithHeaderImage();
+    const { document, page0 } = buildWithHeaderImage();
     const resolver = createDefaultComponentRegistry();
-    const index = getAtomicBoxIndex(page0, resolver, state);
+    const index = getAtomicBoxIndex(page0, resolver, document);
 
     // Sanity: the header image box actually materialized into the headerSlot.
     expect(page0.headerSlot).not.toBeNull();

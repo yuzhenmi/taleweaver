@@ -51,7 +51,7 @@ export interface Edit {
    * An `EditorState` shares `selection` / `storedAttrs`, so without this it would be
    * assignable to `Edit` — a handler returning a whole state would silently lose its change.
    */
-  readonly state?: never;
+  readonly document?: never;
 }
 
 /**
@@ -62,22 +62,22 @@ export interface Edit {
  */
 export function applyEdit(editor: EditorState, edit: Edit | null): EditorState {
   if (edit === null) return editor;
-  const steps = edit.change === undefined ? [] : "state" in edit.change ? [edit.change] : edit.change;
-  let state = editor.state;
+  const steps = edit.change === undefined ? [] : "document" in edit.change ? [edit.change] : edit.change;
+  let document = editor.document;
   let lastChange = editor.lastChange;
   let dirtyIds: ReadonlySet<BlockId> | null = null;
   for (const step of steps) {
-    if (step.state === state) continue;
-    lastChange = recordChange(lastChange, state, step.dirtyIds);
+    if (step.document === document) continue;
+    lastChange = recordChange(lastChange, document, step.dirtyIds);
     dirtyIds = dirtyIds === null ? step.dirtyIds : new Set([...dirtyIds, ...step.dirtyIds]);
-    state = step.state;
+    document = step.document;
   }
-  let next = dirtyIds === null ? editor : { ...editor, state, lastDirtyIds: dirtyIds, lastChange };
+  let next = dirtyIds === null ? editor : { ...editor, document, lastDirtyIds: dirtyIds, lastChange };
   const selection =
     edit.selection === "rebase" ? rebaseSelection(editor, next) : (edit.selection ?? editor.selection);
   if (dirtyIds !== null) {
-    if (edit.undoable === false) editor.history.advanceState(state);
-    else editor.history.commit({ state, dirtyIds }, { before: editor.selection, after: selection });
+    if (edit.undoable === false) editor.history.advanceDocument(document);
+    else editor.history.commit({ document, dirtyIds }, { before: editor.selection, after: selection });
   }
   if (selection !== next.selection) next = { ...next, selection };
   if (edit.view !== undefined) {

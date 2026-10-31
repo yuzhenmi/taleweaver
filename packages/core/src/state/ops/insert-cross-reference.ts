@@ -1,6 +1,6 @@
 import { requireBlockText } from "../block-text";
-import type { State, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
 import type { BlockId } from "../block-id";
 import type { Position } from "../block-position";
 import {
@@ -62,14 +62,14 @@ interface CrossReferenceInsertPlan {
  * `refMode`); it validates the host position and that the target is a text leaf.
  */
 export function insertCrossReference(
-  state: State,
+  document: Document,
   position: Position,
   targetId: BlockId,
   refMode: CrossReferenceMode,
   numberStyle: PageFieldNumberStyle = "decimal",
 ): OperationResult {
-  const plan = planCrossReferenceInsert(state, position, targetId, refMode, numberStyle);
-  return applyOperation(state, (doc) => {
+  const plan = planCrossReferenceInsert(document, position, targetId, refMode, numberStyle);
+  return applyOperation(document, (doc) => {
     requireInTransaction(doc, "insertCrossReference");
     insertInlineItems(requireBlockText(doc, plan.blockId, "insertCrossReference"), plan.offset, [plan.embed]);
     if (plan.bookmark !== null) {
@@ -119,13 +119,13 @@ function exactBookmarkOver(items: readonly InlineItem[]): string | null {
  * reads + validation happen here, BEFORE the surrounding `applyOperation` opens.
  */
 function planCrossReferenceInsert(
-  state: State,
+  document: Document,
   position: Position,
   targetId: BlockId,
   refMode: CrossReferenceMode,
   numberStyle: PageFieldNumberStyle,
 ): CrossReferenceInsertPlan {
-  const resolved = resolveBlock(state, position.blockId);
+  const resolved = resolveBlock(document, position.blockId);
   if (resolved === null) {
     throw new Error(`insertCrossReference: block "${position.blockId}" not found`);
   }
@@ -141,7 +141,7 @@ function planCrossReferenceInsert(
       `insertCrossReference: offset ${position.offset} out of range [0, ${totalLen}] for block "${position.blockId}"`,
     );
   }
-  const target = resolveBlock(state, targetId)?.block ?? null;
+  const target = resolveBlock(document, targetId)?.block ?? null;
   if (target === null || target.inlineContent === null) {
     throw new Error(`insertCrossReference: target "${targetId}" is not a text block`);
   }
@@ -150,7 +150,7 @@ function planCrossReferenceInsert(
   // end marker after it) and ending after all its content.
   const items = target.inlineContent.items;
   const existing = exactBookmarkOver(items);
-  const pair = existing === null ? undefined : collectBookmarks(state).get(existing);
+  const pair = existing === null ? undefined : collectBookmarks(document).get(existing);
   const reuse = pair !== undefined && pair.start.blockId === targetId && !hasContent(items, pair.end.offset, Infinity) ? existing : null;
   const bookmarkId = reuse ?? productionAllocator.allocate();
 

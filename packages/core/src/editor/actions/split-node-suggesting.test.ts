@@ -19,7 +19,7 @@
  * break via `replaceWithSuggestedFragment` (an empty two-line fragment). Accept
  * leaves ONE break; reject restores the original blocks. All in one undoable op.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,
@@ -38,9 +38,9 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
   return v;
 }
-import { createEditorStateFromState } from "../editor-state";
+import { createEditorStateFromDocument } from "../editor-state";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 import {
   getBlock,
   getSuggestions,
@@ -51,7 +51,7 @@ import {
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, finalSectionOf(editor.state));
+  const root = getBlock(editor.document, finalSectionOf(editor.document));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -97,7 +97,7 @@ function select(
 
 /** True if the boundary ¶ drawn at the END of `blockId` is a suggested split. */
 function endsWithSplitMark(editor: EditorState, blockId: BlockId): boolean {
-  return endMarkOf(editor.state, blockId)?.kind === "split";
+  return endMarkOf(editor.document, blockId)?.kind === "split";
 }
 
 /** Seed a single paragraph with `text` typed in (direct mode), caret at end. */
@@ -113,7 +113,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
   // and its ¶ is the inserted, keyed one; the split block keeps the tail, its id and
   // the caret (B, 0).
   const headOf = (e: EditorState, id: BlockId): BlockId => {
-    const h = getBlock(e.state, id)?.prevSiblingId ?? null;
+    const h = getBlock(e.document, id)?.prevSiblingId ?? null;
     if (h === null) throw new Error("expected a new head before the split block");
     return h;
   };
@@ -126,13 +126,13 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     const next = reduceEditor(placed, { type: "SPLIT_NODE" });
 
     const head = headOf(next, paraId);
-    expect(getTextOf(next.state, head)).toBe("abc");
-    expect(getTextOf(next.state, paraId)).toBe("def");
+    expect(getTextOf(next.document, head)).toBe("abc");
+    expect(getTextOf(next.document, paraId)).toBe("def");
     expect(endsWithSplitMark(next, head)).toBe(true);
-    expect(getBlock(next.state, head)?.breakSuggestion?.insertionId).toBe(getSuggestions(next.state)[0]?.id);
-    expect(getBlock(next.state, paraId)?.breakSuggestion).toBeUndefined();
+    expect(getBlock(next.document, head)?.breakSuggestion?.insertionId).toBe(getSuggestions(next.document)[0]?.id);
+    expect(getBlock(next.document, paraId)?.breakSuggestion).toBeUndefined();
 
-    const suggestions = getSuggestions(next.state);
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
     expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
@@ -142,9 +142,9 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
 
     expect(next.history.canUndo()).toBe(true);
     const undone = reduceEditor(next, { type: "UNDO" });
-    expect(getTextOf(undone.state, paraId)).toBe("abcdef");
-    expect(getBlock(undone.state, paraId)?.prevSiblingId).toBeNull();
-    expect(getSuggestions(undone.state)).toHaveLength(0);
+    expect(getTextOf(undone.document, paraId)).toBe("abcdef");
+    expect(getBlock(undone.document, paraId)?.prevSiblingId).toBeNull();
+    expect(getSuggestions(undone.document)).toHaveLength(0);
   });
 
   it("collapsed Enter at START (offset 0): no special case — the new EMPTY head above carries the keyed ¶ (Word); the text keeps its id and the caret", () => {
@@ -153,10 +153,10 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     const next = reduceEditor(caretAt(seeded, paraId, 0, suggestingConfig), { type: "SPLIT_NODE" });
 
     const head = headOf(next, paraId);
-    expect(getTextOf(next.state, head)).toBe("");
-    expect(getTextOf(next.state, paraId)).toBe("abcdef");
+    expect(getTextOf(next.document, head)).toBe("");
+    expect(getTextOf(next.document, paraId)).toBe("abcdef");
     expect(endsWithSplitMark(next, head)).toBe(true);
-    expect(getBlock(next.state, paraId)?.breakSuggestion).toBeUndefined();
+    expect(getBlock(next.document, paraId)?.breakSuggestion).toBeUndefined();
     expect(next.selection.focus).toEqual(createPosition(paraId, 0));
   });
 
@@ -168,16 +168,16 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     const next = reduceEditor(caretAt(editor, headingId, 5, suggestingConfig), { type: "SPLIT_NODE" });
 
     const head = headOf(next, headingId);
-    const h = getBlock(next.state, head);
+    const h = getBlock(next.document, head);
     expect(h?.type).toBe("heading");
     expect(h?.attrs).toEqual({ level: 1 });
-    expect(getTextOf(next.state, head)).toBe("Title");
+    expect(getTextOf(next.document, head)).toBe("Title");
     expect(endsWithSplitMark(next, head)).toBe(true);
-    const tail = getBlock(next.state, headingId);
+    const tail = getBlock(next.document, headingId);
     expect(tail?.type).toBe("paragraph");
     expect(tail?.attrs).toEqual({});
     expect(tail?.breakSuggestion).toBeUndefined();
-    expect(getSuggestions(next.state).map((x) => x.kind)).toEqual(["insertion"]);
+    expect(getSuggestions(next.document).map((x) => x.kind)).toEqual(["insertion"]);
   });
 
   it("collapsed and over-selection Enter write the head's ¶ props and keep host one-shot attrs off the tail, as the direct split", () => {
@@ -185,7 +185,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     attrRegistry.register({ attrKey: "hostOnce", toStyle: () => ({}), inheritOnSplit: false });
     const cfg: EditorConfig = { ...suggestingConfig, attrRegistry };
     const p = "p" as BlockId;
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: p, lastChildId: p }),
@@ -193,12 +193,12 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
       ],
     });
     for (const [from, to] of [[3, 3], [2, 3]] as const) {
-      const placed = createEditorStateFromState(state, createSpan(createPosition(p, from), createPosition(p, to)), cfg);
+      const placed = createEditorStateFromDocument(document, createSpan(createPosition(p, from), createPosition(p, to)), cfg);
       const next = reduceEditor(placed, { type: "SPLIT_NODE" });
       const head = headOf(next, p);
-      expect(getBlock(next.state, head)?.markAttrs).toEqual({ bold: true });
-      expect(getBlock(next.state, head)?.attrs).toEqual({ hostOnce: 1 });
-      expect(getBlock(next.state, p)?.attrs).toEqual({});
+      expect(getBlock(next.document, head)?.markAttrs).toEqual({ bold: true });
+      expect(getBlock(next.document, head)?.attrs).toEqual({ hostOnce: 1 });
+      expect(getBlock(next.document, p)?.attrs).toEqual({});
     }
   });
 
@@ -207,10 +207,10 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     const paraId = bodyParaId(seeded);
     const next = reduceEditor(caretAt(seeded, paraId, 3, directConfig), { type: "SPLIT_NODE" });
     const head = headOf(next, paraId);
-    expect(getTextOf(next.state, head)).toBe("abc");
-    expect(getTextOf(next.state, paraId)).toBe("def");
+    expect(getTextOf(next.document, head)).toBe("abc");
+    expect(getTextOf(next.document, paraId)).toBe("def");
     expect(endsWithSplitMark(next, head)).toBe(false);
-    expect(getSuggestions(next.state)).toHaveLength(0);
+    expect(getSuggestions(next.document)).toHaveLength(0);
   });
 
   it("single-block non-collapsed Enter in suggesting mode: selection struck (stays) + suggested split after it + caret → (B, 0) + one undo reverts all", () => {
@@ -220,15 +220,15 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
 
     // The head: "a" + struck "bcd" (text STAYS), its ¶ the suggested split.
     const head = headOf(next, paraId);
-    expect(getTextOf(next.state, head)).toBe("abcd");
+    expect(getTextOf(next.document, head)).toBe("abcd");
     expect(endsWithSplitMark(next, head)).toBe(true);
-    const bcd = getBlock(next.state, head)?.inlineContent?.items.find((it) => it.kind === "text" && it.text === "bcd");
+    const bcd = getBlock(next.document, head)?.inlineContent?.items.find((it) => it.kind === "text" && it.text === "bcd");
     if (bcd?.kind !== "text") throw new Error("expected the struck bcd run");
     expect(bcd.attrs[DELETION_SUGGESTION_ATTR]).not.toBeUndefined();
     // The split block keeps the unstruck tail "ef".
-    expect(getTextOf(next.state, paraId)).toBe("ef");
+    expect(getTextOf(next.document, paraId)).toBe("ef");
 
-    const suggestions = getSuggestions(next.state);
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(2);
     expect(suggestions.some((s) => s.kind === "deletion")).toBe(true);
     expect(suggestions.some((s) => s.kind === "insertion")).toBe(true);
@@ -236,9 +236,9 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     expect(next.selection.anchor).toEqual(next.selection.focus);
 
     const undone = reduceEditor(next, { type: "UNDO" });
-    expect(getTextOf(undone.state, paraId)).toBe("abcdef");
-    expect(getBlock(undone.state, paraId)?.prevSiblingId).toBeNull();
-    expect(getSuggestions(undone.state)).toHaveLength(0);
+    expect(getTextOf(undone.document, paraId)).toBe("abcdef");
+    expect(getBlock(undone.document, paraId)?.prevSiblingId).toBeNull();
+    expect(getSuggestions(undone.document)).toHaveLength(0);
   });
 
   describe("CROSS-block non-collapsed Enter in suggesting mode (PF-4: tracked, no longer a NO-OP)", () => {
@@ -250,8 +250,8 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     // mutates the shared Y.Doc in place, so accept and reject each need a FRESH setup.
     const blockSeq = (e: EditorState): BlockId[] => {
       const out: BlockId[] = [];
-      let id = getBlock(e.state, finalSectionOf(e.state))?.firstChildId ?? null;
-      while (id) { out.push(id); id = getBlock(e.state, id)?.nextSiblingId ?? null; }
+      let id = getBlock(e.document, finalSectionOf(e.document))?.firstChildId ?? null;
+      while (id) { out.push(id); id = getBlock(e.document, id)?.nextSiblingId ?? null; }
       return out;
     };
     const mk = (): { editor: EditorState; para1: BlockId } => {
@@ -261,7 +261,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
       editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "def" });
       // After the direct split para1 holds "" (the tail) and its new head holds "abc".
       const para2 = para1;
-      const head1 = getBlock(editor.state, para2)?.prevSiblingId ?? null;
+      const head1 = getBlock(editor.document, para2)?.prevSiblingId ?? null;
       if (head1 === null) throw new Error("expected a second paragraph");
       const crossed = reduceEditor(
         { ...editor, config: suggestingConfig },
@@ -272,7 +272,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
 
     it("tracks a deletion + insertion; the inserted (split) ¶ follows the struck selection", () => {
       const { editor: next, para1 } = mk();
-      expect(getSuggestions(next.state).map((s) => s.kind).sort()).toEqual(["deletion", "insertion"]);
+      expect(getSuggestions(next.document).map((s) => s.kind).sort()).toEqual(["deletion", "insertion"]);
       // Suggesting view has THREE blocks: B ("a" + struck "bc", its ¶ suggested for
       // deletion) | the new head H (struck "de", its ¶ inserted — the break lands AFTER
       // the struck selection, Word / GDocs) | E ("f", keeps its id and the caret).
@@ -281,7 +281,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
       expect(seq.length).toBe(3);
       expect(seq[0]).toBe(para1);
       expect(endsWithSplitMark(next, nth(seq, 1, "head"))).toBe(true);
-      expect(seq.map((id) => getBlock(next.state, id)?.breakSuggestion)).toEqual([
+      expect(seq.map((id) => getBlock(next.document, id)?.breakSuggestion)).toEqual([
         { deletionId: expect.any(String) },
         { insertionId: expect.any(String) },
         undefined,
@@ -292,8 +292,8 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     it("ACCEPT_ALL removes the selection and leaves ONE paragraph break (\"a\" | \"f\")", () => {
       const accepted = reduceEditor(mk().editor, { type: "ACCEPT_ALL_SUGGESTIONS" });
       const seq = blockSeq(accepted);
-      expect(seq.map((id) => getTextOf(accepted.state, id))).toEqual(["a", "f"]);
-      expect(getSuggestions(accepted.state)).toHaveLength(0);
+      expect(seq.map((id) => getTextOf(accepted.document, id))).toEqual(["a", "f"]);
+      expect(getSuggestions(accepted.document)).toHaveLength(0);
     });
 
     it("a selection ending at the END of its block: the tail takes the follow-on type (as the direct delete-then-split)", () => {
@@ -305,15 +305,15 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
         editor = reduceEditor(editor, { type: "SPLIT_NODE" }); // "Title" | "" (paragraph)
         editor = reduceEditor(editor, { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 2 } });
         for (const ch of "Sub") editor = reduceEditor(editor, { type: "INSERT_TEXT", text: ch });
-        const s = getBlock(editor.state, e)?.prevSiblingId ?? null;
+        const s = getBlock(editor.document, e)?.prevSiblingId ?? null;
         if (s === null) throw new Error("expected two headings");
         const crossed = reduceEditor({ ...editor, config: suggestingConfig }, { type: "SET_SELECTION", selection: createSpan(createPosition(s, 2), createPosition(e, 3)) });
         return { editor: reduceEditor(crossed, { type: "SPLIT_NODE" }), tail: e };
       };
       const { editor: next, tail } = mkHeadings();
-      expect(getBlock(next.state, tail)?.type).toBe("paragraph");
+      expect(getBlock(next.document, tail)?.type).toBe("paragraph");
       expect(next.selection.focus).toEqual(createPosition(tail, 0));
-      const view = (e: EditorState) => blockSeq(e).map((id) => [getBlock(e.state, id)?.type, getBlock(e.state, id)?.attrs, getTextOf(e.state, id)]);
+      const view = (e: EditorState) => blockSeq(e).map((id) => [getBlock(e.document, id)?.type, getBlock(e.document, id)?.attrs, getTextOf(e.document, id)]);
       expect(view(reduceEditor(next, { type: "ACCEPT_ALL_SUGGESTIONS" }))).toEqual([
         ["heading", { level: 1 }, "Ti"],
         ["paragraph", {}, ""],
@@ -327,8 +327,8 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     it("REJECT_ALL restores the original two blocks (\"abc\" | \"def\")", () => {
       const rejected = reduceEditor(mk().editor, { type: "REJECT_ALL_SUGGESTIONS" });
       const seq = blockSeq(rejected);
-      expect(seq.map((id) => getTextOf(rejected.state, id))).toEqual(["abc", "def"]);
-      expect(getSuggestions(rejected.state)).toHaveLength(0);
+      expect(seq.map((id) => getTextOf(rejected.document, id))).toEqual(["abc", "def"]);
+      expect(getSuggestions(rejected.document)).toHaveLength(0);
     });
   });
 
@@ -340,8 +340,8 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     const next = reduceEditor(selected, { type: "SPLIT_NODE" });
 
     // "bcd" deleted, then split at offset 1: the new head = "a", the block keeps "ef".
-    expect(getTextOf(next.state, headOf(next, paraId))).toBe("a");
-    expect(getTextOf(next.state, paraId)).toBe("ef");
-    expect(getSuggestions(next.state)).toHaveLength(0);
+    expect(getTextOf(next.document, headOf(next, paraId))).toBe("a");
+    expect(getTextOf(next.document, paraId)).toBe("ef");
+    expect(getSuggestions(next.document)).toHaveLength(0);
   });
 });

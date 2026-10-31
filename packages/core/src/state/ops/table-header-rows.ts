@@ -1,5 +1,5 @@
-import type { State } from "../state";
-import { getBlock } from "../state";
+import type { Document } from "../document";
+import { getBlock } from "../document";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import type { TableGrid } from "../table-grid-core";
@@ -78,7 +78,7 @@ export function adjustHeaderRowCount(count: number, op: RowEditOp, rowIndex: num
  * Compute the table's new attrs bag after a row insert/delete at grid row
  * `rowIndex` keeps `headerRowCount` naming the leading contiguous block, or `null`
  * when the count is unchanged (so the caller writes nothing). Reads the table's
- * current `headerRowCount` from the PRE-mutation `state` (absent ⇒ 0); the
+ * current `headerRowCount` from the PRE-mutation `document` (absent ⇒ 0); the
  * §7.1 by-construction proof means no clean-cut re-validation is needed.
  *
  * Returns the FULL replace-bag (`headerRowCount` spliced in, or the key dropped
@@ -86,12 +86,12 @@ export function adjustHeaderRowCount(count: number, op: RowEditOp, rowIndex: num
  * table ops compute their `columnWidths` attr the same plan-time way.
  */
 export function headerRowAttrsAfterRowEdit(
-  state: State,
+  document: Document,
   tableId: BlockId,
   op: RowEditOp,
   rowIndex: number,
 ): ReadonlyAttrs | null {
-  const table = getBlock(state, tableId);
+  const table = getBlock(document, tableId);
   if (table === null) return null;
   const current = readHeaderRowCount(table.attrs);
   const next = adjustHeaderRowCount(current, op, rowIndex);

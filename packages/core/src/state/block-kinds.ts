@@ -12,7 +12,7 @@
  * The state module does NOT hardcode type-string sets. Taxonomy is owned
  * by component definitions in the component module — leaf components
  * declare `leafShape: "inline-bearing" | "atomic"` and container
- * components carry `kind: "container"`. State ops that need to judge
+ * components carry `kind: "container"`. Document ops that need to judge
  * shape (e.g., `setBlockType` for cross-kind refusal, `INSERT_NODE`'s
  * shape validation) accept a `BlockKindResolver` parameter and consult
  * it. The component registry implements `BlockKindResolver`. This keeps
@@ -40,7 +40,7 @@ export type BlockKind = "inline-bearing-leaf" | "atomic-leaf" | "container";
 
 /**
  * Resolver interface for "what kind is this block type?" The component
- * module's `ComponentRegistry` implements this. State ops that need to
+ * module's `ComponentRegistry` implements this. Document ops that need to
  * judge shape (e.g., `setBlockType`'s cross-kind refusal) accept a
  * resolver rather than hardcoding type-string sets. This keeps the
  * state module free of component-type knowledge.

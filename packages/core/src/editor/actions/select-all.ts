@@ -32,17 +32,17 @@ import { findLastContentBlock } from "./helpers/find-last-content-block";
  *   `firstLeafBlock`/`lastLeafBlock(state, ctxRoot)` (tree-agnostic).
  */
 export function handleSelectAll(editor: EditorState): Edit | null {
-  const ctxRoot = selectionContextOf(editor.state, editor.selection.focus.blockId);
+  const ctxRoot = selectionContextOf(editor.document, editor.selection.focus.blockId);
   if (ctxRoot === null) return null;
 
   const firstId =
-    ctxRoot === editor.state.rootId
-      ? findFirstContentBlock(editor.state)
-      : firstLeafBlock(editor.state, ctxRoot);
+    ctxRoot === editor.document.rootId
+      ? findFirstContentBlock(editor.document)
+      : firstLeafBlock(editor.document, ctxRoot);
   const lastId =
-    ctxRoot === editor.state.rootId
-      ? findLastContentBlock(editor.state)
-      : lastLeafBlock(editor.state, ctxRoot);
+    ctxRoot === editor.document.rootId
+      ? findLastContentBlock(editor.document)
+      : lastLeafBlock(editor.document, ctxRoot);
   if (firstId === null || lastId === null) return null;
 
   return spanForRange(editor, firstId, lastId);
@@ -59,7 +59,7 @@ function spanForRange(
   firstId: BlockId,
   lastId: BlockId,
 ): Edit | null {
-  const last = resolveBlock(editor.state, lastId);
+  const last = resolveBlock(editor.document, lastId);
   if (last === null) return null;
   const endOffset =
     last.block.inlineContent === null

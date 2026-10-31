@@ -1,13 +1,13 @@
 import { createEmptyDocument, History, createHistory, positionsEqual } from "../state";
-import { STATE_INTERNAL } from "../state/state-internal";
+import { DOCUMENT_INTERNAL } from "../state/document-internal";
 import { bindAttrRegistry } from "../state/mark-attrs";
 import type { ProposalOutcome } from "./proposals";
 import { compileKeymap, type ActiveTrigger } from "./extensions";
-import type { State, Selection, BlockId, Position, ReadonlyAttrs } from "../state";
+import type { Document, Selection, BlockId, Position, ReadonlyAttrs } from "../state";
 import type { CaretAffinity } from "../cursor/selection";
 import type { EditorConfig } from "./editor-config";
 import type { DocumentChange } from "./document-change";
-import { initialSelectionForState } from "./actions/helpers/initial-selection-for-state";
+import { initialSelectionForDocument } from "./actions/helpers/initial-selection-for-document";
 
 // --- EditorState ---
 
@@ -20,7 +20,7 @@ export interface EditorState {
    * (e.g. entering suggesting mode).
    */
   readonly config: EditorConfig;
-  readonly state: State;
+  readonly document: Document;
   readonly selection: Selection;
   readonly history: History;
   /**
@@ -45,7 +45,7 @@ export interface EditorState {
    */
   readonly lastDirtyIds: ReadonlySet<BlockId> | null;
   /**
-   * The most recent DOCUMENT change that produced `state`: the State it was made from and
+   * The most recent DOCUMENT change that produced `document`: the Document it was made from and
    * its raw dirty set. Unlike `lastDirtyIds` it survives later selection-only / inert
    * actions, so a consumer holding an older EditorState can still map positions across
    * "edit, then move the caret". `null` when the last change's extent is unknown (initial
@@ -139,20 +139,20 @@ export interface EditorState {
 
 
 export function createInitialEditorState(config: EditorConfig): EditorState {
-  const state = createEmptyDocument({ resolver: config.componentRegistry });
-  const selection = initialSelectionForState(state);
-  return createEditorStateFromState(state, selection, config);
+  const document = createEmptyDocument({ resolver: config.componentRegistry });
+  const selection = initialSelectionForDocument(document);
+  return createEditorStateFromDocument(document, selection, config);
 }
 
 /**
- * Build a fresh `EditorState` from an arbitrary `State` + initial `Selection`
+ * Build a fresh `EditorState` from an arbitrary `Document` + initial `Selection`
  * (a fresh `History` bound to that state). `createInitialEditorState` delegates
  * here with the empty document. Primarily for tests that need a non-default seed
  * document (e.g. a table-only body) without an editor-from-state injection seam.
  *
  * Core is geometry-free. This builds NO render/cascade/layout trees —
  * the print backend's layout-driver owns that pipeline and rebuilds it from
- * `state` after each dispatch. `lastDirtyIds: null` signals the driver to do a
+ * `document` after each dispatch. `lastDirtyIds: null` signals the driver to do a
  * FULL initial build.
  *
  * `historyOrigin` is the transaction origin the editor's `History` tracks for
@@ -161,21 +161,21 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
  * isolation) — building the right History up front instead of replacing a
  * default one (which would leak the default's UndoManager listener).
  */
-export function createEditorStateFromState(
-  state: State,
+export function createEditorStateFromDocument(
+  document: Document,
   selection: Selection,
   config: EditorConfig,
   historyOrigin: unknown = null,
 ): EditorState {
   // Every state writer judging an attr (¶ markAttrs, one-shot attrs) reads it from the doc.
-  bindAttrRegistry(state[STATE_INTERNAL].doc, config.attrRegistry);
+  bindAttrRegistry(document[DOCUMENT_INTERNAL].doc, config.attrRegistry);
   // Parse the host keymap now: a malformed binding name fails at configuration time.
   if (config.extensions?.keymap !== undefined) compileKeymap(config.extensions.keymap);
   return {
     config,
-    state,
+    document,
     selection,
-    history: createHistory(state, undefined, historyOrigin),
+    history: createHistory(document, undefined, historyOrigin),
     lastDirtyIds: null,
     lastChange: null,
     containerWidth: config.containerWidth,

@@ -51,7 +51,7 @@ export function DocMenuBar({ dispatch, editorState, focus }: DocMenuBarProps) {
   // is active when nothing overrides it), and `"mixed"` → "" so NO item shows
   // active.
   const activeTextTransform = getActiveFormatting(
-    editorState.state,
+    editorState.document,
     editorState.selection,
     editorState.storedAttrs,
   ).textTransform;

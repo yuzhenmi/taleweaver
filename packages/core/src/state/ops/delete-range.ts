@@ -1,7 +1,7 @@
 import type * as Y from "yjs";
 import { requireBlockText } from "../block-text";
-import type { State, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
 import type { BlockId } from "../block-id";
 import type { Position, Span } from "../block-position";
 import {
@@ -134,7 +134,7 @@ export type DeleteRangePlan =
  * transaction (atomic).
  */
 export function deleteRange(
-  state: State,
+  document: Document,
   span: Span,
 ): OperationResult {
   // Empty-span no-op (collapsed-ness is normalization-invariant).
@@ -142,17 +142,17 @@ export function deleteRange(
     span.anchor.blockId === span.focus.blockId &&
     span.anchor.offset === span.focus.offset
   ) {
-    return { state, dirtyIds: new Set<BlockId>() };
+    return { document, dirtyIds: new Set<BlockId>() };
   }
 
-  const plan = planDeleteRange(state, span);
+  const plan = planDeleteRange(document, span);
   if (plan === null) {
     // Re-collapsed after normalization (e.g., reverse-order positions in
     // the same block at the same offset).
-    return { state, dirtyIds: new Set<BlockId>() };
+    return { document, dirtyIds: new Set<BlockId>() };
   }
 
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     deleteRangeInTx(doc, plan);
   });
 }
@@ -212,14 +212,14 @@ export function deleteRangeInTx(doc: Y.Doc, plan: DeleteRangePlan): void {
  * start marker was, and a cut of exactly a bookmark's text carries the pair. A
  * collapsed span is returned normalized with nothing removed. O(span).
  */
-export function bookmarkDeletionSpan(state: State, span: Span): { readonly span: Span; readonly removed: Set<string> } {
-  const n = normalizeSpan(state, span);
+export function bookmarkDeletionSpan(document: Document, span: Span): { readonly span: Span; readonly removed: Set<string> } {
+  const n = normalizeSpan(document, span);
   if (positionsEqual(n.anchor, n.focus)) return { span: n, removed: new Set() };
   const removed = bookmarksRemovedBy(
-    [...iterateSpan(state, n)].map((r) => ({ items: r.block.inlineContent?.items ?? [], from: r.rangeStart, to: r.rangeEnd })),
+    [...iterateSpan(document, n)].map((r) => ({ items: r.block.inlineContent?.items ?? [], from: r.rangeStart, to: r.rangeEnd })),
   );
   if (removed.size === 0) return { span: n, removed };
-  const itemsOf = (id: BlockId): readonly InlineItem[] => resolveBlock(state, id)?.block.inlineContent?.items ?? [];
+  const itemsOf = (id: BlockId): readonly InlineItem[] => resolveBlock(document, id)?.block.inlineContent?.items ?? [];
   const from = widenOverBookmarkMarkers(itemsOf(n.anchor.blockId), n.anchor.offset, "backward", removed);
   const to = widenOverBookmarkMarkers(itemsOf(n.focus.blockId), n.focus.offset, "forward", removed);
   return { span: createSpan(createPosition(n.anchor.blockId, from), createPosition(n.focus.blockId, to)), removed };
@@ -235,13 +235,13 @@ export function bookmarkDeletionSpan(state: State, span: Span): { readonly span:
  * ({@link bookmarkDeletionSpan}). Null only when two object endpoints have no text
  * block after them. Assumes a span `deleteRange` accepts. O(span).
  */
-export function deleteRangeSeam(state: State, span: Span): Position | null {
-  const { span: wide } = bookmarkDeletionSpan(state, span);
+export function deleteRangeSeam(document: Document, span: Span): Position | null {
+  const { span: wide } = bookmarkDeletionSpan(document, span);
   const start = wide.anchor;
   if (start.blockId === wide.focus.blockId) return start;
-  const isText = (id: BlockId): boolean => (resolveBlock(state, id)?.block.inlineContent ?? null) !== null;
+  const isText = (id: BlockId): boolean => (resolveBlock(document, id)?.block.inlineContent ?? null) !== null;
   if (isText(wide.focus.blockId)) return createPosition(wide.focus.blockId, start.offset);
-  return isText(start.blockId) ? start : firstTextAfter(state, wide.focus.blockId);
+  return isText(start.blockId) ? start : firstTextAfter(document, wide.focus.blockId);
 }
 
 /**
@@ -271,12 +271,12 @@ export function seamBlockOf(plan: DeleteRangePlan): BlockId {
  * Throws on missing block or a container endpoint that is not an object
  * (`isObjectBlock`); returns void on success.
  */
-export function assertDeleteRangeEndpoints(state: State, span: Span): void {
+export function assertDeleteRangeEndpoints(document: Document, span: Span): void {
   const sameBlock = span.anchor.blockId === span.focus.blockId;
   // Map-agnostic: resolve across all three trees so a span inside a
   // header/footer body (templateContents) passes these guards rather than
   // reporting a spurious "not found" (getBlock sees only the main tree).
-  const rawAnchor = resolveBlock(state, span.anchor.blockId)?.block ?? null;
+  const rawAnchor = resolveBlock(document, span.anchor.blockId)?.block ?? null;
   if (!rawAnchor) {
     throw new Error(
       sameBlock
@@ -292,7 +292,7 @@ export function assertDeleteRangeEndpoints(state: State, span: Span): void {
     );
   }
   if (!sameBlock) {
-    const rawFocus = resolveBlock(state, span.focus.blockId)?.block ?? null;
+    const rawFocus = resolveBlock(document, span.focus.blockId)?.block ?? null;
     if (!rawFocus) {
       throw new Error(`deleteRange: focus block "${span.focus.blockId}" not found`);
     }
@@ -305,7 +305,7 @@ export function assertDeleteRangeEndpoints(state: State, span: Span): void {
 }
 
 /**
- * Validate `span` against `state` and produce a `DeleteRangePlan`
+ * Validate `span` against `document` and produce a `DeleteRangePlan`
  * describing the Y.Doc mutations needed. Returns `null` for the
  * post-normalization re-collapsed case (caller treats as no-op).
  *
@@ -321,7 +321,7 @@ export function assertDeleteRangeEndpoints(state: State, span: Span): void {
  * for the dual primitive.
  */
 export function planDeleteRange(
-  state: State,
+  document: Document,
   span: Span,
 ): DeleteRangePlan | null {
   // Pre-normalize existence + leaf guards. These run before normalizeSpan
@@ -330,18 +330,18 @@ export function planDeleteRange(
   // generic "block ... not found" message that would otherwise leak through
   // the normalizeSpan → comparePositions path. Same architectural pattern
   // applyAttrsToRange uses for the same reason.
-  assertDeleteRangeEndpoints(state, span);
+  assertDeleteRangeEndpoints(document, span);
 
   // Now normalize. comparePositions can only throw on cross-context (no
   // common ancestor) since both endpoints have been verified to exist.
-  const normalized = normalizeSpan(state, span);
+  const normalized = normalizeSpan(document, span);
 
   // SAME-BLOCK case
   if (normalized.anchor.blockId === normalized.focus.blockId) {
     // Map-agnostic: resolve across all three trees (a header/footer body lives
     // in templateContents). `kind` is threaded onto the plan so
     // `deleteRangeInTx` writes into the owning Y.Map.
-    const resolved = resolveBlock(state, normalized.anchor.blockId);
+    const resolved = resolveBlock(document, normalized.anchor.blockId);
     if (!resolved) {
       throw new Error(`deleteRange: block "${normalized.anchor.blockId}" not found`);
     }
@@ -374,7 +374,7 @@ export function planDeleteRange(
 
     // Widen over the removed bookmarks' edge markers, then snap the range OUT
     // to grapheme boundaries ONCE; every later step uses it.
-    const { span: wide, removed: removedBookmarks } = bookmarkDeletionSpan(state, normalized);
+    const { span: wide, removed: removedBookmarks } = bookmarkDeletionSpan(document, normalized);
     const [startOffset, endOffset] = snapRange(
       block.inlineContent.items,
       wide.anchor.offset,
@@ -394,7 +394,7 @@ export function planDeleteRange(
     );
     const embedContentIds = new Set<BlockId>();
     collectEmbedContentSubtreeFromInlineContent(
-      state,
+      document,
       { items: deletedItems },
       embedContentIds,
     );
@@ -415,12 +415,12 @@ export function planDeleteRange(
   // as the span's owning tree. The cross-parent refusal below guarantees both
   // endpoints share a parent (so a single `kind` covers the whole span);
   // `assertSameTree` re-verifies the focus + neighbors before any write.
-  const anchorResolved = resolveBlock(state, normalized.anchor.blockId);
+  const anchorResolved = resolveBlock(document, normalized.anchor.blockId);
   if (!anchorResolved) {
     throw new Error(`deleteRange: anchor block "${normalized.anchor.blockId}" not found`);
   }
   const { block: anchorBlock, kind } = anchorResolved;
-  const focusBlock = resolveBlock(state, normalized.focus.blockId)?.block ?? null;
+  const focusBlock = resolveBlock(document, normalized.focus.blockId)?.block ?? null;
   if (!focusBlock) {
     throw new Error(`deleteRange: focus block "${normalized.focus.blockId}" not found`);
   }
@@ -477,7 +477,7 @@ export function planDeleteRange(
   const interveningIds: BlockId[] = anchorContent === null ? [anchorBlock.id] : [];
   let cur: BlockId | null = anchorBlock.nextSiblingId;
   while (cur !== null && cur !== focusBlock.id) {
-    const node = resolveBlock(state, cur)?.block ?? null;
+    const node = resolveBlock(document, cur)?.block ?? null;
     if (!node) {
       throw new Error(`deleteRange: intervening sibling "${cur}" not found`);
     }
@@ -494,7 +494,7 @@ export function planDeleteRange(
   // The seam: the surviving focus; the anchor when the end is an object; the first
   // text block after the span when both endpoints are objects.
   const seamId =
-    focusContent !== null ? focusBlock.id : anchorContent !== null ? anchorBlock.id : firstTextAfter(state, focusBlock.id)?.blockId ?? null;
+    focusContent !== null ? focusBlock.id : anchorContent !== null ? anchorBlock.id : firstTextAfter(document, focusBlock.id)?.blockId ?? null;
   if (seamId === null) {
     throw new Error(`deleteRange: no text block follows the objects "${anchorBlock.id}".."${focusBlock.id}" to hold the seam`);
   }
@@ -505,13 +505,13 @@ export function planDeleteRange(
   // last-child rewire branch.
   const focusNextId = focusBlock.nextSiblingId;
   if (focusNextId !== null) {
-    if (resolveBlock(state, focusNextId) === null) {
+    if (resolveBlock(document, focusNextId) === null) {
       throw new Error(
         `deleteRange: focus block's next sibling "${focusNextId}" not found`,
       );
     }
   } else {
-    if (resolveBlock(state, parentId) === null) {
+    if (resolveBlock(document, parentId) === null) {
       throw new Error(
         `deleteRange: parent "${parentId}" of anchor block not found`,
       );
@@ -523,7 +523,7 @@ export function planDeleteRange(
   // same tree as the anchor (`kind`); otherwise the kind-routed writes below
   // would corrupt state. Production no-op.
   assertSameTree(
-    state,
+    document,
     kind,
     [focusBlock.id, focusNextId, parentId, ...interveningIds],
     "deleteRange",
@@ -532,7 +532,7 @@ export function planDeleteRange(
   // The anchor keeps [0, anchorOffset); the focus suffix follows it. Both endpoints
   // are snapped OUT to grapheme boundaries ONCE (anchor backward, focus forward), so
   // the cuts and the seam agree. An object endpoint has no text: offset 0, nothing cut.
-  const { span: wide, removed: removedBookmarks } = bookmarkDeletionSpan(state, normalized);
+  const { span: wide, removed: removedBookmarks } = bookmarkDeletionSpan(document, normalized);
   const anchorOffset = anchorContent === null ? 0 : snapOffset(anchorContent.items, wide.anchor.offset);
   const focusOffset = focusContent === null ? 0 : snapOffset(focusContent.items, wide.focus.offset, 1);
 
@@ -546,18 +546,18 @@ export function planDeleteRange(
   const embedContentIds = new Set<BlockId>();
   if (anchorContent !== null) {
     const [, anchorDeletedSuffix] = splitInlineContentAtOffset(anchorContent, anchorOffset);
-    collectEmbedContentSubtreeFromInlineContent(state, { items: anchorDeletedSuffix }, embedContentIds);
+    collectEmbedContentSubtreeFromInlineContent(document, { items: anchorDeletedSuffix }, embedContentIds);
   }
   for (const id of interveningIds) {
-    const after = nextBlockAfterSubtree(state, id);
-    for (let b: BlockId | null = id; b !== null && b !== after; b = nextBlockInDocOrder(state, b)) {
-      const content = resolveBlock(state, b)?.block.inlineContent ?? null;
-      if (content !== null) collectEmbedContentSubtreeFromInlineContent(state, content, embedContentIds);
+    const after = nextBlockAfterSubtree(document, id);
+    for (let b: BlockId | null = id; b !== null && b !== after; b = nextBlockInDocOrder(document, b)) {
+      const content = resolveBlock(document, b)?.block.inlineContent ?? null;
+      if (content !== null) collectEmbedContentSubtreeFromInlineContent(document, content, embedContentIds);
     }
   }
   if (focusContent !== null) {
     const [focusDeletedPrefix] = splitInlineContentAtOffset(focusContent, focusOffset);
-    collectEmbedContentSubtreeFromInlineContent(state, { items: focusDeletedPrefix }, embedContentIds);
+    collectEmbedContentSubtreeFromInlineContent(document, { items: focusDeletedPrefix }, embedContentIds);
   }
 
   return {

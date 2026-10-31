@@ -41,7 +41,7 @@ function right(ctx: NavCtx): NavCtx {
 /** Rendered caret x for the current collapsed caret, threading caretAffinity. */
 function caretX(ctx: NavCtx): number {
   const px = resolvePixelPosition(
-    ctx.editor.state,
+    ctx.editor.document,
     ctx.editor.selection.focus,
     layoutOf(ctx),
     ctx.measurer,

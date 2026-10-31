@@ -1,16 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { createTable, buildTableSubtreePlan } from "./create-table";
-import { getBlock } from "../state";
-import { buildBlock, buildState, inlineContent, text, finalSectionOf } from "../../test-utils/state-builders";
+import { getBlock } from "../document";
+import { buildBlock, buildDocument, inlineContent, text, finalSectionOf } from "../../test-utils/document-builders";
 import { flowShape, assertInvariantI } from "../../test-utils/invariant-i";
 import { createTestAllocator } from "../block-id";
 import { createPosition } from "../block-position";
 import type { BlockId } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../document";
 
 /** doc > single paragraph carrying `content`. */
-function paraDoc(content: string): State {
-  return buildState({
+function paraDoc(content: string): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -25,8 +25,8 @@ function paraDoc(content: string): State {
 }
 
 /** doc > p0("first") , p1("second"). */
-function twoParaDoc(): State {
-  return buildState({
+function twoParaDoc(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: "p1" }),
@@ -37,12 +37,12 @@ function twoParaDoc(): State {
 }
 
 /** The table block reachable from the doc's first/last child after an insert. */
-function tableBlocks(state: State, tableId: BlockId) {
-  const table = getBlock(state, tableId);
+function tableBlocks(document: Document, tableId: BlockId) {
+  const table = getBlock(document, tableId);
   if (table === null) throw new Error("table missing");
   const rows: ReturnType<typeof getBlock>[] = [];
-  for (let r = table.firstChildId; r !== null; r = getBlock(state, r)?.nextSiblingId ?? null) {
-    rows.push(getBlock(state, r));
+  for (let r = table.firstChildId; r !== null; r = getBlock(document, r)?.nextSiblingId ?? null) {
+    rows.push(getBlock(document, r));
   }
   return { table, rows };
 }
@@ -67,9 +67,9 @@ describe("buildTableSubtreePlan", () => {
 
 describe("createTable", () => {
   it("builds a well-formed rows×cols subtree (types, widths, empty paragraphs)", () => {
-    const state = paraDoc("");
-    const { state: next, newTableId, caretInto } = createTable(
-      state,
+    const document = paraDoc("");
+    const { document: next, newTableId, caretInto } = createTable(
+      document,
       createPosition("p" as BlockId, 0),
       2,
       3,
@@ -113,10 +113,10 @@ describe("createTable", () => {
   // Placement: at (P, 0) only the table item is written,
   // before P; at (P, k > 0) a ¶ ends the head at the caret, then the table: head H
   // (new id), table, tail P (empty at k = len). A paragraph always follows the table.
-  const shapeOf = (s: State, tableId: BlockId) => flowShape(s, "doc").replace(`[${tableId}]`, "[T]");
+  const shapeOf = (s: Document, tableId: BlockId) => flowShape(s, "doc").replace(`[${tableId}]`, "[T]");
 
   it("START (offset 0): the table goes BEFORE the caret's block", () => {
-    const { state: next, newTableId } = createTable(paraDoc("hello"), createPosition("p" as BlockId, 0), 1, 1, createTestAllocator("t"));
+    const { document: next, newTableId } = createTable(paraDoc("hello"), createPosition("p" as BlockId, 0), 1, 1, createTestAllocator("t"));
     expect(shapeOf(next, newTableId)).toBe('[T] p:"hello"');
     expect(getBlock(next, finalSectionOf(next))?.firstChildId).toBe(newTableId);
     expect(getBlock(next, "p" as BlockId)?.prevSiblingId).toBe(newTableId);
@@ -124,14 +124,14 @@ describe("createTable", () => {
   });
 
   it("END (offset = length): head H keeps the text, then the table, then the empty tail P", () => {
-    const { state: next, newTableId } = createTable(paraDoc("hello"), createPosition("p" as BlockId, 5), 1, 1, createTestAllocator("t"));
+    const { document: next, newTableId } = createTable(paraDoc("hello"), createPosition("p" as BlockId, 5), 1, 1, createTestAllocator("t"));
     expect(shapeOf(next, newTableId)).toMatch(/^\S+:"hello" \[T\] p:""$/);
     expect(getBlock(next, "p" as BlockId)?.prevSiblingId).toBe(newTableId);
     assertInvariantI(next, "storage");
   });
 
   it("MID-block: head H = prefix, table, tail P = suffix", () => {
-    const { state: next, newTableId } = createTable(paraDoc("hello"), createPosition("p" as BlockId, 2), 1, 1, createTestAllocator("t"));
+    const { document: next, newTableId } = createTable(paraDoc("hello"), createPosition("p" as BlockId, 2), 1, 1, createTestAllocator("t"));
     expect(shapeOf(next, newTableId)).toMatch(/^\S+:"he" \[T\] p:"llo"$/);
     const head = getBlock(next, newTableId)?.prevSiblingId ?? null;
     expect(head).not.toBeNull();
@@ -139,44 +139,44 @@ describe("createTable", () => {
   });
 
   it("MID-block on an interior paragraph keeps the following paragraph linked", () => {
-    const { state: next, newTableId } = createTable(twoParaDoc(), createPosition("p0" as BlockId, 2), 1, 1, createTestAllocator("t"));
+    const { document: next, newTableId } = createTable(twoParaDoc(), createPosition("p0" as BlockId, 2), 1, 1, createTestAllocator("t"));
     expect(shapeOf(next, newTableId)).toMatch(/^\S+:"fi" \[T\] p0:"rst" p1:"second"$/);
     expect(getBlock(next, "p1" as BlockId)?.prevSiblingId).toBe("p0");
   });
 
   it("empty doc (single empty paragraph): the table goes before the empty paragraph", () => {
-    const { state: next, newTableId } = createTable(paraDoc(""), createPosition("p" as BlockId, 0), 2, 2, createTestAllocator("t"));
+    const { document: next, newTableId } = createTable(paraDoc(""), createPosition("p" as BlockId, 0), 2, 2, createTestAllocator("t"));
     expect(shapeOf(next, newTableId)).toBe('[T] p:""');
   });
 
   it("throws for rows < 1 or cols < 1 (precondition; the action layer no-ops)", () => {
-    const state = paraDoc("hello");
+    const document = paraDoc("hello");
     expect(() =>
-      createTable(state, createPosition("p" as BlockId, 0), 0, 3, createTestAllocator("t")),
+      createTable(document, createPosition("p" as BlockId, 0), 0, 3, createTestAllocator("t")),
     ).toThrow(/at least 1|rows|cols/);
     expect(() =>
-      createTable(state, createPosition("p" as BlockId, 0), 2, 0, createTestAllocator("t")),
+      createTable(document, createPosition("p" as BlockId, 0), 2, 0, createTestAllocator("t")),
     ).toThrow(/at least 1|rows|cols/);
   });
 
   it("throws when the caret block does not exist", () => {
-    const state = paraDoc("hello");
+    const document = paraDoc("hello");
     expect(() =>
-      createTable(state, createPosition("nope" as BlockId, 0), 1, 1, createTestAllocator("t")),
+      createTable(document, createPosition("nope" as BlockId, 0), 1, 1, createTestAllocator("t")),
     ).toThrow(/not found/);
   });
 
   it("throws when the caret block is a container (non-leaf)", () => {
-    const state = paraDoc("hello");
+    const document = paraDoc("hello");
     expect(() =>
-      createTable(state, createPosition("doc" as BlockId, 0), 1, 1, createTestAllocator("t")),
+      createTable(document, createPosition("doc" as BlockId, 0), 1, 1, createTestAllocator("t")),
     ).toThrow(/container|leaf/);
   });
 
   it("throws (main-body only) when the caret block lives in a non-main tree", () => {
     // A header-body paragraph (templateContents) — v1 refuses tables outside the
     // main document body with a clear error, not a misleading "not found".
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -188,7 +188,7 @@ describe("createTable", () => {
       ],
     });
     expect(() =>
-      createTable(state, createPosition("hp" as BlockId, 0), 1, 1, createTestAllocator("t")),
+      createTable(document, createPosition("hp" as BlockId, 0), 1, 1, createTestAllocator("t")),
     ).toThrow(/main document body only/);
   });
 });

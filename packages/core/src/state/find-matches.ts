@@ -1,5 +1,5 @@
-import type { State } from "./state";
-import { getBlock } from "./state";
+import type { Document } from "./document";
+import { getBlock } from "./document";
 import type { BlockId } from "./block-id";
 import type { InlineItem } from "./inline-content";
 import { inlineContentLength } from "./inline-content";
@@ -115,7 +115,7 @@ function isWordChar(ch: string | undefined): boolean {
 
 /**
  * Find all non-overlapping occurrences of `query` across the target blocks of
- * `state`, returned in the iteration order of those blocks.
+ * `document`, returned in the iteration order of those blocks.
  *
  * Read-only query over state — the forkless foundation of Find & Replace.
  * Searches the MAIN document tree only (embedContents / templateContents —
@@ -130,7 +130,7 @@ function isWordChar(ch: string | undefined): boolean {
  *   `i + query.length`, so "aa" in "aaa" yields ONE match.
  */
 export function findMatches(
-  state: State,
+  document: Document,
   query: string,
   options?: FindMatchesOptions,
 ): TextMatch[] {
@@ -152,8 +152,8 @@ export function findMatches(
 
   const matches: TextMatch[] = [];
 
-  for (const blockId of iterateTargetBlocks(state, options?.blockIds)) {
-    const block = getBlock(state, blockId);
+  for (const blockId of iterateTargetBlocks(document, options?.blockIds)) {
+    const block = getBlock(document, blockId);
     // Only leaf blocks carry searchable inline content.
     if (!block || block.inlineContent === null) continue;
 
@@ -225,7 +225,7 @@ function isWholeWordMatch(text: string, start: number, end: number): boolean {
  * an explicit `blockIds` list is honored verbatim.
  */
 function* iterateTargetBlocks(
-  state: State,
+  document: Document,
   blockIds: Iterable<BlockId> | undefined,
 ): Iterable<BlockId> {
   if (blockIds !== undefined) {
@@ -238,7 +238,7 @@ function* iterateTargetBlocks(
   // through `iterateLeafBlocksInDocumentOrder` inherits the recursive walker's
   // active-path cycle guard. `findMatches` only matches inline content, so
   // yielding leaves only is identical to the old leaf walk here.
-  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+  for (const block of iterateLeafBlocksInDocumentOrder(document)) {
     yield block.id;
   }
 }

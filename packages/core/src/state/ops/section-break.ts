@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
-import { applyOperation, getBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, getBlock } from "../document";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { Position } from "../block-position";
 import { requireInTransaction } from "../yjs-doc";
@@ -43,15 +43,15 @@ export type SectionBreakPlan =
  * it (Word). A caret inside a top-level object (a table cell) breaks before that block.
  */
 export function applySectionBreak(
-  state: State,
+  document: Document,
   cursor: Position,
   allocator: IdAllocator,
 ): SectionBreakResult {
-  const plan = buildSectionBreakPlan(state, cursor, allocator);
-  const result = applyOperation(state, (doc) => {
+  const plan = buildSectionBreakPlan(document, cursor, allocator);
+  const result = applyOperation(document, (doc) => {
     applySectionBreakInTx(doc, plan);
   });
-  return { state: result.state, dirtyIds: result.dirtyIds, newCursorBlockId: cursor.blockId };
+  return { document: result.document, dirtyIds: result.dirtyIds, newCursorBlockId: cursor.blockId };
 }
 
 /**
@@ -62,20 +62,20 @@ export function applySectionBreak(
  * merge, `deleteParagraphMarkInTx`); accept drops the key.
  */
 export function applySectionBreakAsSuggestion(
-  state: State,
+  document: Document,
   cursor: Position,
   allocator: IdAllocator,
   input: SuggestionMintInput,
 ): SectionBreakResult {
-  const plan = buildSectionBreakPlan(state, cursor, allocator);
-  const result = applyOperation(state, (doc) => {
+  const plan = buildSectionBreakPlan(document, cursor, allocator);
+  const result = applyOperation(document, (doc) => {
     applySectionBreakInTx(doc, plan);
     // The section-end ¶'s paragraph: the split's head, or the fresh paragraph S′ holds.
     const owner = plan.kind === "split" ? plan.split.newBlockId : (deriveBlock(readCtx(doc), plan.sectionId)?.block.lastChildId ?? null);
     if (owner !== null) writeBreakTagInTx(doc, owner, INSERTION_TAG_KEY, input.id);
     writeSuggestionRecordInTx(doc, { id: input.id, kind: "insertion", author: input.author, createdAt: input.createdAt, order: input.order });
   });
-  return { state: result.state, dirtyIds: result.dirtyIds, newCursorBlockId: cursor.blockId };
+  return { document: result.document, dirtyIds: result.dirtyIds, newCursorBlockId: cursor.blockId };
 }
 
 /**
@@ -84,27 +84,27 @@ export function applySectionBreakAsSuggestion(
  * block is not under the document root.
  */
 export function buildSectionBreakPlan(
-  state: State,
+  document: Document,
   cursor: Position,
   allocator: IdAllocator,
 ): SectionBreakPlan {
-  const chain = ancestorChain(state, cursor.blockId);
-  if (!chain.includes(state.rootId)) {
+  const chain = ancestorChain(document, cursor.blockId);
+  if (!chain.includes(document.rootId)) {
     throw new Error(`applySectionBreak: cursor block "${cursor.blockId}" not under document root`);
   }
   // The top-level block holding the caret: the chain entry whose parent is a section.
   const isSection = (bid: BlockId | null): boolean => {
-    const b = bid === null ? null : getBlock(state, bid);
-    return b !== null && b.type === "section" && b.parentId === state.rootId;
+    const b = bid === null ? null : getBlock(document, bid);
+    return b !== null && b.type === "section" && b.parentId === document.rootId;
   };
-  const boundary = chain.find((bid) => isSection(getBlock(state, bid)?.parentId ?? null)) ?? null;
-  const sectionOf = boundary === null ? null : (getBlock(state, boundary)?.parentId ?? null);
+  const boundary = chain.find((bid) => isSection(getBlock(document, bid)?.parentId ?? null)) ?? null;
+  const sectionOf = boundary === null ? null : (getBlock(document, boundary)?.parentId ?? null);
   if (boundary === null || sectionOf === null) {
     throw new Error(`applySectionBreak: could not resolve the top-level block holding "${cursor.blockId}"`);
   }
-  const sectionAttrs = getBlock(state, sectionOf)?.attrs ?? {};
-  if (boundary === cursor.blockId && getBlock(state, boundary)?.inlineContent != null) {
-    const split = planSplitBlockAtPosition(state, cursor, allocator);
+  const sectionAttrs = getBlock(document, sectionOf)?.attrs ?? {};
+  if (boundary === cursor.blockId && getBlock(document, boundary)?.inlineContent != null) {
+    const split = planSplitBlockAtPosition(document, cursor, allocator);
     return { kind: "split", split, sectionId: allocator.allocate(), sectionAttrs };
   }
   return { kind: "before", boundary, sectionId: allocator.allocate(), sectionAttrs };

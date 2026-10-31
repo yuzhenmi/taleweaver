@@ -1,4 +1,4 @@
-import type { EditorConfig } from "../../editor-config";
+import type { EditorState } from "../../editor-state";
 import { newSuggestionId, nextSuggestionOrder, type ReplaceSuggestionInput } from "../../../state";
 
 /** The create-op `input` for a TYPE-OVER-A-SELECTION suggestion (the suggestion
@@ -7,7 +7,7 @@ import { newSuggestionId, nextSuggestionOrder, type ReplaceSuggestionInput } fro
  *  the configured author, and the injected timestamp (SHARED by both records as the
  *  render-layer "this was ONE replace" grouping signal). */
 export function newReplaceSuggestionInput(
-  config: EditorConfig,
+  { config }: EditorState,
 ): ReplaceSuggestionInput | null {
   const author = config.suggestingAuthor ?? null;
   if (author === null) return null;

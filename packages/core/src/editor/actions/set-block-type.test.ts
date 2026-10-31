@@ -16,36 +16,36 @@ import {
   reduceEditor,
   firstChildId,
 } from "./test-helpers";
-import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { createEditorStateFromDocument, type EditorState } from "../editor-state";
 import { getBlock } from "../../state";
 import type { BlockId } from "../../state";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 
 describe("handleSetBlockType — same-kind transitions succeed (regression #155)", () => {
   it("converts paragraph → heading without throwing", () => {
     const initial = createInitialEditorState(config);
-    const paraId = firstChildId(initial.state) as BlockId;
+    const paraId = firstChildId(initial.document) as BlockId;
 
     const next = reduceEditor(
       initial,
       { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } },
     );
 
-    expect(getBlock(next.state, paraId)?.type).toBe("heading");
-    expect(getBlock(next.state, paraId)?.attrs).toEqual({ level: 1 });
+    expect(getBlock(next.document, paraId)?.type).toBe("heading");
+    expect(getBlock(next.document, paraId)?.attrs).toEqual({ level: 1 });
   });
 
   it("converts paragraph → list-item without throwing", () => {
     const initial = createInitialEditorState(config);
-    const paraId = firstChildId(initial.state) as BlockId;
+    const paraId = firstChildId(initial.document) as BlockId;
 
     const next = reduceEditor(
       initial,
       { type: "SET_BLOCK_TYPE", blockType: "list-item", properties: { listType: "unordered" } },
     );
 
-    expect(getBlock(next.state, paraId)?.type).toBe("list-item");
-    expect(getBlock(next.state, paraId)?.attrs).toEqual({ listType: "unordered" });
+    expect(getBlock(next.document, paraId)?.type).toBe("list-item");
+    expect(getBlock(next.document, paraId)?.attrs).toEqual({ listType: "unordered" });
   });
 
   // E-A13 / 2026-05-23 audit: cursor inside a nested block (e.g., a
@@ -59,8 +59,8 @@ describe("handleSetBlockType — same-kind transitions succeed (regression #155)
     // Flat list model: the list-item is a direct child of the document,
     // carrying listId/listLevel attrs — there is no wrapping `list` container.
     // Default initial doc is just `document → paragraph`, so we construct
-    // directly via buildState.
-    const initialState = buildState({
+    // directly via buildDocument.
+    const initialDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "li" }),
@@ -69,7 +69,7 @@ describe("handleSetBlockType — same-kind transitions succeed (regression #155)
     });
     // Phase 0b: core's `EditorState` is geometry-free — build only the
     // geometry-free fields (the handler reads no layout).
-    const initial: EditorState = createEditorStateFromState(initialState, { anchor: { blockId: "li" as BlockId, offset: 0 }, focus: { blockId: "li" as BlockId, offset: 0 } }, config);
+    const initial: EditorState = createEditorStateFromDocument(initialDocument, { anchor: { blockId: "li" as BlockId, offset: 0 }, focus: { blockId: "li" as BlockId, offset: 0 } }, config);
     // Action: SET_BLOCK_TYPE heading. Targets "li" (same-kind: list-item is
     // inline-bearing-leaf, heading is inline-bearing-leaf → succeeds).
     const next = reduceEditor(
@@ -77,23 +77,23 @@ describe("handleSetBlockType — same-kind transitions succeed (regression #155)
       { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } },
     );
     // The list-item became a heading.
-    expect(getBlock(next.state, "li" as BlockId)?.type).toBe("heading");
+    expect(getBlock(next.document, "li" as BlockId)?.type).toBe("heading");
   });
 
   it("re-invoking with the same block type reverts to paragraph", () => {
     let s = createInitialEditorState(config);
-    const paraId = firstChildId(s.state) as BlockId;
+    const paraId = firstChildId(s.document) as BlockId;
     s = reduceEditor(
       s,
       { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 2 } },
     );
-    expect(getBlock(s.state, paraId)?.type).toBe("heading");
+    expect(getBlock(s.document, paraId)?.type).toBe("heading");
 
     s = reduceEditor(
       s,
       { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 2 } },
     );
-    expect(getBlock(s.state, paraId)?.type).toBe("paragraph");
-    expect(getBlock(s.state, paraId)?.attrs).toEqual({});
+    expect(getBlock(s.document, paraId)?.type).toBe("paragraph");
+    expect(getBlock(s.document, paraId)?.attrs).toEqual({});
   });
 });

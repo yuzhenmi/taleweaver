@@ -13,9 +13,9 @@
  */
 import { bench, describe } from "vitest";
 import * as Y from "yjs";
-import { TEST_RESOLVER, buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
-import { createState, getBlock, type State } from "./state";
-import { STATE_INTERNAL } from "./state-internal";
+import { TEST_RESOLVER, buildDocument, buildBlock, inlineContent, text } from "../test-utils/document-builders";
+import { createDocument, getBlock, type Document } from "./document";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import { insertText } from "./ops/insert-text";
 import { splitBlockAtPosition } from "./ops/split-block";
 import { insertBlocksAfter } from "./ops/insert-blocks-after";
@@ -37,9 +37,9 @@ if (proc?.env !== undefined) proc.env.NODE_ENV = "production";
 
 const id = (s: string) => s as BlockId;
 
-function documentOf(n: number, para = "paragraph text of moderate length"): State {
+function documentOf(n: number, para = "paragraph text of moderate length"): Document {
   const ids = Array.from({ length: n }, (_, i) => `p${i}`);
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: ids[ids.length - 1] ?? "p0" }),
@@ -58,13 +58,13 @@ function documentOf(n: number, para = "paragraph text of moderate length"): Stat
 }
 
 /** Typing into block `target` (read back each time, like the editor's render). */
-function typing(state0: State, target: BlockId, offset0: number): () => void {
-  let state = state0;
+function typing(document0: Document, target: BlockId, offset0: number): () => void {
+  let document = document0;
   let offset = offset0;
   return () => {
-    state = insertText(state, createPosition(target, offset), "x", {}).state;
+    document = insertText(document, createPosition(target, offset), "x", {}).document;
     offset++;
-    getBlock(state, target);
+    getBlock(document, target);
   };
 }
 
@@ -77,7 +77,7 @@ describe("keystroke vs document size", () => {
 
 describe("Enter vs document size", () => {
   for (const n of [100, 1000, 10000]) {
-    let state = documentOf(n);
+    let document = documentOf(n);
     let cur = id(`p${Math.floor(n / 2)}`);
     const alloc = createTestAllocator("e");
     bench(
@@ -85,11 +85,11 @@ describe("Enter vs document size", () => {
       () => {
         // Enter at the end of the current paragraph (typical typing flow): the new ¶ ends
         // the head, the caret continues in the (empty) tail, which keeps `cur`'s id.
-        const len = (getBlock(state, cur)?.inlineContent?.items ?? []).reduce((k, it) => k + (it.kind === "text" ? it.text.length : 1), 0);
-        const r = splitBlockAtPosition(state, createPosition(cur, len), alloc);
-        state = r.state;
-        getBlock(state, r.newBlockId);
-        getBlock(state, cur);
+        const len = (getBlock(document, cur)?.inlineContent?.items ?? []).reduce((k, it) => k + (it.kind === "text" ? it.text.length : 1), 0);
+        const r = splitBlockAtPosition(document, createPosition(cur, len), alloc);
+        document = r.document;
+        getBlock(document, r.newBlockId);
+        getBlock(document, cur);
       },
       { iterations: 300 },
     );
@@ -100,15 +100,15 @@ describe("remote transaction (peer keystroke) vs document size", () => {
   for (const n of [100, 1000, 10000]) {
     const base = documentOf(n);
     const localDoc = new Y.Doc();
-    Y.applyUpdate(localDoc, Y.encodeStateAsUpdate(base[STATE_INTERNAL].doc));
-    const local = createState({ rootId: base.rootId, doc: localDoc, resolver: TEST_RESOLVER });
+    Y.applyUpdate(localDoc, Y.encodeStateAsUpdate(base[DOCUMENT_INTERNAL].doc));
+    const local = createDocument({ rootId: base.rootId, doc: localDoc, resolver: TEST_RESOLVER });
     let dirty = 0;
     subscribeForeignChanges(local, "self", (ids) => {
       dirty += ids.size;
     }, () => {});
     // The peer's incremental updates (what a provider ships), applied to `local`.
     let pending: Uint8Array | null = null;
-    base[STATE_INTERNAL].doc.on("update", (u: Uint8Array) => {
+    base[DOCUMENT_INTERNAL].doc.on("update", (u: Uint8Array) => {
       pending = u;
     });
     let remote = base;
@@ -117,7 +117,7 @@ describe("remote transaction (peer keystroke) vs document size", () => {
     bench(
       `${n} paragraphs`,
       () => {
-        remote = insertText(remote, createPosition(mid, offset++), "x", {}).state;
+        remote = insertText(remote, createPosition(mid, offset++), "x", {}).document;
         if (pending !== null) Y.applyUpdate(localDoc, pending, "peer");
         pending = null;
       },
@@ -127,37 +127,37 @@ describe("remote transaction (peer keystroke) vs document size", () => {
 });
 
 describe("2e4 paragraphs in four sections", () => {
-  let state = documentOf(20000);
-  for (const at of [5000, 10000, 15000]) state = applySectionBreak(state, createPosition(id(`p${at}`), 0), createTestAllocator(`s${at}`)).state;
+  let document = documentOf(20000);
+  for (const at of [5000, 10000, 15000]) document = applySectionBreak(document, createPosition(id(`p${at}`), 0), createTestAllocator(`s${at}`)).document;
   const remoteDoc = new Y.Doc();
-  Y.applyUpdate(remoteDoc, Y.encodeStateAsUpdate(state[STATE_INTERNAL].doc));
-  const peer = createState({ rootId: state.rootId, doc: remoteDoc, resolver: TEST_RESOLVER });
+  Y.applyUpdate(remoteDoc, Y.encodeStateAsUpdate(document[DOCUMENT_INTERNAL].doc));
+  const peer = createDocument({ rootId: document.rootId, doc: remoteDoc, resolver: TEST_RESOLVER });
   subscribeForeignChanges(peer, "self", () => {}, () => {});
   // Keystrokes / merges at `target`; Enters at the end of `enterAt` (whose id stays on the empty tail).
   for (const [where, target, enterAt] of [["final", id("p19998"), id("p19999")], ["middle", id("p12000"), id("p12001")]] as const) {
     let offset = 5;
     bench(`${where} section: keystroke`, () => {
-      state = insertText(state, createPosition(target, offset++), "x", {}).state;
-      getBlock(state, target);
+      document = insertText(document, createPosition(target, offset++), "x", {}).document;
+      getBlock(document, target);
     }, { iterations: 300 });
     // The peer catches up once (setup), then applies each keystroke's own update (what a provider ships).
     let pending: Uint8Array | null = null;
-    const doc = state[STATE_INTERNAL].doc;
+    const doc = document[DOCUMENT_INTERNAL].doc;
     doc.on("update", (u: Uint8Array) => {
       pending = u;
     });
     bench(`${where} section: remote keystroke`, () => {
-      state = insertText(state, createPosition(target, offset++), "x", {}).state;
+      document = insertText(document, createPosition(target, offset++), "x", {}).document;
       if (pending !== null) Y.applyUpdate(remoteDoc, pending, "peer");
       pending = null;
     }, { iterations: 300, setup: () => Y.applyUpdate(remoteDoc, Y.encodeStateAsUpdate(doc, Y.encodeStateVector(remoteDoc)), "peer") });
     const alloc = createTestAllocator(`e${where}`);
     bench(`${where} section: Enter`, () => {
-      const len = (getBlock(state, enterAt)?.inlineContent?.items ?? []).reduce((k, it) => k + (it.kind === "text" ? it.text.length : 1), 0);
-      const r = splitBlockAtPosition(state, createPosition(enterAt, len), alloc);
-      state = r.state;
-      getBlock(state, enterAt);
-      getBlock(state, r.newBlockId);
+      const len = (getBlock(document, enterAt)?.inlineContent?.items ?? []).reduce((k, it) => k + (it.kind === "text" ? it.text.length : 1), 0);
+      const r = splitBlockAtPosition(document, createPosition(enterAt, len), alloc);
+      document = r.document;
+      getBlock(document, enterAt);
+      getBlock(document, r.newBlockId);
     }, { iterations: 300 });
     // Over 200 neighbouring paragraphs: repeating it at ONE spot piles tombstones there,
     // which every dirty derivation at that spot crosses (a cost of its own, unsectioned too).
@@ -165,25 +165,25 @@ describe("2e4 paragraphs in four sections", () => {
     let k = 0;
     bench(`${where} section: Enter + Backspace-merge`, () => {
       const at = id(`p${base - (k++ % 200)}`);
-      const r = splitBlockAtPosition(state, createPosition(at, 3), alloc);
-      state = mergeAdjacentBlocks(r.state, r.newBlockId, at).state;
-      getBlock(state, at);
+      const r = splitBlockAtPosition(document, createPosition(at, 3), alloc);
+      document = mergeAdjacentBlocks(r.document, r.newBlockId, at).document;
+      getBlock(document, at);
     }, { iterations: 300 });
   }
 });
 
 describe("keystroke after a 1000-paragraph mid-paragraph paste", () => {
   for (const n of [100, 10000]) {
-    let state = documentOf(n);
+    let document = documentOf(n);
     const mid = id(`p${Math.floor(n / 2)}`);
-    const split = splitBlockAtPosition(state, createPosition(mid, 5), createTestAllocator("s"));
-    state = insertBlocksAfter(
-      split.state,
+    const split = splitBlockAtPosition(document, createPosition(mid, 5), createTestAllocator("s"));
+    document = insertBlocksAfter(
+      split.document,
       mid,
       Array.from({ length: 1000 }, () => ({ type: "paragraph", inlineContent: inlineContent([text("pasted line")]) })),
       createTestAllocator("q"),
-    ).state;
-    bench(`${n} paragraphs`, typing(state, split.newBlockId, 0), { iterations: 500 });
+    ).document;
+    bench(`${n} paragraphs`, typing(document, split.newBlockId, 0), { iterations: 500 });
   }
 });
 
@@ -192,7 +192,7 @@ describe("keystroke after splitting a 100k-character paragraph", () => {
     const big = documentOf(n, "y".repeat(100_000));
     const mid = id(`p${Math.floor(n / 2)}`);
     const r = splitBlockAtPosition(big, createPosition(mid, 50_000), createTestAllocator("b"));
-    bench(`${n} paragraphs`, typing(r.state, r.newBlockId, 10), { iterations: 300 });
+    bench(`${n} paragraphs`, typing(r.document, r.newBlockId, 10), { iterations: 300 });
   }
 });
 
@@ -201,13 +201,13 @@ describe("keystroke after deleting 1e4 paragraphs between two blocks", () => {
   const s = documentOf(n);
   const del = deleteRange(s, createSpan(createPosition(id("p0"), 3), createPosition(id(`p${n - 1}`), 3)));
   // The survivor of the cross-paragraph delete is the last paragraph (its ¶ ends the joined content).
-  bench("first + later keystrokes at the seam", typing(del.state, id(`p${n - 1}`), 3), { iterations: 300 });
+  bench("first + later keystrokes at the seam", typing(del.document, id(`p${n - 1}`), 3), { iterations: 300 });
 });
 
 describe("1e3 deletion-keyed ¶s in a 1e4-paragraph document", () => {
   let keyed = documentOf(10000);
   for (let i = 1; i < 10000; i += 10) {
-    keyed = markParagraphMarkDeletion(keyed, id(`p${i - 1}`), { id: `j${i}` as SuggestionId, author: "a", createdAt: 0 }).state;
+    keyed = markParagraphMarkDeletion(keyed, id(`p${i - 1}`), { id: `j${i}` as SuggestionId, author: "a", createdAt: 0 }).document;
   }
   bench("keystroke", typing(keyed, id("p5001"), 5), { iterations: 500 });
   // A selection change reads only the selected blocks' derived marks (O(selected
@@ -226,18 +226,18 @@ describe("1e3 deletion-keyed ¶s in a 1e4-paragraph document", () => {
     },
     { iterations: 500 },
   );
-  let state = keyed;
+  let document = keyed;
   let cur = id("p7001");
   const alloc = createTestAllocator("t");
   let k = 0;
   bench(
     "suggesting Enter",
     () => {
-      const len = (getBlock(state, cur)?.inlineContent?.items ?? []).reduce((n, it) => n + (it.kind === "text" ? it.text.length : 1), 0);
-      const r = splitWithSuggestion(state, createPosition(cur, len), alloc, { id: `s${k++}` as SuggestionId, author: "a", createdAt: 0 });
-      state = r.state;
+      const len = (getBlock(document, cur)?.inlineContent?.items ?? []).reduce((n, it) => n + (it.kind === "text" ? it.text.length : 1), 0);
+      const r = splitWithSuggestion(document, createPosition(cur, len), alloc, { id: `s${k++}` as SuggestionId, author: "a", createdAt: 0 });
+      document = r.document;
       cur = r.newBlockId;
-      getBlock(state, cur);
+      getBlock(document, cur);
     },
     { iterations: 300 },
   );

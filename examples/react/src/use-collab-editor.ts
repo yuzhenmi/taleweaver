@@ -1,7 +1,7 @@
 /**
  * A collaboration-aware editor hook for the example app's "Collaboration" tab.
  *
- * Each pane is a separate peer: its own `State` over its own `Y.Doc`, kept in sync
+ * Each pane is a separate peer: its own `Document` over its own `Y.Doc`, kept in sync
  * with the other pane by exchanging Yjs updates (`Y.applyUpdate`) — exactly what a
  * network provider does. The engine handles the rest: the print controller sees a
  * peer's update land in its Y.Doc (a non-local transaction) and dispatches
@@ -17,13 +17,13 @@ import {
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   reduceEditor,
-  createEditorStateFromState,
-  initialSelectionForState,
+  createEditorStateFromDocument,
+  initialSelectionForDocument,
   type EditorAction,
   type EditorState,
   type EditorConfig,
   type PageConfig,
-  type State,
+  type Document,
   type TextShaper,
   type Hyphenator,
 } from "@taleweaver/core";
@@ -69,10 +69,10 @@ export interface UseCollabEditorResult {
 }
 
 /**
- * Bind one editing pane to the `sharedDoc` (a seed `State` over the shared
+ * Bind one editing pane to the `sharedDoc` (a seed `Document` over the shared
  * Y.Doc). `selfOrigin` is this pane's stable peer identity (e.g. "peer-a").
  */
-export function useCollabEditor(peerDoc: State): UseCollabEditorResult {
+export function useCollabEditor(peerDoc: Document): UseCollabEditorResult {
   const configRef = useRef<EditorConfig | null>(null);
   if (configRef.current === null) {
     configRef.current = createConfig();
@@ -88,7 +88,7 @@ export function useCollabEditor(peerDoc: State): UseCollabEditorResult {
   const [editorState, setEditorState] = useState<EditorState>(() =>
     // Build with this peer's origin so its History's UndoManager tracks ONLY its
     // own edits (undo isolation) — no default-History-then-replace dance.
-    createEditorStateFromState(peerDoc, initialSelectionForState(peerDoc), config),
+    createEditorStateFromDocument(peerDoc, initialSelectionForDocument(peerDoc), config),
   );
 
   // Always-current state ref so the dispatch closure reads the latest without

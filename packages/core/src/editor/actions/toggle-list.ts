@@ -5,13 +5,13 @@ import {
   setBlockType,
   mergeBlockAttrs,
   setListType,
-  getListDefsForState,
+  getListDefsForDocument,
   classifyListDef,
   iterateBlocksInSpan,
   positionsEqual,
   newListId,
 } from "../../state";
-import type { Block, BlockId, State, OperationResult } from "../../state";
+import type { Block, BlockId, Document, OperationResult } from "../../state";
 import type { ActionOf } from "../editor-action";
 
 type ListType = "ordered" | "unordered";
@@ -48,7 +48,7 @@ export function handleToggleList(editor: EditorState, { listType }: ActionOf<"TO
 
   // Classify against the PRE-edit defs (they only change when we write one,
   // which this handler controls). Fetch the map once rather than per lookup.
-  const defs = getListDefsForState(editor.state);
+  const defs = getListDefsForDocument(editor.document);
   const typeOfList = (listId: string): ListType | undefined => {
     const def = defs.get(listId);
     return def === undefined ? undefined : classifyListDef(def);
@@ -67,19 +67,19 @@ export function handleToggleList(editor: EditorState, { listType }: ActionOf<"TO
   };
   const turningOff = targets.every(isAlreadyThisType);
 
-  let state: State = editor.state;
+  let document: Document = editor.document;
   const dirtyIds = new Set<BlockId>();
   const apply = (r: OperationResult): void => {
-    state = r.state;
+    document = r.document;
     for (const id of r.dirtyIds) dirtyIds.add(id);
   };
 
   if (turningOff) {
     for (const t of targets) {
-      apply(setBlockType(state, t.id, "paragraph", config.componentRegistry));
+      apply(setBlockType(document, t.id, "paragraph", config.componentRegistry));
       apply(
         mergeBlockAttrs(
-          state,
+          document,
           t.id,
           { listId: undefined, listLevel: undefined, listCounterOverride: undefined },
         ),
@@ -96,7 +96,7 @@ export function handleToggleList(editor: EditorState, { listType }: ActionOf<"TO
       );
     }
     const joinId = adjacentSameTypeListId(
-      editor.state,
+      editor.document,
       firstTarget,
       lastTarget,
       listType,
@@ -108,13 +108,13 @@ export function handleToggleList(editor: EditorState, { listType }: ActionOf<"TO
 
     for (const t of targets) {
       if (t.type !== "list-item") {
-        apply(setBlockType(state, t.id, "list-item", config.componentRegistry));
+        apply(setBlockType(document, t.id, "list-item", config.componentRegistry));
       }
       // Assign the run's listId. `listLevel`/`listCounterOverride` are left
       // untouched: a fresh paragraph has neither (renders at level 0), and a
       // converted list-item keeps its existing nesting (Google Docs preserves
       // the indent level across a numbered↔bulleted conversion).
-      apply(mergeBlockAttrs(state, t.id, { listId }));
+      apply(mergeBlockAttrs(document, t.id, { listId }));
     }
 
     if (joinId === undefined) {
@@ -124,24 +124,24 @@ export function handleToggleList(editor: EditorState, { listType }: ActionOf<"TO
       // write itself captures no block dirty ids. Calling it before the loop
       // would find zero items, returning an empty dirty set and silently
       // skipping the re-render of the newly-assigned items.
-      apply(setListType(state, listId, listType));
+      apply(setListType(document, listId, listType));
     }
   }
 
-  if (state === editor.state) return null;
+  if (document === editor.document) return null;
 
-  return { change: { state, dirtyIds } };
+  return { change: { document, dirtyIds } };
 }
 
 /** The text-leaf blocks the toggle applies to (paragraph or list-item). */
 function eligibleTargets(editor: EditorState): Block[] {
-  const { state, selection } = editor;
+  const { document, selection } = editor;
   if (positionsEqual(selection.anchor, selection.focus)) {
-    const focus = getBlock(state, selection.focus.blockId);
+    const focus = getBlock(document, selection.focus.blockId);
     return focus !== null && isEligible(focus) ? [focus] : [];
   }
   const out: Block[] = [];
-  for (const block of iterateBlocksInSpan(state, selection)) {
+  for (const block of iterateBlocksInSpan(document, selection)) {
     if (isEligible(block)) out.push(block);
   }
   return out;
@@ -168,20 +168,20 @@ function listIdOf(block: Block): string | undefined {
  * a paragraph toggled between two lists attached to the one above it.
  */
 function adjacentSameTypeListId(
-  state: State,
+  document: Document,
   first: Block,
   last: Block,
   listType: ListType,
   typeOfList: (listId: string) => ListType | undefined,
 ): string | undefined {
   const before =
-    first.prevSiblingId !== null ? getBlock(state, first.prevSiblingId) : null;
+    first.prevSiblingId !== null ? getBlock(document, first.prevSiblingId) : null;
   if (before !== null && before.type === "list-item") {
     const id = listIdOf(before);
     if (id !== undefined && typeOfList(id) === listType) return id;
   }
   const after =
-    last.nextSiblingId !== null ? getBlock(state, last.nextSiblingId) : null;
+    last.nextSiblingId !== null ? getBlock(document, last.nextSiblingId) : null;
   if (after !== null && after.type === "list-item") {
     const id = listIdOf(after);
     if (id !== undefined && typeOfList(id) === listType) return id;

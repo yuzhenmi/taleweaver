@@ -28,8 +28,8 @@ function emptySnapshots(): Record<BlockTreeKind, Map<BlockId, Block>> {
 }
 
 /**
- * Per-State snapshot cache. Layered so `applyOperation` can produce a
- * new State whose cache reuses the input cache by reference instead of
+ * Per-Document snapshot cache. Layered so `applyOperation` can produce a
+ * new Document whose cache reuses the input cache by reference instead of
  * copying every non-dirty entry — making per-mutation bookkeeping
  * O(dirtyIds.size) instead of O(N_cached).
  *
@@ -55,9 +55,9 @@ function emptySnapshots(): Record<BlockTreeKind, Map<BlockId, Block>> {
  * `snapshots[kind]` map so subsequent reads are O(1).
  *
  * **Write fall-through.** Writes only ever touch this layer; `base` is
- * never mutated. This preserves the per-State view-stability property:
- * a State holding the older cache continues to see its pre-mutation
- * snapshots regardless of activity on the newer State.
+ * never mutated. This preserves the per-Document view-stability property:
+ * a Document holding the older cache continues to see its pre-mutation
+ * snapshots regardless of activity on the newer Document.
  *
  * **Chain depth.** Each `applyOperation` (when non-no-op) pushes a new
  * layer with the previous cache as `base`. Depth grows linearly with
@@ -88,13 +88,13 @@ export interface SnapshotCache {
    *  invalidation. The type forbids that at compile time. */
   readonly invalidated: ReadonlySet<BlockId>;
   /** Underlying cache layer for fall-through reads, or null for a root
-   *  cache produced by `createSnapshotCache` / `freshState`. */
+   *  cache produced by `createSnapshotCache` / `freshDocument`. */
   readonly base: SnapshotCache | null;
 }
 
 /**
- * Construct a root (base-less) cache. Used by `createState`,
- * `freshState`, and the post-no-op short-circuit's untouched return.
+ * Construct a root (base-less) cache. Used by `createDocument`,
+ * `freshDocument`, and the post-no-op short-circuit's untouched return.
  */
 export function createSnapshotCache(): SnapshotCache {
   return {
@@ -152,7 +152,7 @@ export function chainDepth(cache: SnapshotCache): number {
  *   3. Return a fresh SnapshotCache with the collected entries, an empty
  *      invalidation set, `base = null`.
  *
- * Called by `applyOperation` / `freshState` once `chainDepth` reaches
+ * Called by `applyOperation` / `freshDocument` once `chainDepth` reaches
  * `CHAIN_DEPTH_COMPACT_THRESHOLD`. Without it, a paste handler
  * that chains many applyOperation calls leaves a deep chain; subsequent
  * reads pay O(depth) per call, making bulk ops O(N²).
@@ -258,7 +258,7 @@ function readSnapshot(doc: Y.Doc, id: BlockId, cache: SnapshotCache, kind: Block
 /**
  * Cache-ONLY read across all three trees: returns the snapshot this cache chain
  * already holds for `id`, or `undefined` on a miss / invalidation stop. Never reads
- * the Y.Doc and never promotes — safe on a SUPERSEDED State whose Y.Doc has since
+ * the Y.Doc and never promotes — safe on a SUPERSEDED Document whose Y.Doc has since
  * been mutated (a cold read there would return post-mutation content). Used by
  * position mapping to read a transition's PREVIOUS block text.
  */

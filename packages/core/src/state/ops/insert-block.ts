@@ -1,11 +1,11 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
-import { applyOperation, getBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, getBlock } from "../document";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import type { InlineContent } from "../inline-content";
 import { requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { resolveBlock } from "../state";
+import { resolveBlock } from "../document";
 import { insertChildren } from "../flow-ops";
 import { assertNoIdCollision } from "../id-collision-check";
 import type { BlockKindResolver } from "../block-kinds";
@@ -82,22 +82,22 @@ export interface InsertBlockPlan {
  * single Y.Doc transaction (one undo entry / one collab event).
  */
 export function insertBlock(
-  state: State,
+  document: Document,
   parentId: BlockId,
   beforeSiblingId: BlockId | null,
   args: InsertBlockArgs,
   allocator: IdAllocator,
   resolver?: BlockKindResolver,
 ): OperationResult & { readonly newBlockId: BlockId } {
-  const plan = planInsertBlock(state, parentId, beforeSiblingId, args, allocator, resolver);
-  const r = applyOperation(state, (doc) => {
+  const plan = planInsertBlock(document, parentId, beforeSiblingId, args, allocator, resolver);
+  const r = applyOperation(document, (doc) => {
     insertBlockInTx(doc, plan);
   });
   return { ...r, newBlockId: plan.newId };
 }
 
 /**
- * Validate the requested insertion against the pre-mutation `state` snapshot
+ * Validate the requested insertion against the pre-mutation `document` snapshot
  * and produce an `InsertBlockPlan`. Throws on every condition `insertBlock`'s
  * docstring lists.
  *
@@ -107,14 +107,14 @@ export function insertBlock(
  * When `resolver` is provided, validates the parent is a container kind.
  */
 export function planInsertBlock(
-  state: State,
+  document: Document,
   parentId: BlockId,
   beforeSiblingId: BlockId | null,
   args: InsertBlockArgs,
   allocator: IdAllocator,
   resolver?: BlockKindResolver,
 ): InsertBlockPlan {
-  const parent = getBlock(state, parentId);
+  const parent = getBlock(document, parentId);
   if (!parent) {
     throw new Error(`insertBlock: parent "${parentId}" not found`);
   }
@@ -139,7 +139,7 @@ export function planInsertBlock(
     prevSiblingId = parent.lastChildId;
     nextSiblingId = null;
   } else {
-    const beforeSibling = getBlock(state, beforeSiblingId);
+    const beforeSibling = getBlock(document, beforeSiblingId);
     if (!beforeSibling) {
       throw new Error(`insertBlock: beforeSibling "${beforeSiblingId}" not found`);
     }
@@ -157,7 +157,7 @@ export function planInsertBlock(
   const newId = allocator.allocate();
 
   return {
-    kind: resolveBlock(state, parentId)?.kind ?? "block",
+    kind: resolveBlock(document, parentId)?.kind ?? "block",
     parentId,
     newId,
     prevSiblingId,

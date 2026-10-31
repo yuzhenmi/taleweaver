@@ -33,13 +33,13 @@ import { makeRootContext } from "../layout/layout-context";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
 import { createPosition, createSpan } from "@taleweaver/core";
-import type { BlockId, State } from "@taleweaver/core";
+import type { BlockId, Document } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 
 const CHAR_W = 8;
@@ -57,9 +57,9 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
  * forces the line content edge to be small so trailing spaces overflow it (and
  * must clamp). break-spaces is the document default (each space its own unit).
  */
-function pipeline(state: State, containerW: number): { layout: LayoutBox; shaper: TextShaper } {
+function pipeline(document: Document, containerW: number): { layout: LayoutBox; shaper: TextShaper } {
   const root = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -68,8 +68,8 @@ function pipeline(state: State, containerW: number): { layout: LayoutBox; shaper
   return { layout, shaper };
 }
 
-function paragraph(textContent: string, attrs?: Record<string, unknown>): State {
-  return buildState({
+function paragraph(textContent: string, attrs?: Record<string, unknown>): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -103,8 +103,8 @@ describe("#338 P2 — trailing-space CLAMP: caret on-page through the hung run",
   const CONTAINER_W = 80;
 
   it("LOAD-BEARING: caret for EVERY offset in the hung trailing run stays at or before the content edge", () => {
-    const state = paragraph("word" + " ".repeat(N));
-    const { layout, shaper } = pipeline(state, CONTAINER_W);
+    const document = paragraph("word" + " ".repeat(N));
+    const { layout, shaper } = pipeline(document, CONTAINER_W);
     const lines = ownLines(layout);
     expect(lines).toHaveLength(1); // all spaces hang on one line
     const contentEdge = contentEdgeOf(layout);
@@ -113,7 +113,7 @@ describe("#338 P2 — trailing-space CLAMP: caret on-page through the hung run",
     // through the END offset (4 + N). Each caret x must be ≤ contentEdge (P1 left
     // intermediate offsets at edge + k×8px → off-page; the caret clamp fixes it).
     for (let offset = 4; offset <= 4 + N; offset++) {
-      const pos = resolvePixelPosition(state, createPosition("p" as BlockId, offset), layout, shaper);
+      const pos = resolvePixelPosition(document, createPosition("p" as BlockId, offset), layout, shaper);
       expect(pos).not.toBeNull();
       if (pos === null) return;
       expect(pos.x).toBeLessThanOrEqual(contentEdge + EPS);
@@ -121,10 +121,10 @@ describe("#338 P2 — trailing-space CLAMP: caret on-page through the hung run",
   });
 
   it("the END offset (after all N spaces) resolves exactly to the content edge", () => {
-    const state = paragraph("word" + " ".repeat(N));
-    const { layout, shaper } = pipeline(state, CONTAINER_W);
+    const document = paragraph("word" + " ".repeat(N));
+    const { layout, shaper } = pipeline(document, CONTAINER_W);
     const contentEdge = contentEdgeOf(layout);
-    const pos = resolvePixelPosition(state, createPosition("p" as BlockId, 4 + N), layout, shaper);
+    const pos = resolvePixelPosition(document, createPosition("p" as BlockId, 4 + N), layout, shaper);
     expect(pos).not.toBeNull();
     if (pos === null) return;
     expect(pos.x).toBeCloseTo(contentEdge, 6);
@@ -132,9 +132,9 @@ describe("#338 P2 — trailing-space CLAMP: caret on-page through the hung run",
 
   it("NO-REGRESSION: a normal word caret (no clamp needed) is unchanged", () => {
     // "hello" in a wide container: offset 3 → 24px, well within the line.
-    const state = paragraph("hello");
-    const { layout, shaper } = pipeline(state, 800);
-    const pos = resolvePixelPosition(state, createPosition("p" as BlockId, 3), layout, shaper);
+    const document = paragraph("hello");
+    const { layout, shaper } = pipeline(document, 800);
+    const pos = resolvePixelPosition(document, createPosition("p" as BlockId, 3), layout, shaper);
     expect(pos).not.toBeNull();
     if (pos === null) return;
     expect(pos.x).toBe(24); // 3 × 8 — leaf-edge clamp is a no-op here
@@ -146,15 +146,15 @@ describe("#338 P2 — trailing-space CLAMP: hit-test past the edge", () => {
   const CONTAINER_W = 80;
 
   it("a click past the content edge (in the hung region) resolves to the end-of-trailing-run offset, on the correct line", () => {
-    const state = paragraph("word" + " ".repeat(N));
-    const { layout, shaper } = pipeline(state, CONTAINER_W);
+    const document = paragraph("word" + " ".repeat(N));
+    const { layout, shaper } = pipeline(document, CONTAINER_W);
     const lines = ownLines(layout);
     expect(lines).toHaveLength(1);
     const contentEdge = contentEdgeOf(layout);
     const y = nth(lines, 0, "line").absoluteY + 1; // on the line
 
     // Click well past the content edge.
-    const pos = resolvePositionFromPixel(state, layout, shaper, contentEdge + 500, y);
+    const pos = resolvePositionFromPixel(document, layout, shaper, contentEdge + 500, y);
     expect(pos).not.toBeNull();
     if (pos === null) return;
     expect(pos.blockId).toBe("p");
@@ -169,8 +169,8 @@ describe("#338 P2 — trailing-space CLAMP: selection over a hung run", () => {
   const CONTAINER_W = 80;
 
   it("a selection covering the trailing spaces does NOT produce a rect past the content edge", () => {
-    const state = paragraph("word" + " ".repeat(N));
-    const { layout, shaper } = pipeline(state, CONTAINER_W);
+    const document = paragraph("word" + " ".repeat(N));
+    const { layout, shaper } = pipeline(document, CONTAINER_W);
     const contentEdge = contentEdgeOf(layout);
 
     // Select from the start of the trailing run (offset 4) to the end (4 + N).
@@ -178,7 +178,7 @@ describe("#338 P2 — trailing-space CLAMP: selection over a hung run", () => {
       createPosition("p" as BlockId, 4),
       createPosition("p" as BlockId, 4 + N),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBeGreaterThan(0);
     for (const r of rects) {
       expect(r.x + r.width).toBeLessThanOrEqual(contentEdge + EPS);
@@ -193,15 +193,15 @@ describe("#338 P2 — trailing-space CLAMP: centered line composition (case 7)",
     // Centered "hi" + trailing spaces. The centered content (line.x) is
     // unaffected (trailing spaces excluded from content width). The caret for
     // the end-of-trailing-run offset stays within the line's content region.
-    const state = paragraph("hi" + " ".repeat(20), { textAlign: "center" });
-    const { layout, shaper } = pipeline(state, CONTAINER_W);
+    const document = paragraph("hi" + " ".repeat(20), { textAlign: "center" });
+    const { layout, shaper } = pipeline(document, CONTAINER_W);
     const lines = ownLines(layout);
     expect(lines).toHaveLength(1);
     const lineLeft = nth(lines, 0, "line").absoluteX;
     const lineRight = lineLeft + nth(lines, 0, "line").line.inlineSize;
 
     // End offset (after "hi" + 20 spaces) = 22.
-    const pos = resolvePixelPosition(state, createPosition("p" as BlockId, 22), layout, shaper);
+    const pos = resolvePixelPosition(document, createPosition("p" as BlockId, 22), layout, shaper);
     expect(pos).not.toBeNull();
     if (pos === null) return;
     // Caret stays within the centered line's content region.
@@ -214,7 +214,7 @@ describe("#340 — caret on-page for trailing spaces INSIDE an inline element", 
   // The editor's render path turns text marks into flat differently-styled runs,
   // not nested inline elements, so this exercises the IFC + cursor path directly:
   // build a layout whose paragraph contains a `display:inline` element wrapping a
-  // word + trailing spaces at the line edge, paired with a matching `State` (the
+  // word + trailing spaces at the line edge, paired with a matching `Document` (the
   // block id "p" matches the element-box key, so the stamped LineBoxes'
   // `ownerBlockId` resolves; the offset geometry is read off the layout, not the
   // state). Before #340, the inner trailing-space box escaped the content-edge
@@ -245,9 +245,9 @@ describe("#340 — caret on-page for trailing spaces INSIDE an inline element", 
     return { layout: positionTreeForTest(r.box), shaper };
   }
 
-  // Minimal matching State: a paragraph "p" so `resolveBlock(state, "p")` passes.
-  function matchingState(): State {
-    return buildState({
+  // Minimal matching Document: a paragraph "p" so `resolveBlock(state, "p")` passes.
+  function matchingDocument(): Document {
+    return buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -263,7 +263,7 @@ describe("#340 — caret on-page for trailing spaces INSIDE an inline element", 
 
   it("LOAD-BEARING: caret for offsets inside the inline-wrapped trailing run stays ≤ the content edge (RED before #340)", () => {
     const { layout, shaper } = inlineLayout();
-    const state = matchingState();
+    const document = matchingDocument();
     const lines = ownLines(layout);
     expect(lines).toHaveLength(1);
     const contentEdge = contentEdgeOf(layout);
@@ -272,7 +272,7 @@ describe("#340 — caret on-page for trailing spaces INSIDE an inline element", 
     // the END (offset 12). Each caret x must be ≤ contentEdge — before #340 the
     // inner space box escaped the clamp and the caret ran past it.
     for (let offset = LEAD.length + 4; offset <= TOTAL_OFFSET; offset++) {
-      const pos = resolvePixelPosition(state, createPosition("p" as BlockId, offset), layout, shaper);
+      const pos = resolvePixelPosition(document, createPosition("p" as BlockId, offset), layout, shaper);
       expect(pos).not.toBeNull();
       if (pos === null) return;
       expect(pos.x).toBeLessThanOrEqual(contentEdge + EPS);
@@ -281,9 +281,9 @@ describe("#340 — caret on-page for trailing spaces INSIDE an inline element", 
 
   it("the END offset (after all inline trailing spaces) resolves to the content edge", () => {
     const { layout, shaper } = inlineLayout();
-    const state = matchingState();
+    const document = matchingDocument();
     const contentEdge = contentEdgeOf(layout);
-    const pos = resolvePixelPosition(state, createPosition("p" as BlockId, TOTAL_OFFSET), layout, shaper);
+    const pos = resolvePixelPosition(document, createPosition("p" as BlockId, TOTAL_OFFSET), layout, shaper);
     expect(pos).not.toBeNull();
     if (pos === null) return;
     expect(pos.x).toBeCloseTo(contentEdge, 6);

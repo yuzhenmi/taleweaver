@@ -18,13 +18,13 @@ export function handleInsertTableColumn(
   editor: EditorState,
   { position }: ActionOf<"INSERT_TABLE_COLUMN">,
 ): Edit | null {
-  const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
+  const ctx = resolveTableContext(editor.document, editor.selection.focus.blockId);
   if (ctx === null || ctx.ragged) return null;
 
   const result = ctx.spanned
-    ? insertTableColumnSpanAware(editor.state, ctx, position, productionAllocator)
-    : insertTableColumn(editor.state, ctx, position, productionAllocator);
-  if (result.state === editor.state) return null; // defensive no-op short-circuit
+    ? insertTableColumnSpanAware(editor.document, ctx, position, productionAllocator)
+    : insertTableColumn(editor.document, ctx, position, productionAllocator);
+  if (result.document === editor.document) return null; // defensive no-op short-circuit
 
-  return { change: { state: result.state, dirtyIds: result.dirtyIds } };
+  return { change: { document: result.document, dirtyIds: result.dirtyIds } };
 }

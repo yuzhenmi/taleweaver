@@ -28,7 +28,7 @@ import { buildVirtualPaginatedTree } from "../virtual-producer";
 import { render } from "@taleweaver/core";
 import { createDefaultComponentRegistry } from "@taleweaver/core";
 import { createDefaultAttrRegistry } from "@taleweaver/core";
-import { buildState, buildBlock, inlineContent, text } from "@taleweaver/core";
+import { buildDocument, buildBlock, inlineContent, text } from "@taleweaver/core";
 
 function cascadeRoot(
   rootStyle: Style,
@@ -132,7 +132,7 @@ const attrReg = createDefaultAttrRegistry();
  * the user's in-browser smoke exercises (render → paginate → materialize).
  */
 function renderedHeaderBody(fieldKind: "page-number" | "page-count"): ElementBox {
-  let state = buildState({
+  let document = buildDocument({
     rootId: asBlockId("doc"),
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "bp", lastChildId: "bp" }),
@@ -143,8 +143,8 @@ function renderedHeaderBody(fieldKind: "page-number" | "page-count"): ElementBox
       buildBlock({ id: "hp", type: "paragraph", parentId: "hdr-root", inlineContent: inlineContent([text("Page ")]) }),
     ],
   });
-  state = insertPageField(state, createPosition(asBlockId("hp"), 5), fieldKind).state; // after "Page "
-  const rendered = render(state, reg, attrReg);
+  document = insertPageField(document, createPosition(asBlockId("hp"), 5), fieldKind).document; // after "Page "
+  const rendered = render(document, reg, attrReg);
   const body = rendered.templateContents.get(asBlockId("hdr-root"));
   if (body === undefined) throw new Error("no rendered header template body");
   const cascaded = cascadePass(body);

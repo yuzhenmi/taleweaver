@@ -8,21 +8,21 @@ import { attrRegistry } from "../cascade/attr-registry";
 import { topLevelBlockIds } from "./block-traversal";
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import { createState, getBlock } from "./state";
-import { buildStateFromBlocks } from "./build-state-from-blocks";
+import { createDocument, getBlock } from "./document";
+import { buildDocumentFromBlocks } from "./build-document-from-blocks";
 import { reparentChildren } from "./ops/reparent-children";
 import { setBlockType } from "./ops/set-block-type";
 import { insertFragment } from "./ops/insert-fragment";
 import { upgradeDocument } from "./upgrade";
 import { getRegistry } from "./registry";
-import { STATE_INTERNAL } from "./state-internal";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import { decodeFragmentClip } from "./serialize/fragment-clip";
 import { bytesToBase64 } from "./serialize/base64";
 import { createPosition, createSpan } from "./block-position";
 import { createTestAllocator, type BlockId } from "./block-id";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createElementBox } from "../render/render-node";
-import { buildBlock, inlineContent, text, embed, withTestAttrs } from "../test-utils/state-builders";
+import { buildBlock, inlineContent, text, embed, withTestAttrs } from "../test-utils/document-builders";
 import { legacyDoc } from "../test-utils/legacy-fixture";
 import { INSERTION_TAG_KEY } from "./break-tags";
 import { flowShape } from "../test-utils/invariant-i";
@@ -38,7 +38,7 @@ function withAside() {
 describe("storage shape from the component registry", () => {
   it("an EMPTY childless host container is a flow holder: a paragraph moves into it", () => {
     const resolver = withAside();
-    const s0 = buildStateFromBlocks({
+    const s0 = buildDocumentFromBlocks({
       resolver,
       rootId: id("doc"),
       blocks: [
@@ -47,18 +47,18 @@ describe("storage shape from the component registry", () => {
         buildBlock({ id: "aside", type: "aside", parentId: "doc", prevSiblingId: "p" }),
       ],
     });
-    expect(getRegistry(s0[STATE_INTERNAL].doc).get("aside")?.get("shape")).toBe("container");
+    expect(getRegistry(s0[DOCUMENT_INTERNAL].doc).get("aside")?.get("shape")).toBe("container");
     // End marks: a paragraph is its content + its ¶; a container is ONE self-delimiting
     // item; a paragraph follows it at the flow end (invariant I), and its own flow holds one ¶.
     expect(flowShape(s0, "doc")).toMatch(/^p:"x" \[aside\] \S+:""$/);
     expect(flowShape(s0, "aside")).toMatch(/^\S+:""$/);
-    const moved = reparentChildren(s0, [id("p")], id("aside"), null).state;
+    const moved = reparentChildren(s0, [id("p")], id("aside"), null).document;
     expect(getBlock(moved, id("p"))?.parentId).toBe("aside");
   });
 
   it("an unregistered type at a write boundary is an error", () => {
     expect(() =>
-      buildStateFromBlocks({
+      buildDocumentFromBlocks({
         resolver: createDefaultComponentRegistry(),
         rootId: id("doc"),
         blocks: [
@@ -71,7 +71,7 @@ describe("storage shape from the component registry", () => {
 
   it("setBlockType refuses a cross-storage-shape change within one kind (aside → table-cell)", () => {
     const resolver = withAside();
-    const s0 = buildStateFromBlocks({
+    const s0 = buildDocumentFromBlocks({
       resolver,
       rootId: id("doc"),
       blocks: [
@@ -91,7 +91,7 @@ describe("upgrade with a resolver", () => {
     const report = upgradeDocument(withTestAttrs(doc), { resolver: createDefaultComponentRegistry() });
     expect(report.unregisteredTypes).toEqual(["callout"]);
     expect(getRegistry(doc).get("p2")?.get("shape")).toBe("text");
-    const s = createState({ rootId: id("doc"), doc, resolver: createDefaultComponentRegistry() });
+    const s = createDocument({ rootId: id("doc"), doc, resolver: createDefaultComponentRegistry() });
     expect(getBlock(s, id("p2"))?.type).toBe("callout");
   });
 
@@ -101,7 +101,7 @@ describe("upgrade with a resolver", () => {
     const clip = bytesToBase64(Y.encodeStateAsUpdate(legacy));
     const fragment = decodeFragmentClip(clip, resolver, attrRegistry);
     if (fragment === null) throw new Error("clip did not decode");
-    const dest = buildStateFromBlocks({
+    const dest = buildDocumentFromBlocks({
       resolver,
       rootId: id("d"),
       blocks: [
@@ -111,8 +111,8 @@ describe("upgrade with a resolver", () => {
     });
     const at = createPosition(id("t"), 1);
     const r = insertFragment(dest, createSpan(at, at), fragment, createTestAllocator("c"));
-    for (const [, e] of getRegistry(r.state[STATE_INTERNAL].doc).entries()) expect(e.has(INSERTION_TAG_KEY)).toBe(false);
+    for (const [, e] of getRegistry(r.document[DOCUMENT_INTERNAL].doc).entries()) expect(e.has(INSERTION_TAG_KEY)).toBe(false);
     // The pasted break is real: the document now holds two paragraphs.
-    expect(topLevelBlockIds(r.state).length).toBe(2);
+    expect(topLevelBlockIds(r.document).length).toBe(2);
   });
 });

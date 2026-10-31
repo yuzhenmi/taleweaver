@@ -8,24 +8,24 @@
  * formats, lists, embeds, link sanitization) and the dev-warn prefix
  * (`[@taleweaver/core]`) emitted when a content-bearing embed is dropped.
  */
-import { TEST_RESOLVER } from "../../test-utils/state-builders";
+import { TEST_RESOLVER } from "../../test-utils/document-builders";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   buildDocumentFromTree,
   createTestAllocator,
   encodeHtml,
   FOOTNOTE_ANCHOR_EMBED_TYPE,
-  type State,
+  type Document,
   type BlockNode,
   type ContainerBlockNode,
   type InlineItem,
   type ListDef,
 } from "../../index";
 
-function buildState(
+function buildDocument(
   children: BlockNode[],
   listDefs: Record<string, ListDef> = {},
-): State {
+): Document {
   const root: ContainerBlockNode = { type: "document", children };
   return buildDocumentFromTree(root, listDefs, createTestAllocator("enc"), TEST_RESOLVER);
 }
@@ -41,7 +41,7 @@ afterEach(() => {
 describe("encodeHtml — pure encode mappings", () => {
   it("encodes paragraphs and headings", () => {
     const html = encodeHtml(
-      buildState([
+      buildDocument([
         { type: "heading", attrs: { level: 2 }, inlineContent: { items: [text("Title")] } },
         { type: "paragraph", inlineContent: { items: [text("Body")] } },
       ]),
@@ -51,7 +51,7 @@ describe("encodeHtml — pure encode mappings", () => {
 
   it("encodes a horizontal line", () => {
     const html = encodeHtml(
-      buildState([{ type: "horizontal-line", inlineContent: { items: [] } }]),
+      buildDocument([{ type: "horizontal-line", inlineContent: { items: [] } }]),
     );
     // Invariant I: a paragraph always follows an object, so the
     // flow's mandatory final ¶ encodes as an empty paragraph (Word emits one too).
@@ -60,14 +60,14 @@ describe("encodeHtml — pure encode mappings", () => {
 
   it("escapes HTML-significant text characters", () => {
     const html = encodeHtml(
-      buildState([{ type: "paragraph", inlineContent: { items: [text(`a & b < c > "d"`)] } }]),
+      buildDocument([{ type: "paragraph", inlineContent: { items: [text(`a & b < c > "d"`)] } }]),
     );
     expect(html).toBe(`<body><p>a &amp; b &lt; c &gt; &quot;d&quot;</p></body>`);
   });
 
   it("wraps inline marks innermost→outermost (link outermost)", () => {
     const html = encodeHtml(
-      buildState([
+      buildDocument([
         {
           type: "paragraph",
           inlineContent: {
@@ -91,7 +91,7 @@ describe("encodeHtml — pure encode mappings", () => {
 
   it("drops the <a> wrapper for a dangerous-scheme link (keeps the text)", () => {
     const html = encodeHtml(
-      buildState([
+      buildDocument([
         {
           type: "paragraph",
           inlineContent: { items: [text("click", { link: "javascript:alert(1)" })] },
@@ -104,7 +104,7 @@ describe("encodeHtml — pure encode mappings", () => {
   it("encodes a consecutive list run into a single <ul>", () => {
     const listId = "L1";
     const html = encodeHtml(
-      buildState(
+      buildDocument(
         [
           { type: "list-item", attrs: { listId, listLevel: 0 }, inlineContent: { items: [text("a")] } },
           { type: "list-item", attrs: { listId, listLevel: 0 }, inlineContent: { items: [text("b")] } },
@@ -118,7 +118,7 @@ describe("encodeHtml — pure encode mappings", () => {
   it("encodes a plain decimal ordered list with NO start/value (the natural 1,2,… sequence)", () => {
     const listId = "L1";
     const html = encodeHtml(
-      buildState(
+      buildDocument(
         [
           { type: "list-item", attrs: { listId, listLevel: 0 }, inlineContent: { items: [text("a")] } },
           { type: "list-item", attrs: { listId, listLevel: 0 }, inlineContent: { items: [text("b")] } },
@@ -132,7 +132,7 @@ describe("encodeHtml — pure encode mappings", () => {
   it("emits <ol start=N> when an ordered list's level starts at N≠1 (#552)", () => {
     const listId = "L1";
     const html = encodeHtml(
-      buildState(
+      buildDocument(
         [
           { type: "list-item", attrs: { listId, listLevel: 0 }, inlineContent: { items: [text("a")] } },
           { type: "list-item", attrs: { listId, listLevel: 0 }, inlineContent: { items: [text("b")] } },
@@ -149,7 +149,7 @@ describe("encodeHtml — pure encode mappings", () => {
     // the going-deeper loop, so only it (not the level-0 <ol>) carries the start.
     const listId = "L1";
     const html = encodeHtml(
-      buildState(
+      buildDocument(
         [
           { type: "list-item", attrs: { listId, listLevel: 0 }, inlineContent: { items: [text("a")] } },
           { type: "list-item", attrs: { listId, listLevel: 1 }, inlineContent: { items: [text("b")] } },
@@ -172,7 +172,7 @@ describe("encodeHtml — pure encode mappings", () => {
   it("emits <li value=N> for a mid-list counter restart/override (#552)", () => {
     const listId = "L1";
     const html = encodeHtml(
-      buildState(
+      buildDocument(
         [
           { type: "list-item", attrs: { listId, listLevel: 0 }, inlineContent: { items: [text("a")] } },
           {
@@ -194,7 +194,7 @@ describe("encodeHtml — pure encode mappings", () => {
   it("does NOT emit start/value on an unordered (<ul>) list even if numbering resolves values", () => {
     const listId = "L1";
     const html = encodeHtml(
-      buildState(
+      buildDocument(
         [
           { type: "list-item", attrs: { listId, listLevel: 0 }, inlineContent: { items: [text("a")] } },
           {
@@ -213,7 +213,7 @@ describe("encodeHtml — pure encode mappings", () => {
 describe("encodeHtml — dev-warn on dropped content-bearing embed", () => {
   it("emits a `[@taleweaver/core]`-prefixed warning when a footnote anchor is dropped", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const state = buildState([
+    const document = buildDocument([
       {
         type: "paragraph",
         inlineContent: {
@@ -231,7 +231,7 @@ describe("encodeHtml — dev-warn on dropped content-bearing embed", () => {
       },
     ]);
 
-    const html = encodeHtml(state);
+    const html = encodeHtml(document);
     // The anchor is omitted from the HTML (encode is lossy for it).
     expect(html).not.toContain(FOOTNOTE_ANCHOR_EMBED_TYPE);
     expect(html).toBe("<body><p>before  after</p></body>");
@@ -248,7 +248,7 @@ describe("encodeHtml — bookmarks + cross-references (Word's HTML)", () => {
   const mk = (embedType: string, properties: Record<string, unknown>): InlineItem => ({ kind: "embed", embedType, attrs: {}, properties });
   it("a bookmark start → a point anchor; a cross-reference → an internal link carrying its value", () => {
     const html = encodeHtml(
-      buildState([
+      buildDocument([
         { type: "paragraph", inlineContent: { items: [mk("bookmark-start", { bookmarkId: "b1" }), text("Intro"), mk("bookmark-end", { bookmarkId: "b1" })] } },
         { type: "paragraph", inlineContent: { items: [text("see "), mk("cross-reference", { bookmarkId: "b1", refMode: "text" }), mk("cross-reference", { bookmarkId: "gone", refMode: "text" })] } },
       ]),
@@ -258,7 +258,7 @@ describe("encodeHtml — bookmarks + cross-references (Word's HTML)", () => {
 
   it("only a bookmark's LIVE start emits its anchor (no duplicate HTML ids; a broken bookmark emits none)", () => {
     const html = encodeHtml(
-      buildState([
+      buildDocument([
         { type: "paragraph", inlineContent: { items: [mk("bookmark-start", { bookmarkId: "lone" }), text("x")] } },
         {
           type: "paragraph",

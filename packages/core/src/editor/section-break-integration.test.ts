@@ -18,17 +18,17 @@
  */
 import { describe, it, expect } from "vitest";
 import { config, measurer, reduceEditor } from "./actions/test-helpers";
-import { createEditorStateFromState, type EditorState } from "./editor-state";
+import { createEditorStateFromDocument, type EditorState } from "./editor-state";
 import { getBlock, firstLeafBlock, topLevelBlockIds } from "../state";
-import type { State, BlockId } from "../state";
+import type { Document, BlockId } from "../state";
 import { positionTreeForTest } from "@taleweaver/print";
 import type { LayoutBox } from "@taleweaver/print";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
-} from "../test-utils/state-builders";
+} from "../test-utils/document-builders";
 import { render } from "../render/render";
 import { cascadePass } from "../cascade";
 import { layoutTree } from "@taleweaver/print";
@@ -46,7 +46,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
  * (Copied verbatim from `actions/section-break.test.ts`.)
  */
 function makeEditor(cursorBlock: BlockId): EditorState {
-  const initialState = buildState({
+  const initialDocument = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -88,18 +88,18 @@ function makeEditor(cursorBlock: BlockId): EditorState {
     ],
   });
   const cursor = { blockId: cursorBlock, offset: 0 };
-  return createEditorStateFromState(initialState, { anchor: cursor, focus: cursor }, config);
+  return createEditorStateFromDocument(initialDocument, { anchor: cursor, focus: cursor }, config);
 }
 
 /**
  * Materialize the editor's layout tree to a fully-positioned `LayoutBox`.
  * Phase 0b: core is geometry-free, so the test builds the layout tree itself
  * (render → cascade → layout, exactly what the backend driver does) from the
- * editor's `state` rather than reading a now-absent `editor.layoutTree`.
+ * editor's `document` rather than reading a now-absent `editor.layoutTree`.
  */
 function materialize(editor: EditorState): LayoutBox {
   const rendered = render(
-    editor.state,
+    editor.document,
     config.componentRegistry,
     config.attrRegistry,
   );
@@ -155,14 +155,14 @@ function anyBoxHasKey(box: LayoutBox, key: string): boolean {
 }
 
 /** Ordered list of the document root's direct children. */
-function rootChildIds(state: State): BlockId[] {
-  const root = getBlock(state, state.rootId);
+function rootChildIds(document: Document): BlockId[] {
+  const root = getBlock(document, document.rootId);
   if (root === null) return [];
   const ids: BlockId[] = [];
   let cur: BlockId | null = root.firstChildId;
   while (cur !== null) {
     ids.push(cur);
-    const b = getBlock(state, cur);
+    const b = getBlock(document, cur);
     if (b === null) break;
     cur = b.nextSiblingId;
   }
@@ -186,7 +186,7 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
 
     // Boundary p3 is a leaf, so firstLeaf(p3) === p3.
     const boundary = "p3" as BlockId;
-    expect(firstLeafBlock(before.state, boundary)).toBe("p3");
+    expect(firstLeafBlock(before.document, boundary)).toBe("p3");
 
     const beforeLayout = materialize(before);
     const beforeGeom = paraGeometry(beforeLayout);
@@ -209,13 +209,13 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
     const after = reduceEditor(before, { type: "SECTION_BREAK" });
 
     // A real break produced a new state reference.
-    expect(after.state).not.toBe(before.state);
+    expect(after.document).not.toBe(before.document);
 
     // Root now has exactly two `section` children.
-    const sectionIds = rootChildIds(after.state);
+    const sectionIds = rootChildIds(after.document);
     expect(sectionIds).toHaveLength(2);
     for (const id of sectionIds) {
-      expect(getBlock(after.state, id)?.type).toBe("section");
+      expect(getBlock(after.document, id)?.type).toBe("section");
     }
     const secA = nth(sectionIds, 0, "section");
     const secB = nth(sectionIds, 1, "section");
@@ -243,7 +243,7 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
 
     // ----- 2. CURSOR collapses to { firstLeaf(boundary)=p3, 0 } -----
     const expectedCursor = {
-      blockId: firstLeafBlock(after.state, boundary) ?? boundary,
+      blockId: firstLeafBlock(after.document, boundary) ?? boundary,
       offset: 0,
     };
     expect(expectedCursor).toEqual({ blockId: "p3" as BlockId, offset: 0 });
@@ -254,8 +254,8 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
     const undone = reduceEditor(after, { type: "UNDO" });
 
     // One (final) section again, holding the original paragraphs.
-    expect(rootChildIds(undone.state)).toHaveLength(1);
-    const undoneRootChildren = topLevelBlockIds(undone.state);
+    expect(rootChildIds(undone.document)).toHaveLength(1);
+    const undoneRootChildren = topLevelBlockIds(undone.document);
     expect(undoneRootChildren).toEqual([
       "p1" as BlockId,
       "p2" as BlockId,
@@ -263,8 +263,8 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
       "p4" as BlockId,
     ]);
     for (const id of undoneRootChildren) {
-      expect(getBlock(undone.state, id)?.type).not.toBe("section");
-      expect(getBlock(undone.state, id)?.type).toBe("paragraph");
+      expect(getBlock(undone.document, id)?.type).not.toBe("section");
+      expect(getBlock(undone.document, id)?.type).toBe("paragraph");
     }
     // The section blocks are gone from the doc-root chain.
     expect(undoneRootChildren).not.toContain(secA);
@@ -283,14 +283,14 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
     // ----- 4. REDO: sections back, cursor at the new section start -----
     const redone = reduceEditor(undone, { type: "REDO" });
 
-    const redoneRootChildren = rootChildIds(redone.state);
+    const redoneRootChildren = rootChildIds(redone.document);
     expect(redoneRootChildren).toHaveLength(2);
     for (const id of redoneRootChildren) {
-      expect(getBlock(redone.state, id)?.type).toBe("section");
+      expect(getBlock(redone.document, id)?.type).toBe("section");
     }
     // Cursor back at { firstLeaf(p3)=p3, 0 }.
     const redoneCursor = {
-      blockId: firstLeafBlock(redone.state, boundary) ?? boundary,
+      blockId: firstLeafBlock(redone.document, boundary) ?? boundary,
       offset: 0,
     };
     expect(redoneCursor).toEqual({ blockId: "p3" as BlockId, offset: 0 });

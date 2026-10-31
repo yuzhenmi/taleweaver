@@ -56,7 +56,7 @@ const PAGE_OPTS: MakeNavEditorOptions = {
  */
 function freshLayout(ctx: NavCtx, editor: EditorState): LayoutBox | VirtualLayoutTree {
   const config: EditorConfig = ctx.config;
-  const rendered = render(editor.state, config.componentRegistry, config.attrRegistry);
+  const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascadedRoot = cascadePass(rendered.root);
   if (config.pageConfig === undefined) throw new Error("expected a pageConfig");
   return layoutTree(cascadedRoot, config.containerWidth, ctx.measurer, config.pageConfig);
@@ -89,7 +89,7 @@ function paintFrame(ctx: NavCtx): LayoutBox | VirtualLayoutTree {
 }
 
 function firstBlockIdOf(editor: EditorState): BlockId {
-  const root = finalSection(editor.state);
+  const root = finalSection(editor.document);
   if (root === null || root.firstChildId === null) throw new Error("no first block");
   return root.firstChildId;
 }
@@ -181,7 +181,7 @@ describe("virtual-layout caret/paint regressions", () => {
     // controller does this every frame — warms the per-page memo).
     let id: BlockId | null = firstBlockIdOf(ctx.editor);
     for (let i = 0; i < 60 && id !== null; i++) {
-      id = getBlock(ctx.editor.state, id)?.nextSiblingId ?? null;
+      id = getBlock(ctx.editor.document, id)?.nextSiblingId ?? null;
     }
     if (id === null) throw new Error("no block 60");
     ctx = dispatch(ctx, {
@@ -192,7 +192,7 @@ describe("virtual-layout caret/paint regressions", () => {
 
     const before = ctx.editor;
     const oracle = moveToLine(
-      before.state,
+      before.document,
       before.selection.focus,
       freshLayout(ctx, before),
       ctx.measurer,

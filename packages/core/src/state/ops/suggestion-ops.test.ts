@@ -13,7 +13,7 @@
  * UndoManager's tracked scopes; (3) the run's LIVE format attrs are untouched
  * (the proposal is not applied until accept — a later slice); (4) adjacent
  * same-author/same-proposal marks COALESCE into one suggestion (id reuse); (5)
- * identity no-ops short-circuit (return the same State reference).
+ * identity no-ops short-circuit (return the same Document reference).
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -37,9 +37,9 @@ import {
 } from "../suggestions";
 import { createHistory } from "../history";
 import { insertText } from "./insert-text";
-import { applyOperation, createState, getBlock, resolveBlock } from "../state";
+import { applyOperation, createDocument, getBlock, resolveBlock } from "../document";
 import { blockText, relAt, survives } from "../../test-utils/relpos-survival";
-import { STATE_INTERNAL } from "../state-internal";
+import { DOCUMENT_INTERNAL } from "../document-internal";
 import { getSuggestionsMap } from "../yjs-doc";
 import * as Y from "yjs";
 import { createPosition, createSpan } from "../block-position";
@@ -48,12 +48,12 @@ import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { TEST_RESOLVER,
   buildBlock,
-  buildState,
+  buildDocument,
   text,
   embed,
   inlineContent,
-} from "../../test-utils/state-builders";
-import type { State } from "../state";
+} from "../../test-utils/document-builders";
+import type { Document } from "../document";
 import type { InlineContent } from "../inline-content";
 
 const SID = "s1" as SuggestionId;
@@ -67,8 +67,8 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 /** doc > [ p("abcdef") ] (one text run unless overridden). */
 function oneBlock(
   items = inlineContent([text("abcdef")]),
-): State {
-  return buildState({
+): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -91,12 +91,12 @@ function span(start: number, end: number): Span {
 }
 
 /** The inline items of p. */
-function pItems(s: State) {
+function pItems(s: Document) {
   return getBlock(s, "p" as BlockId)?.inlineContent?.items ?? [];
 }
 
 /** The first text item of p whose attrs carry the formatting-suggestion attr. */
-function markedRunAttr(s: State): unknown {
+function markedRunAttr(s: Document): unknown {
   for (const it of pItems(s)) {
     if (it.kind === "text" && formattingSuggestionIds(it.attrs)[0] !== undefined) {
       return formattingSuggestionIds(it.attrs)[0];
@@ -109,7 +109,7 @@ const INPUT = { id: SID, author: "alice", createdAt: 1000 } as const;
 
 describe("markFormatting — stamp suggestion attr + write record in ONE tracked op", () => {
   it("appears in getSuggestions with kind/author/createdAt/proposedAttrs + a live range", () => {
-    const s = markFormatting(oneBlock(), span(1, 4), { bold: true }, INPUT).state;
+    const s = markFormatting(oneBlock(), span(1, 4), { bold: true }, INPUT).document;
 
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
@@ -135,7 +135,7 @@ describe("markFormatting — stamp suggestion attr + write record in ONE tracked
       span(1, 4),
       { italic: true },
       INPUT,
-    ).state;
+    ).document;
 
     const marked = pItems(s).find(
       (it) => it.kind === "text" && formattingSuggestionIds(it.attrs)[0] !== undefined,
@@ -158,7 +158,7 @@ describe("markFormatting — stamp suggestion attr + write record in ONE tracked
       span(0, 5),
       { bold: true },
       INPUT,
-    ).state;
+    ).document;
     const marker = pItems(s).find((it) => it.kind === "embed" && it.embedType === "comment-start");
     if (marker === undefined || marker.kind !== "embed") throw new Error("expected the marker");
     expect(formattingSuggestionIds(marker.attrs).length > 0).toBe(false);
@@ -175,19 +175,19 @@ describe("markFormatting — undo atomicity (attr + record revert together)", ()
     history.beginEntry("command", 0);
     const marked = markFormatting(s0, span(1, 4), { bold: true }, INPUT);
     history.commit(marked, { before: null, after: null });
-    const s1 = marked.state;
+    const s1 = marked.document;
     expect(getSuggestions(s1).length).toBe(1);
     expect(markedRunAttr(s1)).toBe(SID);
 
     const undone = history.undo();
     if (undone === null) throw new Error("expected undo to return a result");
-    const s2 = undone.state;
+    const s2 = undone.document;
     expect(getSuggestions(s2).length).toBe(0);
     expect(markedRunAttr(s2)).toBeUndefined();
 
     const redone = history.redo();
     if (redone === null) throw new Error("expected redo to return a result");
-    const s3 = redone.state;
+    const s3 = redone.document;
     expect(getSuggestions(s3).length).toBe(1);
     expect(markedRunAttr(s3)).toBe(SID);
 
@@ -202,12 +202,12 @@ describe("markFormatting — coalesce with an adjacent same-author/same-proposal
       id: "first" as SuggestionId,
       author: "alice",
       createdAt: 1000,
-    }).state;
+    }).document;
     s = markFormatting(s, span(3, 6), { bold: true }, {
       id: "second" as SuggestionId,
       author: "alice",
       createdAt: 2000,
-    }).state;
+    }).document;
 
     const suggestions = getSuggestions(s);
     // Coalesced into ONE record (the second reused the first's id).
@@ -224,12 +224,12 @@ describe("markFormatting — coalesce with an adjacent same-author/same-proposal
       id: "first" as SuggestionId,
       author: "alice",
       createdAt: 1000,
-    }).state;
+    }).document;
     s = markFormatting(s, span(3, 6), { bold: true }, {
       id: "second" as SuggestionId,
       author: "bob",
       createdAt: 2000,
-    }).state;
+    }).document;
 
     expect(getSuggestions(s).length).toBe(2);
   });
@@ -239,12 +239,12 @@ describe("markFormatting — coalesce with an adjacent same-author/same-proposal
       id: "first" as SuggestionId,
       author: "alice",
       createdAt: 1000,
-    }).state;
+    }).document;
     s = markFormatting(s, span(3, 6), { italic: true }, {
       id: "second" as SuggestionId,
       author: "alice",
       createdAt: 2000,
-    }).state;
+    }).document;
 
     expect(getSuggestions(s).length).toBe(2);
   });
@@ -258,12 +258,12 @@ describe("markFormatting — coalesce with an adjacent same-author/same-proposal
       id: "first" as SuggestionId,
       author: "alice",
       createdAt: 1000,
-    }).state;
+    }).document;
     s = markFormatting(s, span(0, 3), { bold: true }, {
       id: "second" as SuggestionId,
       author: "alice",
       createdAt: 2000,
-    }).state;
+    }).document;
 
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
@@ -282,17 +282,17 @@ describe("markFormatting — coalesce with an adjacent same-author/same-proposal
       id: "before-id" as SuggestionId,
       author: "alice",
       createdAt: 1000,
-    }).state;
+    }).document;
     s = markFormatting(s, span(4, 6), { bold: true }, {
       id: "after-id" as SuggestionId,
       author: "alice",
       createdAt: 1001,
-    }).state;
+    }).document;
     s = markFormatting(s, span(2, 4), { bold: true }, {
       id: "bridge-id" as SuggestionId,
       author: "alice",
       createdAt: 1002,
-    }).state;
+    }).document;
 
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(2);
@@ -308,14 +308,14 @@ describe("markFormatting — identity no-ops", () => {
   it("empty proposedAttrs returns the SAME state reference + empty dirtyIds", () => {
     const s = oneBlock();
     const r = markFormatting(s, span(1, 4), {} as ReadonlyAttrs, INPUT);
-    expect(r.state).toBe(s);
+    expect(r.document).toBe(s);
     expect(r.dirtyIds.size).toBe(0);
   });
 
   it("a collapsed span returns the SAME state reference + empty dirtyIds", () => {
     const s = oneBlock();
     const r = markFormatting(s, span(2, 2), { bold: true }, INPUT);
-    expect(r.state).toBe(s);
+    expect(r.document).toBe(s);
     expect(r.dirtyIds.size).toBe(0);
   });
 });
@@ -330,31 +330,31 @@ const DEL_INPUT = { id: DEL_SID, author: "alice", createdAt: 5000 } as const;
 
 /**
  * Seed an insertion `SuggestionRecord` (id `insId`, by `author`) into the
- * suggestions map of `state`. The run carrying the matching
+ * suggestions map of `document`. The run carrying the matching
  * `insertionSuggestionId` attr is built into the fixture separately (via the
- * `text(str, { insertionSuggestionId })` builder). Returns the new State (the
+ * `text(str, { insertionSuggestionId })` builder). Returns the new Document (the
  * record write is a tracked op surfacing rootId — but we only need the resulting
  * state; History is not involved).
  */
 function seedInsertionRecord(
-  state: State,
+  document: Document,
   insId: string,
   author: string,
-): State {
+): Document {
   const record: SuggestionRecord = {
     id: insId as SuggestionId,
     kind: "insertion",
     author,
     createdAt: 100,
   };
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     writeSuggestionRecordInTx(doc, record);
-    return new Set<BlockId>([state.rootId]);
-  }).state;
+    return new Set<BlockId>([document.rootId]);
+  }).document;
 }
 
 /** The first text item of p whose attrs carry the deletion-suggestion attr. */
-function deletedRunAttr(s: State): unknown {
+function deletedRunAttr(s: Document): unknown {
   for (const it of pItems(s)) {
     if (it.kind === "text" && it.attrs[DELETION_SUGGESTION_ATTR] !== undefined) {
       return it.attrs[DELETION_SUGGESTION_ATTR];
@@ -364,7 +364,7 @@ function deletedRunAttr(s: State): unknown {
 }
 
 /** Concatenated text of all text items of p, in order. */
-function pText(s: State): string {
+function pText(s: Document): string {
   return pItems(s)
     .filter((it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text")
     .map((it) => it.text)
@@ -373,7 +373,7 @@ function pText(s: State): string {
 
 describe("markDeletion — soft-delete plain text (tag, do NOT remove)", () => {
   it("tags the run with deletionSuggestionId, keeps the text, writes a deletion record with a live range", () => {
-    const s = markDeletion(oneBlock(), span(1, 4), DEL_INPUT).state;
+    const s = markDeletion(oneBlock(), span(1, 4), DEL_INPUT).document;
 
     // The text is STILL present (soft-delete).
     expect(pText(s)).toBe("abcdef");
@@ -401,20 +401,20 @@ describe("markDeletion — undo atomicity (attr + record revert together)", () =
     history.beginEntry("command", 0);
     const marked = markDeletion(s0, span(1, 4), DEL_INPUT);
     history.commit(marked, { before: null, after: null });
-    const s1 = marked.state;
+    const s1 = marked.document;
     expect(getSuggestions(s1).length).toBe(1);
     expect(deletedRunAttr(s1)).toBe(DEL_SID);
 
     const undone = history.undo();
     if (undone === null) throw new Error("expected undo to return a result");
-    const s2 = undone.state;
+    const s2 = undone.document;
     expect(getSuggestions(s2).length).toBe(0);
     expect(deletedRunAttr(s2)).toBeUndefined();
     expect(pText(s2)).toBe("abcdef");
 
     const redone = history.redo();
     if (redone === null) throw new Error("expected redo to return a result");
-    const s3 = redone.state;
+    const s3 = redone.document;
     expect(getSuggestions(s3).length).toBe(1);
     expect(deletedRunAttr(s3)).toBe(DEL_SID);
 
@@ -440,7 +440,7 @@ describe("markDeletion — own pending insertion is REMOVED for real", () => {
     expect(nth(before, 0, "suggestion").kind).toBe("insertion");
 
     // alice soft-deletes "BB" (offsets 2..4).
-    s = markDeletion(s, span(2, 4), DEL_INPUT).state;
+    s = markDeletion(s, span(2, 4), DEL_INPUT).document;
 
     // "BB" is GONE for real (never became real text).
     expect(pText(s)).toBe("AACC");
@@ -461,7 +461,7 @@ describe("markDeletion — own pending insertion is REMOVED for real", () => {
     );
     s = seedInsertionRecord(s, "ins1", "alice");
 
-    s = markDeletion(s, span(1, 3), DEL_INPUT).state;
+    s = markDeletion(s, span(1, 3), DEL_INPUT).document;
 
     // Middle removed; the two surviving B's merge back into one "BB" run.
     expect(pText(s)).toBe("BB");
@@ -490,7 +490,7 @@ describe("markDeletion — nesting over a DIFFERENT author's insertion", () => {
     s = seedInsertionRecord(s, "ins1", "bob");
 
     // alice soft-deletes "BB" (offsets 2..4) — bob's insertion, so NEST.
-    s = markDeletion(s, span(2, 4), DEL_INPUT).state;
+    s = markDeletion(s, span(2, 4), DEL_INPUT).document;
 
     // Text preserved (soft-delete), "BB" run carries BOTH ids.
     expect(pText(s)).toBe("AABBCC");
@@ -527,7 +527,7 @@ describe("markDeletion — mixed span (own-insertion removed; everything else ta
     s = seedInsertionRecord(s, "insBob", "bob");
 
     // alice soft-deletes the WHOLE thing (offsets 0..8).
-    s = markDeletion(s, span(0, 8), DEL_INPUT).state;
+    s = markDeletion(s, span(0, 8), DEL_INPUT).document;
 
     // "BB" removed; "AACCDD" remain.
     expect(pText(s)).toBe("AACCDD");
@@ -561,12 +561,12 @@ describe("markDeletion — coalesce with an adjacent same-author deletion", () =
       id: "first" as SuggestionId,
       author: "alice",
       createdAt: 1000,
-    }).state;
+    }).document;
     s = markDeletion(s, span(3, 6), {
       id: "second" as SuggestionId,
       author: "alice",
       createdAt: 2000,
-    }).state;
+    }).document;
 
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
@@ -580,20 +580,20 @@ describe("markDeletion — coalesce with an adjacent same-author deletion", () =
       id: "first" as SuggestionId,
       author: "alice",
       createdAt: 1000,
-    }).state;
+    }).document;
     s = markDeletion(s, span(3, 6), {
       id: "second" as SuggestionId,
       author: "bob",
       createdAt: 2000,
-    }).state;
+    }).document;
 
     expect(getSuggestions(s).length).toBe(2);
   });
 });
 
 /** doc > [ p1(items1), p2(items2) ] — a two-leaf fixture for cross-block spans. */
-function twoBlocks(items1: InlineContent, items2: InlineContent): State {
-  return buildState({
+function twoBlocks(items1: InlineContent, items2: InlineContent): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
@@ -604,7 +604,7 @@ function twoBlocks(items1: InlineContent, items2: InlineContent): State {
 }
 
 /** The inline items of an arbitrary block by id. */
-function itemsOf(s: State, id: string) {
+function itemsOf(s: Document, id: string) {
   return getBlock(s, id as BlockId)?.inlineContent?.items ?? [];
 }
 
@@ -616,7 +616,7 @@ describe("markDeletion — cross-block span tags text in BOTH blocks with ONE id
       s0,
       createSpan(createPosition("p1" as BlockId, 3), createPosition("p2" as BlockId, 2)),
       DEL_INPUT,
-    ).state;
+    ).document;
 
     const p1Del = itemsOf(s, "p1").find(
       (it) => it.kind === "text" && it.attrs[DELETION_SUGGESTION_ATTR] !== undefined,
@@ -649,7 +649,7 @@ describe("markDeletion — embeds inside the span are preserved UNTAGGED (out of
       oneBlock(inlineContent([text("AA"), embed("footnote-anchor"), text("CC")])),
       span(0, 4),
       DEL_INPUT,
-    ).state;
+    ).document;
 
     const items = pItems(s);
     const emb = items.find((it) => it.kind === "embed");
@@ -675,7 +675,7 @@ describe("markDeletion — identity no-ops", () => {
   it("a collapsed span returns the SAME state reference + empty dirtyIds", () => {
     const s = oneBlock();
     const r = markDeletion(s, span(2, 2), DEL_INPUT);
-    expect(r.state).toBe(s);
+    expect(r.document).toBe(s);
     expect(r.dirtyIds.size).toBe(0);
   });
 });
@@ -702,7 +702,7 @@ describe("markDeletion — identity-preserving strike (#491)", () => {
     const relA = relAt(s0, "p", 0);
     const relC = relAt(s0, "p", 5);
 
-    const s1 = markDeletion(s0, span(2, 4), DEL_INPUT).state;
+    const s1 = markDeletion(s0, span(2, 4), DEL_INPUT).document;
 
     // Layout unchanged: aa[bb tagged]cc, three runs, all text present.
     expect(pItems(s1).length).toBe(3);
@@ -721,7 +721,7 @@ describe("markDeletion — identity-preserving strike (#491)", () => {
     );
     const relB = relAt(s0, "p", 3);
 
-    const s1 = markDeletion(s0, span(2, 4), DEL_INPUT).state;
+    const s1 = markDeletion(s0, span(2, 4), DEL_INPUT).document;
 
     // The tagged characters are the same CRDT items — only their attrs gained the
     // deletion id (a format, not a rebuild).
@@ -750,28 +750,28 @@ describe("markDeletion — identity-preserving strike (#491)", () => {
     // Peer B starts from a synced copy of the fixture doc (a clone via update
     // bytes — the collab transport).
     const docB = new Y.Doc();
-    Y.applyUpdate(docB, Y.encodeStateAsUpdate(fixture[STATE_INTERNAL].doc));
-    const stateB = createState({ resolver: TEST_RESOLVER, rootId: fixture.rootId, doc: docB });
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(fixture[DOCUMENT_INTERNAL].doc));
+    const documentB = createDocument({ resolver: TEST_RESOLVER, rootId: fixture.rootId, doc: docB });
 
     // Peer A: markDeletion over the MIDDLE run bb[2,4) (cc is untouched).
-    const stateA = markDeletion(fixture, span(2, 4), DEL_INPUT).state;
+    const documentA = markDeletion(fixture, span(2, 4), DEL_INPUT).document;
 
     // Peer B (concurrently, on its own doc): insert "Z" into the UNTOUCHED cc
     // run (block offset 5) → "cZc". Direct Y.Text mutation models a peer typing
     // into that run before sync.
-    const yB = blockText(stateB, "p");
+    const yB = blockText(documentB, "p");
     docB.transact(() => {
       yB.insert(5, "Z", { underline: true });
     });
 
     // Sync the two peers (exchange update bytes, both directions).
-    Y.applyUpdate(docB, Y.encodeStateAsUpdate(stateA[STATE_INTERNAL].doc));
-    Y.applyUpdate(stateA[STATE_INTERNAL].doc, Y.encodeStateAsUpdate(docB));
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(documentA[DOCUMENT_INTERNAL].doc));
+    Y.applyUpdate(documentA[DOCUMENT_INTERNAL].doc, Y.encodeStateAsUpdate(docB));
 
     // After merge, A sees BOTH changes: bb is tagged-deleted AND B's "Z" landed
     // inside the untouched cc run ("cZc"). With the old full-replace, A's strike
     // tombstoned cc's Y.Text, so B's insert would be lost (cc stays "cc").
-    const mergedA = createState({ resolver: TEST_RESOLVER, rootId: fixture.rootId, doc: stateA[STATE_INTERNAL].doc });
+    const mergedA = createDocument({ resolver: TEST_RESOLVER, rootId: fixture.rootId, doc: documentA[DOCUMENT_INTERNAL].doc });
     expect(pText(mergedA)).toBe("aabbcZc");
     const bbItem = pItems(mergedA).find((it) => it.kind === "text" && it.text === "bb");
     if (bbItem?.kind !== "text") throw new Error("expected the tagged bb run");
@@ -790,7 +790,7 @@ const INS_SID = "ins1" as SuggestionId;
 const INS_INPUT = { id: INS_SID, author: "alice", createdAt: 7000 } as const;
 
 /** The first text item of p whose attrs carry the insertion-suggestion attr. */
-function insertedRunAttr(s: State): unknown {
+function insertedRunAttr(s: Document): unknown {
   for (const it of pItems(s)) {
     if (it.kind === "text" && it.attrs[INSERTION_SUGGESTION_ATTR] !== undefined) {
       return it.attrs[INSERTION_SUGGESTION_ATTR];
@@ -801,7 +801,7 @@ function insertedRunAttr(s: State): unknown {
 
 describe("mintInsertion — insert text carrying an insertion id + write record in ONE tracked op", () => {
   it("inserts the text, stamps the inserted run with insertionSuggestionId, writes an insertion record with a live range", () => {
-    const s = mintInsertion(oneBlock(), createPosition("p" as BlockId, 3), "XY", {}, INS_INPUT).state;
+    const s = mintInsertion(oneBlock(), createPosition("p" as BlockId, 3), "XY", {}, INS_INPUT).document;
 
     // "XY" landed at offset 3 → "abcXYdef".
     expect(pText(s)).toBe("abcXYdef");
@@ -830,7 +830,7 @@ describe("mintInsertion — insert text carrying an insertion id + write record 
       "XY",
       { bold: true, [INSERTION_SUGGESTION_ATTR]: "stale" } as ReadonlyAttrs,
       INS_INPUT,
-    ).state;
+    ).document;
 
     const inserted = pItems(s).find(
       (it) => it.kind === "text" && it.text === "XY",
@@ -851,21 +851,21 @@ describe("mintInsertion — undo atomicity (text + record revert together)", () 
     history.beginEntry("command", 0);
     const minted = mintInsertion(s0, createPosition("p" as BlockId, 3), "XY", {}, INS_INPUT);
     history.commit(minted, { before: null, after: null });
-    const s1 = minted.state;
+    const s1 = minted.document;
     expect(pText(s1)).toBe("abcXYdef");
     expect(getSuggestions(s1).length).toBe(1);
     expect(insertedRunAttr(s1)).toBe(INS_SID);
 
     const undone = history.undo();
     if (undone === null) throw new Error("expected undo to return a result");
-    const s2 = undone.state;
+    const s2 = undone.document;
     expect(pText(s2)).toBe("abcdef");
     expect(getSuggestions(s2).length).toBe(0);
     expect(insertedRunAttr(s2)).toBeUndefined();
 
     const redone = history.redo();
     if (redone === null) throw new Error("expected redo to return a result");
-    const s3 = redone.state;
+    const s3 = redone.document;
     expect(pText(s3)).toBe("abcXYdef");
     expect(getSuggestions(s3).length).toBe(1);
     expect(insertedRunAttr(s3)).toBe(INS_SID);
@@ -882,12 +882,12 @@ describe("mintInsertion — coalesce a continuous typing run into ONE suggestion
       id: "first" as SuggestionId,
       author: "alice",
       createdAt: 1000,
-    }).state;
+    }).document;
     s = mintInsertion(s, createPosition("p" as BlockId, 5), "YY", {}, {
       id: "second" as SuggestionId,
       author: "alice",
       createdAt: 2000,
-    }).state;
+    }).document;
 
     expect(pText(s)).toBe("abcXXYYdef");
 
@@ -922,12 +922,12 @@ describe("mintInsertion — coalesce a continuous typing run into ONE suggestion
       id: "first" as SuggestionId,
       author: "alice",
       createdAt: 1000,
-    }).state;
+    }).document;
     s = mintInsertion(s, createPosition("p" as BlockId, 0), "YY", {}, {
       id: "second" as SuggestionId,
       author: "alice",
       createdAt: 2000,
-    }).state;
+    }).document;
 
     expect(pText(s)).toBe("YYXXabcdef");
     const suggestions = getSuggestions(s);
@@ -942,19 +942,19 @@ describe("mintInsertion — coalesce a continuous typing run into ONE suggestion
       id: "first" as SuggestionId,
       author: "alice",
       createdAt: 1000,
-    }).state;
+    }).document;
     s = mintInsertion(s, createPosition("p" as BlockId, 5), "YY", {}, {
       id: "second" as SuggestionId,
       author: "bob",
       createdAt: 2000,
-    }).state;
+    }).document;
 
     expect(getSuggestions(s).filter((x) => x.kind === "insertion").length).toBe(2);
   });
 
   it("an insertion not adjacent to any insertion mints a fresh record", () => {
     // Plain "abcdef", no adjacent insertion → one fresh insertion suggestion.
-    const s = mintInsertion(oneBlock(), createPosition("p" as BlockId, 3), "XY", {}, INS_INPUT).state;
+    const s = mintInsertion(oneBlock(), createPosition("p" as BlockId, 3), "XY", {}, INS_INPUT).document;
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
     expect(nth(suggestions, 0, "suggestion").id).toBe(INS_SID);
@@ -965,7 +965,7 @@ describe("mintInsertion — identity no-op", () => {
   it("empty text returns the SAME state reference + empty dirtyIds", () => {
     const s = oneBlock();
     const r = mintInsertion(s, createPosition("p" as BlockId, 3), "", {}, INS_INPUT);
-    expect(r.state).toBe(s);
+    expect(r.document).toBe(s);
     expect(r.dirtyIds.size).toBe(0);
   });
 });
@@ -985,10 +985,10 @@ describe("acceptSuggestion / rejectSuggestion — insertion", () => {
       "XY",
       {},
       INS_INPUT,
-    ).state;
+    ).document;
     expect(insertedRunAttr(minted)).toBe(INS_SID);
 
-    const s = acceptSuggestion(minted, INS_SID).state;
+    const s = acceptSuggestion(minted, INS_SID).document;
     // Text is preserved; the run is now PLAIN (no insertion id).
     expect(pText(s)).toBe("abcXYdef");
     expect(insertedRunAttr(s)).toBeUndefined();
@@ -1003,10 +1003,10 @@ describe("acceptSuggestion / rejectSuggestion — insertion", () => {
       "XY",
       {},
       INS_INPUT,
-    ).state;
+    ).document;
     expect(pText(minted)).toBe("abcXYdef");
 
-    const s = rejectSuggestion(minted, INS_SID).state;
+    const s = rejectSuggestion(minted, INS_SID).document;
     // "XY" deleted for real → back to "abcdef".
     expect(pText(s)).toBe("abcdef");
     expect(insertedRunAttr(s)).toBeUndefined();
@@ -1017,11 +1017,11 @@ describe("acceptSuggestion / rejectSuggestion — insertion", () => {
 describe("acceptSuggestion / rejectSuggestion — deletion", () => {
   it("accept DROPS the soft-deleted run (real delete of the marked text)", () => {
     // markDeletion over "bcd" (offsets 1..4) → "abcdef" with "bcd" tagged.
-    const marked = markDeletion(oneBlock(), span(1, 4), DEL_INPUT).state;
+    const marked = markDeletion(oneBlock(), span(1, 4), DEL_INPUT).document;
     expect(pText(marked)).toBe("abcdef");
     expect(deletedRunAttr(marked)).toBe(DEL_SID);
 
-    const s = acceptSuggestion(marked, DEL_SID).state;
+    const s = acceptSuggestion(marked, DEL_SID).document;
     // "bcd" deleted for real → "aef".
     expect(pText(s)).toBe("aef");
     expect(deletedRunAttr(s)).toBeUndefined();
@@ -1029,9 +1029,9 @@ describe("acceptSuggestion / rejectSuggestion — deletion", () => {
   });
 
   it("reject STRIPS the deletion id (the text stays, un-tagged)", () => {
-    const marked = markDeletion(oneBlock(), span(1, 4), DEL_INPUT).state;
+    const marked = markDeletion(oneBlock(), span(1, 4), DEL_INPUT).document;
 
-    const s = rejectSuggestion(marked, DEL_SID).state;
+    const s = rejectSuggestion(marked, DEL_SID).document;
     // Text fully preserved; no deletion attr remains.
     expect(pText(s)).toBe("abcdef");
     expect(deletedRunAttr(s)).toBeUndefined();
@@ -1044,19 +1044,19 @@ describe("acceptSuggestion / rejectSuggestion — multi-author nested run cleanu
   // the "BB" run carries BOTH ids; both records live. Resolving EITHER id such
   // that the run is DROPPED must also clean up the co-tenant record — else it is
   // left orphaned (present, range null).
-  function nestedRun(): State {
+  function nestedRun(): Document {
     let s = oneBlock(
       inlineContent([text("AA"), text("BB", { [INSERTION_SUGGESTION_ATTR]: "ins1" }), text("CC")]),
     );
     s = seedInsertionRecord(s, "ins1", "bob");
-    s = markDeletion(s, span(2, 4), DEL_INPUT).state; // alice deletes bob's "BB" → nest
+    s = markDeletion(s, span(2, 4), DEL_INPUT).document; // alice deletes bob's "BB" → nest
     return s;
   }
 
   it("reject the insertion DROPS the run AND deletes the now-orphaned co-tenant deletion record", () => {
     const s = nestedRun();
     expect(getSuggestions(s).length).toBe(2); // ins1 + del1 both live
-    const r = rejectSuggestion(s, "ins1" as SuggestionId).state;
+    const r = rejectSuggestion(s, "ins1" as SuggestionId).document;
     expect(pText(r)).toBe("AACC"); // "BB" dropped (reject-insertion never lands)
     // del1 tagged ONLY "BB" → its content is gone → record must be gone, not orphaned.
     expect(getSuggestions(r).length).toBe(0);
@@ -1064,7 +1064,7 @@ describe("acceptSuggestion / rejectSuggestion — multi-author nested run cleanu
 
   it("accept the deletion DROPS the run AND deletes the now-orphaned co-tenant insertion record", () => {
     const s = nestedRun();
-    const r = acceptSuggestion(s, DEL_SID).state;
+    const r = acceptSuggestion(s, DEL_SID).document;
     expect(pText(r)).toBe("AACC"); // "BB" removed for real (accept-deletion)
     expect(getSuggestions(r).length).toBe(0); // ins1 (bob) co-tenant cleaned up
   });
@@ -1090,14 +1090,14 @@ describe("acceptSuggestion / rejectSuggestion — multi-author nested run cleanu
       id: FMT1,
       author: "carol",
       createdAt: 7000,
-    }).state;
+    }).document;
     // Precondition: the embed carries fmt1; no SURVIVING text run carries fmt1.
     const embedBefore = pItems(s).find((it) => it.kind === "embed" && it.embedType === "page-field");
     if (embedBefore === undefined || embedBefore.kind !== "embed") throw new Error("expected page-field embed");
     expect(formattingSuggestionIds(embedBefore.attrs)[0]).toBe(FMT1);
     expect(getSuggestions(s).length).toBe(2); // ins1 + fmt1 both live
 
-    const r = rejectSuggestion(s, "ins1" as SuggestionId).state;
+    const r = rejectSuggestion(s, "ins1" as SuggestionId).document;
     expect(pText(r)).toBe("AA"); // "BB" dropped (reject-insertion never lands)
     // fmt1 is still referenced by the surviving embed → record must survive.
     const after = getSuggestions(r);
@@ -1113,10 +1113,10 @@ describe("acceptSuggestion / rejectSuggestion — multi-author nested run cleanu
       inlineContent([text("AA"), text("BB", { [INSERTION_SUGGESTION_ATTR]: "ins1" }), text("CC")]),
     );
     s = seedInsertionRecord(s, "ins1", "bob");
-    s = markDeletion(s, span(2, 6), DEL_INPUT).state; // delete "BBCC": "BB" nests, "CC" plain-tagged
+    s = markDeletion(s, span(2, 6), DEL_INPUT).document; // delete "BBCC": "BB" nests, "CC" plain-tagged
     expect(getSuggestions(s).length).toBe(2);
 
-    const r = rejectSuggestion(s, "ins1" as SuggestionId).state;
+    const r = rejectSuggestion(s, "ins1" as SuggestionId).document;
     expect(pText(r)).toBe("AACC"); // "BB" dropped; "CC" survives (carries del1, not ins1)
     const after = getSuggestions(r);
     expect(after.length).toBe(1);
@@ -1128,10 +1128,10 @@ describe("acceptSuggestion / rejectSuggestion — multi-author nested run cleanu
 describe("acceptSuggestion / rejectSuggestion — formatting", () => {
   it("accept APPLIES proposedAttrs LIVE and strips the formatting id", () => {
     // markFormatting over "bcd" (1..4) proposing bold:true on a non-bold run.
-    const marked = markFormatting(oneBlock(), span(1, 4), { bold: true }, INPUT).state;
+    const marked = markFormatting(oneBlock(), span(1, 4), { bold: true }, INPUT).document;
     expect(markedRunAttr(marked)).toBe(SID);
 
-    const s = acceptSuggestion(marked, SID).state;
+    const s = acceptSuggestion(marked, SID).document;
     expect(getSuggestions(s).length).toBe(0);
     // The in-range run is now LIVE bold and carries NO formatting id.
     const run = pItems(s).find((it) => it.kind === "text" && it.text === "bcd");
@@ -1143,9 +1143,9 @@ describe("acceptSuggestion / rejectSuggestion — formatting", () => {
   });
 
   it("reject STRIPS the formatting id and leaves live attrs unchanged (proposal discarded)", () => {
-    const marked = markFormatting(oneBlock(), span(1, 4), { bold: true }, INPUT).state;
+    const marked = markFormatting(oneBlock(), span(1, 4), { bold: true }, INPUT).document;
 
-    const s = rejectSuggestion(marked, SID).state;
+    const s = rejectSuggestion(marked, SID).document;
     expect(getSuggestions(s).length).toBe(0);
     // The proposal was NOT applied: no run is bold, and no formatting id
     // survives anywhere. (Stripping the id makes the once-marked "bcd" run's
@@ -1166,24 +1166,24 @@ describe("acceptSuggestion / rejectSuggestion — formatting", () => {
   // else it dangles after the record is deleted. Both single-id and bulk paths.
   const withTabEmbed = () =>
     oneBlock(inlineContent([text("ab"), embed("tab"), text("cd")]));
-  const tabEmbed = (s: State) => {
+  const tabEmbed = (s: Document) => {
     const e = pItems(s).find((it) => it.kind === "embed" && it.embedType === "tab");
     if (e === undefined || e.kind !== "embed") throw new Error("expected the tab embed");
     return e;
   };
 
   it("accept applies the proposal to a VISIBLE embed in range + strips its id (#478)", () => {
-    const marked = markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).state;
+    const marked = markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).document;
     expect(formattingSuggestionIds(tabEmbed(marked).attrs)[0]).toBe(SID); // stamped (visible embed)
 
-    const s = acceptSuggestion(marked, SID).state;
+    const s = acceptSuggestion(marked, SID).document;
     expect(formattingSuggestionIds(tabEmbed(s).attrs).length > 0).toBe(false);
     expect(tabEmbed(s).attrs.bold).toBe(true);
   });
 
   it("reject strips a VISIBLE embed's formatting id without applying the proposal (#478)", () => {
-    const marked = markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).state;
-    const s = rejectSuggestion(marked, SID).state;
+    const marked = markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).document;
+    const s = rejectSuggestion(marked, SID).document;
     expect(formattingSuggestionIds(tabEmbed(s).attrs).length > 0).toBe(false);
     expect("bold" in tabEmbed(s).attrs).toBe(false);
   });
@@ -1191,13 +1191,13 @@ describe("acceptSuggestion / rejectSuggestion — formatting", () => {
   // Fresh state per bulk resolve: acceptAll/rejectAll mutate
   // the doc in place, so each must start from an independent markFormatting result.
   it("acceptAll resolves a VISIBLE embed's provenance — applies + strips (#478)", () => {
-    const acc = acceptAll(markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).state).state;
+    const acc = acceptAll(markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).document).document;
     expect(formattingSuggestionIds(tabEmbed(acc).attrs).length > 0).toBe(false);
     expect(tabEmbed(acc).attrs.bold).toBe(true);
   });
 
   it("rejectAll resolves a VISIBLE embed's provenance — strips, no proposal (#478)", () => {
-    const rej = rejectAll(markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).state).state;
+    const rej = rejectAll(markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).document).document;
     expect(formattingSuggestionIds(tabEmbed(rej).attrs).length > 0).toBe(false);
     expect("bold" in tabEmbed(rej).attrs).toBe(false);
   });
@@ -1219,10 +1219,10 @@ describe("acceptSuggestion / rejectSuggestion — formatting", () => {
       span(0, 2),
       { bold: true },
       INPUT,
-    ).state;
-    s = markFormatting(s, span(3, 4), { italic: true }, { id: SID2, author: "alice", createdAt: 2000 }).state;
+    ).document;
+    s = markFormatting(s, span(3, 4), { italic: true }, { id: SID2, author: "alice", createdAt: 2000 }).document;
 
-    const accepted = acceptSuggestion(s, SID).state;
+    const accepted = acceptSuggestion(s, SID).document;
     const tab = pItems(accepted).find((it) => it.kind === "embed" && it.embedType === "tab");
     if (tab === undefined || tab.kind !== "embed") throw new Error("expected the tab embed");
     expect(formattingSuggestionIds(tab.attrs).length > 0).toBe(false); // S1 resolved
@@ -1247,7 +1247,7 @@ describe("acceptSuggestion — UNDOABLE (one undo step)", () => {
     // different block is the clean proof.)
     const aSid = "fmtA" as SuggestionId;
     const bSid = "fmtB" as SuggestionId;
-    const twoBlocks = buildState({
+    const twoBlocks = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "pA", lastChildId: "pB" }),
@@ -1269,7 +1269,7 @@ describe("acceptSuggestion — UNDOABLE (one undo step)", () => {
     });
     const spanIn = (block: string, a: number, b: number): Span =>
       createSpan(createPosition(block as BlockId, a), createPosition(block as BlockId, b));
-    const fmtAttr = (s: State, block: string): unknown => {
+    const fmtAttr = (s: Document, block: string): unknown => {
       for (const it of getBlock(s, block as BlockId)?.inlineContent?.items ?? []) {
         if (it.kind === "text" && formattingSuggestionIds(it.attrs)[0] !== undefined) {
           return formattingSuggestionIds(it.attrs)[0];
@@ -1286,7 +1286,7 @@ describe("acceptSuggestion — UNDOABLE (one undo step)", () => {
       id: bSid,
       author: "alice",
       createdAt: 1,
-    }).state;
+    }).document;
 
     const history = createHistory(withB);
 
@@ -1298,7 +1298,7 @@ describe("acceptSuggestion — UNDOABLE (one undo step)", () => {
       createdAt: 2,
     });
     history.commit(markedA, { before: null, after: null });
-    const s1 = markedA.state;
+    const s1 = markedA.document;
     expect(fmtAttr(s1, "pA")).toBe(aSid);
     expect(getSuggestions(s1).length).toBe(2);
 
@@ -1306,17 +1306,17 @@ describe("acceptSuggestion — UNDOABLE (one undo step)", () => {
     history.beginEntry("command", 200);
     const accepted = acceptSuggestion(s1, bSid);
     history.commit(accepted, { before: null, after: null });
-    expect(fmtAttr(accepted.state, "pB")).toBeUndefined(); // applied + stripped in pB
-    expect(getSuggestions(accepted.state).length).toBe(1); // only pA's remains
+    expect(fmtAttr(accepted.document, "pB")).toBeUndefined(); // applied + stripped in pB
+    expect(getSuggestions(accepted.document).length).toBe(1); // only pA's remains
 
     // The first undo restores pB's suggestion exactly; the second reverts pA's create.
     const restored = history.undo();
     if (restored === null) throw new Error("expected undo to return a result");
-    expect(fmtAttr(restored.state, "pB")).toBe(bSid);
-    expect(getSuggestions(restored.state).length).toBe(2);
+    expect(fmtAttr(restored.document, "pB")).toBe(bSid);
+    expect(getSuggestions(restored.document).length).toBe(2);
     const undone = history.undo();
     if (undone === null) throw new Error("expected a second undo");
-    expect(fmtAttr(undone.state, "pA")).toBeUndefined(); // pA edit reverted
+    expect(fmtAttr(undone.document, "pA")).toBeUndefined(); // pA edit reverted
     expect(history.canUndo()).toBe(false);
 
     history.destroy();
@@ -1327,14 +1327,14 @@ describe("acceptSuggestion / rejectSuggestion — absent record no-op", () => {
   it("accepting a nonexistent id returns the SAME state reference + empty dirtyIds", () => {
     const s = oneBlock();
     const r = acceptSuggestion(s, "nonexistent" as SuggestionId);
-    expect(r.state).toBe(s);
+    expect(r.document).toBe(s);
     expect(r.dirtyIds.size).toBe(0);
   });
 
   it("rejecting a nonexistent id returns the SAME state reference + empty dirtyIds", () => {
     const s = oneBlock();
     const r = rejectSuggestion(s, "nonexistent" as SuggestionId);
-    expect(r.state).toBe(s);
+    expect(r.document).toBe(s);
     expect(r.dirtyIds.size).toBe(0);
   });
 
@@ -1352,13 +1352,13 @@ describe("acceptSuggestion / rejectSuggestion — absent record no-op", () => {
         author: "alice",
         createdAt: 1,
       });
-    }).state;
+    }).document;
     expect(getSuggestions(seeded).length).toBe(0); // rangeless → never surfaced
 
     const r = acceptSuggestion(seeded, orphan);
-    expect(r.state).not.toBe(seeded); // state advanced (not an identity no-op)
+    expect(r.document).not.toBe(seeded); // state advanced (not an identity no-op)
     expect(r.dirtyIds.size).toBeGreaterThan(0);
-    expect(getSuggestionsMap(r.state[STATE_INTERNAL].doc).size).toBe(0); // the dangling record is gone
+    expect(getSuggestionsMap(r.document[DOCUMENT_INTERNAL].doc).size).toBe(0); // the dangling record is gone
   });
 });
 
@@ -1370,9 +1370,9 @@ describe("acceptSuggestion / rejectSuggestion — multi-block deletion (write lo
       twoBlocks(inlineContent([text("abcdef")]), inlineContent([text("ghijkl")])),
       createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 4)),
       DEL_INPUT,
-    ).state;
+    ).document;
 
-    const s = acceptSuggestion(marked, DEL_SID).state;
+    const s = acceptSuggestion(marked, DEL_SID).document;
     // Tagged text removed for real in BOTH blocks, and the crossed ¶p1 (keyed with the
     // same id) is deleted: one paragraph "abkl" (Word / GDocs), survivor p2.
     expect(itemsOf(s, "p2").map((it) => (it.kind === "text" ? it.text : "")).join("")).toBe("abkl");
@@ -1385,9 +1385,9 @@ describe("acceptSuggestion / rejectSuggestion — multi-block deletion (write lo
       twoBlocks(inlineContent([text("abcdef")]), inlineContent([text("ghijkl")])),
       createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 4)),
       DEL_INPUT,
-    ).state;
+    ).document;
 
-    const s = rejectSuggestion(marked, DEL_SID).state;
+    const s = rejectSuggestion(marked, DEL_SID).document;
     // Text intact in both blocks; no deletion attr survives anywhere.
     expect(itemsOf(s, "p1").map((it) => (it.kind === "text" ? it.text : "")).join("")).toBe("abcdef");
     expect(itemsOf(s, "p2").map((it) => (it.kind === "text" ? it.text : "")).join("")).toBe("ghijkl");
@@ -1405,8 +1405,8 @@ describe("acceptSuggestion / rejectSuggestion — MT-3: resolves a suggestion in
   // (offsets 1..4) carries DELETION_SUGGESTION_ATTR "s-body", plus its record.
   // Pre-MT-3 the resolve scan visited only the main tree, so accept/reject
   // deleted the record but left the body run tagged as an un-resolvable zombie.
-  function bodyDeletionState(): State {
-    const seed = buildState({
+  function bodyDeletionDocument(): Document {
+    const seed = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -1433,30 +1433,30 @@ describe("acceptSuggestion / rejectSuggestion — MT-3: resolves a suggestion in
         author: "alice",
         createdAt: 1,
       });
-    }).state;
+    }).document;
   }
 
   /** Concatenated text of the embed-body block fnp (resolved off the main tree). */
-  function fnpText(s: State): string {
+  function fnpText(s: Document): string {
     return (resolveBlock(s, "fnp" as BlockId)?.block.inlineContent?.items ?? [])
       .map((it) => (it.kind === "text" ? it.text : ""))
       .join("");
   }
 
   it("accept DROPS the soft-deleted run inside the footnote body for real", () => {
-    const seeded = bodyDeletionState();
+    const seeded = bodyDeletionDocument();
     expect(fnpText(seeded)).toBe("abcdef");
     expect(getSuggestions(seeded).length).toBe(1);
 
-    const s = acceptSuggestion(seeded, "s-body" as SuggestionId).state;
+    const s = acceptSuggestion(seeded, "s-body" as SuggestionId).document;
     expect(fnpText(s)).toBe("aef"); // "bcd" really removed in the BODY tree
     expect(getSuggestions(s).length).toBe(0);
   });
 
   it("reject STRIPS the deletion id in the footnote body (text preserved)", () => {
-    const seeded = bodyDeletionState();
+    const seeded = bodyDeletionDocument();
 
-    const s = rejectSuggestion(seeded, "s-body" as SuggestionId).state;
+    const s = rejectSuggestion(seeded, "s-body" as SuggestionId).document;
     expect(fnpText(s)).toBe("abcdef");
     for (const it of resolveBlock(s, "fnp" as BlockId)?.block.inlineContent?.items ?? []) {
       if (it.kind === "text") expect(DELETION_SUGGESTION_ATTR in it.attrs).toBe(false);
@@ -1483,7 +1483,7 @@ const ALL_FMT_SID = "allFmt" as SuggestionId;
  * assertions look runs up by their text). The INS run is introduced by
  * `mintInsertion` (so it carries a real insertion record).
  */
-function threeSuggestionDoc(): State {
+function threeSuggestionDoc(): Document {
   // Distinct-colored base runs so resolved runs stay independently findable.
   let s = oneBlock(
     inlineContent([
@@ -1498,24 +1498,24 @@ function threeSuggestionDoc(): State {
     id: ALL_INS_SID,
     author: "alice",
     createdAt: 10,
-  }).state;
+  }).document;
   // "DEL" now at offsets 4..7 — soft-delete it.
   s = markDeletion(s, span(4, 7), {
     id: ALL_DEL_SID,
     author: "alice",
     createdAt: 20,
-  }).state;
+  }).document;
   // "FMT" now at offsets 7..10 — propose bold:true.
   s = markFormatting(s, span(7, 10), { bold: true }, {
     id: ALL_FMT_SID,
     author: "alice",
     createdAt: 30,
-  }).state;
+  }).document;
   return s;
 }
 
 /** The single text run whose text equals `t` (throws if no such text run). */
-function runWithText(s: State, t: string) {
+function runWithText(s: Document, t: string) {
   const run = pItems(s).find((it) => it.kind === "text" && it.text === t);
   if (run === undefined || run.kind !== "text") {
     throw new Error(`expected a text run "${t}"`);
@@ -1525,7 +1525,7 @@ function runWithText(s: State, t: string) {
 
 describe("acceptAll — resolve every suggestion (accept dominance) in ONE non-undoable op", () => {
   it("insertion→plain, deletion→dropped, formatting→proposal applied live; suggestions cleared", () => {
-    const s = acceptAll(threeSuggestionDoc()).state;
+    const s = acceptAll(threeSuggestionDoc()).document;
 
     // "DEL" is gone (accept-deletion removes the text); INS + FMT survive.
     expect(pText(s)).toBe("aINSFMTz");
@@ -1549,7 +1549,7 @@ describe("acceptAll — resolve every suggestion (accept dominance) in ONE non-u
 
 describe("rejectAll — resolve every suggestion (reject dominance) in ONE non-undoable op", () => {
   it("insertion→dropped, deletion→text kept (id stripped), formatting→proposal discarded; suggestions cleared", () => {
-    const s = rejectAll(threeSuggestionDoc()).state;
+    const s = rejectAll(threeSuggestionDoc()).document;
 
     // "INS" is gone (reject-insertion drops the suggested text); DEL + FMT stay.
     expect(pText(s)).toBe("aDELFMTz");
@@ -1578,7 +1578,7 @@ describe("acceptAll / rejectAll — NESTED insertion + deletion on ONE run is DR
    * Both records are present. Under accept (delete dominates) AND reject (insert
    * dominates) the run must be DROPPED.
    */
-  function nestedInsDelDoc(): State {
+  function nestedInsDelDoc(): Document {
     // The run "X" carries both ids in its attrs; seed both records.
     let s = oneBlock(
       inlineContent([
@@ -1599,18 +1599,18 @@ describe("acceptAll / rejectAll — NESTED insertion + deletion on ONE run is DR
         createdAt: 1,
       });
       return new Set<BlockId>([s.rootId]);
-    }).state;
+    }).document;
     return s;
   }
 
   it("acceptAll DROPS the nested run", () => {
-    const s = acceptAll(nestedInsDelDoc()).state;
+    const s = acceptAll(nestedInsDelDoc()).document;
     expect(pText(s)).toBe("az");
     expect(getSuggestions(s).length).toBe(0);
   });
 
   it("rejectAll DROPS the nested run", () => {
-    const s = rejectAll(nestedInsDelDoc()).state;
+    const s = rejectAll(nestedInsDelDoc()).document;
     expect(pText(s)).toBe("az");
     expect(getSuggestions(s).length).toBe(0);
   });
@@ -1623,7 +1623,7 @@ describe("acceptAll / rejectAll — NESTED insertion + formatting on ONE run (co
    * run KEEPS (no deletion id), strips the insertion id, AND applies the
    * proposal live. Under rejectAll the insertion dominates → the run is DROPPED.
    */
-  function nestedInsFmtDoc(): State {
+  function nestedInsFmtDoc(): Document {
     let s = oneBlock(
       inlineContent([
         text("a"),
@@ -1644,12 +1644,12 @@ describe("acceptAll / rejectAll — NESTED insertion + formatting on ONE run (co
         proposedAttrs: { bold: true },
       });
       return new Set<BlockId>([s.rootId]);
-    }).state;
+    }).document;
     return s;
   }
 
   it("acceptAll KEEPS the run as plain text WITH the proposed format applied", () => {
-    const s = acceptAll(nestedInsFmtDoc()).state;
+    const s = acceptAll(nestedInsFmtDoc()).document;
     expect(pText(s)).toBe("aXz");
     const x = runWithText(s, "X");
     expect(x.attrs.bold).toBe(true);
@@ -1659,7 +1659,7 @@ describe("acceptAll / rejectAll — NESTED insertion + formatting on ONE run (co
   });
 
   it("rejectAll DROPS the run (insertion dominates)", () => {
-    const s = rejectAll(nestedInsFmtDoc()).state;
+    const s = rejectAll(nestedInsFmtDoc()).document;
     expect(pText(s)).toBe("az");
     expect(getSuggestions(s).length).toBe(0);
   });
@@ -1675,7 +1675,7 @@ describe("acceptAll / rejectAll — NESTED deletion + formatting on ONE run", ()
    * the one non-trivial `rejectAll` keep-path distinct from the drop + single-id
    * strip paths.
    */
-  function nestedDelFmtDoc(): State {
+  function nestedDelFmtDoc(): Document {
     let s = oneBlock(
       inlineContent([
         text("a"),
@@ -1701,18 +1701,18 @@ describe("acceptAll / rejectAll — NESTED deletion + formatting on ONE run", ()
         proposedAttrs: { bold: true },
       });
       return new Set<BlockId>([s.rootId]);
-    }).state;
+    }).document;
     return s;
   }
 
   it("acceptAll DROPS the run (deletion dominates; the proposal is moot)", () => {
-    const s = acceptAll(nestedDelFmtDoc()).state;
+    const s = acceptAll(nestedDelFmtDoc()).document;
     expect(pText(s)).toBe("az");
     expect(getSuggestions(s).length).toBe(0);
   });
 
   it("rejectAll KEEPS the text with BOTH ids stripped and the proposal discarded (not bold)", () => {
-    const s = rejectAll(nestedDelFmtDoc()).state;
+    const s = rejectAll(nestedDelFmtDoc()).document;
     // Text fully preserved. Stripping both ids makes the once-marked "X" run's
     // attrs plain `{}` — identical to its "a"/"z" neighbors — so it re-merges
     // into a single plain "aXz" run (no standalone "X" run survives).
@@ -1737,7 +1737,7 @@ describe("acceptAll — UNDOABLE (one undo step)", () => {
     // (non-undoable SUGGESTION_RESOLVE_ORIGIN txn) can thus neither entangle nor
     // add to the undo stack — undo() cleanly reverts only the pA insert.
     const bSid = "fmtB" as SuggestionId;
-    const doc2 = buildState({
+    const doc2 = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "pA", lastChildId: "pB" }),
@@ -1759,7 +1759,7 @@ describe("acceptAll — UNDOABLE (one undo step)", () => {
     });
     const spanIn = (block: string, a: number, b: number): Span =>
       createSpan(createPosition(block as BlockId, a), createPosition(block as BlockId, b));
-    const pAText = (s: State): string =>
+    const pAText = (s: Document): string =>
       (getBlock(s, "pA" as BlockId)?.inlineContent?.items ?? [])
         .filter((it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text")
         .map((it) => it.text)
@@ -1771,7 +1771,7 @@ describe("acceptAll — UNDOABLE (one undo step)", () => {
       id: bSid,
       author: "alice",
       createdAt: 1,
-    }).state;
+    }).document;
 
     const history = createHistory(withB);
 
@@ -1780,7 +1780,7 @@ describe("acceptAll — UNDOABLE (one undo step)", () => {
     history.beginEntry("command", 100);
     const editedA = insertText(withB, createPosition("pA" as BlockId, 6), "XYZ", {});
     history.commit(editedA, { before: null, after: null });
-    const s1 = editedA.state;
+    const s1 = editedA.document;
     expect(pAText(s1)).toBe("aaaaaaXYZ");
     expect(getSuggestions(s1).length).toBe(1); // only pB's suggestion
 
@@ -1788,16 +1788,16 @@ describe("acceptAll — UNDOABLE (one undo step)", () => {
     history.beginEntry("command", 200);
     const accepted = acceptAll(s1);
     history.commit(accepted, { before: null, after: null });
-    expect(getSuggestions(accepted.state).length).toBe(0); // suggestion resolved
-    expect(pAText(accepted.state)).toBe("aaaaaaXYZ"); // pA untouched by acceptAll
+    expect(getSuggestions(accepted.document).length).toBe(0); // suggestion resolved
+    expect(pAText(accepted.document)).toBe("aaaaaaXYZ"); // pA untouched by acceptAll
 
     // The first undo restores pB's suggestion; the second reverts pA's insert.
     const restored = history.undo();
     if (restored === null) throw new Error("expected undo to return a result");
-    expect(getSuggestions(restored.state).length).toBe(1);
+    expect(getSuggestions(restored.document).length).toBe(1);
     const undone = history.undo();
     if (undone === null) throw new Error("expected a second undo");
-    expect(pAText(undone.state)).toBe("aaaaaa"); // pA insert reverted
+    expect(pAText(undone.document)).toBe("aaaaaa"); // pA insert reverted
     expect(history.canUndo()).toBe(false);
 
     history.destroy();
@@ -1808,14 +1808,14 @@ describe("acceptAll / rejectAll — empty-doc / no-suggestions identity no-op", 
   it("acceptAll on a doc with no suggestions returns the SAME state reference + empty dirtyIds", () => {
     const s = oneBlock();
     const r = acceptAll(s);
-    expect(r.state).toBe(s);
+    expect(r.document).toBe(s);
     expect(r.dirtyIds.size).toBe(0);
   });
 
   it("rejectAll on a doc with no suggestions returns the SAME state reference + empty dirtyIds", () => {
     const s = oneBlock();
     const r = rejectAll(s);
-    expect(r.state).toBe(s);
+    expect(r.document).toBe(s);
     expect(r.dirtyIds.size).toBe(0);
   });
 });
@@ -1852,7 +1852,7 @@ describe("#484 — identity-preserving resolve keeps a prior same-block undoable
       id: sPre,
       author: "alice",
       createdAt: 1,
-    }).state;
+    }).document;
     expect(pText(seeded)).toBe("INSabcdef");
 
     const history = createHistory(seeded);
@@ -1866,7 +1866,7 @@ describe("#484 — identity-preserving resolve keeps a prior same-block undoable
       createdAt: 2,
     });
     history.commit(editedE1, { before: null, after: null });
-    const sE1 = editedE1.state;
+    const sE1 = editedE1.document;
     expect(pText(sE1)).toBe("INSabcdefE1");
 
     // Resolve s-pre (REJECT → drops "INS") as its own undo entry. Identity-
@@ -1874,16 +1874,16 @@ describe("#484 — identity-preserving resolve keeps a prior same-block undoable
     history.beginEntry("command", 200);
     const resolved = rejectSuggestion(sE1, sPre);
     history.commit(resolved, { before: null, after: null });
-    expect(pText(resolved.state)).toBe("abcdefE1"); // INS dropped, E1 survives
+    expect(pText(resolved.document)).toBe("abcdefE1"); // INS dropped, E1 survives
 
     // The first undo restores the rejected "INS"; the second reverts E1 cleanly —
     // proving E1's StackItem survived the resolve (a REAL revert, not a no-op).
     const restored = history.undo();
     if (restored === null) throw new Error("expected undo to return a result");
-    expect(pText(restored.state)).toBe("INSabcdefE1");
+    expect(pText(restored.document)).toBe("INSabcdefE1");
     const undone = history.undo();
     if (undone === null) throw new Error("expected a second undo");
-    expect(pText(undone.state)).toBe("INSabcdef");
+    expect(pText(undone.document)).toBe("INSabcdef");
 
     history.destroy();
   });
@@ -1910,7 +1910,7 @@ describe("#484 — identity-preserving resolve keeps a prior same-block undoable
         writeSuggestionRecordInTx(doc, { id: sPre, kind: "insertion", author: "alice", createdAt: 1 });
         return new Set<BlockId>([oneBlock().rootId]);
       },
-    ).state;
+    ).document;
 
     const history = createHistory(seeded);
 
@@ -1919,7 +1919,7 @@ describe("#484 — identity-preserving resolve keeps a prior same-block undoable
     history.beginEntry("command", 100);
     const editedE1 = insertText(seeded, createPosition("p" as BlockId, 9), "E1", { color: "base" });
     history.commit(editedE1, { before: null, after: null });
-    const sE1 = editedE1.state;
+    const sE1 = editedE1.document;
     expect(pText(sE1)).toBe("INSabcdefE1");
 
     // Accept s-pre (STRIP → "INS" becomes plain {} text, stays distinct from the
@@ -1927,20 +1927,20 @@ describe("#484 — identity-preserving resolve keeps a prior same-block undoable
     history.beginEntry("command", 200);
     const resolved = acceptSuggestion(sE1, sPre);
     history.commit(resolved, { before: null, after: null });
-    expect(pText(resolved.state)).toBe("INSabcdefE1"); // INS now plain, E1 present
+    expect(pText(resolved.document)).toBe("INSabcdefE1"); // INS now plain, E1 present
 
     // The first undo restores the pending suggestion; the second — undo of the plain
     // E1 edit — is a REAL revert: the resolve preserved E1's run identity.
     const restored = history.undo();
     if (restored === null) throw new Error("expected undo to return a result");
-    expect(getSuggestions(restored.state).length).toBe(1);
+    expect(getSuggestions(restored.document).length).toBe(1);
     const undone = history.undo();
     if (undone === null) throw new Error("expected a second undo");
     // The #484 win: undo of the plain E1 edit is a REAL revert (E1 gone), not the
     // pre-#484 silent no-op (which left "INSabcdefE1"). Here the accept STRIPPED
     // (not dropped) INS, so it stays — undo of E1 cleanly yields "INSabcdef".
     // Pinning the exact content rules out over/under-revert; still fails pre-#484.
-    expect(pText(undone.state)).toBe("INSabcdef");
+    expect(pText(undone.document)).toBe("INSabcdef");
 
     history.destroy();
   });
@@ -1968,11 +1968,11 @@ describe("#484 — identity-preserving resolve keeps a prior same-block undoable
         createdAt: 1,
       });
       return new Set<BlockId>([s.rootId]);
-    }).state;
+    }).document;
 
     const relC = relAt(s, "p", 2);
 
-    const resolved = acceptSuggestion(s, s1).state;
+    const resolved = acceptSuggestion(s, s1).document;
 
     // After: "ab"{} then "c"{bold}; "c" is the same CRDT item.
     expect(pItems(resolved)).toEqual([text("ab"), text("c", { bold: true })]);
@@ -1999,13 +1999,13 @@ describe("#484 — resolve equivalence + index-arithmetic edge cases", () => {
       writeSuggestionRecordInTx(doc, { id: s1, kind: "insertion", author: "a", createdAt: 1 });
       writeSuggestionRecordInTx(doc, { id: s2, kind: "deletion", author: "a", createdAt: 2 });
       return new Set<BlockId>([s.rootId]);
-    }).state;
+    }).document;
 
     // Accept s2 (DROP "DEL") — "INS" still tagged (KEEP), "K"/"T" KEEP.
-    const afterDel = acceptSuggestion(s, s2).state;
+    const afterDel = acceptSuggestion(s, s2).document;
     expect(pText(afterDel)).toBe("KINST");
     // Then accept s1 (REWRITE-strip "INS" → plain).
-    const afterIns = acceptSuggestion(afterDel, s1).state;
+    const afterIns = acceptSuggestion(afterDel, s1).document;
     expect(pText(afterIns)).toBe("KINST");
     const ins = runWithText(afterIns, "INS");
     expect(INSERTION_SUGGESTION_ATTR in ins.attrs).toBe(false);
@@ -2026,9 +2026,9 @@ describe("#484 — resolve equivalence + index-arithmetic edge cases", () => {
     s = applyOperation(s, (doc) => {
       writeSuggestionRecordInTx(doc, { id: s1, kind: "insertion", author: "a", createdAt: 1 });
       return new Set<BlockId>([s.rootId]);
-    }).state;
+    }).document;
 
-    const resolved = acceptSuggestion(s, s1).state;
+    const resolved = acceptSuggestion(s, s1).document;
     expect(pText(resolved)).toBe("ab");
     // Single merged plain run (no adjacent same-attrs runs survive normalization).
     const plainRuns = pItems(resolved).filter((it) => it.kind === "text");
@@ -2043,9 +2043,9 @@ describe("#484 — resolve equivalence + index-arithmetic edge cases", () => {
     s = applyOperation(s, (doc) => {
       writeSuggestionRecordInTx(doc, { id: s1, kind: "insertion", author: "a", createdAt: 1 });
       return new Set<BlockId>([s.rootId]);
-    }).state;
+    }).document;
 
-    const resolved = rejectSuggestion(s, s1).state;
+    const resolved = rejectSuggestion(s, s1).document;
     expect(pText(resolved)).toBe(""); // block is now an empty leaf
     expect(pItems(resolved).length).toBe(0);
     expect(getSuggestions(resolved).length).toBe(0);

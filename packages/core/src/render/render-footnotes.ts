@@ -19,7 +19,7 @@ import {
   FOOTNOTE_ANCHOR_EMBED_TYPE,
 } from "../state";
 import type { BookmarkRange } from "../state";
-import type { Block, BlockId, State, SuggestionView } from "../state";
+import type { Block, BlockId, Document, SuggestionView } from "../state";
 import {
   documentFootnotePolicy,
   SECTION_BLOCK_TYPE,
@@ -46,8 +46,8 @@ import type { RenderOutput } from "./render";
  * from `resolveFootnotes` into the markers. Continuous and restart-per-section are
  * state-derivable and pass through unchanged.
  */
-export function effectiveRenderPolicy(state: State): FootnoteNumberingPolicy {
-  const policy = documentFootnotePolicy(state);
+export function effectiveRenderPolicy(document: Document): FootnoteNumberingPolicy {
+  const policy = documentFootnotePolicy(document);
   return policy.reset === "restart-per-page"
     ? { ...policy, reset: "continuous" }
     : policy;
@@ -79,16 +79,16 @@ export const EMPTY_FOOTNOTE_NUMBERS: ReadonlyMap<BlockId, FootnoteNumber> =
  * body number renders identically regardless of path.
  */
 export function makeRenderContext(
-  state: State,
+  document: Document,
   fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
   listCounters: ReadonlyMap<BlockId, CounterValue>,
   suggestionView: SuggestionView = "suggesting",
   bookmarks: ReadonlyMap<string, BookmarkRange> = new Map(),
 ): RenderContext {
-  const format = documentFootnotePolicy(state).format;
+  const format = documentFootnotePolicy(document).format;
   const suffix = format === "symbol" ? "" : ".";
   return {
-    state,
+    document,
     suggestionView,
     footnoteNumber: (contentBlockId: BlockId): string | undefined => {
       const formatted = fnNumbers.get(contentBlockId)?.formatted;
@@ -116,7 +116,7 @@ export function makeRenderContext(
  *  1. the document has footnotes (`docHasFootnotes`) — a footnote-free doc has
  *     no cached anchors worth reusing and takes the empty-list short-circuit;
  *  2. NO block in `dirtyIds` carries a footnote anchor in its NEW (current
- *     state) OR PREV (prevState) inline content — the complete test for an
+ *     state) OR PREV (prevDocument) inline content — the complete test for an
  *     anchor add / remove / move, since every such block is dirty and either
  *     its new content (added/moved) or its prev content (removed/moved) holds
  *     the anchor; and
@@ -127,12 +127,12 @@ export function makeRenderContext(
  * Moving a NON-anchor block cannot reorder anchors, so it does not block reuse.
  */
 export function footnoteAnchorsUnchanged(
-  state: State,
-  prevState: State,
+  document: Document,
+  prevDocument: Document,
   dirtyIds: ReadonlySet<BlockId>,
   prev: RenderOutput,
 ): boolean {
-  if (!docHasFootnotes(state)) return false;
+  if (!docHasFootnotes(document)) return false;
   // Reuse only when `prev` actually cached anchors. Every render path (full +
   // incremental) populates `footnoteAnchors` whenever the doc has footnotes, so
   // this is true on any normal `prev`; the check doubles as the guard that we
@@ -143,12 +143,12 @@ export function footnoteAnchorsUnchanged(
   // policy change dirties the root but touches no anchor-bearing or section
   // block, so the per-block scan below would NOT catch it — reusing the stale
   // numbers. Force a recompute whenever the policy-bearing root is dirty (O(1)).
-  if (dirtyIds.has(state.rootId)) return false;
+  if (dirtyIds.has(document.rootId)) return false;
   for (const id of dirtyIds) {
-    if (blockIsSection(state, id) || blockIsSection(prevState, id)) return false;
+    if (blockIsSection(document, id) || blockIsSection(prevDocument, id)) return false;
     if (
-      blockHasFootnoteAnchor(getBlock(state, id)) ||
-      blockHasFootnoteAnchor(getBlock(prevState, id))
+      blockHasFootnoteAnchor(getBlock(document, id)) ||
+      blockHasFootnoteAnchor(getBlock(prevDocument, id))
     ) {
       return false;
     }
@@ -167,7 +167,7 @@ export function blockHasFootnoteAnchor(block: Block | null): boolean {
   return false;
 }
 
-/** True if the block with `id` in `state` is a `section`-type block. */
-export function blockIsSection(state: State, id: BlockId): boolean {
-  return getBlock(state, id)?.type === SECTION_BLOCK_TYPE;
+/** True if the block with `id` in `document` is a `section`-type block. */
+export function blockIsSection(document: Document, id: BlockId): boolean {
+  return getBlock(document, id)?.type === SECTION_BLOCK_TYPE;
 }

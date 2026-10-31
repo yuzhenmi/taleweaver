@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { tableCellComponent } from "./table-cell";
 import type { ContainerBlockView, RenderContext } from "../render/block-view";
 import type { ElementBox } from "../render/render-node";
-import type { BlockId, State } from "../state";
+import type { BlockId, Document } from "../state";
 import type { ComputedStyle } from "../styles";
 
 function containerView(attrs: Record<string, unknown> = {}): ContainerBlockView {
@@ -17,7 +17,7 @@ function containerView(attrs: Record<string, unknown> = {}): ContainerBlockView 
 
 function stubCtx(): RenderContext {
   return {
-    state: {} as State,
+    document: {} as Document,
     footnoteNumber: () => undefined,
   };
 }

@@ -1,14 +1,14 @@
 import { describe, it, expect } from "vitest";
-import type { ComputedStyle, EditorConfig, State, UsedStyle } from "@taleweaver/core";
+import type { ComputedStyle, EditorConfig, Document, UsedStyle } from "@taleweaver/core";
 import type { BlockBox, LayoutBox } from "@taleweaver/print";
 import {
   INITIAL_COMPUTED_STYLE,
   asBlockId,
   buildBlock,
-  buildState,
+  buildDocument,
   createDefaultAttrRegistry,
   createDefaultComponentRegistry,
-  createEditorStateFromState,
+  createEditorStateFromDocument,
   createMockShaper,
   createPosition,
   createSpan,
@@ -227,9 +227,9 @@ describe("emitPageContent — change-tracking ¶ and section-break label are art
   const base: EditorConfig = { componentRegistry, attrRegistry, containerWidth: 300 };
   const alice: EditorConfig = { ...base, suggestingAuthor: "alice", now: () => 1 };
   const at = (b: string, o: number) => createSpan(createPosition(asBlockId(b), o), createPosition(asBlockId(b), o));
-  const state = (): State => {
+  const state = (): Document => {
     const ids = ["p0", "p1", "p2"];
-    const s = buildState({
+    const s = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: "p2" }),
@@ -238,10 +238,10 @@ describe("emitPageContent — change-tracking ¶ and section-break label are art
     });
     // A suggested join p0|p1 (¶ at the end of p0) and a suggested section break before p2
     // (an empty ¶ ending the first section, drawn as the section-break label).
-    let e = createEditorStateFromState(s, at("p1", 0), alice);
+    let e = createEditorStateFromDocument(s, at("p1", 0), alice);
     e = reduceEditor(e, { type: "DELETE_BACKWARD" });
     e = reduceEditor(reduceEditor(e, { type: "SET_SELECTION", selection: at("p2", 0) }), { type: "SECTION_BREAK" });
-    return e.state;
+    return e.document;
   };
 
   it("wraps the ¶ glyph and the section-break label (double rule + label) in /Artifact; the text spans exclude them", () => {

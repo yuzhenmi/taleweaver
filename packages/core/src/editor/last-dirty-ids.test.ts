@@ -21,8 +21,8 @@ import { topLevelBlockIds } from "../state";
 import type { BlockId } from "../state";
 
 /** The first content block id of a fresh editor (the only paragraph). */
-function firstBlockId(state: ReturnType<typeof createInitialEditorState>["state"]): BlockId {
-  const first = topLevelBlockIds(state)[0]; // the root holds sections
+function firstBlockId(document: ReturnType<typeof createInitialEditorState>["document"]): BlockId {
+  const first = topLevelBlockIds(document)[0]; // the root holds sections
   if (first === undefined) {
     throw new Error("last-dirty-ids.test: editor seed has no content block");
   }
@@ -32,7 +32,7 @@ function firstBlockId(state: ReturnType<typeof createInitialEditorState>["state"
 describe("EditorState.lastDirtyIds", () => {
   it("a mutating action (INSERT_TEXT) records a non-empty set containing the edited block", () => {
     const editor = createInitialEditorState(config);
-    const blockId = firstBlockId(editor.state);
+    const blockId = firstBlockId(editor.document);
 
     const result = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
 
@@ -45,7 +45,7 @@ describe("EditorState.lastDirtyIds", () => {
 
   it("a standalone SET_SELECTION yields null (no incremental hint)", () => {
     const editor = createInitialEditorState(config);
-    const blockId = firstBlockId(editor.state);
+    const blockId = firstBlockId(editor.document);
     const at = createPosition(blockId, 0);
 
     const result = reduceEditor(
@@ -58,7 +58,7 @@ describe("EditorState.lastDirtyIds", () => {
 
   it("entry-clears stale dirty ids: a SET_SELECTION after an INSERT_TEXT yields null, not the inherited set", () => {
     const editor = createInitialEditorState(config);
-    const blockId = firstBlockId(editor.state);
+    const blockId = firstBlockId(editor.document);
 
     // r1: a mutating action → a non-null block set.
     const r1 = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });

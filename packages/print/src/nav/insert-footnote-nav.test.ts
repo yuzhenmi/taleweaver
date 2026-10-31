@@ -34,7 +34,7 @@ import {
 
 /** All footnote-anchor embeds in a leaf block's inlineContent. */
 function anchorEmbedsOf(ctx: NavCtx, blockId: BlockId): ReadonlyArray<{ contentBlockId: BlockId }> {
-  const block = getBlock(ctx.editor.state, blockId);
+  const block = getBlock(ctx.editor.document, blockId);
   const items = block?.inlineContent?.items ?? [];
   const out: { contentBlockId: BlockId }[] = [];
   for (const it of items) {

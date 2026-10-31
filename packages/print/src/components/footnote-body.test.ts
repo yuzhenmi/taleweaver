@@ -18,15 +18,15 @@ import type { BlockBox, LayoutBox } from "../layout/layout-box";
 
 /**
  * A RenderContext the footnote-body render fn reads ONLY `footnoteNumber` from
- * (plus `view.id` + `childRenderNodes`). `state` throws to make any accidental
+ * (plus `view.id` + `childRenderNodes`). `document` throws to make any accidental
  * use loud. `footnoteNumber` returns `numberFor` for the body root id and
  * `undefined` otherwise; pass `undefined` (default) to model a body with no
  * number in the numbering map.
  */
 function stubRenderContext(numberFor?: string): RenderContext {
   return {
-    get state(): never {
-      throw new Error("footnote-body render must not read context.state");
+    get document(): never {
+      throw new Error("footnote-body render must not read context.document");
     },
     footnoteNumber(id: BlockId): string | undefined {
       return id === ("fn-body-0" as BlockId) ? numberFor : undefined;

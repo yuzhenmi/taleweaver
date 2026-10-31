@@ -1,5 +1,5 @@
 import type { BlockId } from "../state";
-import { freshState } from "../state";
+import { freshDocument } from "../state";
 import { clearTransientViewState, type EditorState } from "./editor-state";
 import { applyEdit } from "./edit";
 
@@ -11,7 +11,7 @@ import { applyEdit } from "./edit";
  * changed. This function consumes that set to produce the next local
  * `EditorState`:
  *
- * - **`freshState(state, dirtyIds)`** mints a new `State` over the same Y.Doc
+ * - **`freshDocument(state, dirtyIds)`** mints a new `Document` over the same Y.Doc
  *   whose snapshot cache is invalidated for `dirtyIds` only. Reads of those
  *   blocks now pick up the live (peer-mutated) Y.Doc; every UNCHANGED block
  *   falls through the overlay to its existing snapshot and stays
@@ -44,6 +44,6 @@ export function reconcileForeignChange(
   // set: its lifecycle preserves it through non-undo/redo handlers, and a foreign
   // edit is not undo/redo.
   return clearTransientViewState(
-    applyEdit(editor, { change: { state: freshState(editor.state, dirtyIds), dirtyIds }, undoable: false }),
+    applyEdit(editor, { change: { document: freshDocument(editor.document, dirtyIds), dirtyIds }, undoable: false }),
   );
 }

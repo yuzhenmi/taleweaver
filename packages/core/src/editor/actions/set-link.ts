@@ -28,7 +28,6 @@ import type { ActionOf } from "../editor-action";
  * incremental render pipeline.
  */
 export function handleSetLink(editor: EditorState, { url }: ActionOf<"SET_LINK">): Edit | null {
-  const { config } = editor;
   const { selection } = editor;
   // Collapsed caret: removing the link stops the next typed text from being
   // linked (typing attrs); a URL needs text to target, so setting one is a no-op.
@@ -45,8 +44,8 @@ export function handleSetLink(editor: EditorState, { url }: ActionOf<"SET_LINK">
   const incoming = url !== null && url.length > 0
     ? { link: url }
     : { link: undefined };
-  const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
-  if (result.state === editor.state) return null;
+  const result = applyAttrsOrSuggest(editor, selection, incoming);
+  if (result.document === editor.document) return null;
 
   // An attr-only edit shifts no offsets, so the selection is unchanged — it is
   // committed and rebuilt AS-IS, preserving both endpoints and the anchor/focus

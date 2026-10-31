@@ -14,7 +14,7 @@
  * used-style level.
  */
 import { describe, it, expect } from "vitest";
-import { buildBlock, buildState, inlineContent, text } from "@taleweaver/core";
+import { buildBlock, buildDocument, inlineContent, text } from "@taleweaver/core";
 import { render } from "@taleweaver/core";
 import { cascadePass } from "@taleweaver/core";
 import { computeUsedStyle } from "../layout/used-style";
@@ -29,8 +29,8 @@ const attrRegistry = createDefaultAttrRegistry();
 function buildLeafDoc(
   leafType: string,
   attrs: Record<string, unknown>,
-): ReturnType<typeof buildState> {
-  return buildState({
+): ReturnType<typeof buildDocument> {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "leaf", lastChildId: "leaf" }),
@@ -47,8 +47,8 @@ function buildLeafDoc(
 
 /** Render + cascade a single-leaf doc, returning the cascaded leaf ElementBox. */
 function cascadeLeaf(leafType: string, attrs: Record<string, unknown>): ElementBox {
-  const state = buildLeafDoc(leafType, attrs);
-  const renderOutput = render(state, componentRegistry, attrRegistry);
+  const document = buildLeafDoc(leafType, attrs);
+  const renderOutput = render(document, componentRegistry, attrRegistry);
   const cascaded = cascadePass(renderOutput.root);
   if (cascaded.type !== "element") throw new Error("expected element root");
   const leaf = findElementByKey(cascaded, "leaf");
@@ -148,7 +148,7 @@ describe("lang attr → layout cascade threading (#527)", () => {
   // its cascaded computedStyle. The controller's firstBodyLanguage walk reads
   // exactly this off the body text-runs.
   it("inherits a document-level lang attr down to a child paragraph", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -166,7 +166,7 @@ describe("lang attr → layout cascade threading (#527)", () => {
         }),
       ],
     });
-    const renderOutput = render(state, componentRegistry, attrRegistry);
+    const renderOutput = render(document, componentRegistry, attrRegistry);
     const cascaded = cascadePass(renderOutput.root);
     if (cascaded.type !== "element") throw new Error("expected element root");
     expect(cascaded.computedStyle?.language).toBe("ja");

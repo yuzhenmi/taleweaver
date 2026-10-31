@@ -17,21 +17,21 @@ import {
   createSpan,
 } from "./test-helpers";
 import { MAX_LIST_LEVEL } from "./helpers/shift-list-level";
-import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { createEditorStateFromDocument, type EditorState } from "../editor-state";
 import { getBlock } from "../../state";
 import type { BlockId } from "../../state";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
-import type { State } from "../../state";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
+import type { Document } from "../../state";
 
 // Phase 0b: core's `EditorState` is geometry-free — these state-level action
 // tests build only the geometry-free fields (the handler reads no layout).
-function makeEditor(state: State, selection: EditorState["selection"]): EditorState {
-  return createEditorStateFromState(state, selection, config);
+function makeEditor(document: Document, selection: EditorState["selection"]): EditorState {
+  return createEditorStateFromDocument(document, selection, config);
 }
 
 /** A doc with two list-item leaves (l0, l1) sharing listId "L1" + a trailing plain paragraph. */
-function buildListDoc(): State {
-  return buildState({
+function buildListDoc(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "l0", lastChildId: "p" }),
@@ -65,23 +65,23 @@ function buildListDoc(): State {
 
 describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
   it("LIST_INDENT on a level-0 list-item: sets listLevel to 1", () => {
-    const state = buildListDoc();
-    const editor = makeEditor(state, {
+    const document = buildListDoc();
+    const editor = makeEditor(document, {
       anchor: createPosition("l0" as BlockId, 0),
       focus: createPosition("l0" as BlockId, 0),
     });
 
-    expect(getBlock(editor.state, "l0" as BlockId)?.attrs.listLevel).toBeUndefined();
+    expect(getBlock(editor.document, "l0" as BlockId)?.attrs.listLevel).toBeUndefined();
 
     const next = reduceEditor(editor, { type: "LIST_INDENT" });
 
-    expect(getBlock(next.state, "l0" as BlockId)?.attrs.listLevel).toBe(1);
-    expect(next.state).not.toBe(editor.state);
+    expect(getBlock(next.document, "l0" as BlockId)?.attrs.listLevel).toBe(1);
+    expect(next.document).not.toBe(editor.document);
   });
 
   it("LIST_INDENT caps at MAX_LIST_LEVEL (8)", () => {
-    const state = buildListDoc();
-    let editor = makeEditor(state, {
+    const document = buildListDoc();
+    let editor = makeEditor(document, {
       anchor: createPosition("l0" as BlockId, 0),
       focus: createPosition("l0" as BlockId, 0),
     });
@@ -90,28 +90,28 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
     for (let i = 0; i < 12; i++) {
       editor = reduceEditor(editor, { type: "LIST_INDENT" });
     }
-    expect(getBlock(editor.state, "l0" as BlockId)?.attrs.listLevel).toBe(MAX_LIST_LEVEL);
+    expect(getBlock(editor.document, "l0" as BlockId)?.attrs.listLevel).toBe(MAX_LIST_LEVEL);
     expect(MAX_LIST_LEVEL).toBe(8);
   });
 
   it("LIST_OUTDENT from level 1: clears the attr (back to undefined)", () => {
-    const state = buildListDoc();
-    let editor = makeEditor(state, {
+    const document = buildListDoc();
+    let editor = makeEditor(document, {
       anchor: createPosition("l0" as BlockId, 0),
       focus: createPosition("l0" as BlockId, 0),
     });
 
     editor = reduceEditor(editor, { type: "LIST_INDENT" });
-    expect(getBlock(editor.state, "l0" as BlockId)?.attrs.listLevel).toBe(1);
+    expect(getBlock(editor.document, "l0" as BlockId)?.attrs.listLevel).toBe(1);
 
     editor = reduceEditor(editor, { type: "LIST_OUTDENT" });
     // Level 0 clears the attr (renders like a never-nested top-level item).
-    expect(getBlock(editor.state, "l0" as BlockId)?.attrs.listLevel).toBeUndefined();
+    expect(getBlock(editor.document, "l0" as BlockId)?.attrs.listLevel).toBeUndefined();
   });
 
   it("LIST_OUTDENT from level 0: no-op (clamped — same editor reference)", () => {
-    const state = buildListDoc();
-    const editor = makeEditor(state, {
+    const document = buildListDoc();
+    const editor = makeEditor(document, {
       anchor: createPosition("l0" as BlockId, 0),
       focus: createPosition("l0" as BlockId, 0),
     });
@@ -122,8 +122,8 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
   });
 
   it("collapsed caret in a non-list-item paragraph: no-op", () => {
-    const state = buildListDoc();
-    const editor = makeEditor(state, {
+    const document = buildListDoc();
+    const editor = makeEditor(document, {
       anchor: createPosition("p" as BlockId, 0),
       focus: createPosition("p" as BlockId, 0),
     });
@@ -131,14 +131,14 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
     const next = reduceEditor(editor, { type: "LIST_INDENT" });
 
     expect(next).toBe(editor);
-    expect(getBlock(next.state, "p" as BlockId)?.attrs.listLevel).toBeUndefined();
+    expect(getBlock(next.document, "p" as BlockId)?.attrs.listLevel).toBeUndefined();
   });
 
   it("range selection over only non-list-items: no-op (same editor reference)", () => {
-    const state = buildListDoc();
+    const document = buildListDoc();
     // Span covers only the plain paragraph "p" — no list-items in range.
     const editor = makeEditor(
-      state,
+      document,
       createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 4)),
     );
 
@@ -148,27 +148,27 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
   });
 
   it("range selection over both list-items: each list-item indents (paragraph untouched)", () => {
-    const state = buildListDoc();
+    const document = buildListDoc();
     const editor = makeEditor(
-      state,
+      document,
       createSpan(createPosition("l0" as BlockId, 0), createPosition("p" as BlockId, 4)),
     );
 
     const next = reduceEditor(editor, { type: "LIST_INDENT" });
 
-    expect(getBlock(next.state, "l0" as BlockId)?.attrs.listLevel).toBe(1);
-    expect(getBlock(next.state, "l1" as BlockId)?.attrs.listLevel).toBe(1);
+    expect(getBlock(next.document, "l0" as BlockId)?.attrs.listLevel).toBe(1);
+    expect(getBlock(next.document, "l1" as BlockId)?.attrs.listLevel).toBe(1);
     // The plain paragraph in the span is NOT a list-item → untouched.
-    expect(getBlock(next.state, "p" as BlockId)?.attrs.listLevel).toBeUndefined();
+    expect(getBlock(next.document, "p" as BlockId)?.attrs.listLevel).toBeUndefined();
   });
 
   it("preserves the selection (level change does not move the caret)", () => {
-    const state = buildListDoc();
+    const document = buildListDoc();
     const selection = createSpan(
       createPosition("l0" as BlockId, 0),
       createPosition("l0" as BlockId, 3),
     );
-    const editor = makeEditor(state, selection);
+    const editor = makeEditor(document, selection);
 
     const next = reduceEditor(editor, { type: "LIST_INDENT" });
 
@@ -176,17 +176,17 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
   });
 
   it("undo restores the prior level", () => {
-    const state = buildListDoc();
-    let editor = makeEditor(state, {
+    const document = buildListDoc();
+    let editor = makeEditor(document, {
       anchor: createPosition("l0" as BlockId, 0),
       focus: createPosition("l0" as BlockId, 0),
     });
 
     editor = reduceEditor(editor, { type: "LIST_INDENT" });
     const indented = reduceEditor(editor, { type: "LIST_INDENT" });
-    expect(getBlock(indented.state, "l0" as BlockId)?.attrs.listLevel).toBe(2);
+    expect(getBlock(indented.document, "l0" as BlockId)?.attrs.listLevel).toBe(2);
 
     const undone = reduceEditor(indented, { type: "UNDO" });
-    expect(getBlock(undone.state, "l0" as BlockId)?.attrs.listLevel).toBe(1);
+    expect(getBlock(undone.document, "l0" as BlockId)?.attrs.listLevel).toBe(1);
   });
 });

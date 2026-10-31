@@ -80,7 +80,7 @@ export function allTreeBlockCount(doc: Y.Doc): number {
  * Returns the doc's meta Y.Map. Holds `rootId` (set once in `createYDoc`, never
  * reassigned) and `schemaVersion` (the inline-storage schema; written only by
  * `createYDoc` for a fresh local doc and by `upgradeDocument` — immutable between
- * upgrades, and never written by `createState` on a host-supplied, possibly
+ * upgrades, and never written by `createDocument` on a host-supplied, possibly
  * pre-sync doc).
  *
  * **doc-meta holds ONLY these immutable fields.** Mutable, user-observable
@@ -128,7 +128,7 @@ export function getMetaMap(doc: Y.Doc): Y.Map<unknown> {
  * freshly-decoded update that never seeded one. The `typeof === "string"` guard
  * + `asBlockId` is the codebase's validated branded-string construction (BlockId
  * is a branded string), NOT a forbidden narrowing cast. Used by the binary
- * document serializer's decode to reconstruct State from a decoded Y.Doc.
+ * document serializer's decode to reconstruct Document from a decoded Y.Doc.
  */
 export function getMetaRootId(doc: Y.Doc): BlockId | undefined {
   const v = getMetaMap(doc).get("rootId");

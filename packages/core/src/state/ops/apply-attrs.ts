@@ -1,7 +1,7 @@
 import type * as Y from "yjs";
 import { blockText } from "../block-text";
-import type { State, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
 import type { BlockId } from "../block-id";
 import type { Span } from "../block-position";
 import type { ReadonlyAttrs } from "../attrs";
@@ -10,7 +10,7 @@ import { requireInTransaction } from "../yjs-doc";
 import { formatInlineRange } from "../y-inline";
 import { mergeMarkAttrs } from "../flow-ops";
 import { inlineContentLength } from "../inline-content";
-import type { ResolvedBlockKind } from "../state";
+import type { ResolvedBlockKind } from "../document";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import { attrRegistryOf } from "../mark-attrs";
 
@@ -68,36 +68,36 @@ import { attrRegistryOf } from "../mark-attrs";
  * ops do NOT shift this span's offsets.
  */
 export function applyAttrsToRange(
-  state: State,
+  document: Document,
   span: Span,
   attrs: ReadonlyAttrs,
 ): OperationResult {
   // Empty incoming attrs = no-op. Mirrors insertText's empty-text guard
   // and avoids re-allocating items / dirtying blocks unnecessarily.
   if (Object.keys(attrs).length === 0) {
-    return { state, dirtyIds: new Set<BlockId>() };
+    return { document, dirtyIds: new Set<BlockId>() };
   }
 
   // Empty span = no-op. Collapsed-ness (same block + same offset) is
   // normalization-invariant, so we check raw positions directly. Skips
-  // iterateSpan entirely — must return the original State reference to
+  // iterateSpan entirely — must return the original Document reference to
   // satisfy the "no-op preserves identity" contract.
   if (
     span.anchor.blockId === span.focus.blockId &&
     span.anchor.offset === span.focus.offset
   ) {
-    return { state, dirtyIds: new Set<BlockId>() };
+    return { document, dirtyIds: new Set<BlockId>() };
   }
 
   // Resolve the segments + owning tree BEFORE opening the transaction; the
   // public op then composes plan → applyOperation(InTx). iterateSpan's
   // precondition errors throw here (pre-tx) with their original messages.
-  const plan = planApplyAttrsToRange(state, span);
+  const plan = planApplyAttrsToRange(document, span);
   if (plan === null) {
-    return { state, dirtyIds: new Set<BlockId>() };
+    return { document, dirtyIds: new Set<BlockId>() };
   }
 
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     applyAttrsToRangeInTx(doc, plan, attrs);
   });
 }
@@ -113,7 +113,7 @@ export interface ApplyAttrsToRangePlan {
 }
 
 /**
- * Validate `span` against `state` and produce an `ApplyAttrsToRangePlan`.
+ * Validate `span` against `document` and produce an `ApplyAttrsToRangePlan`.
  *
  * All validation + snapshot reads happen here, BEFORE the surrounding
  * `applyOperation` is opened. `iterateSpan` owns precondition validation
@@ -132,15 +132,15 @@ export interface ApplyAttrsToRangePlan {
  * cannot return null in correct code) that keeps the main-tree default.
  */
 export function planApplyAttrsToRange(
-  state: State,
+  document: Document,
   span: Span,
 ): ApplyAttrsToRangePlan | null {
-  const segments = Array.from(iterateSpan(state, span));
+  const segments = Array.from(iterateSpan(document, span));
   const firstSegment = segments[0];
   if (firstSegment === undefined) {
     return null;
   }
-  const kind = resolveBlock(state, firstSegment.block.id)?.kind ?? "block";
+  const kind = resolveBlock(document, firstSegment.block.id)?.kind ?? "block";
   return { segments, kind };
 }
 

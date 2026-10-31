@@ -1,4 +1,4 @@
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   createInitialEditorState,
@@ -23,11 +23,11 @@ function makeConfig(): EditorConfig {
 /** Sum text content + first text item's attrs from the doc's first
  * (and only) paragraph in the editor's seeded state. */
 function firstTextItem(editor: ReturnType<typeof createInitialEditorState>): TextItem | null {
-  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
+  const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
   if (root === null) return null;
   const pId = root.firstChildId;
   if (pId === null) return null;
-  const p = getBlock(editor.state, pId);
+  const p = getBlock(editor.document, pId);
   if (p === null || p.inlineContent === null) return null;
   const first = p.inlineContent.items[0];
   if (first === undefined || first.kind !== "text") return null;
@@ -44,7 +44,7 @@ describe("handleSetLink", () => {
     // Collapsed at end.
     editor = reduceEditor(editor, { type: "SET_LINK", url: "https://example.com" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(editor.state).toBe(before.state);
+    expect(editor.document).toBe(before.document);
   });
 
   it("sets link attr on selected text", () => {
@@ -52,7 +52,7 @@ describe("handleSetLink", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" });
     const pId = (() => {
-      const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
+      const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -78,7 +78,7 @@ describe("handleSetLink", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" });
     const pId = (() => {
-      const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
+      const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -101,7 +101,7 @@ describe("handleSetLink", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" });
     const pId = (() => {
-      const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
+      const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -119,12 +119,12 @@ describe("handleSetLink", () => {
   });
 
   it("clearing a link that never existed leaves the content unchanged (defensive)", () => {
-    // The state-equality short-circuit (`result.state === editor.state`)
+    // The state-equality short-circuit (`result.document === editor.document`)
     // is the standard pattern across all attr-mutating handlers but
     // is not actually reachable here via the public SET_LINK API:
     // `applyAttrsToRange` writes to Y.Doc on every call (even
     // setting an absent key to undefined emits a delete op), so
-    // `result.state !== editor.state`. The short-circuit remains
+    // `result.document !== editor.document`. The short-circuit remains
     // as defensive insurance against a future state-module
     // enhancement (true no-op detection in `applyAttrsToRange`).
     // What we CAN verify here: the content is unchanged.
@@ -132,7 +132,7 @@ describe("handleSetLink", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" });
     const pId = (() => {
-      const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
+      const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -159,7 +159,7 @@ describe("handleSetLink", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" });
     const pId = (() => {
-      const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
+      const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -184,7 +184,7 @@ describe("handleSetLink", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" });
     const pId = (() => {
-      const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
+      const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();

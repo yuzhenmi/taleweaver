@@ -4,10 +4,10 @@ import type { BreakSuggestion } from "../break-tags";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { BlockKind, BlockKindResolver } from "../block-kinds";
 import type { InlineContent, InlineItem } from "../inline-content";
-import type { State } from "../state";
-import { getBlock, getEmbedContent, getTemplateContent } from "../state";
-import { getEmbedContentIds, getTemplateContentIds } from "../state";
-import { getListDefsForState, type ListDef, type ListLevelConfig } from "../list-defs";
+import type { Document } from "../document";
+import { getBlock, getEmbedContent, getTemplateContent } from "../document";
+import { getEmbedContentIds, getTemplateContentIds } from "../document";
+import { getListDefsForDocument, type ListDef, type ListLevelConfig } from "../list-defs";
 import { getComments, type CommentRecord, type CommentReply } from "../comments";
 import {
   getSuggestions,
@@ -18,7 +18,7 @@ import {
 } from "../suggestions";
 import { isCounterStyle } from "../../styles/format-counter";
 import type { CounterRestart } from "../../numbering/types";
-import { buildStateFromBlocks } from "../build-state-from-blocks";
+import { buildDocumentFromBlocks } from "../build-document-from-blocks";
 import { normalizeLegacyAttrs } from "../upgrade";
 import type { DocumentSerializer } from "./document-serializer";
 import { MalformedDocumentError } from "./document-serializer";
@@ -125,41 +125,41 @@ export function createJsonDocumentSerializer(deps: {
   return {
     format: JSON_FORMAT,
 
-    encode(state: State): string {
-      const doc: JsonDocument = encodeDocument(state, blockKindResolver);
+    encode(document: Document): string {
+      const doc: JsonDocument = encodeDocument(document, blockKindResolver);
       return JSON.stringify(doc, null, 2);
     },
 
-    decode(source: string): State {
+    decode(source: string): Document {
       return decodeDocument(source, allocator, blockKindResolver);
     },
   };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Encode: State → JsonDocument
+// Encode: Document → JsonDocument
 // ─────────────────────────────────────────────────────────────────────────
 
 function encodeDocument(
-  state: State,
+  document: Document,
   resolver: BlockKindResolver,
 ): JsonDocument {
   const root = encodeNode(
-    state,
-    state.rootId,
+    document,
+    document.rootId,
     (s, id) => getBlock(s, id),
     resolver,
   );
 
   const embedRoots = encodeForestRoots(
-    state,
-    [...getEmbedContentIds(state)],
+    document,
+    [...getEmbedContentIds(document)],
     (s, id) => getEmbedContent(s, id),
     resolver,
   );
   const templateRoots = encodeForestRoots(
-    state,
-    [...getTemplateContentIds(state)],
+    document,
+    [...getTemplateContentIds(document)],
     (s, id) => getTemplateContent(s, id),
     resolver,
   );
@@ -178,11 +178,11 @@ function encodeDocument(
   if (embedRoots.length > 0) out.embedContents = embedRoots;
   if (templateRoots.length > 0) out.templateContents = templateRoots;
 
-  const listDefs = encodeListDefs(state);
+  const listDefs = encodeListDefs(document);
   if (listDefs !== undefined) out.listDefs = listDefs;
-  const comments = encodeComments(state);
+  const comments = encodeComments(document);
   if (comments !== undefined) out.comments = comments;
-  const suggestions = encodeSuggestions(state);
+  const suggestions = encodeSuggestions(document);
   if (suggestions !== undefined) out.suggestions = suggestions;
 
   return out;
@@ -195,16 +195,16 @@ function encodeDocument(
  * emitted in the underlying map's key order (deterministic).
  */
 function encodeForestRoots(
-  state: State,
+  document: Document,
   ids: ReadonlyArray<BlockId>,
-  read: (s: State, id: BlockId) => Block | null,
+  read: (s: Document, id: BlockId) => Block | null,
   resolver: BlockKindResolver,
 ): JsonNode[] {
   const roots: JsonNode[] = [];
   for (const id of ids) {
-    const block = read(state, id);
+    const block = read(document, id);
     if (block !== null && block.parentId === null) {
-      roots.push(encodeNode(state, id, read, resolver));
+      roots.push(encodeNode(document, id, read, resolver));
     }
   }
   return roots;
@@ -217,12 +217,12 @@ function encodeForestRoots(
  * type (the lossless escape is the binary serializer).
  */
 function encodeNode(
-  state: State,
+  document: Document,
   id: BlockId,
-  read: (s: State, id: BlockId) => Block | null,
+  read: (s: Document, id: BlockId) => Block | null,
   resolver: BlockKindResolver,
 ): JsonNode {
-  const block = read(state, id);
+  const block = read(document, id);
   if (block === null) {
     throw new Error(`json-serializer: block "${id}" not found during encode`);
   }
@@ -253,7 +253,7 @@ function encodeNode(
 
   switch (kind) {
     case "container":
-      node.children = encodeChildren(state, block, read, resolver);
+      node.children = encodeChildren(document, block, read, resolver);
       break;
     case "inline-bearing-leaf":
       node.content = encodeInlineContent(block.inlineContent);
@@ -272,16 +272,16 @@ function encodeNode(
 
 /** Walk a container's `firstChildId` → `nextSiblingId` chain, encoding each child. */
 function encodeChildren(
-  state: State,
+  document: Document,
   parent: Block,
-  read: (s: State, id: BlockId) => Block | null,
+  read: (s: Document, id: BlockId) => Block | null,
   resolver: BlockKindResolver,
 ): JsonNode[] {
   const out: JsonNode[] = [];
   let childId = parent.firstChildId;
   while (childId !== null) {
-    out.push(encodeNode(state, childId, read, resolver));
-    const child = read(state, childId);
+    out.push(encodeNode(document, childId, read, resolver));
+    const child = read(document, childId);
     if (child === null) break;
     childId = child.nextSiblingId;
   }
@@ -312,8 +312,8 @@ function encodeInlineItem(item: InlineItem): JsonInlineItem {
   return out;
 }
 
-function encodeListDefs(state: State): Record<string, ListDef> | undefined {
-  const defs = getListDefsForState(state);
+function encodeListDefs(document: Document): Record<string, ListDef> | undefined {
+  const defs = getListDefsForDocument(document);
   if (defs.size === 0) return undefined;
   const out: Record<string, ListDef> = {};
   for (const listId of [...defs.keys()].sort()) {
@@ -330,9 +330,9 @@ function encodeListDefs(state: State): Record<string, ListDef> | undefined {
  * marker embeds in inline content, so it is NEVER serialized.
  */
 function encodeComments(
-  state: State,
+  document: Document,
 ): Record<string, BareCommentRecord> | undefined {
-  const comments = getComments(state);
+  const comments = getComments(document);
   if (comments.length === 0) return undefined;
   const out: Record<string, BareCommentRecord> = {};
   // Stable order: sort by id.
@@ -355,9 +355,9 @@ function encodeComments(
  * range is reconstructed on decode from the suggestion-id-tagged inline items).
  */
 function encodeSuggestions(
-  state: State,
+  document: Document,
 ): Record<string, BareSuggestionRecord> | undefined {
-  const suggestions = getSuggestions(state);
+  const suggestions = getSuggestions(document);
   if (suggestions.length === 0) return undefined;
   const out: Record<string, BareSuggestionRecord> = {};
   const sorted = [...suggestions].sort((a, b) =>
@@ -397,14 +397,14 @@ function resolveKind(resolver: BlockKindResolver, type: string): BlockKind {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Decode: JSON string → State
+// Decode: JSON string → Document
 // ─────────────────────────────────────────────────────────────────────────
 
 function decodeDocument(
   source: string,
   allocator: IdAllocator,
   resolver: BlockKindResolver,
-): State {
+): Document {
   let parsed: unknown;
   try {
     parsed = JSON.parse(source);
@@ -429,7 +429,7 @@ function decodeDocument(
     flattenNode(node, null, templateContents, allocator, resolver);
   }
 
-  return buildStateFromBlocks({
+  return buildDocumentFromBlocks({
     rootId,
     blocks,
     embedContents: embedContents.length > 0 ? embedContents : undefined,
@@ -615,7 +615,7 @@ function decodeProps(raw: unknown): Readonly<Record<string, unknown>> {
  * Decode + VALIDATE the `listDefs` side-table. This is an INGRESS surface
  * (hand-authored JSON), so every record is validated field-by-field and a
  * mismatch throws `MalformedDocumentError` — a malformed def must NOT crash raw
- * in `writeListDefInTx` (`def.levels.map`) nor slip a corrupt level into State.
+ * in `writeListDefInTx` (`def.levels.map`) nor slip a corrupt level into Document.
  * Each `ListDef` is reconstructed from validated named fields (no blind cast).
  */
 function decodeListDefs(raw: unknown): Record<string, ListDef> | undefined {
@@ -709,7 +709,7 @@ function isSuggestionKind(value: unknown): value is SuggestionKind {
  * Decode + VALIDATE the `suggestions` side-table. INGRESS surface: an invalid
  * `kind` (not in the {@link SuggestionKind} union), a missing `author`, or a
  * non-object `proposedAttrs` must throw `MalformedDocumentError` rather than be
- * silently accepted corrupt into State. Each record is built from validated
+ * silently accepted corrupt into Document. Each record is built from validated
  * named fields ONLY (id from the map key; no `...rec` spread).
  */
 function decodeSuggestions(raw: unknown): SuggestionRecord[] | undefined {

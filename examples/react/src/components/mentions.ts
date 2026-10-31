@@ -8,7 +8,7 @@ import {
   type Decoration,
   type EditorAction,
   type EditorState,
-  type State,
+  type Document,
 } from "@taleweaver/core";
 
 /**
@@ -56,15 +56,15 @@ export function createDemoAttrRegistry(): AttrRegistry {
 export function mentionAction(editor: EditorState): EditorAction | null {
   const { anchor, focus } = editor.selection;
   if (anchor.blockId === focus.blockId && anchor.offset === focus.offset) return null;
-  const label = extractText(editor.state, editor.selection).trim();
+  const label = extractText(editor.document, editor.selection).trim();
   if (label === "" || label.includes("\n")) return null;
   const value: MentionValue = { ref: `person:${label.toLowerCase().replace(/\s+/g, "-")}`, label };
   return { type: "SET_MARK", key: MENTION, value };
 }
 
 /** Hover-only decorations over every mention (payload read by the shared popover). */
-export function mentionDecorations(state: State): Decoration[] {
-  return getMarkRanges(state, MENTION).map((r, i) => ({
+export function mentionDecorations(document: Document): Decoration[] {
+  return getMarkRanges(document, MENTION).map((r, i) => ({
     kind: "inline",
     id: `mention:${i}:${r.from.blockId}:${r.from.offset}`,
     from: r.from,

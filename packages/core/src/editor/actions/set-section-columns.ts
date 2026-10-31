@@ -42,7 +42,7 @@ export function handleSetSectionColumns(editor: EditorState, action: ActionOf<"S
   const targetId = resolveActiveSection(editor, editor.selection.focus.blockId);
   if (targetId === null) return null;
 
-  const target = getBlock(editor.state, targetId);
+  const target = getBlock(editor.document, targetId);
   if (target === null) return null;
 
   // `columnCount: 1` => single column (NOT a cleared attr); `columnGap` /
@@ -55,10 +55,10 @@ export function handleSetSectionColumns(editor: EditorState, action: ActionOf<"S
     incoming.columnRule = action.columnRule;
   }
 
-  const result = mergeBlockAttrs(editor.state, targetId, incoming);
+  const result = mergeBlockAttrs(editor.document, targetId, incoming);
 
   // the identity-no-op contract: a no-op merge returns the same state reference.
-  if (result.state === editor.state) return null;
+  if (result.document === editor.document) return null;
 
-  return { change: { state: result.state, dirtyIds: result.dirtyIds } };
+  return { change: { document: result.document, dirtyIds: result.dirtyIds } };
 }

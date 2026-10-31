@@ -1,5 +1,5 @@
 import type { EditorAction } from "./editor-action";
-import type { BlockId, Position, State, TextMatch, FindMatchesOptions } from "../state";
+import type { BlockId, Position, Document, TextMatch, FindMatchesOptions } from "../state";
 import { comparePositions, createPosition, findMatches, getBlock, selectionContextOf } from "../state";
 import type { PositionMapping } from "../state/position-mapping";
 
@@ -33,11 +33,11 @@ export interface FindRefresh {
  */
 export interface FindSession {
   readonly active: boolean;
-  start(state: State, caret: Position, query: string, options?: FindMatchesOptions): FindStatus;
+  start(document: Document, caret: Position, query: string, options?: FindMatchesOptions): FindStatus;
   next(): FindStatus;
   prev(): FindStatus;
   close(): void;
-  refresh(state: State, mapping?: PositionMapping): FindRefresh;
+  refresh(document: Document, mapping?: PositionMapping): FindRefresh;
   status(): FindStatus;
   matches(): readonly TextMatch[];
   activeIndex(): number;
@@ -54,11 +54,11 @@ export function createFindSession(): FindSession {
 
   const status = (): FindStatus => (matches.length === 0 ? NO_MATCH : { total: matches.length, activeIndex: active });
 
-  function compare(state: State, a: Position, b: Position): number | null {
+  function compare(document: Document, a: Position, b: Position): number | null {
     if (a.blockId === b.blockId) return a.offset - b.offset;
     try {
-      if (selectionContextOf(state, a.blockId) !== selectionContextOf(state, b.blockId)) return null;
-      return comparePositions(state, a, b);
+      if (selectionContextOf(document, a.blockId) !== selectionContextOf(document, b.blockId)) return null;
+      return comparePositions(document, a, b);
     } catch {
       return null;
     }
@@ -66,18 +66,18 @@ export function createFindSession(): FindSession {
 
   /** Index of the first match starting at/after `pos` (wrapping to 0); matches in another
    *  selection context never count as "after". Binary search over the doc-ordered list. */
-  function firstAtOrAfter(state: State, pos: Position): number {
+  function firstAtOrAfter(document: Document, pos: Position): number {
     let lo = 0;
     let hi = matches.length;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
       const m = matches[mid];
-      const c = m === undefined ? null : compare(state, createPosition(m.blockId, m.start), pos);
+      const c = m === undefined ? null : compare(document, createPosition(m.blockId, m.start), pos);
       if (c === null) {
         // Unordered against `pos`: fall back to a linear scan.
         for (let i = 0; i < matches.length; i++) {
           const x = matches[i];
-          if (x !== undefined && (compare(state, createPosition(x.blockId, x.start), pos) ?? -1) >= 0) return i;
+          if (x !== undefined && (compare(document, createPosition(x.blockId, x.start), pos) ?? -1) >= 0) return i;
         }
         return 0;
       }
@@ -91,14 +91,14 @@ export function createFindSession(): FindSession {
    * Re-find only in `dirty` blocks: drop the old matches of those blocks, find again in the
    * surviving leaves among them, and splice the results back in document order.
    */
-  function refreshBlocks(state: State, dirty: ReadonlySet<BlockId>): Set<BlockId> | null {
+  function refreshBlocks(document: Document, dirty: ReadonlySet<BlockId>): Set<BlockId> | null {
     if (query === null) return new Set();
     const changed = new Set<BlockId>();
     for (const m of matches) if (dirty.has(m.blockId)) changed.add(m.blockId);
     const kept = matches.filter((m) => !dirty.has(m.blockId));
     const leaves: BlockId[] = [];
-    for (const id of dirty) if (getBlock(state, id)?.inlineContent != null) leaves.push(id);
-    const found = leaves.length === 0 ? [] : findMatches(state, query.text, { ...query.options, blockIds: leaves });
+    for (const id of dirty) if (getBlock(document, id)?.inlineContent != null) leaves.push(id);
+    const found = leaves.length === 0 ? [] : findMatches(document, query.text, { ...query.options, blockIds: leaves });
     for (const m of found) changed.add(m.blockId);
     // Merge: `kept` is in doc order; insert each found block's run at its position.
     const byBlock = new Map<BlockId, TextMatch[]>();
@@ -117,7 +117,7 @@ export function createFindSession(): FindSession {
       while (lo < hi) {
         const mid = (lo + hi) >> 1;
         const m = merged[mid];
-        const c = m === undefined ? null : compare(state, createPosition(m.blockId, m.start), pos);
+        const c = m === undefined ? null : compare(document, createPosition(m.blockId, m.start), pos);
         if (c === null) return null; // cannot order → caller re-finds everything
         if (c < 0) lo = mid + 1;
         else hi = mid;
@@ -132,11 +132,11 @@ export function createFindSession(): FindSession {
     get active() {
       return query !== null;
     },
-    start(state, caret, text, options) {
+    start(document, caret, text, options) {
       query = { text, options: options ?? { caseSensitive: false, wholeWord: false } };
-      matches = findMatches(state, text, query.options);
+      matches = findMatches(document, text, query.options);
       pendingReplace = null;
-      active = matches.length === 0 ? -1 : firstAtOrAfter(state, caret);
+      active = matches.length === 0 ? -1 : firstAtOrAfter(document, caret);
       return status();
     },
     next() {
@@ -155,7 +155,7 @@ export function createFindSession(): FindSession {
       active = -1;
       pendingReplace = null;
     },
-    refresh(state, mapping) {
+    refresh(document, mapping) {
       if (query === null) return { status: NO_MATCH, changedBlocks: new Set() };
       const prevActive = matches[active];
       // Where the active match should land: past a just-applied replacement, else the
@@ -172,10 +172,10 @@ export function createFindSession(): FindSession {
         }
       }
       let changed: Set<BlockId> | null = null;
-      if (mapping !== undefined && mapping.dirty !== null) changed = refreshBlocks(state, mapping.dirty);
-      if (changed === null) matches = findMatches(state, query.text, query.options);
+      if (mapping !== undefined && mapping.dirty !== null) changed = refreshBlocks(document, mapping.dirty);
+      if (changed === null) matches = findMatches(document, query.text, query.options);
       if (matches.length === 0) active = -1;
-      else if (target !== null) active = firstAtOrAfter(state, target);
+      else if (target !== null) active = firstAtOrAfter(document, target);
       else active = Math.min(Math.max(active, 0), matches.length - 1);
       // The active flag moved: its old and new blocks redraw too.
       const nowActive = matches[active];

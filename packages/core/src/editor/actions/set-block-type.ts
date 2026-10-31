@@ -21,15 +21,15 @@ export function handleSetBlockType(
   // so the action either threw or silently no-op'd. Google Docs / Word
   // convention: retype the leaf the cursor is actually inside.
   const targetId = editor.selection.focus.blockId;
-  const target = getBlock(editor.state, targetId);
+  const target = getBlock(editor.document, targetId);
   if (target === null) return null;
 
   // Toggle behavior: if already this type, revert to paragraph.
   const newType = target.type === blockType ? "paragraph" : blockType;
   const newAttrs = target.type === blockType ? {} : properties;
 
-  const typeResult = setBlockType(editor.state, targetId, newType, config.componentRegistry);
-  const attrsResult = setBlockAttrs(typeResult.state, targetId, newAttrs);
+  const typeResult = setBlockType(editor.document, targetId, newType, config.componentRegistry);
+  const attrsResult = setBlockAttrs(typeResult.document, targetId, newAttrs);
 
   // Union dirtyIds across the chained ops so the renderer sees one
   // OperationResult that reflects both mutations.
@@ -40,7 +40,7 @@ export function handleSetBlockType(
   // the identity-no-op contract: state-equality is the authoritative no-op
   // signal across the editor module, preserving the "no change → same
   // editor reference" invariant. (`history.commit` is itself no-op-safe.)
-  if (attrsResult.state === editor.state) return null;
+  if (attrsResult.document === editor.document) return null;
 
-  return { change: { state: attrsResult.state, dirtyIds: mergedDirtyIds } };
+  return { change: { document: attrsResult.document, dirtyIds: mergedDirtyIds } };
 }

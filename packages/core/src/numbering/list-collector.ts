@@ -1,4 +1,4 @@
-import type { BlockId, State } from "../state";
+import type { BlockId, Document } from "../state";
 import { iterateBlocksInDocumentOrder } from "../state";
 import type { CounterEvent, CounterValue } from "./types";
 
@@ -15,10 +15,10 @@ import type { CounterEvent, CounterValue } from "./types";
  * site — the same access pattern the cascade uses for custom attrs
  * (`attrs[key]` in `cascade/attr-registry.ts`).
  */
-export function collectListEvents(state: State): CounterEvent[] {
+export function collectListEvents(document: Document): CounterEvent[] {
   const events: CounterEvent[] = [];
   let prevListId: string | null = null;
-  for (const block of iterateBlocksInDocumentOrder(state)) {
+  for (const block of iterateBlocksInDocumentOrder(document)) {
     if (block.type !== "list-item") {
       prevListId = null;
       continue;

@@ -16,40 +16,40 @@ import {
   createPosition,
   createSpan,
 } from "./test-helpers";
-import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { createEditorStateFromDocument, type EditorState } from "../editor-state";
 import {
   getBlock,
   setListType,
-  getListDefsForState,
+  getListDefsForDocument,
   classifyListDef,
 } from "../../state";
-import type { BlockId, State } from "../../state";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import type { BlockId, Document } from "../../state";
+import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 import { collectListEvents } from "../../numbering/list-collector";
 import { computeCounters } from "../../numbering/compute-counters";
 
 // Phase 0b: core's `EditorState` is geometry-free — these state-level action
 // tests build only the geometry-free fields (the handler reads no layout).
-function makeEditor(state: State, selection: EditorState["selection"]): EditorState {
-  return createEditorStateFromState(state, selection, config);
+function makeEditor(document: Document, selection: EditorState["selection"]): EditorState {
+  return createEditorStateFromDocument(document, selection, config);
 }
 
 /** A list's classified type (ordered/unordered), or undefined if it has no def. */
-function listKind(state: State, listId: string): "ordered" | "unordered" | undefined {
-  const def = getListDefsForState(state).get(listId);
+function listKind(document: Document, listId: string): "ordered" | "unordered" | undefined {
+  const def = getListDefsForDocument(document).get(listId);
   return def === undefined ? undefined : classifyListDef(def);
 }
 
 /** Numbering value for a block id, via the render-time numbering engine. */
-function counterValue(state: State, blockId: string): number | undefined {
-  const events = collectListEvents(state);
-  const counters = computeCounters(events, getListDefsForState(state));
+function counterValue(document: Document, blockId: string): number | undefined {
+  const events = collectListEvents(document);
+  const counters = computeCounters(events, getListDefsForDocument(document));
   return counters.get(blockId as BlockId)?.value;
 }
 
 /** A three-item ordered list (i0,i1,i2 share listId L1). */
-function buildOrderedList(): State {
-  let state = buildState({
+function buildOrderedList(): Document {
+  let document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "i0", lastChildId: "i2" }),
@@ -80,27 +80,27 @@ function buildOrderedList(): State {
       }),
     ],
   });
-  return setListType(state, "L1", "ordered").state;
+  return setListType(document, "L1", "ordered").document;
 }
 
 describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
   it("changes the whole list's type (def rewritten to unordered)", () => {
-    const state = buildOrderedList();
-    expect(listKind(state, "L1")).toBe("ordered");
+    const document = buildOrderedList();
+    expect(listKind(document, "L1")).toBe("ordered");
 
-    const editor = makeEditor(state, {
+    const editor = makeEditor(document, {
       anchor: createPosition("i1" as BlockId, 0),
       focus: createPosition("i1" as BlockId, 0),
     });
     const next = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "unordered" });
 
     // The single shared def flipped — affects ALL items, not just the focus item.
-    expect(listKind(next.state, "L1")).toBe("unordered");
+    expect(listKind(next.document, "L1")).toBe("unordered");
   });
 
   it("no-op when the list is already the requested type (same editor reference)", () => {
-    const state = buildOrderedList();
-    const editor = makeEditor(state, {
+    const document = buildOrderedList();
+    const editor = makeEditor(document, {
       anchor: createPosition("i0" as BlockId, 0),
       focus: createPosition("i0" as BlockId, 0),
     });
@@ -109,7 +109,7 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
   });
 
   it("no-op when the caret is not in a list-item", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -121,7 +121,7 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
         }),
       ],
     });
-    const editor = makeEditor(state, {
+    const editor = makeEditor(document, {
       anchor: createPosition("p" as BlockId, 0),
       focus: createPosition("p" as BlockId, 0),
     });
@@ -130,21 +130,21 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
   });
 
   it("undo restores the prior list type", () => {
-    const state = buildOrderedList();
-    const editor = makeEditor(state, {
+    const document = buildOrderedList();
+    const editor = makeEditor(document, {
       anchor: createPosition("i1" as BlockId, 0),
       focus: createPosition("i1" as BlockId, 0),
     });
     const changed = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "unordered" });
-    expect(listKind(changed.state, "L1")).toBe("unordered");
+    expect(listKind(changed.document, "L1")).toBe("unordered");
 
     const undone = reduceEditor(changed, { type: "UNDO" });
-    expect(listKind(undone.state, "L1")).toBe("ordered");
+    expect(listKind(undone.document, "L1")).toBe("ordered");
   });
 
   it("range selection spanning two lists changes BOTH lists' types", () => {
     // L1 (i0,i1) ordered, then L2 (j0) ordered; select across both → unordered.
-    let state = buildState({
+    let document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "i0", lastChildId: "j0" }),
@@ -175,65 +175,65 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
         }),
       ],
     });
-    state = setListType(state, "L1", "ordered").state;
-    state = setListType(state, "L2", "ordered").state;
+    document = setListType(document, "L1", "ordered").document;
+    document = setListType(document, "L2", "ordered").document;
 
     const editor = makeEditor(
-      state,
+      document,
       createSpan(createPosition("i0" as BlockId, 0), createPosition("j0" as BlockId, 1)),
     );
     const next = reduceEditor(editor, { type: "SET_LIST_TYPE", listType: "unordered" });
 
-    expect(listKind(next.state, "L1")).toBe("unordered");
-    expect(listKind(next.state, "L2")).toBe("unordered");
+    expect(listKind(next.document, "L1")).toBe("unordered");
+    expect(listKind(next.document, "L2")).toBe("unordered");
   });
 });
 
 describe("handleSetListRestart — SET_LIST_RESTART (#L15)", () => {
   it("sets the override on the focus item and the following item renumbers from it", () => {
-    const state = buildOrderedList();
+    const document = buildOrderedList();
     // Natural numbering: i0=1, i1=2, i2=3.
-    expect(counterValue(state, "i1")).toBe(2);
-    expect(counterValue(state, "i2")).toBe(3);
+    expect(counterValue(document, "i1")).toBe(2);
+    expect(counterValue(document, "i2")).toBe(3);
 
-    const editor = makeEditor(state, {
+    const editor = makeEditor(document, {
       anchor: createPosition("i1" as BlockId, 0),
       focus: createPosition("i1" as BlockId, 0),
     });
     const next = reduceEditor(editor, { type: "SET_LIST_RESTART", value: 5 });
 
     // The attr is written on the focus item.
-    expect(getBlock(next.state, "i1" as BlockId)?.attrs.listCounterOverride).toBe(5);
+    expect(getBlock(next.document, "i1" as BlockId)?.attrs.listCounterOverride).toBe(5);
     // i1 restarts at 5 and i2 (the following item) renumbers to 6.
-    expect(counterValue(next.state, "i1")).toBe(5);
-    expect(counterValue(next.state, "i2")).toBe(6);
+    expect(counterValue(next.document, "i1")).toBe(5);
+    expect(counterValue(next.document, "i2")).toBe(6);
   });
 
   it("value null clears the override (item resumes the natural sequence)", () => {
-    let state = buildOrderedList();
-    state = reduceEditor(
-      makeEditor(state, {
+    let document = buildOrderedList();
+    document = reduceEditor(
+      makeEditor(document, {
         anchor: createPosition("i1" as BlockId, 0),
         focus: createPosition("i1" as BlockId, 0),
       }),
       { type: "SET_LIST_RESTART", value: 5 },
-    ).state;
-    expect(counterValue(state, "i1")).toBe(5);
+    ).document;
+    expect(counterValue(document, "i1")).toBe(5);
 
-    const editor = makeEditor(state, {
+    const editor = makeEditor(document, {
       anchor: createPosition("i1" as BlockId, 0),
       focus: createPosition("i1" as BlockId, 0),
     });
     const cleared = reduceEditor(editor, { type: "SET_LIST_RESTART", value: null });
 
-    expect(getBlock(cleared.state, "i1" as BlockId)?.attrs.listCounterOverride).toBeUndefined();
+    expect(getBlock(cleared.document, "i1" as BlockId)?.attrs.listCounterOverride).toBeUndefined();
     // Back to the natural sequence: i1=2, i2=3.
-    expect(counterValue(cleared.state, "i1")).toBe(2);
-    expect(counterValue(cleared.state, "i2")).toBe(3);
+    expect(counterValue(cleared.document, "i1")).toBe(2);
+    expect(counterValue(cleared.document, "i2")).toBe(3);
   });
 
   it("no-op when the caret is not in a list-item", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -245,7 +245,7 @@ describe("handleSetListRestart — SET_LIST_RESTART (#L15)", () => {
         }),
       ],
     });
-    const editor = makeEditor(state, {
+    const editor = makeEditor(document, {
       anchor: createPosition("p" as BlockId, 0),
       focus: createPosition("p" as BlockId, 0),
     });
@@ -254,16 +254,16 @@ describe("handleSetListRestart — SET_LIST_RESTART (#L15)", () => {
   });
 
   it("no-op when the override is already the requested value (same editor reference)", () => {
-    let state = buildOrderedList();
-    state = reduceEditor(
-      makeEditor(state, {
+    let document = buildOrderedList();
+    document = reduceEditor(
+      makeEditor(document, {
         anchor: createPosition("i1" as BlockId, 0),
         focus: createPosition("i1" as BlockId, 0),
       }),
       { type: "SET_LIST_RESTART", value: 5 },
-    ).state;
+    ).document;
 
-    const editor = makeEditor(state, {
+    const editor = makeEditor(document, {
       anchor: createPosition("i1" as BlockId, 0),
       focus: createPosition("i1" as BlockId, 0),
     });

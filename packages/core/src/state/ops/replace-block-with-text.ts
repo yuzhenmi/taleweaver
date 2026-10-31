@@ -1,5 +1,5 @@
-import type { State, OperationResult } from "../state";
-import { applyOperation } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation } from "../document";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { planRemoveBlock, removeBlockInTx } from "./remove-block";
@@ -34,24 +34,24 @@ import { planInsertText, insertTextInTx } from "./insert-text";
  * here: a removal always changes state.
  */
 export function replaceBlockWithText(
-  state: State,
+  document: Document,
   removeBlockId: BlockId,
   insertAt: { readonly blockId: BlockId; readonly offset: number },
   text: string,
   attrs: ReadonlyAttrs,
 ): OperationResult {
-  const removePlan = planRemoveBlock(state, removeBlockId);
+  const removePlan = planRemoveBlock(document, removeBlockId);
   // The insert plan is computed against the pre-mutation snapshot. The insert
   // target is a SIBLING of the removed block, so the removal (which only deletes
   // the target's subtree + relinks neighbour sibling pointers) leaves the
   // target's inline content untouched — the plan's offset stays valid.
   const insertPlan = planInsertText(
-    state,
+    document,
     { blockId: insertAt.blockId, offset: insertAt.offset },
     text,
     attrs,
   );
-  return applyOperation(state, (doc) => {
+  return applyOperation(document, (doc) => {
     removeBlockInTx(doc, removePlan);
     insertTextInTx(doc, insertPlan);
   });

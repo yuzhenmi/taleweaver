@@ -13,7 +13,7 @@ import {
   createSpan,
   getBlock,
   type BlockId,
-  type State,
+  type Document,
 } from "@taleweaver/core";
 import { createDigitalController } from "../editor-digital/digital-controller";
 import { clipGlyph } from "./cell-clip";
@@ -91,26 +91,26 @@ describe("cell clip triggers (ResizeObserver on blocks hosting a glyph in a <td>
     FakeRO.last = null;
   });
 
-  function tableDoc(): { state: State; c1: BlockId; c2: BlockId; after: BlockId } {
+  function tableDoc(): { document: Document; c1: BlockId; c2: BlockId; after: BlockId } {
     const config = { componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800 };
     let e = createInitialEditorState(config);
     e = reduceEditor(e, { type: "INSERT_TABLE", rows: 1, cols: 2 });
     const leaves: BlockId[] = [];
     const walk = (id: BlockId | null): void => {
       for (let cur = id; cur !== null; ) {
-        const b = getBlock(e.state, cur);
+        const b = getBlock(e.document, cur);
         if (b === null) return;
         if (b.inlineContent !== null) leaves.push(b.id);
         else walk(b.firstChildId);
         cur = b.nextSiblingId;
       }
     };
-    walk(getBlock(e.state, e.state.rootId)?.firstChildId ?? null);
-    const c1 = leaves.find((id) => getBlock(e.state, id)?.parentId !== null && getBlock(e.state, getBlock(e.state, id)?.parentId ?? id)?.type === "table-cell");
+    walk(getBlock(e.document, e.document.rootId)?.firstChildId ?? null);
+    const c1 = leaves.find((id) => getBlock(e.document, id)?.parentId !== null && getBlock(e.document, getBlock(e.document, id)?.parentId ?? id)?.type === "table-cell");
     const c2 = c1 === undefined ? undefined : leaves[leaves.indexOf(c1) + 1];
     const after = leaves[leaves.length - 1];
     if (c1 === undefined || c2 === undefined || after === undefined) throw new Error("setup");
-    return { state: e.state, c1, c2, after };
+    return { document: e.document, c1, c2, after };
   }
 
   it("a selected ¶ in a cell is observed and measured; a stale element is dropped; a font load re-observes; destroy disconnects", () => {
@@ -118,15 +118,15 @@ describe("cell clip triggers (ResizeObserver on blocks hosting a glyph in a <td>
     const fonts = new EventTarget();
     Object.defineProperty(document, "fonts", { value: fonts, configurable: true });
     try {
-      const { state, c1, c2 } = tableDoc();
-      const container = document.createElement("div");
-      document.body.replaceChildren(container);
+      const { document, c1, c2 } = tableDoc();
+      const container = globalThis.document.createElement("div");
+      globalThis.document.body.replaceChildren(container);
       const controller = createDigitalController({
         container,
         componentRegistry: createDefaultComponentRegistry(),
         attrRegistry: createDefaultAttrRegistry(),
-        doc: document,
-        initialState: state,
+        doc: globalThis.document,
+        initialDocument: document,
       });
       const ro = FakeRO.last;
       if (ro === null) throw new Error("no observer");

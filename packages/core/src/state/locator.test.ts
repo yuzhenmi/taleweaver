@@ -8,8 +8,8 @@ import * as Y from "yjs";
 import type { BlockId } from "./block-id";
 import { createTestAllocator } from "./block-id";
 import type { Block } from "./block";
-import { createState, getBlock, type State } from "./state";
-import { STATE_INTERNAL } from "./state-internal";
+import { createDocument, getBlock, type Document } from "./document";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import { insertText } from "./ops/insert-text";
 import { deleteRange } from "./ops/delete-range";
 import { splitBlockAtPosition } from "./ops/split-block";
@@ -20,13 +20,13 @@ import { applySectionBreak } from "./ops/section-break";
 import { insertBlock } from "./ops/insert-block";
 import { removeBlock } from "./ops/remove-block";
 import { createPosition, createSpan } from "./block-position";
-import { TEST_RESOLVER, buildBlock, buildState, inlineContent, text, withTestAttrs } from "../test-utils/state-builders";
+import { TEST_RESOLVER, buildBlock, buildDocument, inlineContent, text, withTestAttrs } from "../test-utils/document-builders";
 import { locatorStats } from "./locator";
 import { sectionWalkStats } from "./flow-read";
 import { dirtyCompareStats } from "./flow-dirty";
 import { getRegistry } from "./registry";
 import { isPiece, isSubflowItem } from "./y-flow";
-import { applyOperation, freshState } from "./state";
+import { applyOperation, freshDocument } from "./document";
 import { setBlockAttrs } from "./ops/set-block-attrs";
 import { applyAttrsToRange } from "./ops/apply-attrs";
 import { captureDirtyIds, dirtyIdsFromTransaction } from "./yjs-doc";
@@ -37,9 +37,9 @@ declare const process: { env: Record<string, string | undefined> };
 
 const id = (s: string) => s as BlockId;
 
-function docOf(texts: readonly string[]): State {
+function docOf(texts: readonly string[]): Document {
   const ids = texts.map((_, i) => `p${i}`);
-  return buildState({
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: ids[0] ?? null, lastChildId: ids[ids.length - 1] ?? null }),
@@ -57,19 +57,19 @@ function docOf(texts: readonly string[]): State {
   });
 }
 
-function peer(s: State, clientID: number): State {
+function peer(s: Document, clientID: number): Document {
   const doc = new Y.Doc();
   doc.clientID = clientID;
-  Y.applyUpdate(doc, Y.encodeStateAsUpdate(s[STATE_INTERNAL].doc));
+  Y.applyUpdate(doc, Y.encodeStateAsUpdate(s[DOCUMENT_INTERNAL].doc));
   // Each peer binds the attr registry, as its editor would (¶ props are judged through it).
-  return withTestAttrs(createState({ resolver: TEST_RESOLVER, rootId: s.rootId, doc }));
+  return withTestAttrs(createDocument({ resolver: TEST_RESOLVER, rootId: s.rootId, doc }));
 }
 
 const textOf = (b: Block | null): string =>
   (b?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "￼")).join("");
 
 /** Every block in document order (sections entered) with its parent, links and text. */
-function read(s: State): string {
+function read(s: Document): string {
   const out: string[] = [];
   const walk = (start: BlockId | null): void => {
     for (let cur = start; cur !== null; ) {
@@ -85,7 +85,7 @@ function read(s: State): string {
 }
 
 /** The same document read cold: a fresh doc with no derived caches. */
-function coldRead(s: State): string {
+function coldRead(s: Document): string {
   return read(peer(s, 999));
 }
 
@@ -97,14 +97,14 @@ afterEach(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 describe("locator cache — warm edits never re-walk the region", () => {
   it("local typing after the first build costs no locator build", () => {
     let s = docOf(["alpha", "beta", "gamma"]);
-    s = insertText(s, createPosition(id("p1"), 2), "x", {}).state;
+    s = insertText(s, createPosition(id("p1"), 2), "x", {}).document;
     getBlock(s, id("p1"));
     const before = locatorStats.builds;
     for (let i = 0; i < 50; i++) {
-      s = insertText(s, createPosition(id("p1"), 3 + i), "y", {}).state;
+      s = insertText(s, createPosition(id("p1"), 3 + i), "y", {}).document;
       getBlock(s, id("p1"));
     }
-    s = deleteRange(s, createSpan(createPosition(id("p1"), 1), createPosition(id("p1"), 4))).state;
+    s = deleteRange(s, createSpan(createPosition(id("p1"), 1), createPosition(id("p1"), 4))).document;
     getBlock(s, id("p1"));
     expect(locatorStats.builds).toBe(before);
     expect(textOf(getBlock(s, id("p1")))).toBe("byy" + "y".repeat(47) + "ta");
@@ -114,15 +114,15 @@ describe("locator cache — warm edits never re-walk the region", () => {
     const a = docOf(["alpha", "beta"]);
     let b = peer(a, 2);
     getBlock(b, id("p1"));
-    const bDoc = b[STATE_INTERNAL].doc;
+    const bDoc = b[DOCUMENT_INTERNAL].doc;
     let remote = a;
     const before = locatorStats.builds;
     const comparesBefore = dirtyCompareStats.compares;
     for (let i = 0; i < 20; i++) {
-      remote = insertText(remote, createPosition(id("p1"), 4 + i), "z", {}).state;
-      Y.applyUpdate(bDoc, Y.encodeStateAsUpdate(remote[STATE_INTERNAL].doc, Y.encodeStateVector(bDoc)), "peer");
+      remote = insertText(remote, createPosition(id("p1"), 4 + i), "z", {}).document;
+      Y.applyUpdate(bDoc, Y.encodeStateAsUpdate(remote[DOCUMENT_INTERNAL].doc, Y.encodeStateVector(bDoc)), "peer");
     }
-    b = createState({ resolver: TEST_RESOLVER, rootId: b.rootId, doc: bDoc });
+    b = createDocument({ resolver: TEST_RESOLVER, rootId: b.rootId, doc: bDoc });
     // Built once for the (fresh) remote doc of `a`, never again on `b`.
     expect(locatorStats.builds - before).toBeLessThanOrEqual(1);
     // A keystroke (local or remote) moves no boundary: its dirty owner is dirty outright,
@@ -134,14 +134,14 @@ describe("locator cache — warm edits never re-walk the region", () => {
   it("keystrokes at the seam after deleting many paragraphs cross the tombstones once", () => {
     const n = 3000;
     let s = docOf(Array.from({ length: n }, () => "some paragraph text"));
-    s = deleteRange(s, createSpan(createPosition(id("p0"), 3), createPosition(id(`p${n - 1}`), 3))).state;
+    s = deleteRange(s, createSpan(createPosition(id("p0"), 3), createPosition(id(`p${n - 1}`), 3))).document;
     // The survivor of a cross-paragraph delete is the LAST paragraph (its ¶ ends the joined content).
     const last = id(`p${n - 1}`);
-    s = insertText(s, createPosition(last, 3), "x", {}).state;
+    s = insertText(s, createPosition(last, 3), "x", {}).document;
     getBlock(s, last);
     const before = locatorStats.builds;
     for (let i = 0; i < 20; i++) {
-      s = insertText(s, createPosition(last, 4 + i), "x", {}).state;
+      s = insertText(s, createPosition(last, 4 + i), "x", {}).document;
       getBlock(s, last);
     }
     expect(locatorStats.builds).toBe(before);
@@ -154,16 +154,16 @@ describe("locator cache — warm edits never re-walk the region", () => {
     // and the previous version reads through the current version's section memos.
     const cost = (n: number): number => {
       let s = docOf(Array.from({ length: n }, () => "some paragraph text"));
-      s = applySectionBreak(s, createPosition(id(`p${Math.floor(n / 3)}`), 0), createTestAllocator("sa")).state;
-      s = applySectionBreak(s, createPosition(id(`p${Math.floor((2 * n) / 3)}`), 0), createTestAllocator("sb")).state;
+      s = applySectionBreak(s, createPosition(id(`p${Math.floor(n / 3)}`), 0), createTestAllocator("sa")).document;
+      s = applySectionBreak(s, createPosition(id(`p${Math.floor((2 * n) / 3)}`), 0), createTestAllocator("sb")).document;
       const b = peer(s, 7);
       const alloc = createTestAllocator("e");
       const edit = (target: BlockId, warm: boolean): number => {
         const before = sectionWalkStats.steps;
         const r = splitBlockAtPosition(s, createPosition(target, 4), alloc);
-        s = mergeAdjacentBlocks(r.state, r.newBlockId, target).state;
-        s = insertText(s, createPosition(target, 2), "x", {}).state;
-        Y.applyUpdate(b[STATE_INTERNAL].doc, Y.encodeStateAsUpdate(s[STATE_INTERNAL].doc, Y.encodeStateVector(b[STATE_INTERNAL].doc)), "peer");
+        s = mergeAdjacentBlocks(r.document, r.newBlockId, target).document;
+        s = insertText(s, createPosition(target, 2), "x", {}).document;
+        Y.applyUpdate(b[DOCUMENT_INTERNAL].doc, Y.encodeStateAsUpdate(s[DOCUMENT_INTERNAL].doc, Y.encodeStateVector(b[DOCUMENT_INTERNAL].doc)), "peer");
         getBlock(s, target);
         return warm ? 0 : sectionWalkStats.steps - before;
       };
@@ -185,13 +185,13 @@ describe("locator cache — warm edits never re-walk the region", () => {
 describe("locator cache — cached reads equal cold reads", () => {
   it("deleting a section mark whose previous section ends in an object re-reads the previous section", () => {
     let s = docOf(["A", "B", "C"]);
-    s = insertBlock(s, getBlock(s, id("p2"))?.parentId ?? id("doc"), id("p2"), { type: "image", inlineContent: null }, createTestAllocator("img")).state;
-    s = applySectionBreak(s, createPosition(id("p1"), 0), createTestAllocator("sa")).state;
-    s = applySectionBreak(s, createPosition(id("p2"), 0), createTestAllocator("sb")).state;
+    s = insertBlock(s, getBlock(s, id("p2"))?.parentId ?? id("doc"), id("p2"), { type: "image", inlineContent: null }, createTestAllocator("img")).document;
+    s = applySectionBreak(s, createPosition(id("p1"), 0), createTestAllocator("sa")).document;
+    s = applySectionBreak(s, createPosition(id("p2"), 0), createTestAllocator("sb")).document;
     read(s); // warm every snapshot
     const sec = getBlock(s, id("p1"))?.parentId ?? null;
     if (sec === null) throw new Error("no section");
-    s = deleteSectionBreak(s, sec).state;
+    s = deleteSectionBreak(s, sec).document;
     expect(read(s)).toBe(coldRead(s));
   });
 
@@ -205,7 +205,7 @@ describe("locator cache — cached reads equal cold reads", () => {
   }
 
   /** Leaf blocks in document order (sections entered): text blocks and objects. */
-  function leavesOf(s: State): { text: BlockId[]; objects: BlockId[] } {
+  function leavesOf(s: Document): { text: BlockId[]; objects: BlockId[] } {
     const text: BlockId[] = [];
     const objects: BlockId[] = [];
     const walk = (start: BlockId | null): void => {
@@ -220,9 +220,9 @@ describe("locator cache — cached reads equal cold reads", () => {
     walk(getBlock(s, s.rootId)?.firstChildId ?? null);
     return { text, objects };
   }
-  const parentOf = (s: State, b: BlockId): BlockId => getBlock(s, b)?.parentId ?? id("doc");
+  const parentOf = (s: Document, b: BlockId): BlockId => getBlock(s, b)?.parentId ?? id("doc");
   /** The doc-root section holding `b`, or null. */
-  const sectionOf = (s: State, b: BlockId): BlockId | null => {
+  const sectionOf = (s: Document, b: BlockId): BlockId | null => {
     for (let cur = getBlock(s, b); cur !== null; cur = cur.parentId === null ? null : getBlock(s, cur.parentId)) {
       if (cur.type === "section" && cur.parentId === s.rootId) return cur.id;
     }
@@ -230,8 +230,8 @@ describe("locator cache — cached reads equal cold reads", () => {
   };
 
   /** An undo manager scoped like `History`'s (pieces / sub-flows are never deleted by undo). */
-  function undoManagerOf(s: State): Y.UndoManager {
-    return new Y.UndoManager([getRegistry(s[STATE_INTERNAL].doc)], {
+  function undoManagerOf(s: Document): Y.UndoManager {
+    return new Y.UndoManager([getRegistry(s[DOCUMENT_INTERNAL].doc)], {
       captureTimeout: 0,
       deleteFilter: (item: Y.Item) => !(isSubflowItem(item) || (item.content instanceof Y.ContentType && isPiece(item.content.type))),
     });
@@ -268,7 +268,7 @@ describe("locator cache — cached reads equal cold reads", () => {
   /**
    * One fuzz run: random local edits (text, split, merge, cross-block delete, moves,
    * objects, tables, section breaks / deletions, removals), undo / redo and two-way
-   * syncs on two peers. After EVERY step: the op's result State reads like a cold doc
+   * syncs on two peers. After EVERY step: the op's result Document reads like a cold doc
    * (the dirty-set acceptance), and invariant I holds — in STORAGE after a local
    * primitive op on a peer whose storage satisfied it (+ the plain-¶ state check), in
    * the READ MODEL always (remote / undo / redo: every violation covered by an
@@ -281,13 +281,13 @@ describe("locator cache — cached reads equal cold reads", () => {
       if (x === undefined) throw new Error("empty");
       return x;
     };
-    let peers: State[] = [peer(docOf(["one", "two two", "three", ""]), 1)];
-    peers.push(peer(peers[0] as State, 2));
+    let peers: Document[] = [peer(docOf(["one", "two two", "three", ""]), 1)];
+    peers.push(peer(peers[0] as Document, 2));
     const alloc = createTestAllocator(`f${seed}`);
     const undos = peers.map(undoManagerOf);
     for (let step = 0; step < steps; step++) {
       const k = r() < 0.5 ? 0 : 1;
-      let s = peers[k] as State;
+      let s = peers[k] as Document;
       const storageOk = storageViolation(s) === null;
       let local = true;
       const { text: ids, objects } = leavesOf(s);
@@ -298,58 +298,58 @@ describe("locator cache — cached reads equal cold reads", () => {
       const i = ids.indexOf(target);
       const where = `seed ${seed} step ${step} op ${op.toFixed(3)} target ${target}`;
       try {
-        if (op < 0.25) s = insertText(s, createPosition(target, at), pick(["a", "bc", "def "]), {}).state;
-        else if (op < 0.27) s = setBlockAttrs(s, target, { textAlign: r() < 0.3 ? undefined : pick(["center", "right"]) }).state;
+        if (op < 0.25) s = insertText(s, createPosition(target, at), pick(["a", "bc", "def "]), {}).document;
+        else if (op < 0.27) s = setBlockAttrs(s, target, { textAlign: r() < 0.3 ? undefined : pick(["center", "right"]) }).document;
         else if (op < 0.3) {
           // Formatting that may cover the target's ¶ (its `markAttrs`) and run into the next block.
           const next = ids[i + 1];
           const end = next !== undefined && r() < 0.5 ? createPosition(next, 0) : createPosition(target, len);
-          s = applyAttrsToRange(s, createSpan(createPosition(target, at), end), { bold: r() < 0.5 ? true : undefined }).state;
+          s = applyAttrsToRange(s, createSpan(createPosition(target, at), end), { bold: r() < 0.5 ? true : undefined }).document;
         }
         else if (op < 0.4 && len > 0) {
           const end = Math.min(len, at + 1 + Math.floor(r() * 3));
-          if (end > at) s = deleteRange(s, createSpan(createPosition(target, at), createPosition(target, end))).state;
-        } else if (op < 0.5) s = splitBlockAtPosition(s, createPosition(target, at), alloc).state;
+          if (end > at) s = deleteRange(s, createSpan(createPosition(target, at), createPosition(target, end))).document;
+        } else if (op < 0.5) s = splitBlockAtPosition(s, createPosition(target, at), alloc).document;
         else if (op < 0.57) {
           const next = getBlock(s, target)?.nextSiblingId ?? null;
-          if (next !== null && getBlock(s, next)?.inlineContent != null) s = mergeAdjacentBlocks(s, target, next).state;
+          if (next !== null && getBlock(s, next)?.inlineContent != null) s = mergeAdjacentBlocks(s, target, next).document;
         } else if (op < 0.61 && ids.length > 1) {
           const moved = r() < 0.7 || objects.length === 0 ? target : pick(objects);
           const dest = pick([...ids, ...objects]);
-          if (dest !== moved) s = reparentChildren(s, [moved], parentOf(s, dest), dest).state;
+          if (dest !== moved) s = reparentChildren(s, [moved], parentOf(s, dest), dest).document;
         } else if (op < 0.64 && ids.length > 2) {
           const far = ids[Math.min(ids.length - 1, i + 2)];
           const mid = ids[i + 1];
           const sib = (a: BlockId | undefined, b: BlockId | undefined): boolean => a !== undefined && b !== undefined && getBlock(s, a)?.nextSiblingId === b;
           if (far !== undefined && far !== target && sib(target, mid) && sib(mid, far)) {
             const flen = textOf(getBlock(s, far)).length;
-            s = deleteRange(s, createSpan(createPosition(target, at), createPosition(far, Math.floor(r() * (flen + 1))))).state;
+            s = deleteRange(s, createSpan(createPosition(target, at), createPosition(far, Math.floor(r() * (flen + 1))))).document;
           }
         } else if (op < 0.68) {
           // An object before the target (a section break at a later target then leaves a section ending in it).
-          s = insertBlock(s, parentOf(s, target), target, { type: "image", inlineContent: null }, alloc).state;
+          s = insertBlock(s, parentOf(s, target), target, { type: "image", inlineContent: null }, alloc).document;
         } else if (op < 0.7) {
           const parent = parentOf(s, target);
           const node = tableNode(alloc);
-          s = applyOperation(s, (doc) => insertChildren(doc, parent, r() < 0.5 ? target : null, [node], "block")).state;
-        } else if (op < 0.73 && objects.length > 0) s = removeBlock(s, pick(objects)).state;
-        else if (op < 0.75) s = removeBlock(s, target).state;
-        else if (op < 0.79) s = applySectionBreak(s, createPosition(target, 0), alloc).state;
+          s = applyOperation(s, (doc) => insertChildren(doc, parent, r() < 0.5 ? target : null, [node], "block")).document;
+        } else if (op < 0.73 && objects.length > 0) s = removeBlock(s, pick(objects)).document;
+        else if (op < 0.75) s = removeBlock(s, target).document;
+        else if (op < 0.79) s = applySectionBreak(s, createPosition(target, 0), alloc).document;
         else if (op < 0.83) {
           const sec = sectionOf(s, target);
-          if (sec !== null) s = deleteSectionBreak(s, sec).state;
+          if (sec !== null) s = deleteSectionBreak(s, sec).document;
         } else if (op < 0.92) {
           local = false;
           const um = undos[k];
           const undo = r() < 0.6;
           // Advanced by its dirty set (like `History`), so the snapshot check covers undo / redo.
-          s = freshState(s, captureDirtyIds(s[STATE_INTERNAL].doc, () => (undo ? um?.undo() : um?.redo())));
+          s = freshDocument(s, captureDirtyIds(s[DOCUMENT_INTERNAL].doc, () => (undo ? um?.undo() : um?.redo())));
         } else {
           local = false;
           // Sync both ways (remote transactions on each side).
-          const da = (peers[0] as State)[STATE_INTERNAL].doc;
-          const db = (peers[1] as State)[STATE_INTERNAL].doc;
-          // Each peer's State advances by the remote transactions' dirty sets (the collab path).
+          const da = (peers[0] as Document)[DOCUMENT_INTERNAL].doc;
+          const db = (peers[1] as Document)[DOCUMENT_INTERNAL].doc;
+          // Each peer's Document advances by the remote transactions' dirty sets (the collab path).
           const remote = (from: Y.Doc, to: Y.Doc): Set<BlockId> => {
             const dirty = new Set<BlockId>();
             const on = (tx: Y.Transaction): void => {
@@ -362,25 +362,25 @@ describe("locator cache — cached reads equal cold reads", () => {
           };
           const dirtyB = remote(da, db);
           const dirtyA = remote(db, da);
-          peers = [freshState(peers[0] as State, dirtyA), freshState(peers[1] as State, dirtyB)];
-          s = peers[k] as State;
+          peers = [freshDocument(peers[0] as Document, dirtyA), freshDocument(peers[1] as Document, dirtyB)];
+          s = peers[k] as Document;
         }
       } catch (e) {
         throw new Error(`${where}: ${String(e)}`);
       }
-      // The op's result State (its snapshot cache, invalidated by the dirty set) reads like a cold doc.
+      // The op's result Document (its snapshot cache, invalidated by the dirty set) reads like a cold doc.
       let snap = "";
       try {
         snap = read(s);
       } catch (e) {
         throw new Error(`${where}: ${String(e)}`);
       }
-      expect(snap, `${where} (result State)`).toBe(coldRead(s));
+      expect(snap, `${where} (result Document)`).toBe(coldRead(s));
       assertInvariantI(s, local && storageOk ? "storage" : "read", where);
       peers[k] = s;
       for (const p of peers) {
-        expect(read(p), `${where} (peer State)`).toBe(coldRead(p));
-        const fresh = createState({ resolver: TEST_RESOLVER, rootId: p.rootId, doc: p[STATE_INTERNAL].doc });
+        expect(read(p), `${where} (peer Document)`).toBe(coldRead(p));
+        const fresh = createDocument({ resolver: TEST_RESOLVER, rootId: p.rootId, doc: p[DOCUMENT_INTERNAL].doc });
         expect(read(fresh), where).toBe(coldRead(fresh));
         assertInvariantI(fresh, "read", where);
       }

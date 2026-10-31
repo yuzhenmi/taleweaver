@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
-import { applyOperation } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation } from "../document";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { requireInTransaction } from "../yjs-doc";
@@ -47,24 +47,24 @@ export interface InsertTableRowPlan {
  * first/last-child or a row's sibling pointer changes) plus every new block.
  */
 export function insertTableRow(
-  state: State,
+  document: Document,
   ctx: TableContext,
   position: RowPosition,
   allocator: IdAllocator,
 ): OperationResult & { readonly newRowId: BlockId } {
-  const plan = planInsertTableRow(state, ctx, position, allocator);
-  const result = applyOperation(state, (doc) => {
+  const plan = planInsertTableRow(document, ctx, position, allocator);
+  const result = applyOperation(document, (doc) => {
     insertTableRowInTx(doc, plan);
   });
   return { ...result, newRowId: plan.rowId };
 }
 
 /** Build the plan from a resolved context. Allocates row + per-column cell +
- *  paragraph ids once each, outside any transaction. `state` is read only to
+ *  paragraph ids once each, outside any transaction. `document` is read only to
  *  compute the `headerRowCount` adjustment. Throws when the caret row has
  *  no cells (degenerate). */
 export function planInsertTableRow(
-  state: State,
+  document: Document,
   ctx: TableContext,
   position: RowPosition,
   allocator: IdAllocator,
@@ -99,7 +99,7 @@ export function planInsertTableRow(
   // (insert-below). This op runs only on a NON-spanned table (the handler routes
   // spanned tables to the span-aware op), so `ctx.rowIndex` IS the grid row.
   const destIndex = position === "above" ? ctx.rowIndex : ctx.rowIndex + 1;
-  const headerAttrs = headerRowAttrsAfterRowEdit(state, ctx.tableId, "insert", destIndex);
+  const headerAttrs = headerRowAttrsAfterRowEdit(document, ctx.tableId, "insert", destIndex);
 
   return { tableId: ctx.tableId, rowId, prevRowId, nextRowId, cells, headerAttrs };
 }

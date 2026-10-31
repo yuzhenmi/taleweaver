@@ -4,7 +4,7 @@ import {
   type TextBox,
   type ElementBox,
   type ComputedStyle,
-  type State,
+  type Document,
   type ComponentRegistry,
   type AttrRegistry,
   type SuggestionView,
@@ -32,19 +32,19 @@ export interface RenderDocumentToDomOptions {
 }
 
 /**
- * Render a document `State` into real DOM the browser flows to any width — the
+ * Render a document `Document` into real DOM the browser flows to any width — the
  * read-only digital view. Pipeline: render() → cascadePass() → renderNodeToDom().
  * No engine geometry, no pages: the browser does layout. Pass `suggestionView`
  * to choose tracked-changes ("suggesting", default) vs clean ("final") output.
  */
 export function renderDocumentToDom(
-  state: State,
+  document: Document,
   componentRegistry: ComponentRegistry,
   attrRegistry: AttrRegistry,
-  doc: Document,
+  doc: globalThis.Document,
   options?: RenderDocumentToDomOptions,
 ): HTMLElement {
-  const { cascaded } = renderStyled(state, componentRegistry, attrRegistry, options);
+  const { cascaded } = renderStyled(document, componentRegistry, attrRegistry, options);
   return styledRootToDom(cascaded, doc, options?.stampBlockIds ?? false, options?.decorations);
 }
 
@@ -55,27 +55,27 @@ export interface StyledTree {
 }
 
 /**
- * render() → cascade, full or incremental (pass the previous tree + its State + the dirty
+ * render() → cascade, full or incremental (pass the previous tree + its Document + the dirty
  * set). The ONE place digital runs the pipeline, so render options such as
  * `suggestionView` can never drift between the viewer, a full rebuild and an incremental
  * reconcile.
  */
 export function renderStyled(
-  state: State,
+  document: Document,
   componentRegistry: ComponentRegistry,
   attrRegistry: AttrRegistry,
   options?: Pick<RenderDocumentToDomOptions, "suggestionView">,
-  incremental?: { readonly prev: StyledTree; readonly prevState: State; readonly dirtyIds: ReadonlySet<BlockId> },
+  incremental?: { readonly prev: StyledTree; readonly prevDocument: Document; readonly dirtyIds: ReadonlySet<BlockId> },
 ): StyledTree {
   const view = options?.suggestionView !== undefined ? { suggestionView: options.suggestionView } : {};
   if (incremental === undefined) {
-    const out = render(state, componentRegistry, attrRegistry, view);
+    const out = render(document, componentRegistry, attrRegistry, view);
     return { out, cascaded: cascadePass(out.root) };
   }
-  const out = render(state, componentRegistry, attrRegistry, {
+  const out = render(document, componentRegistry, attrRegistry, {
     ...view,
     prev: incremental.prev.out,
-    prevState: incremental.prevState,
+    prevDocument: incremental.prevDocument,
     dirtyIds: incremental.dirtyIds,
   });
   return { out, cascaded: cascadePassIncremental(out.root, incremental.prev.out.root, incremental.prev.cascaded) };
@@ -84,7 +84,7 @@ export function renderStyled(
 /** Materialize a cascaded document root as ONE element (wrapping a fragment/null root). */
 export function styledRootToDom(
   root: RenderNode,
-  doc: Document,
+  doc: globalThis.Document,
   stamp: boolean,
   decorations: DecorationSet = EMPTY_DECORATION_SET,
 ): HTMLElement {
@@ -103,7 +103,7 @@ export function styledRootToDom(
  */
 export function renderNodeToDom(
   node: RenderNode,
-  doc: Document,
+  doc: globalThis.Document,
   stamp = false,
   decorations: DecorationSet = EMPTY_DECORATION_SET,
 ): Node | null {
@@ -119,7 +119,7 @@ export function renderNodeToDom(
  */
 export function renderBlockToDom(
   node: ElementBox,
-  doc: Document,
+  doc: globalThis.Document,
   decorations: DecorationSet = EMPTY_DECORATION_SET,
 ): HTMLElement | null {
   recordSample("digital.renderBlock", 0); // deterministic perf counter (no-op unless tracing)
@@ -129,14 +129,14 @@ export function renderBlockToDom(
 }
 
 /** Draw a stamped block's decorations once its content is built (no-op unless stamped). */
-function decorate(elem: HTMLElement, box: ElementBox, decorations: DecorationSet, doc: Document): void {
+function decorate(elem: HTMLElement, box: ElementBox, decorations: DecorationSet, doc: globalThis.Document): void {
   if (elem.getAttribute("data-block-id") !== box.key) return;
   const decos = decorations.forBlock(asBlockId(box.key));
   if (decos.inline.length === 0 && decos.widgets.length === 0 && decos.block.length === 0) return;
   decorateBlockElement(elem, decos, doc);
 }
 
-function elementBoxToDom(box: ElementBox, doc: Document, stamp: boolean, decorations: DecorationSet): Node | null {
+function elementBoxToDom(box: ElementBox, doc: globalThis.Document, stamp: boolean, decorations: DecorationSet): Node | null {
   const m = box.metadata;
   const display = box.computedStyle?.display ?? "block";
 
@@ -231,7 +231,7 @@ function elementBoxToDom(box: ElementBox, doc: Document, stamp: boolean, decorat
 const LINE_HOST_DISPLAYS: ReadonlySet<ComputedStyle["display"]> = new Set([
   "block", "flow-root", "list-item", "table-cell",
 ]);
-function fillEmptyLineHost(elem: HTMLElement, display: ComputedStyle["display"], doc: Document, box: ElementBox): void {
+function fillEmptyLineHost(elem: HTMLElement, display: ComputedStyle["display"], doc: globalThis.Document, box: ElementBox): void {
   if (!LINE_HOST_DISPLAYS.has(display)) return;
   if (elem.querySelector("[data-block-id]") !== null) return; // a container (nested blocks), not an empty line
   // Generated nodes (a boundary ¶ anchor) are not content: they neither make the line
@@ -263,7 +263,7 @@ function characterCss(cs: ComputedStyle, base: ComputedStyle): string {
     .join("; ");
 }
 
-function emptyLineFiller(doc: Document): HTMLElement {
+function emptyLineFiller(doc: globalThis.Document): HTMLElement {
   const br = doc.createElement("br");
   br.setAttribute("data-tw-empty-line", "");
   return br;
@@ -288,7 +288,7 @@ export const SUGGESTION_ID_ATTR = "data-tw-suggestion-id";
  * (block, len) are inserted before it (decorate-dom). The selection bridge skips generated
  * nodes.
  */
-function appendEndMark(elem: HTMLElement, box: ElementBox, doc: Document): void {
+function appendEndMark(elem: HTMLElement, box: ElementBox, doc: globalThis.Document): void {
   const mark = box.metadata?.endMark;
   if (mark !== undefined) elem.appendChild(endMarkAnchor(mark, doc));
 }
@@ -296,7 +296,7 @@ function appendEndMark(elem: HTMLElement, box: ElementBox, doc: Document): void 
 /** The label of a section-end item (Word: "Section Break"; print draws the same words). */
 const SECTION_BREAK_LABEL = "Section Break";
 
-function endMarkAnchor(mark: BoundaryMarkMetadata, doc: Document): HTMLElement {
+function endMarkAnchor(mark: BoundaryMarkMetadata, doc: globalThis.Document): HTMLElement {
   const label = mark.kind.startsWith("section") ? SECTION_BREAK_LABEL : "¶";
   const anchor = endAnchor(doc, "tw-break-mark", "tw-break-mark-glyph", label, `text-decoration-line: ${breakDecorationLine(mark.kind)}` + (mark.color !== null ? `; color: ${mark.color}` : ""));
   anchor.setAttribute("data-tw-break-kind", mark.kind);
@@ -319,7 +319,7 @@ export const END_ANCHOR_ATTR = "data-tw-end-anchor";
  * at the caret position after the content, so it never takes line space, wraps, or
  * carries the caret. Its glyph is clipped at a table cell's border box by `cell-clip.ts`.
  */
-export function endAnchor(doc: Document, anchorClass: string, glyphClass: string, text: string, glyphStyle: string): HTMLElement {
+export function endAnchor(doc: globalThis.Document, anchorClass: string, glyphClass: string, text: string, glyphStyle: string): HTMLElement {
   const anchor = doc.createElement("span");
   anchor.setAttribute(GENERATED_ATTR, "");
   anchor.setAttribute(END_ANCHOR_ATTR, "");
@@ -401,7 +401,7 @@ export function listMetaOf(node: RenderNode): ListMeta | undefined {
 function appendChildren(
   parent: Node,
   children: readonly RenderNode[],
-  doc: Document,
+  doc: globalThis.Document,
   stamp: boolean,
   decorations: DecorationSet,
 ): void {
@@ -452,7 +452,7 @@ function appendChildren(
  */
 export function renderListRunToDom(
   items: readonly ElementBox[],
-  doc: Document,
+  doc: globalThis.Document,
   decorations: DecorationSet = EMPTY_DECORATION_SET,
 ): HTMLElement | null {
   const frag = doc.createDocumentFragment();
@@ -467,7 +467,7 @@ export function renderListRunToDom(
  * `padding-inline-start` gutter) — same as every other ElementBox branch. Its inline content
  * recurses into the `<li>`; nested sub-lists are appended by the caller's run grouping.
  */
-function listItemToDom(child: ElementBox, doc: Document, stamp: boolean, decorations: DecorationSet): HTMLElement {
+function listItemToDom(child: ElementBox, doc: globalThis.Document, stamp: boolean, decorations: DecorationSet): HTMLElement {
   const li = doc.createElement("li");
   applyStyle(li, child);
   // `list-style: none` (host CSS may set it either way; we own the marker) +
@@ -494,7 +494,7 @@ function listItemToDom(child: ElementBox, doc: Document, stamp: boolean, decorat
  * units (generated content, zero cursor stops — the same contract as the paginated marker box).
  * Absent/empty `markerText` (a non-numbered item) emits no marker.
  */
-function renderListMarker(li: HTMLElement, item: ElementBox, doc: Document): void {
+function renderListMarker(li: HTMLElement, item: ElementBox, doc: globalThis.Document): void {
   const itemCs = item.computedStyle;
   const markerText = itemCs?.markerText;
   if (markerText === undefined || markerText === "") return;
@@ -523,7 +523,7 @@ function lastListItem(listEl: HTMLElement | undefined): HTMLElement | null {
   return last instanceof HTMLElement ? last : null;
 }
 
-function textBoxToDom(box: TextBox, doc: Document): Node {
+function textBoxToDom(box: TextBox, doc: globalThis.Document): Node {
   const cs: ComputedStyle | undefined = box.computedStyle;
   const textNode = doc.createTextNode(box.text);
 
@@ -558,7 +558,7 @@ function textBoxToDom(box: TextBox, doc: Document): Node {
   return current;
 }
 
-function wrap(doc: Document, tag: string, child: Node): HTMLElement {
+function wrap(doc: globalThis.Document, tag: string, child: Node): HTMLElement {
   const el = doc.createElement(tag);
   el.appendChild(child);
   return el;

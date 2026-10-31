@@ -3,7 +3,7 @@ import type { Edit } from "../../edit";
 import { inheritedAttrsAt } from "../../typing-attrs";
 import { getBlock, createPosition, createSpan, replaceBlockWithText } from "../../../state";
 import type { BlockId, ReadonlyAttrs } from "../../../state";
-import { contentLengthForState } from "./content-length-for-state";
+import { contentLengthForDocument } from "./content-length-for-document";
 
 /**
  * Replace the selected object by `text` (Google Docs: typing over a selected
@@ -27,7 +27,7 @@ export function replaceObjectWithText(
   text: string,
 ): Edit | null {
   if (text === "") return null;
-  const obj = getBlock(editor.state, objId);
+  const obj = getBlock(editor.document, objId);
   if (obj === null) return null;
 
   const target = textTargetSibling(editor, obj.nextSiblingId, obj.prevSiblingId);
@@ -35,15 +35,15 @@ export function replaceObjectWithText(
 
   // Typing attributes at the landing caret (pending ones win), like any typing.
   const attrs: ReadonlyAttrs =
-    editor.storedAttrs ?? inheritedAttrsAt(editor.state, createPosition(target.blockId, target.offset));
+    editor.storedAttrs ?? inheritedAttrsAt(editor.document, createPosition(target.blockId, target.offset));
   const result = replaceBlockWithText(
-    editor.state,
+    editor.document,
     objId,
     { blockId: target.blockId, offset: target.offset },
     text,
     attrs,
   );
-  if (result.state === editor.state) return null;
+  if (result.document === editor.document) return null;
 
   const caret = createPosition(target.blockId, target.offset + text.length);
   return { change: result, selection: createSpan(caret, caret) };
@@ -65,12 +65,12 @@ function textTargetSibling(
     return { blockId: nextSiblingId, offset: 0 };
   }
   if (prevSiblingId !== null && isTextLeaf(editor, prevSiblingId)) {
-    return { blockId: prevSiblingId, offset: contentLengthForState(editor.state, prevSiblingId) };
+    return { blockId: prevSiblingId, offset: contentLengthForDocument(editor.document, prevSiblingId) };
   }
   return null;
 }
 
 function isTextLeaf(editor: EditorState, blockId: BlockId): boolean {
-  const block = getBlock(editor.state, blockId);
+  const block = getBlock(editor.document, blockId);
   return block !== null && block.inlineContent !== null;
 }

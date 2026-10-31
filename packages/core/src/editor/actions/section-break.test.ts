@@ -7,15 +7,15 @@
  */
 import { describe, it, expect } from "vitest";
 import { config, measurer, reduceEditor } from "./test-helpers";
-import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { createEditorStateFromDocument, type EditorState } from "../editor-state";
 import { getBlock } from "../../state";
-import type { BlockId, State } from "../../state";
+import type { BlockId, Document } from "../../state";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
-} from "../../test-utils/state-builders";
+} from "../../test-utils/document-builders";
 import { render } from "../../render/render";
 import { cascadePass } from "../../cascade";
 import { layoutTree } from "@taleweaver/print";
@@ -26,8 +26,8 @@ import { layoutTree } from "@taleweaver/print";
  * directly (what the driver does) so a test can prove the post-break document
  * still lays out without error.
  */
-function layoutOf(state: State): unknown {
-  const rendered = render(state, config.componentRegistry, config.attrRegistry);
+function layoutOf(document: Document): unknown {
+  const rendered = render(document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   return layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
 }
@@ -38,7 +38,7 @@ function layoutOf(state: State): unknown {
  * geometry-free (no render/cascade/layout fields).
  */
 function makeEditor(cursorBlock: BlockId): EditorState {
-  const initialState = buildState({
+  const initialDocument = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -80,18 +80,18 @@ function makeEditor(cursorBlock: BlockId): EditorState {
     ],
   });
   const cursor = { blockId: cursorBlock, offset: 0 };
-  return createEditorStateFromState(initialState, { anchor: cursor, focus: cursor }, config);
+  return createEditorStateFromDocument(initialDocument, { anchor: cursor, focus: cursor }, config);
 }
 
 /** Ordered list of a block's direct children (the root's: its sections). */
-function childrenOf(editor: EditorState, id: BlockId = editor.state.rootId): BlockId[] {
-  const root = getBlock(editor.state, id);
+function childrenOf(editor: EditorState, id: BlockId = editor.document.rootId): BlockId[] {
+  const root = getBlock(editor.document, id);
   if (root === null) return [];
   const ids: BlockId[] = [];
   let cur: BlockId | null = root.firstChildId;
   while (cur !== null) {
     ids.push(cur);
-    const b = getBlock(editor.state, cur);
+    const b = getBlock(editor.document, cur);
     if (b === null) break;
     cur = b.nextSiblingId;
   }
@@ -105,13 +105,13 @@ describe("handleSectionBreak — SECTION_BREAK action", () => {
     const next = reduceEditor(initial, { type: "SECTION_BREAK" });
 
     // Positive direction: a real break produces a NEW state reference.
-    expect(next.state).not.toBe(initial.state);
+    expect(next.document).not.toBe(initial.document);
 
     // Root now has exactly two children, both `section` blocks.
     const children = childrenOf(next);
     expect(children).toHaveLength(2);
     for (const id of children) {
-      expect(getBlock(next.state, id)?.type).toBe("section");
+      expect(getBlock(next.document, id)?.type).toBe("section");
     }
 
     // (Word) the break is a SPLIT of p3 at 0 whose head H (a new,
@@ -122,7 +122,7 @@ describe("handleSectionBreak — SECTION_BREAK action", () => {
     expect(leading.slice(0, 2)).toEqual(["p1", "p2"]);
     expect(leading).toHaveLength(3);
     const head = leading[2] as BlockId;
-    expect(getBlock(next.state, head)?.inlineContent?.items).toEqual([]);
+    expect(getBlock(next.document, head)?.inlineContent?.items).toEqual([]);
     expect(childrenOf(next, secB as BlockId)).toEqual(["p3", "p4"]);
 
     // Cursor stays at the start of the tail (p3).
@@ -130,7 +130,7 @@ describe("handleSectionBreak — SECTION_BREAK action", () => {
     expect(next.selection.anchor).toEqual({ blockId: "p3" as BlockId, offset: 0 });
 
     // The post-break document lays out without error (driver-equivalent pipeline).
-    expect(layoutOf(next.state)).toBeDefined();
+    expect(layoutOf(next.document)).toBeDefined();
   });
 
   it("a break at the start of the first paragraph leaves an empty paragraph carrying it (Word)", () => {
@@ -144,7 +144,7 @@ describe("handleSectionBreak — SECTION_BREAK action", () => {
     const [secA, secB] = childrenOf(next);
     const leading = childrenOf(next, secA as BlockId);
     expect(leading).toHaveLength(1);
-    expect(getBlock(next.state, leading[0] as BlockId)?.inlineContent?.items).toEqual([]);
+    expect(getBlock(next.document, leading[0] as BlockId)?.inlineContent?.items).toEqual([]);
     expect(childrenOf(next, secB as BlockId)).toEqual(["p1", "p2", "p3", "p4"]);
     expect(next.selection.focus).toEqual({ blockId: "p1" as BlockId, offset: 0 });
   });

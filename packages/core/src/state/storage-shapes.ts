@@ -4,7 +4,7 @@
  * an empty childless host container (an `aside` with no children yet) is still a flow
  * holder, so content can later be moved into it.
  *
- * A doc's resolver is bound once, by `createState` (where it is a required argument),
+ * A doc's resolver is bound once, by `createDocument` (where it is a required argument),
  * and every writer that creates a registry entry reads it here — so no state can be
  * written without one. Readers stay resolver-free: the shape persists in the entry.
  * The upgrade binds a resolver that INFERS the shape of a legacy type the host no
@@ -35,10 +35,10 @@ export function bindStorageResolver(doc: Y.Doc, resolver: BlockKindResolver): vo
   bindings.set(doc, { resolver });
 }
 
-/** The resolver bound to `doc`. Throws when none is (a doc no `createState` bound). */
+/** The resolver bound to `doc`. Throws when none is (a doc no `createDocument` bound). */
 export function storageResolverOf(doc: Y.Doc): BlockKindResolver {
   const b = bindings.get(doc);
-  if (b === undefined) throw new Error("storage: no BlockKindResolver bound to this document (create its State with `resolver`)");
+  if (b === undefined) throw new Error("storage: no BlockKindResolver bound to this document (create its Document with `resolver`)");
   return b.resolver;
 }
 

@@ -1,5 +1,5 @@
-import type { State } from "./state";
-import { getBlock, createWalkGuard } from "./state";
+import type { Document } from "./document";
+import { getBlock, createWalkGuard } from "./document";
 import type { BlockId } from "./block-id";
 import { ancestorChain } from "./block-traversal";
 import { isSpan, spanValue } from "./table-cell-span";
@@ -42,7 +42,7 @@ export interface TableContext {
   readonly hasSpans: boolean;
   /**
    * The occupancy grid for this table, built ONCE from the PRE-mutation
-   * `state` (it is what `ragged` is derived from). `null` only for a non-main-tree
+   * `document` (it is what `ragged` is derived from). `null` only for a non-main-tree
    * table — unreachable here, since `tableId` is already proven a main-tree
    * `table`. Span-aware handlers reuse this for caret targeting instead of
    * re-scanning the tree with a second `buildTableGrid` call.
@@ -52,19 +52,19 @@ export interface TableContext {
 
 /** The main-tree child ids of `parentId` in document order (sibling-chain walk).
  *  Empty when the block is absent (e.g. not in the main tree) or childless. */
-export function getChildIds(state: State, parentId: BlockId): BlockId[] {
-  const parent = getBlock(state, parentId);
+export function getChildIds(document: Document, parentId: BlockId): BlockId[] {
+  const parent = getBlock(document, parentId);
   if (parent === null) return [];
   const out: BlockId[] = [];
   // Cycle-detection bound, matching block-traversal's chain walks: a corrupt
   // `nextSiblingId` cycle would otherwise loop forever.
-  const guard = createWalkGuard(state);
+  const guard = createWalkGuard(document);
   let cur: BlockId | null = parent.firstChildId;
   while (cur !== null) {
     if (guard.step()) {
       throw new Error(`getChildIds: cycle detected in sibling chain under "${parentId}"`);
     }
-    const child = getBlock(state, cur);
+    const child = getBlock(document, cur);
     if (child === null) break; // malformed chain (missing child) — stop defensively
     out.push(cur);
     cur = child.nextSiblingId;
@@ -80,7 +80,7 @@ export function getChildIds(state: State, parentId: BlockId): BlockId[] {
  * header/footer/footnote body resolves to `null` (the structural ops the handlers
  * call are main-tree-only), so the handler no-ops on those tables.
  */
-export function resolveTableContext(state: State, blockId: BlockId): TableContext | null {
+export function resolveTableContext(document: Document, blockId: BlockId): TableContext | null {
   // Walk up to the nearest table-cell. `ancestorChain` resolves across ALL trees
   // (resolveBlock), but the type check uses `getBlock` (MAIN-TREE-ONLY) — so a
   // table-cell living in a header/footer/footnote body never matches and the
@@ -88,26 +88,26 @@ export function resolveTableContext(state: State, blockId: BlockId): TableContex
   // the handlers call are main-tree-only); do NOT switch this to `resolveBlock`
   // or non-main-tree tables would resolve a context the ops can't edit.
   let cellId: BlockId | null = null;
-  for (const id of ancestorChain(state, blockId)) {
-    if (getBlock(state, id)?.type === "table-cell") {
+  for (const id of ancestorChain(document, blockId)) {
+    if (getBlock(document, id)?.type === "table-cell") {
       cellId = id;
       break;
     }
   }
   if (cellId === null) return null;
 
-  const cell = getBlock(state, cellId);
+  const cell = getBlock(document, cellId);
   const rowId = cell?.parentId ?? null;
-  if (rowId === null || getBlock(state, rowId)?.type !== "table-row") return null;
+  if (rowId === null || getBlock(document, rowId)?.type !== "table-row") return null;
 
-  const tableId = getBlock(state, rowId)?.parentId ?? null;
-  if (tableId === null || getBlock(state, tableId)?.type !== "table") return null;
+  const tableId = getBlock(document, rowId)?.parentId ?? null;
+  if (tableId === null || getBlock(document, tableId)?.type !== "table") return null;
 
-  const rowIds = getChildIds(state, tableId).filter(
-    (id) => getBlock(state, id)?.type === "table-row",
+  const rowIds = getChildIds(document, tableId).filter(
+    (id) => getBlock(document, id)?.type === "table-row",
   );
   const cellIdsByRow = rowIds.map((rid) =>
-    getChildIds(state, rid).filter((id) => getBlock(state, id)?.type === "table-cell"),
+    getChildIds(document, rid).filter((id) => getBlock(document, id)?.type === "table-cell"),
   );
 
   const rowIndex = rowIds.indexOf(rowId);
@@ -119,7 +119,7 @@ export function resolveTableContext(state: State, blockId: BlockId): TableContex
 
   const spanned = cellIdsByRow.some((cells) =>
     cells.some((cid) => {
-      const c = getBlock(state, cid);
+      const c = getBlock(document, cid);
       return c !== null && (isSpan(c.attrs.rowSpan) || isSpan(c.attrs.colSpan));
     }),
   );
@@ -132,7 +132,7 @@ export function resolveTableContext(state: State, blockId: BlockId): TableContex
   // legitimately makes a row hold fewer cells than the grid is wide). `buildTableGrid`
   // returns null only for a non-main-tree table, which `tableId` is already proven
   // not to be — the count-based fallback is unreachable defence.
-  const grid = buildTableGrid(state, tableId);
+  const grid = buildTableGrid(document, tableId);
   const ragged =
     grid === null
       ? // `caretRowCells` is non-undefined here: the `colIndex < 0` guard above
@@ -159,7 +159,7 @@ export function resolveTableContext(state: State, blockId: BlockId): TableContex
  * Build the occupancy grid (`TableGrid`) for a main-tree `table` block from
  * the STATE Block tree — the state-side counterpart of the layout Table FC's grid
  * pass, so the span-aware editing ops can reason in grid coordinates
- * (gridRow/gridCol/occupancy) from the PRE-mutation `State`.
+ * (gridRow/gridCol/occupancy) from the PRE-mutation `Document`.
  *
  * Spans are read as `spanValue(attrs.rowSpan/colSpan) ?? 1` — the SAME predicate
  * `table-cell.ts` stamps into layout metadata — so the state-built grid is
@@ -170,15 +170,15 @@ export function resolveTableContext(state: State, blockId: BlockId): TableContex
  * filtered to `table-row`/`table-cell` types (anonymous-row/cell synthesis is a
  * layout concern, not present in the state tree).
  */
-export function buildTableGrid(state: State, tableId: BlockId): TableGrid | null {
-  if (getBlock(state, tableId)?.type !== "table") return null;
-  const rows: GridCell[][] = getChildIds(state, tableId)
-    .filter((rid) => getBlock(state, rid)?.type === "table-row")
+export function buildTableGrid(document: Document, tableId: BlockId): TableGrid | null {
+  if (getBlock(document, tableId)?.type !== "table") return null;
+  const rows: GridCell[][] = getChildIds(document, tableId)
+    .filter((rid) => getBlock(document, rid)?.type === "table-row")
     .map((rid) =>
-      getChildIds(state, rid)
-        .filter((cid) => getBlock(state, cid)?.type === "table-cell")
+      getChildIds(document, rid)
+        .filter((cid) => getBlock(document, cid)?.type === "table-cell")
         .map((cid): GridCell => {
-          const attrs = getBlock(state, cid)?.attrs ?? {};
+          const attrs = getBlock(document, cid)?.attrs ?? {};
           return {
             cellId: cid,
             rowSpan: spanValue(attrs.rowSpan) ?? 1,

@@ -1,5 +1,5 @@
-import { getBlock, getEmbedContent, getEmbedContentIds, getTemplateContent, getTemplateContentIds, docHasFootnotes, docHasLists, getListDefsForState } from "../state";
-import type { Block, BlockId, State, SuggestionView, OutlineSignature } from "../state";
+import { getBlock, getEmbedContent, getEmbedContentIds, getTemplateContent, getTemplateContentIds, docHasFootnotes, docHasLists, getListDefsForDocument } from "../state";
+import type { Block, BlockId, Document, SuggestionView, OutlineSignature } from "../state";
 import { computeOutlineSignature } from "../state";
 import type { Style, ComputedStyle } from "../styles";
 import type { AttrRegistry } from "../cascade/attr-registry";
@@ -126,7 +126,7 @@ export const EMPTY_LIST_COUNTERS: ReadonlyMap<BlockId, CounterValue> = new Map()
 
 export interface RenderOptions {
   readonly prev?: RenderOutput;
-  readonly prevState?: State;
+  readonly prevDocument?: Document;
   readonly dirtyIds?: ReadonlySet<BlockId>;
   /**
    * An AUTHORITATIVE footnote numbering map injected by the
@@ -154,7 +154,7 @@ export interface RenderOptions {
 }
 
 /**
- * Render a Y.Doc-backed State to a RenderNode tree.
+ * Render a Y.Doc-backed Document to a RenderNode tree.
  *
  * Decision B: push-model walker. For each block:
  *   1. Compose its computedStyle: attrRegistry.applyAll(attrs, ctx) →
@@ -179,7 +179,7 @@ export interface RenderOptions {
  * level singletons consulted here).
  */
 export function render(
-  state: State,
+  document: Document,
   componentRegistry: ComponentRegistry,
   attrRegistry: AttrRegistry,
   options?: RenderOptions,
@@ -189,7 +189,7 @@ export function render(
   if (
     options !== undefined &&
     options.prev !== undefined &&
-    options.prevState !== undefined &&
+    options.prevDocument !== undefined &&
     options.dirtyIds !== undefined &&
     // 5c-iii: a view SWITCH invalidates the prev cache (reused nodes carry the
     // prior view's suggestion projection), so fall through to the full path when
@@ -197,11 +197,11 @@ export function render(
     options.prev.suggestionView === (options.suggestionView ?? "suggesting")
   ) {
     return renderIncremental(
-      state,
+      document,
       componentRegistry,
       attrRegistry,
       options.prev,
-      options.prevState,
+      options.prevDocument,
       options.dirtyIds,
       options.footnoteNumbersOverride,
       options.suggestionView ?? "suggesting",
@@ -216,52 +216,52 @@ export function render(
   // (not just the numbers) so the resulting RenderOutput can CACHE it — the
   // next incremental cycle reuses both the anchors and the numbers when no edit
   // could have changed them (see `footnoteAnchorsUnchanged`).
-  const fnAnchors = docHasFootnotes(state)
-    ? collectFootnoteAnchors(state)
+  const fnAnchors = docHasFootnotes(document)
+    ? collectFootnoteAnchors(document)
     : EMPTY_FOOTNOTE_ANCHORS;
   // An explicit override (layout-derived per-page numbers) is
   // authoritative — use it directly and skip the policy-derived computation.
   const fnNumbers = options?.footnoteNumbersOverride !== undefined
     ? options.footnoteNumbersOverride
     : fnAnchors.length > 0
-      ? footnoteNumbers(fnAnchors, effectiveRenderPolicy(state))
+      ? footnoteNumbers(fnAnchors, effectiveRenderPolicy(document))
       : EMPTY_FOOTNOTE_NUMBERS;
   // Compute the list-item numbering map once for this render cycle and
   // thread it down so each list-item bakes its marker by id. A list-free doc
   // skips the O(N_blocks) `collectListEvents` walk (`docHasLists` early-exits at
   // the first list-item; a list-free doc pays one allocation-free walk) and uses
   // the shared empty map — identical output, minus the work.
-  const listEvents = docHasLists(state) ? collectListEvents(state) : [];
+  const listEvents = docHasLists(document) ? collectListEvents(document) : [];
   const listCounters =
     listEvents.length > 0
-      ? computeCounters(listEvents, getListDefsForState(state))
+      ? computeCounters(listEvents, getListDefsForDocument(document))
       : EMPTY_LIST_COUNTERS;
   // Build the cross-reference index for THIS cycle; the next incremental cycle
   // updates it from its dirty blocks. The full path walks every block anyway.
-  const crossReferenceIndex = buildCrossReferenceIndex(state);
+  const crossReferenceIndex = buildCrossReferenceIndex(document);
   // The document outline signature for THIS cycle, cached so the next incremental
   // cycle can reuse it (and expand its invalidation set when a heading changes).
   // The full path always walks every block anyway, so this adds no asymptotic
   // cost. Uses the same `suggestionView` the headings render under, so the cached
   // signature text matches exactly what a TOC entry shows.
-  const outlineSignature = computeOutlineSignature(state, options?.suggestionView ?? "suggesting");
+  const outlineSignature = computeOutlineSignature(document, options?.suggestionView ?? "suggesting");
   const context: RenderContext = makeRenderContext(
-    state,
+    document,
     fnNumbers,
     listCounters,
     options?.suggestionView ?? "suggesting",
     crossReferenceIndex.bookmarks,
   );
   const visited = new Set<BlockId>();
-  const rootBlock = getBlock(state, state.rootId);
+  const rootBlock = getBlock(document, document.rootId);
   if (rootBlock === null) {
-    throw new Error(`render: root block "${state.rootId}" not found`);
+    throw new Error(`render: root block "${document.rootId}" not found`);
   }
   const root = renderBlock(
     rootBlock,
     null,
     undefined,
-    state,
+    document,
     componentRegistry,
     attrRegistry,
     context,
@@ -270,8 +270,8 @@ export function render(
     listCounters,
   );
   const embedContents = new Map<BlockId, RenderNode>();
-  for (const id of getEmbedContentIds(state)) {
-    const block = getEmbedContent(state, id);
+  for (const id of getEmbedContentIds(document)) {
+    const block = getEmbedContent(document, id);
     if (block === null) continue; // shouldn't happen since we just enumerated the map
     // Each embed-content block renders as a fresh subtree with no parent
     // computed style (uses initial). Independent cascade context.
@@ -288,7 +288,7 @@ export function render(
         block,
         null,
         undefined,
-        state,
+        document,
         componentRegistry,
         attrRegistry,
         context,
@@ -304,8 +304,8 @@ export function render(
   // (independent walk over its own descendants). Pagination positions each
   // body in the header/footer slots of the pages that use it.
   const templateContents = new Map<BlockId, RenderNode>();
-  for (const id of getTemplateContentIds(state)) {
-    const block = getTemplateContent(state, id);
+  for (const id of getTemplateContentIds(document)) {
+    const block = getTemplateContent(document, id);
     if (block === null) continue; // shouldn't happen since we just enumerated the map
     const visitedTemplate = new Set<BlockId>();
     templateContents.set(
@@ -314,7 +314,7 @@ export function render(
         block,
         null,
         undefined,
-        state,
+        document,
         componentRegistry,
         attrRegistry,
         context,
@@ -366,7 +366,7 @@ function renderBlock(
   block: Block,
   parentComputed: ComputedStyle | null,
   parentSpecified: Partial<Style> | undefined,
-  state: State,
+  document: Document,
   componentRegistry: ComponentRegistry,
   attrRegistry: AttrRegistry,
   context: RenderContext,
@@ -378,7 +378,7 @@ function renderBlock(
     block,
     parentComputed,
     parentSpecified,
-    state,
+    document,
     componentRegistry,
     attrRegistry,
     context,
@@ -390,7 +390,7 @@ function renderBlock(
         child,
         computed,
         specified,
-        state,
+        document,
         componentRegistry,
         attrRegistry,
         context,

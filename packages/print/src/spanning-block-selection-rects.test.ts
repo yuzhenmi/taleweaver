@@ -24,7 +24,7 @@
 // Spec: docs/superpowers/specs/2026-06-09-vl-bridge-removal-design.md §Bucket A.
 
 import { describe, it, expect } from "vitest";
-import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockMeasurer, createSpan, createPosition, INITIAL_COMPUTED_STYLE, getBlock, inlineContentLength, render, cascadePass, type EditorState, type EditorConfig, type State, type TextShaper, type TextMeasurer, type BlockId, type PageConfig } from "@taleweaver/core";
+import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockMeasurer, createSpan, createPosition, INITIAL_COMPUTED_STYLE, getBlock, inlineContentLength, render, cascadePass, type EditorState, type EditorConfig, type Document, type TextShaper, type TextMeasurer, type BlockId, type PageConfig } from "@taleweaver/core";
 import { computeSelectionRects, computeSelectionRectsAcrossPages, createBlockBox, computeUsedStyle, layoutTree, type LayoutBox, type VirtualLayoutTree, type SelectionRect } from "./index";
 import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
 
@@ -85,10 +85,10 @@ function makeConfig(): EditorConfig {
 const MEASURER: TextMeasurer = createMockMeasurer(CHAR_W, LINE_H);
 
 function buildVirtualTree(
-  state: State,
+  document: Document,
   config: EditorConfig,
 ): LayoutBox | VirtualLayoutTree {
-  const rendered = render(state, config.componentRegistry, config.attrRegistry);
+  const rendered = render(document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   return layoutTree(cascaded, config.containerWidth, MEASURER, config.pageConfig);
 }
@@ -113,12 +113,12 @@ function buildSpanningEditor(): {
   editor = reduceEditor(editor, { type: "INSERT_TEXT", text: words.join(" ") });
 
   // The seeded body paragraph is the document root's first child.
-  const root = finalSection(editor.state);
+  const root = finalSection(editor.document);
   const blockId = root?.firstChildId;
   if (blockId === undefined || blockId === null) {
     throw new Error("expected a seeded body paragraph");
   }
-  const tree = buildVirtualTree(editor.state, config);
+  const tree = buildVirtualTree(editor.document, config);
   return { editor, tree, measurer: MEASURER, blockId };
 }
 
@@ -155,7 +155,7 @@ describe("spanning-block selection rects: per-page union (VL Slice 3)", () => {
     // whole-tree-positioning bridge; see VL bridge removal spec §testing).
     const positioned = assembleAllPages(virtual);
 
-    const blk = getBlock(editor.state, blockId);
+    const blk = getBlock(editor.document, blockId);
     const total = blk?.inlineContent ? inlineContentLength(blk.inlineContent) : 0;
     expect(total).toBeGreaterThan(0);
 
@@ -166,8 +166,8 @@ describe("spanning-block selection rects: per-page union (VL Slice 3)", () => {
       createPosition(blockId, total),
     );
 
-    const perPage = computeSelectionRectsAcrossPages(editor.state, span, virtual, measurer);
-    const oracle = computeSelectionRects(editor.state, span, positioned, measurer);
+    const perPage = computeSelectionRectsAcrossPages(editor.document, span, virtual, measurer);
+    const oracle = computeSelectionRects(editor.document, span, positioned, measurer);
 
     expect(perPage.length).toBe(oracle.length);
     expect(sortedKeys(perPage)).toEqual(sortedKeys(oracle));
@@ -177,14 +177,14 @@ describe("spanning-block selection rects: per-page union (VL Slice 3)", () => {
     const { editor, tree, measurer, blockId } = buildSpanningEditor();
     const virtual = asVirtual(tree);
 
-    const blk = getBlock(editor.state, blockId);
+    const blk = getBlock(editor.document, blockId);
     const total = blk?.inlineContent ? inlineContentLength(blk.inlineContent) : 0;
     const span = createSpan(
       createPosition(blockId, 0),
       createPosition(blockId, total),
     );
 
-    const rects = computeSelectionRectsAcrossPages(editor.state, span, virtual, measurer);
+    const rects = computeSelectionRectsAcrossPages(editor.document, span, virtual, measurer);
     expect(rects.length).toBeGreaterThan(0);
 
     const pages = new Set(rects.map((r) => r.pageIndex));
@@ -214,7 +214,7 @@ describe("spanning-block selection rects: per-page union (VL Slice 3)", () => {
     // whole-tree-positioning bridge; see VL bridge removal spec §testing).
     const positioned = assembleAllPages(virtual);
 
-    const blk = getBlock(editor.state, blockId);
+    const blk = getBlock(editor.document, blockId);
     const total = blk?.inlineContent ? inlineContentLength(blk.inlineContent) : 0;
 
     // End the span partway in (past the first page's lines), keeping a real
@@ -224,8 +224,8 @@ describe("spanning-block selection rects: per-page union (VL Slice 3)", () => {
       createPosition(blockId, Math.min(total, 320)),
     );
 
-    const perPage = computeSelectionRectsAcrossPages(editor.state, span, virtual, measurer);
-    const oracle = computeSelectionRects(editor.state, span, positioned, measurer);
+    const perPage = computeSelectionRectsAcrossPages(editor.document, span, virtual, measurer);
+    const oracle = computeSelectionRects(editor.document, span, positioned, measurer);
 
     expect(sortedKeys(perPage)).toEqual(sortedKeys(oracle));
     expect(new Set(perPage.map((r) => r.pageIndex)).size).toBeGreaterThanOrEqual(2);

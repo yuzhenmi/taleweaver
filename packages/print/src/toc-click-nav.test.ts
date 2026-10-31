@@ -13,7 +13,7 @@
  * Harness mirrors comment-highlights.test.ts: real controller + real renderer +
  * a spy canvas (so `update()` paints and the virtual tree materializes its
  * pages), driven over a seeded TOC doc built via the public
- * `buildDocumentFromTree` → `createEditorStateFromState` seam. The gesture's
+ * `buildDocumentFromTree` → `createEditorStateFromDocument` seam. The gesture's
  * outcome is read off the controller's `dispatch` spy.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -74,7 +74,7 @@ function pageConfig(): core.PageConfig {
 /**
  * Seed an EditorState with a TOC over two headings ("Introduction", "Details").
  * Returns the editor plus the two heading block ids (read back from the built
- * State — `buildDocumentFromTree` mints the ids).
+ * Document — `buildDocumentFromTree` mints the ids).
  */
 function seededTocEditor(): {
   editor: core.EditorState;
@@ -98,15 +98,15 @@ function seededTocEditor(): {
       },
     ],
   };
-  const state = core.buildDocumentFromTree(root, {}, core.createTestAllocator(), TEST_RESOLVER);
+  const document = core.buildDocumentFromTree(root, {}, core.createTestAllocator(), TEST_RESOLVER);
 
   // Read the two heading ids back (doc-order children after the TOC).
-  const doc = finalSection(state);
+  const doc = finalSection(document);
   if (doc === null || doc.firstChildId === null) throw new Error("no toc");
-  const toc = core.getBlock(state, doc.firstChildId);
+  const toc = core.getBlock(document, doc.firstChildId);
   if (toc === null || toc.nextSiblingId === null) throw new Error("no h1");
   const h1Id = toc.nextSiblingId;
-  const h1 = core.getBlock(state, h1Id);
+  const h1 = core.getBlock(document, h1Id);
   if (h1 === null || h1.nextSiblingId === null) throw new Error("no h2");
   const h2Id = h1.nextSiblingId;
 
@@ -116,9 +116,9 @@ function seededTocEditor(): {
     containerWidth: 600,
     pageConfig: pageConfig(),
   };
-  const editor = core.createEditorStateFromState(
-    state,
-    core.initialSelectionForState(state),
+  const editor = core.createEditorStateFromDocument(
+    document,
+    core.initialSelectionForDocument(document),
     config,
   );
   return { editor, h1Id, h2Id, config };
@@ -162,7 +162,7 @@ function tocEntryCenter(
  * (exactly what the driver does) to read page 0's materialized TOC-entry boxes.
  */
 function getPage0(editor: core.EditorState, config: core.EditorConfig): printPkg.LayoutBox {
-  const rendered = core.render(editor.state, config.componentRegistry, config.attrRegistry);
+  const rendered = core.render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = core.cascadePass(rendered.root);
   const lt = printPkg.layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
   if (lt.type === "virtual-root") return lt.getPage(0);

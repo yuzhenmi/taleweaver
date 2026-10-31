@@ -1,5 +1,5 @@
 import { resolveBlock, selectionContextOf } from "@taleweaver/core";
-import type { State, Position, BlockId } from "@taleweaver/core";
+import type { Document, Position, BlockId } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 import type { PagePlan } from "../layout/measure-pass";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
@@ -100,7 +100,7 @@ function defaultPixelPosition(): PixelPosition {
  * resolution O(1 page) on the typing/Enter hot path.
  */
 export function resolvePixelPosition(
-  state: State,
+  document: Document,
   position: Position,
   layoutTree: LayoutBox | VirtualLayoutTree,
   shaperOrMeasurer: TextShaper | TextMeasurer,
@@ -120,14 +120,14 @@ export function resolvePixelPosition(
     // is not rejected here: a slot body block lives in the
     // `templateContents` tree, which `getBlock` (main map only) misses.
     // `resolveBlock` checks all three trees (main / embed / template).
-    if (resolveBlock(state, position.blockId) === null) return null;
+    if (resolveBlock(document, position.blockId) === null) return null;
 
     const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
       ? adaptShaperToMeasurer(shaperOrMeasurer)
       : shaperOrMeasurer;
 
     if (layoutTree.type === "virtual-root") {
-      return resolveInVirtualTree(layoutTree, position, measurer, state, caretPageHint, caretAffinity);
+      return resolveInVirtualTree(layoutTree, position, measurer, document, caretPageHint, caretAffinity);
     }
 
     // Positioned-tree path (unchanged): O(1) lookup via the cached
@@ -180,7 +180,7 @@ function resolveInVirtualTree(
   tree: VirtualLayoutTree,
   position: Position,
   measurer: TextMeasurer,
-  state: State,
+  document: Document,
   caretPageHint?: number,
   caretAffinity?: CaretAffinity,
 ): PixelPosition | null {
@@ -199,7 +199,7 @@ function resolveInVirtualTree(
     // the page hint; the descendant parent-walk inside `resolveTemplateBlockPage`
     // covers the container-body case (caret in the body's paragraph CHILD,
     // not the slot ROOT id).
-    const resolvedPage = resolveTemplateBlockPage(state, plan, position.blockId, caretPageHint);
+    const resolvedPage = resolveTemplateBlockPage(document, plan, position.blockId, caretPageHint);
     if (resolvedPage >= 0) {
       const onResolved = resolveSlotOnPage(tree, resolvedPage, position, measurer, caretAffinity);
       if (onResolved !== null) return onResolved;
@@ -210,7 +210,7 @@ function resolveInVirtualTree(
       // it; recompute the page WITHOUT the hint (the template-root default
       // carrying page) and retry on it.
       if (caretPageHint !== undefined) {
-        const defaultPage = resolveTemplateBlockPage(state, plan, position.blockId, undefined);
+        const defaultPage = resolveTemplateBlockPage(document, plan, position.blockId, undefined);
         if (defaultPage >= 0 && defaultPage !== resolvedPage) {
           const onDefault = resolveSlotOnPage(tree, defaultPage, position, measurer, caretAffinity);
           if (onDefault !== null) return onDefault;
@@ -225,7 +225,7 @@ function resolveInVirtualTree(
     // plan's `pageIndexOfFootnoteBlock` maps it to the page its slot STARTS on.
     // Resolve it per-page (the slot's lines are in `getLineIndex(getPage(p)).byBlock`),
     // never materializing the whole document.
-    const footnotePage = resolveFootnoteBlockPage(state, tree, position);
+    const footnotePage = resolveFootnoteBlockPage(document, tree, position);
     if (footnotePage >= 0) {
       const page = tree.getPage(footnotePage);
       const fnLines = getLineIndex(page).byBlock.get(position.blockId) ?? [];
@@ -243,7 +243,7 @@ function resolveInVirtualTree(
     // top-level block (the table) — which IS page-mapped — materialize ONLY its
     // page, and resolve against that page's `byBlock` lines (the table FC's IFC
     // stamped the cell paragraph's lines there during `getPage`).
-    const nestedPage = resolveNestedMainTreeBlockPage(state, tree, position);
+    const nestedPage = resolveNestedMainTreeBlockPage(document, tree, position);
     if (nestedPage >= 0) {
       const page = tree.getPage(nestedPage);
       const cellLines = getLineIndex(page).byBlock.get(position.blockId) ?? [];
@@ -377,7 +377,7 @@ function resolveInVirtualTree(
  * fallback lives in each caller, since it needs the materialized page's lines).
  */
 export function resolveTemplateBlockPage(
-  state: State,
+  document: Document,
   plan: PagePlan,
   blockId: BlockId,
   caretPageHint: number | undefined,
@@ -387,8 +387,8 @@ export function resolveTemplateBlockPage(
 
   // 2. DESCENDANT → body root via the parentId walk.
   if (page < 0) {
-    const root = selectionContextOf(state, blockId);
-    if (root !== null && root !== state.rootId) {
+    const root = selectionContextOf(document, blockId);
+    if (root !== null && root !== document.rootId) {
       page = plan.pageIndexOfTemplateBlock(root);
     }
   }
@@ -462,7 +462,7 @@ function resolveSlotOnPage(
  * Exported so line-navigation reuses the SAME per-page footnote resolution.
  */
 export function resolveFootnoteBlockPage(
-  state: State,
+  document: Document,
   tree: VirtualLayoutTree,
   position: Position,
 ): number {
@@ -470,8 +470,8 @@ export function resolveFootnoteBlockPage(
   // its selection-context root (the body root for a caret in a body CHILD).
   let startPage = tree.plan.pageIndexOfFootnoteBlock(position.blockId);
   if (startPage < 0) {
-    const root = selectionContextOf(state, position.blockId);
-    if (root !== null && root !== state.rootId) {
+    const root = selectionContextOf(document, position.blockId);
+    if (root !== null && root !== document.rootId) {
       startPage = tree.plan.pageIndexOfFootnoteBlock(root);
     }
   }
@@ -534,7 +534,7 @@ export function resolveFootnoteBlockPage(
  * so line-navigation reuses the SAME resolution.
  */
 export function resolveNestedMainTreeBlockPage(
-  state: State,
+  document: Document,
   tree: VirtualLayoutTree,
   position: Position,
 ): number {
@@ -547,13 +547,13 @@ export function resolveNestedMainTreeBlockPage(
   let ancestorId: BlockId | null = null;
   let id: BlockId | null = position.blockId;
   let steps = 0;
-  while (id !== null && id !== state.rootId) {
+  while (id !== null && id !== document.rootId) {
     if (++steps > 1024) return -1;
     if (plan.pageIndexOfBlock(id) >= 0) {
       ancestorId = id;
       break;
     }
-    const resolved = resolveBlock(state, id);
+    const resolved = resolveBlock(document, id);
     if (resolved === null) return -1;
     id = resolved.block.parentId;
   }

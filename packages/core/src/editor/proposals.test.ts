@@ -1,5 +1,5 @@
-import { finalSectionOf } from "../test-utils/state-builders";
-import { TEST_RESOLVER } from "../test-utils/state-builders";
+import { finalSectionOf } from "../test-utils/document-builders";
+import { TEST_RESOLVER } from "../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import {
@@ -20,12 +20,12 @@ import {
   createPosition,
   createSpan,
   getYDoc,
-  createState,
+  createDocument,
   subscribeForeignChanges,
   subscribeRemoteChanges,
   runWithTransactionOrigin,
-  createEditorStateFromState,
-  initialSelectionForState,
+  createEditorStateFromDocument,
+  initialSelectionForDocument,
   serializeDocument,
   deserializeDocument,
   createDefaultSerializerRegistry,
@@ -56,14 +56,14 @@ function run(editor: EditorState, cfg: EditorConfig, ...actions: EditorAction[])
 const at = (id: BlockId, o: number): Position => createPosition(id, o);
 const caret = (id: BlockId, o: number): EditorAction => ({ type: "SET_SELECTION", selection: createSpan(at(id, o), at(id, o)) });
 const runsOf = (e: EditorState, id: BlockId) =>
-  (getBlock(e.state, id)?.inlineContent?.items ?? []).map((i) => [i.kind === "text" ? i.text : "￼", { ...i.attrs }] as const);
+  (getBlock(e.document, id)?.inlineContent?.items ?? []).map((i) => [i.kind === "text" ? i.text : "￼", { ...i.attrs }] as const);
 const textOf = (e: EditorState, id: BlockId): string => runsOf(e, id).map(([t]) => t).join("");
 
 /** "The  quick fox" / "jumps over": two paragraphs; caret at the end of the second. */
 function twoParagraphs(cfg: EditorConfig = config) {
   const s = run(createInitialEditorState(cfg), cfg, { type: "INSERT_TEXT", text: "The  quick fox" }, { type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "jumps over" });
   const p2 = s.selection.focus.blockId;
-  const p1 = getBlock(s.state, p2)?.prevSiblingId ?? null;
+  const p1 = getBlock(s.document, p2)?.prevSiblingId ?? null;
   if (p1 === null) throw new Error("setup");
   return { s, p1, p2 };
 }
@@ -88,7 +88,7 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
     const proposal = proposalFor(p1, p2);
     const after = run(s, config, { type: "PROPOSE", proposal });
     expect(after.selection).toEqual(s.selection); // caret untouched (after every edit)
-    const groups = getSuggestionGroups(after.state);
+    const groups = getSuggestionGroups(after.document);
     expect(groups).toHaveLength(1);
     const [g] = groups;
     expect(g?.id).toBe(proposal.groupId);
@@ -129,7 +129,7 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
     // The user's own last edit — the typed "!" — is undone; the proposal stays.
     expect(textOf(undo1, p1)).toBe(proposedText[0]);
     expect(textOf(undo1, p2)).toBe((proposedText[1] ?? "").replace(/!$/, ""));
-    expect(getSuggestionGroups(undo1.state).map((g) => g.id)).toEqual([proposal.groupId]);
+    expect(getSuggestionGroups(undo1.document).map((g) => g.id)).toEqual([proposal.groupId]);
     const redo1 = run(undo1, config, { type: "REDO" });
     expect([textOf(redo1, p1), textOf(redo1, p2)]).toEqual(proposedText);
     expect(runsOf(redo1, p2)).toEqual(runs2);
@@ -138,14 +138,14 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
   it("rejecting an untracked multi-paragraph proposal keeps the user's text (and its undo entry)", () => {
     const { after, p2, proposal } = typedThenProposed((p1) => ({ kind: "replace" as const, from: at(p1, 0), to: at(p1, 3), text: "One\nTwo" }));
     const rejected = run(after, config, { type: "REJECT_SUGGESTION_GROUP", groupId: proposal.groupId });
-    expect(getSuggestions(rejected.state)).toHaveLength(0);
+    expect(getSuggestions(rejected.document)).toHaveLength(0);
     expect(textOf(rejected, p2)).toBe("jumps over!");
   });
 
   it("an untracked proposal is SELF to its own host's subscriptions, FOREIGN to a second host on the same doc", () => {
     const { s, p1 } = twoParagraphs();
     // A collab host: its edits carry its own origin, which its History tracks.
-    const hostA = createEditorStateFromState(s.state, s.selection, config, "hostA");
+    const hostA = createEditorStateFromDocument(s.document, s.selection, config, "hostA");
     const seenByA: ReadonlySet<BlockId>[] = [];
     const seenByB: ReadonlySet<BlockId>[] = [];
     const remoteA: ReadonlySet<BlockId>[] = [];
@@ -153,16 +153,16 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
     const noLegacy = (): void => {
       throw new Error("unexpected legacy storage");
     };
-    const docA = getYDoc(s.state);
+    const docA = getYDoc(s.document);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
     docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "sync"));
-    const stateB = createState({ resolver: TEST_RESOLVER, rootId: s.state.rootId, doc: docB });
+    const documentB = createDocument({ resolver: TEST_RESOLVER, rootId: s.document.rootId, doc: docB });
     const unsubs = [
-      subscribeForeignChanges(s.state, "hostA", (ids) => seenByA.push(ids), noLegacy),
-      subscribeForeignChanges(s.state, "hostB", (ids) => seenByB.push(ids), noLegacy),
-      subscribeRemoteChanges(s.state, (ids) => remoteA.push(ids), noLegacy),
-      subscribeRemoteChanges(stateB, (ids) => remoteB.push(ids), noLegacy),
+      subscribeForeignChanges(s.document, "hostA", (ids) => seenByA.push(ids), noLegacy),
+      subscribeForeignChanges(s.document, "hostB", (ids) => seenByB.push(ids), noLegacy),
+      subscribeRemoteChanges(s.document, (ids) => remoteA.push(ids), noLegacy),
+      subscribeRemoteChanges(documentB, (ids) => remoteB.push(ids), noLegacy),
     ];
     const proposal: Proposal = {
       groupId: newSuggestionGroupId(),
@@ -187,14 +187,14 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
       to: at(p, 11),
       attrs: { bold: true },
     })); // formats exactly the typed "!"
-    expect(getSuggestionGroups(after.state).map((g) => g.id)).toEqual([proposal.groupId]);
+    expect(getSuggestionGroups(after.document).map((g) => g.id)).toEqual([proposal.groupId]);
     const undone = run(after, config, { type: "UNDO" });
     expect(textOf(undone, p2)).toBe("jumps over");
-    expect(getSuggestionGroups(undone.state)).toEqual([]); // nothing tagged → hidden
-    expect(getSuggestions(undone.state)).toHaveLength(0); // a rangeless record is never surfaced…
-    expect(getYDoc(undone.state).getMap("suggestions").size).toBe(1); // …but still exists
+    expect(getSuggestionGroups(undone.document)).toEqual([]); // nothing tagged → hidden
+    expect(getSuggestions(undone.document)).toHaveLength(0); // a rangeless record is never surfaced…
+    expect(getYDoc(undone.document).getMap("suggestions").size).toBe(1); // …but still exists
     const rejected = run(undone, config, { type: "REJECT_SUGGESTION_GROUP", groupId: proposal.groupId });
-    expect(getYDoc(rejected.state).getMap("suggestions").size).toBe(0); // …until its group resolves
+    expect(getYDoc(rejected.document).getMap("suggestions").size).toBe(0); // …until its group resolves
   });
 
   it("keeps stored typing attrs: collapsed bold, a proposal lands elsewhere, the typed text is still bold", () => {
@@ -227,13 +227,13 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
     const runs1 = runsOf(proposed, p1);
     const runs2 = runsOf(proposed, p2);
     const accepted = run(proposed, config, { type: "ACCEPT_SUGGESTION_GROUP", groupId: proposal.groupId });
-    expect(getSuggestions(accepted.state)).toHaveLength(0);
+    expect(getSuggestions(accepted.document)).toHaveLength(0);
     expect(textOf(accepted, p1)).toBe("The swift fox");
     expect(runsOf(accepted, p2)).toEqual([["jumps", { bold: true }], [" over", {}]]);
     const restored = run(accepted, config, { type: "UNDO" });
     expect(runsOf(restored, p1)).toEqual(runs1);
     expect(runsOf(restored, p2)).toEqual(runs2);
-    expect(getSuggestionGroups(restored.state).map((g) => [g.id, g.suggestions.length])).toEqual([[proposal.groupId, 4]]);
+    expect(getSuggestionGroups(restored.document).map((g) => [g.id, g.suggestions.length])).toEqual([[proposal.groupId, 4]]);
     // Redo re-accepts.
     expect(textOf(run(restored, config, { type: "REDO" }), p1)).toBe("The swift fox");
   });
@@ -249,11 +249,11 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
     const restored = run(rejected, config, { type: "UNDO" });
     expect(runsOf(restored, p1)).toEqual(runs1);
     expect(runsOf(restored, p2)).toEqual(runs2);
-    expect(getSuggestionGroups(restored.state).map((g) => [g.id, g.suggestions.length, g.metadata])).toEqual([
+    expect(getSuggestionGroups(restored.document).map((g) => [g.id, g.suggestions.length, g.metadata])).toEqual([
       [proposal.groupId, 4, { source: "assistant", reason: "tidy up" }],
     ]);
     const redone = run(restored, config, { type: "REDO" });
-    expect(getSuggestions(redone.state)).toHaveLength(0);
+    expect(getSuggestions(redone.document)).toHaveLength(0);
     expect(textOf(redone, p1)).toBe("The  quick fox");
   });
 
@@ -264,15 +264,15 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
     const rejected = run(proposed, config, { type: "REJECT_SUGGESTION_GROUP", groupId: proposal.groupId });
     expect(textOf(rejected, p1)).toBe("The  quick fox");
     expect(runsOf(rejected, p2)).toEqual([["jumps over", {}]]);
-    expect(getSuggestions(rejected.state)).toHaveLength(0);
+    expect(getSuggestions(rejected.document)).toHaveLength(0);
 
     const again = twoParagraphs();
     const p = proposalFor(again.p1, again.p2);
     const proposed2 = run(again.s, config, { type: "PROPOSE", proposal: p });
-    const member = getSuggestions(proposed2.state).find((x) => x.kind === "formatting");
+    const member = getSuggestions(proposed2.document).find((x) => x.kind === "formatting");
     if (member === undefined) throw new Error("no member");
     const viaMember = run(proposed2, config, { type: "ACCEPT_SUGGESTION", id: member.id });
-    expect(getSuggestions(viaMember.state)).toHaveLength(0);
+    expect(getSuggestions(viaMember.document)).toHaveLength(0);
     expect(textOf(viaMember, again.p1)).toBe("The swift fox");
   });
 
@@ -285,7 +285,7 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
       edits: [{ kind: "replace", from: at(p1, 14), to: at(p1, 14), text: "!" }],
     };
     let e = run(s, suggesting, { type: "PROPOSE", proposal }, caret(p1, 15), { type: "INSERT_TEXT", text: "?" });
-    const groups = getSuggestionGroups(e.state);
+    const groups = getSuggestionGroups(e.document);
     expect(groups).toHaveLength(2); // the proposal + the user's own (same author) insertion
     e = run(e, config, { type: "REJECT_SUGGESTION_GROUP", groupId: proposal.groupId });
     expect(textOf(e, p1)).toBe("The  quick fox?");
@@ -300,9 +300,9 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
     };
     const after = run(s, config, { type: "PROPOSE", proposal });
     const accepted = run(after, config, { type: "ACCEPT_SUGGESTION_GROUP", groupId: proposal.groupId });
-    const root = getBlock(accepted.state, finalSectionOf(accepted.state));
+    const root = getBlock(accepted.document, finalSectionOf(accepted.document));
     const texts: string[] = [];
-    for (let id = root?.firstChildId ?? null; id !== null; id = getBlock(accepted.state, id)?.nextSiblingId ?? null) texts.push(textOf(accepted, id));
+    for (let id = root?.firstChildId ?? null; id !== null; id = getBlock(accepted.document, id)?.nextSiblingId ?? null) texts.push(textOf(accepted, id));
     expect(texts).toEqual(["The  quick fox.", "New line", "jumps over"]);
   });
 });
@@ -319,10 +319,10 @@ describe("proposal overlaps and staleness", () => {
         { kind: "format", from: at(p2, 1), to: at(p2, 3), attrs: { italic: true } }, // inside the pending bold proposal
       ],
     };
-    const problem = validateProposal(first.state, clash);
+    const problem = validateProposal(first.document, clash);
     expect(problem?.kind).toBe("conflict");
     const after = run(first, config, { type: "PROPOSE", proposal: clash });
-    expect(after.state).toBe(first.state); // refused whole: nothing applied
+    expect(after.document).toBe(first.document); // refused whole: nothing applied
     const self: Proposal = {
       groupId: newSuggestionGroupId(),
       author: "other",
@@ -331,12 +331,12 @@ describe("proposal overlaps and staleness", () => {
         { kind: "format", from: at(p2, 2), to: at(p2, 6), attrs: { italic: true } },
       ],
     };
-    expect(validateProposal(s.state, self)?.kind).toBe("overlap");
+    expect(validateProposal(s.document, self)?.kind).toBe("overlap");
   });
 
   it("the reducer maps a proposal from its basedOn version: lands at mapped positions, stale when its ranges changed or the version is unknown", () => {
     const { s, p1, p2 } = twoParagraphs();
-    const v0 = s.state;
+    const v0 = s.document;
     const proposal = proposalFor(p1, p2);
     // The user types at the start of paragraph 1 meanwhile.
     const typed = run(s, config, caret(p1, 0), { type: "INSERT_TEXT", text: ">> " });
@@ -347,9 +347,9 @@ describe("proposal overlaps and staleness", () => {
     const edited = run(typed, config, caret(p1, 9), { type: "INSERT_TEXT", text: "Z" });
     const stale = run(edited, config, { type: "PROPOSE", proposal, basedOn: v0 });
     expect(stale.lastProposal).toMatchObject({ groupId: proposal.groupId, outcome: "stale" });
-    expect(stale.state).toBe(edited.state);
+    expect(stale.document).toBe(edited.document);
     // A version that is not on the change chain (another document) → stale.
-    const foreign = twoParagraphs().s.state;
+    const foreign = twoParagraphs().s.document;
     expect(run(typed, config, { type: "PROPOSE", proposal, basedOn: foreign }).lastProposal?.outcome).toBe("stale");
     // A refused proposal records why.
     const refused = run(landed, config, { type: "PROPOSE", proposal: { ...proposalFor(p1, p2), groupId: newSuggestionGroupId() } });
@@ -389,7 +389,7 @@ describe("proposal overlaps and staleness", () => {
     resetPerfTrace();
     setPerfTraceEnabled(true);
     try {
-      expect(validateProposal(s.state, proposal)).toBeNull();
+      expect(validateProposal(s.document, proposal)).toBeNull();
     } finally {
       setPerfTraceEnabled(false);
     }
@@ -403,7 +403,7 @@ describe("rendering hook and compatibility", () => {
   it("suggestionGroupDecorations styles every range of the groups the host picks", () => {
     const { s, p1, p2 } = twoParagraphs();
     const after = run(s, config, { type: "PROPOSE", proposal: proposalFor(p1, p2) });
-    const decos = suggestionGroupDecorations(after.state, (g) =>
+    const decos = suggestionGroupDecorations(after.document, (g) =>
       g.metadata?.source === "assistant" ? { class: "by-assistant", style: { backgroundColor: "#eef" } } : null,
     );
     expect(decos).toHaveLength(4);
@@ -413,30 +413,30 @@ describe("rendering hook and compatibility", () => {
   it("a document with OLD-shape suggestion records (no group / metadata) still loads, lists and resolves", () => {
     // A suggesting-mode insertion, minus its `order`, is exactly the pre-group record shape.
     const old = run(createInitialEditorState(config), { ...config, suggestingAuthor: "legacy" }, { type: "INSERT_TEXT", text: "abc" });
-    const yRecords = getYDoc(old.state).getMap("suggestions");
+    const yRecords = getYDoc(old.document).getMap("suggestions");
     const [legacyId] = [...yRecords.keys()];
     const yRecord = legacyId === undefined ? undefined : yRecords.get(legacyId);
-    if (yRecord instanceof Y.Map) getYDoc(old.state).transact(() => yRecord.delete("order"));
+    if (yRecord instanceof Y.Map) getYDoc(old.document).transact(() => yRecord.delete("order"));
     expect(yRecord instanceof Y.Map ? [...yRecord.keys()].sort() : null).toEqual(["author", "createdAt", "kind"]);
     const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
     reg.register(createJsonDocumentSerializer({ allocator: productionAllocator, blockKindResolver: config.componentRegistry }));
-    const loaded = deserializeDocument(serializeDocument(old.state, BINARY_FORMAT, reg), BINARY_FORMAT, reg);
+    const loaded = deserializeDocument(serializeDocument(old.document, BINARY_FORMAT, reg), BINARY_FORMAT, reg);
     const groups = getSuggestionGroups(loaded);
     expect(groups.map((g) => [g.id, g.author, g.metadata, g.suggestions.length])).toEqual([[legacyId, "legacy", undefined, 1]]);
-    const editor = createEditorStateFromState(loaded, initialSelectionForState(loaded), config);
+    const editor = createEditorStateFromDocument(loaded, initialSelectionForDocument(loaded), config);
     const accepted = run(editor, config, { type: "ACCEPT_SUGGESTION_GROUP", groupId: legacyId ?? "" });
-    expect(getSuggestions(accepted.state)).toHaveLength(0);
+    expect(getSuggestions(accepted.document)).toHaveLength(0);
     expect(runsOf(accepted, accepted.selection.focus.blockId)).toEqual([["abc", {}]]);
     // JSON round-trips the new optional fields.
     const { s, p1, p2 } = twoParagraphs();
     const proposed = run(s, config, { type: "PROPOSE", proposal: proposalFor(p1, p2) });
-    const back = deserializeDocument(serializeDocument(proposed.state, JSON_FORMAT, reg), JSON_FORMAT, reg);
+    const back = deserializeDocument(serializeDocument(proposed.document, JSON_FORMAT, reg), JSON_FORMAT, reg);
     expect(getSuggestionGroups(back).map((g) => [g.suggestions.length, g.metadata])).toEqual([
       [4, { source: "assistant", reason: "tidy up" }],
     ]);
     // …including each record's mint `order` (strictly increasing in application order).
     const orders = (st: typeof back) => new Map(getSuggestions(st).map((x) => [x.id, x.order]));
-    expect(orders(back)).toEqual(orders(proposed.state));
+    expect(orders(back)).toEqual(orders(proposed.document));
     expect([...orders(back).values()].every((o) => typeof o === "number")).toBe(true);
   });
 });

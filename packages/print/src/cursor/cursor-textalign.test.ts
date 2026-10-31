@@ -31,13 +31,13 @@ import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
 import { createPosition, createSpan } from "@taleweaver/core";
-import type { BlockId, State } from "@taleweaver/core";
+import type { BlockId, Document } from "@taleweaver/core";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -50,9 +50,9 @@ const CHAR_W = 8;
 const LINE_H = 16;
 const CONTAINER_W = 800;
 
-function pipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
+function pipeline(document: Document): { layout: LayoutBox; shaper: TextShaper } {
   const root = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -67,8 +67,8 @@ function pipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
  * cascade and drives the IFC alignment pass, so the produced LineBox gets a
  * nonzero physical `x`.
  */
-function alignedParagraph(textContent: string, textAlign: string): State {
-  return buildState({
+function alignedParagraph(textContent: string, textAlign: string): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -122,11 +122,11 @@ describe("textAlign caret/selection/hit-test geometry (no double-count of the li
   });
 
   it("caret at offset 0 of a centered line lands at the centered line start (not +offset)", () => {
-    const state = alignedParagraph(TEXT, "center");
-    const { layout, shaper } = pipeline(state);
+    const document = alignedParagraph(TEXT, "center");
+    const { layout, shaper } = pipeline(document);
     const lineStart = alignedLineStart(layout);
 
-    const pos = resolvePixelPosition(state, createPosition("p" as BlockId, 0), layout, shaper);
+    const pos = resolvePixelPosition(document, createPosition("p" as BlockId, 0), layout, shaper);
     expect(pos).not.toBeNull();
     if (pos === null) return;
     // BUG: caret x was lineStart + lineStart (double-counted offset). FIX: ===
@@ -135,38 +135,38 @@ describe("textAlign caret/selection/hit-test geometry (no double-count of the li
   });
 
   it("caret at an interior offset of a centered line === lineStart + measureWidth(prefix)", () => {
-    const state = alignedParagraph(TEXT, "center");
-    const { layout, shaper } = pipeline(state);
+    const document = alignedParagraph(TEXT, "center");
+    const { layout, shaper } = pipeline(document);
     const lineStart = alignedLineStart(layout);
 
     // offset 3 → after "cen" → 3 × 8 = 24px past the line start.
-    const pos = resolvePixelPosition(state, createPosition("p" as BlockId, 3), layout, shaper);
+    const pos = resolvePixelPosition(document, createPosition("p" as BlockId, 3), layout, shaper);
     expect(pos).not.toBeNull();
     if (pos === null) return;
     expect(pos.x).toBe(lineStart + 3 * CHAR_W); // 368 + 24 = 392
   });
 
   it("caret at end offset of a centered line === lineStart + content width", () => {
-    const state = alignedParagraph(TEXT, "center");
-    const { layout, shaper } = pipeline(state);
+    const document = alignedParagraph(TEXT, "center");
+    const { layout, shaper } = pipeline(document);
     const lineStart = alignedLineStart(layout);
 
-    const pos = resolvePixelPosition(state, createPosition("p" as BlockId, TEXT.length), layout, shaper);
+    const pos = resolvePixelPosition(document, createPosition("p" as BlockId, TEXT.length), layout, shaper);
     expect(pos).not.toBeNull();
     if (pos === null) return;
     expect(pos.x).toBe(lineStart + CONTENT_W); // 368 + 64 = 432
   });
 
   it("selection covering the whole centered line: left edge === centered line start (not over-shifted)", () => {
-    const state = alignedParagraph(TEXT, "center");
-    const { layout, shaper } = pipeline(state);
+    const document = alignedParagraph(TEXT, "center");
+    const { layout, shaper } = pipeline(document);
     const lineStart = alignedLineStart(layout);
 
     const span = createSpan(
       createPosition("p" as BlockId, 0),
       createPosition("p" as BlockId, TEXT.length),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBe(1);
     const r = nth(rects, 0, "rect");
     // BUG: left edge was lineStart + lineStart. FIX: the centered line start.
@@ -175,8 +175,8 @@ describe("textAlign caret/selection/hit-test geometry (no double-count of the li
   });
 
   it("selection of an interior slice of a centered line: left edge === lineStart + prefix", () => {
-    const state = alignedParagraph(TEXT, "center");
-    const { layout, shaper } = pipeline(state);
+    const document = alignedParagraph(TEXT, "center");
+    const { layout, shaper } = pipeline(document);
     const lineStart = alignedLineStart(layout);
 
     // select "ter" — offsets 3..6.
@@ -184,7 +184,7 @@ describe("textAlign caret/selection/hit-test geometry (no double-count of the li
       createPosition("p" as BlockId, 3),
       createPosition("p" as BlockId, 6),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(rects.length).toBe(1);
     const r = nth(rects, 0, "rect");
     expect(r.x).toBe(lineStart + 3 * CHAR_W); // 368 + 24 = 392
@@ -192,8 +192,8 @@ describe("textAlign caret/selection/hit-test geometry (no double-count of the li
   });
 
   it("hit-test at a centered glyph's x round-trips to the correct offset (caret x matches)", () => {
-    const state = alignedParagraph(TEXT, "center");
-    const { layout, shaper } = pipeline(state);
+    const document = alignedParagraph(TEXT, "center");
+    const { layout, shaper } = pipeline(document);
     const lineStart = alignedLineStart(layout);
 
     // Click inside the LEFT half of the 4th char ("t" of "centerme"), i.e.
@@ -205,7 +205,7 @@ describe("textAlign caret/selection/hit-test geometry (no double-count of the li
     const y = line.absoluteY + line.line.blockSize / 2;
     const clickX = lineStart + 3 * CHAR_W + 2; // left of the 4th char's midpoint
 
-    const hit = resolvePositionFromPixel(state, layout, shaper, clickX, y, 0);
+    const hit = resolvePositionFromPixel(document, layout, shaper, clickX, y, 0);
     expect(hit).not.toBeNull();
     if (hit === null) return;
     expect(hit.blockId).toBe("p");
@@ -214,15 +214,15 @@ describe("textAlign caret/selection/hit-test geometry (no double-count of the li
     expect(hit.offset).toBe(3);
 
     // Round-trip: the caret for the resolved offset is back near the click x.
-    const caret = resolvePixelPosition(state, createPosition("p" as BlockId, hit.offset), layout, shaper);
+    const caret = resolvePixelPosition(document, createPosition("p" as BlockId, hit.offset), layout, shaper);
     expect(caret).not.toBeNull();
     if (caret === null) return;
     expect(caret.x).toBe(lineStart + 3 * CHAR_W); // 392 — left edge of the 4th char
   });
 
   it("hit-test in the empty band LEFT of a centered line clamps to offset 0 at the line start", () => {
-    const state = alignedParagraph(TEXT, "center");
-    const { layout, shaper } = pipeline(state);
+    const document = alignedParagraph(TEXT, "center");
+    const { layout, shaper } = pipeline(document);
     const lineStart = alignedLineStart(layout);
     const lines = getLineIndex(layout).byBlock.get("p" as BlockId) ?? [];
     const line = nth(lines, 0, "line");
@@ -230,24 +230,24 @@ describe("textAlign caret/selection/hit-test geometry (no double-count of the li
 
     // Click in the empty area to the LEFT of the centered text (x=10, well below
     // the line start of 368): should clamp to the first offset at the line start.
-    const hit = resolvePositionFromPixel(state, layout, shaper, 10, y, 0);
+    const hit = resolvePositionFromPixel(document, layout, shaper, 10, y, 0);
     expect(hit).not.toBeNull();
     if (hit === null) return;
     expect(hit.blockId).toBe("p");
     expect(hit.offset).toBe(0);
-    const caret = resolvePixelPosition(state, createPosition("p" as BlockId, 0), layout, shaper);
+    const caret = resolvePixelPosition(document, createPosition("p" as BlockId, 0), layout, shaper);
     expect(caret).not.toBeNull();
     if (caret === null) return;
     expect(caret.x).toBe(lineStart);
   });
 
   it("no-regression: start-aligned line is byte-identical (caret/selection from x=0)", () => {
-    const state = alignedParagraph(TEXT, "start");
-    const { layout, shaper } = pipeline(state);
+    const document = alignedParagraph(TEXT, "start");
+    const { layout, shaper } = pipeline(document);
     const lineStart = alignedLineStart(layout);
     expect(lineStart).toBe(0); // start-aligned → no offset
 
-    const caret = resolvePixelPosition(state, createPosition("p" as BlockId, 3), layout, shaper);
+    const caret = resolvePixelPosition(document, createPosition("p" as BlockId, 3), layout, shaper);
     expect(caret).not.toBeNull();
     if (caret === null) return;
     expect(caret.x).toBe(3 * CHAR_W); // 24 — unchanged
@@ -256,7 +256,7 @@ describe("textAlign caret/selection/hit-test geometry (no double-count of the li
       createPosition("p" as BlockId, 0),
       createPosition("p" as BlockId, TEXT.length),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
     expect(nth(rects, 0, "rect").x).toBe(0);
     expect(nth(rects, 0, "rect").width).toBe(CONTENT_W);
   });
@@ -283,9 +283,9 @@ describe("textAlign justify: partial selection has no inter-word gaps (#justify-
   // spaces included).
   const JUSTIFY_W = 70;
 
-  function pipelineW(state: State, width: number): { layout: LayoutBox; shaper: TextShaper } {
+  function pipelineW(document: Document, width: number): { layout: LayoutBox; shaper: TextShaper } {
     const root = render(
-      state,
+      document,
       createDefaultComponentRegistry(),
       createDefaultAttrRegistry(),
     ).root;
@@ -299,8 +299,8 @@ describe("textAlign justify: partial selection has no inter-word gaps (#justify-
     // distributed across the 2 interior spaces (+3px each); "dd" wraps to line 2,
     // so line 1 IS justified. Without the fix the two stretched spaces leave 3px
     // gaps → the selection fragments into 3 rects with holes.
-    const state = alignedParagraph("aa bb cc dd", "justify");
-    const { layout, shaper } = pipelineW(state, JUSTIFY_W);
+    const document = alignedParagraph("aa bb cc dd", "justify");
+    const { layout, shaper } = pipelineW(document, JUSTIFY_W);
 
     const lines = getLineIndex(layout).byBlock.get("p" as BlockId) ?? [];
     expect(lines.length).toBeGreaterThanOrEqual(2); // wrapped → line 1 justified
@@ -313,7 +313,7 @@ describe("textAlign justify: partial selection has no inter-word gaps (#justify-
       createPosition("p" as BlockId, line1.line.inlineOffsetStart),
       createPosition("p" as BlockId, line1.line.inlineOffsetEnd),
     );
-    const rects = computeSelectionRects(state, span, layout, shaper);
+    const rects = computeSelectionRects(document, span, layout, shaper);
 
     // No gaps: the per-leaf intervals must coalesce into ONE contiguous rect that
     // reaches the justified line's right edge (the available width). RED before

@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { insertTableColumn } from "./insert-table-column";
-import { getBlock } from "../state";
+import { getBlock } from "../document";
 import { resolveTableContext, getChildIds } from "../table-context";
-import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+import { buildBlock, buildDocument, inlineContent } from "../../test-utils/document-builders";
 import { createTestAllocator } from "../block-id";
 import type { BlockId } from "../block-id";
-import type { State } from "../state";
+import type { Document } from "../document";
 import type { Block } from "../block";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -18,7 +18,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
  * A 2×2 table (doc > table > 2 rows > 2 cells each > paragraph). `columnWidths`
  * is supplied via `tableAttrs` so tests can exercise the present/absent paths.
  */
-function build2x2(tableAttrs: Record<string, unknown>): State {
+function build2x2(tableAttrs: Record<string, unknown>): Document {
   const blocks: Block[] = [
     buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
     buildBlock({ id: "table", type: "table", attrs: tableAttrs, parentId: "doc", firstChildId: "r0", lastChildId: "r1" }),
@@ -33,21 +33,21 @@ function build2x2(tableAttrs: Record<string, unknown>): State {
       buildBlock({ id: `${r}p1`, type: "paragraph", parentId: `${r}c1`, inlineContent: inlineContent([]) }),
     );
   }
-  return buildState({ rootId: "doc", blocks });
+  return buildDocument({ rootId: "doc", blocks });
 }
 
 /** Resolve a context with the caret in the given cell's paragraph. */
-function ctxAt(state: State, cellParagraphId: string) {
-  const ctx = resolveTableContext(state, cellParagraphId as BlockId);
+function ctxAt(document: Document, cellParagraphId: string) {
+  const ctx = resolveTableContext(document, cellParagraphId as BlockId);
   if (ctx === null) throw new Error("expected a table context");
   return ctx;
 }
 
 describe("insertTableColumn", () => {
   it("inserts a column to the LEFT of the caret's column in every row", () => {
-    const state = build2x2({ columnWidths: [0.5, 0.5] });
-    const ctx = ctxAt(state, "r0p0"); // caret in row 0, column 0
-    const { state: next } = insertTableColumn(state, ctx, "left", createTestAllocator("n"));
+    const document = build2x2({ columnWidths: [0.5, 0.5] });
+    const ctx = ctxAt(document, "r0p0"); // caret in row 0, column 0
+    const { document: next } = insertTableColumn(document, ctx, "left", createTestAllocator("n"));
 
     // Each row now has 3 cells; the new cell is first (left of column 0).
     for (const r of ["r0", "r1"]) {
@@ -67,9 +67,9 @@ describe("insertTableColumn", () => {
   });
 
   it("inserts a column to the RIGHT (append) when the caret is in the last column", () => {
-    const state = build2x2({ columnWidths: [0.5, 0.5] });
-    const ctx = ctxAt(state, "r0p1"); // caret in row 0, column 1 (last)
-    const { state: next } = insertTableColumn(state, ctx, "right", createTestAllocator("n"));
+    const document = build2x2({ columnWidths: [0.5, 0.5] });
+    const ctx = ctxAt(document, "r0p1"); // caret in row 0, column 1 (last)
+    const { document: next } = insertTableColumn(document, ctx, "right", createTestAllocator("n"));
 
     for (const r of ["r0", "r1"]) {
       const cells = getChildIds(next, r as BlockId);
@@ -84,9 +84,9 @@ describe("insertTableColumn", () => {
   });
 
   it("re-splices columnWidths (present) to sum ≈ 1 with the new fraction", () => {
-    const state = build2x2({ columnWidths: [0.5, 0.5] });
-    const ctx = ctxAt(state, "r0p0");
-    const { state: next } = insertTableColumn(state, ctx, "left", createTestAllocator("n"));
+    const document = build2x2({ columnWidths: [0.5, 0.5] });
+    const ctx = ctxAt(document, "r0p0");
+    const { document: next } = insertTableColumn(document, ctx, "left", createTestAllocator("n"));
 
     const cw = getBlock(next, "table" as BlockId)?.attrs.columnWidths;
     expect(Array.isArray(cw)).toBe(true);
@@ -98,18 +98,18 @@ describe("insertTableColumn", () => {
   });
 
   it("auto-layout (absent columnWidths) → cells added, NO columnWidths attr written", () => {
-    const state = build2x2({}); // no columnWidths
-    const ctx = ctxAt(state, "r0p0");
-    const { state: next } = insertTableColumn(state, ctx, "right", createTestAllocator("n"));
+    const document = build2x2({}); // no columnWidths
+    const ctx = ctxAt(document, "r0p0");
+    const { document: next } = insertTableColumn(document, ctx, "right", createTestAllocator("n"));
 
     expect(getChildIds(next, "r0" as BlockId).length).toBe(3);
     expect(getBlock(next, "table" as BlockId)?.attrs.columnWidths).toBeUndefined();
   });
 
   it("dirtyIds covers the table, every touched row, and the new cells/paragraphs", () => {
-    const state = build2x2({ columnWidths: [0.5, 0.5] });
-    const ctx = ctxAt(state, "r0p0"); // left of column 0
-    const { dirtyIds } = insertTableColumn(state, ctx, "left", createTestAllocator("n"));
+    const document = build2x2({ columnWidths: [0.5, 0.5] });
+    const ctx = ctxAt(document, "r0p0"); // left of column 0
+    const { dirtyIds } = insertTableColumn(document, ctx, "left", createTestAllocator("n"));
 
     // table attr (columnWidths) write
     expect(dirtyIds.has("table" as BlockId)).toBe(true);

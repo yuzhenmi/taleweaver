@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { tableComponent } from "./table";
 import type { ContainerBlockView, RenderContext } from "../render/block-view";
 import type { ElementBox } from "../render/render-node";
-import type { BlockId, State, ReadonlyAttrs } from "../state";
+import type { BlockId, Document, ReadonlyAttrs } from "../state";
 import type { ComputedStyle } from "../styles";
 
 function containerView(attrs: ReadonlyAttrs = {}): ContainerBlockView {
@@ -16,7 +16,7 @@ function containerView(attrs: ReadonlyAttrs = {}): ContainerBlockView {
 }
 
 function stubCtx(): RenderContext {
-  return { state: {} as State, footnoteNumber: () => undefined };
+  return { document: {} as Document, footnoteNumber: () => undefined };
 }
 
 describe("tableComponent (new)", () => {

@@ -5,7 +5,7 @@
  * selection is collapsed-on-atomic, so `computeSelectionRects` early-returns `[]`
  * for it; this function exists precisely to serve that case.
  *
- * Fixture mirrors `hit-test-object.test.ts` (buildState → render → layoutTree →
+ * Fixture mirrors `hit-test-object.test.ts` (buildDocument → render → layoutTree →
  * getPage(0)) with a FLOATED image and wrapped paragraph text beside it.
  */
 import { describe, it, expect } from "vitest";
@@ -15,13 +15,13 @@ import { createDefaultAttrRegistry } from "@taleweaver/core";
 import { layoutTree } from "../layout/dispatch";
 import { createMockShaper } from "@taleweaver/core";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
 } from "@taleweaver/core";
 import { asBlockId } from "@taleweaver/core";
-import type { State } from "@taleweaver/core";
+import type { Document } from "@taleweaver/core";
 import type { PageBox } from "../layout/page-box";
 import type { LayoutBox } from "../layout/layout-box";
 import { computeObjectSelectionRect } from "./selection-geometry";
@@ -49,8 +49,8 @@ function pageConfig() {
   };
 }
 
-function docWithFloatImage(): State {
-  return buildState({
+function docWithFloatImage(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -88,14 +88,14 @@ function docWithFloatImage(): State {
 }
 
 interface Built {
-  state: State;
+  document: Document;
   page0: PageBox;
 }
 
 function build(): Built {
-  const state = docWithFloatImage();
+  const document = docWithFloatImage();
   const root = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -105,7 +105,7 @@ function build(): Built {
   if (lt.type !== "virtual-root") {
     throw new Error("expected a VirtualLayoutTree (paginated supported doc)");
   }
-  return { state, page0: lt.getPage(0) };
+  return { document, page0: lt.getPage(0) };
 }
 
 /**
@@ -155,10 +155,10 @@ function absRectOf(
 
 describe("computeObjectSelectionRect (#525)", () => {
   it("returns the atomic image's absolute bbox as a SelectionRect", () => {
-    const { state, page0 } = build();
+    const { document, page0 } = build();
     const resolver = createDefaultComponentRegistry();
 
-    const rect = computeObjectSelectionRect(state, FLOAT_IMG_ID, page0, resolver);
+    const rect = computeObjectSelectionRect(document, FLOAT_IMG_ID, page0, resolver);
     expect(rect).not.toBeNull();
     if (rect === null) throw new Error("expected an object-selection rect");
 
@@ -180,25 +180,25 @@ describe("computeObjectSelectionRect (#525)", () => {
   });
 
   it("returns null for a non-atomic block (a paragraph)", () => {
-    const { state, page0 } = build();
+    const { document, page0 } = build();
     const resolver = createDefaultComponentRegistry();
-    expect(computeObjectSelectionRect(state, PARA_ID, page0, resolver)).toBeNull();
+    expect(computeObjectSelectionRect(document, PARA_ID, page0, resolver)).toBeNull();
   });
 
   it("returns null for a blockId absent from the layout", () => {
-    const { state, page0 } = build();
+    const { document, page0 } = build();
     const resolver = createDefaultComponentRegistry();
     expect(
-      computeObjectSelectionRect(state, asBlockId("gone"), page0, resolver),
+      computeObjectSelectionRect(document, asBlockId("gone"), page0, resolver),
     ).toBeNull();
   });
 
   it("computeSelectionRects on the same collapsed-on-atomic span returns [] (why a separate fn is needed)", () => {
-    const { state, page0 } = build();
+    const { document, page0 } = build();
     const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
     const pos = { blockId: FLOAT_IMG_ID, offset: 0 };
     const span = { anchor: pos, focus: pos };
-    expect(computeSelectionRects(state, span, page0, shaper)).toEqual([]);
+    expect(computeSelectionRects(document, span, page0, shaper)).toEqual([]);
   });
 });
 
@@ -222,7 +222,7 @@ function objectAction(kind: ObjectKind, rows = 1): EditorAction {
 function objectRangeDoc(kind: ObjectKind, opts: MakeNavEditorOptions = {}, rows = 1) {
   let ctx = typeText(makeNavEditor(opts), "abcd");
   ctx = dispatch(ctx, objectAction(kind, rows));
-  const st = ctx.editor.state;
+  const st = ctx.editor.document;
   const section = getBlock(st, firstBlockId(ctx))?.parentId ?? null;
   const ids: BlockId[] = [];
   for (let id = section === null ? null : getBlock(st, section)?.firstChildId ?? null; id !== null; id = getBlock(st, id)?.nextSiblingId ?? null) {
@@ -242,12 +242,12 @@ function positioned(ctx: NavCtx): LayoutBox {
 }
 
 function rangeRects(ctx: NavCtx, anchor: Position, focus: Position): SelectionRect[] {
-  return computeSelectionRects(ctx.editor.state, createSpan(anchor, focus), positioned(ctx), ctx.measurer);
+  return computeSelectionRects(ctx.editor.document, createSpan(anchor, focus), positioned(ctx), ctx.measurer);
 }
 
 /** The object's box fragments on `tree` (the highlight a covered object paints). */
 function boxesOf(ctx: NavCtx, tree: LayoutBox, id: BlockId): SelectionRect[] {
-  return getObjectBoxes(tree, ctx.editor.state).filter((b) => b.blockId === id).map((b) => ({ ...b.rect }));
+  return getObjectBoxes(tree, ctx.editor.document).filter((b) => b.blockId === id).map((b) => ({ ...b.rect }));
 }
 
 // "bcd" + the ¶ extension (8px glyphs, 16px lines; "abcd" is the first line).
@@ -275,22 +275,22 @@ describe("range selections paint covered object blocks whole", () => {
 
   it("a drag from text into a table cell paints the whole table (core lifts the endpoint)", () => {
     const { ctx, text, object } = objectRangeDoc("table");
-    const cell = firstLeafBlock(ctx.editor.state, object);
+    const cell = firstLeafBlock(ctx.editor.document, object);
     if (cell === null) throw new Error("expected a cell paragraph");
     const dragged = setSelection(ctx, createSpan(createPosition(text, 1), createPosition(cell, 0)));
     expect(dragged.editor.selection.focus).toEqual(createPosition(object, 0));
     const tree = positioned(dragged);
-    expect(computeSelectionRects(dragged.editor.state, dragged.editor.selection, tree, dragged.measurer))
+    expect(computeSelectionRects(dragged.editor.document, dragged.editor.selection, tree, dragged.measurer))
       .toEqual([BCD, ...boxesOf(dragged, tree, object)]);
   });
 
   it("a range inside one table's cells does not highlight the table", () => {
     let { ctx, object } = objectRangeDoc("table");
-    const cell = firstLeafBlock(ctx.editor.state, object);
+    const cell = firstLeafBlock(ctx.editor.document, object);
     if (cell === null) throw new Error("expected a cell paragraph");
     ctx = typeText(caretAt(ctx, cell, 0), "xy");
     const tree = positioned(ctx);
-    const rects = computeSelectionRects(ctx.editor.state, createSpan(createPosition(cell, 0), createPosition(cell, 2)), tree, ctx.measurer);
+    const rects = computeSelectionRects(ctx.editor.document, createSpan(createPosition(cell, 0), createPosition(cell, 2)), tree, ctx.measurer);
     expect(rects).toHaveLength(1);
     expect(rects[0]?.width).toBe(16);
   });
@@ -303,7 +303,7 @@ describe("range selections paint covered object blocks whole", () => {
     if (tree.type !== "virtual-root") throw new Error("expected a paginated layout");
     const span = tree.plan.pageSpanOfBlock(object);
     if (span === null || span.first === span.last) throw new Error("expected the table to span pages");
-    const st = ctx.editor.state;
+    const st = ctx.editor.document;
     const fragments: SelectionRect[] = [];
     for (let i = span.first; i <= span.last; i++) fragments.push(...boxesOf(ctx, tree.getPage(i), object));
     expect(new Set(fragments.map((r) => r.pageIndex)).size).toBe(span.last - span.first + 1);

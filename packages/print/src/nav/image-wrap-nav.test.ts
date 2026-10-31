@@ -47,12 +47,12 @@ function predecessorDoc(): { ctx: NavCtx; preId: BlockId; imageId: BlockId; para
   const preId = firstBlockId(ctx);
   ctx = dispatch(ctx, { type: "INSERT_IMAGE", src: "i.png", width: 100, height: 32 });
 
-  const pre = getBlock(ctx.editor.state, preId);
+  const pre = getBlock(ctx.editor.document, preId);
   if (pre === null || pre.nextSiblingId === null) {
     throw new Error("image-wrap-nav fixture: image not inserted after PRE");
   }
   const imageId = pre.nextSiblingId;
-  const image = getBlock(ctx.editor.state, imageId);
+  const image = getBlock(ctx.editor.document, imageId);
   if (image === null || image.type !== "image" || image.nextSiblingId === null) {
     throw new Error("image-wrap-nav fixture: expected an image followed by a trailing paragraph");
   }

@@ -1,7 +1,7 @@
 import type * as Y from "yjs";
 import { requireBlockText } from "../block-text";
-import type { State, OperationResult } from "../state";
-import { applyOperation, resolveBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, resolveBlock } from "../document";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { Position } from "../block-position";
 import {
@@ -90,7 +90,7 @@ interface AnchorInsertPlan {
  * NOTE: this op is NOT idempotent — it always creates a fresh anchor + body.
  */
 export function insertFootnote(
-  state: State,
+  document: Document,
   position: Position,
   allocator: IdAllocator,
 ): InsertFootnoteResult {
@@ -101,9 +101,9 @@ export function insertFootnote(
 
   // Plan the anchor insertion from the pre-tx snapshot (all validation here,
   // BEFORE the transaction opens — mirroring `planInsertText`).
-  const anchorPlan = planAnchorInsert(state, position, bodyRootId);
+  const anchorPlan = planAnchorInsert(document, position, bodyRootId);
 
-  const result = applyOperation(state, (doc) => {
+  const result = applyOperation(document, (doc) => {
     // Dev-mode defense against allocator id collision (counter-based test
     // allocators can collide with seeded state). Checks all three trees.
     assertNoIdCollision(doc, bodyRootId, "insertFootnote");
@@ -117,7 +117,7 @@ export function insertFootnote(
   });
 
   return {
-    state: result.state,
+    document: result.document,
     dirtyIds: result.dirtyIds,
     bodyRootId,
     firstParagraphId,
@@ -132,11 +132,11 @@ export function insertFootnote(
  * `insertFootnote` docstring lists.
  */
 function planAnchorInsert(
-  state: State,
+  document: Document,
   position: Position,
   bodyRootId: BlockId,
 ): AnchorInsertPlan {
-  const resolved = resolveBlock(state, position.blockId);
+  const resolved = resolveBlock(document, position.blockId);
   if (resolved === null) {
     throw new Error(`insertFootnote: block "${position.blockId}" not found`);
   }

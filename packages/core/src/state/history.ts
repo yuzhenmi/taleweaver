@@ -3,8 +3,8 @@ import { blockText } from "./block-text";
 import type { Position, Selection } from "./block-position";
 import { createPosition, createSpan, positionsEqual } from "./block-position";
 import type { BlockId } from "./block-id";
-import type { OperationResult, State } from "./state";
-import { freshState, resolveBlock } from "./state";
+import type { OperationResult, Document } from "./document";
+import { freshDocument, resolveBlock } from "./document";
 import { selectionContextOf } from "./block-compare";
 import {
   captureDirtyIds,
@@ -17,7 +17,7 @@ import { getRegistry } from "./registry";
 import { isPiece, isSubflowItem } from "./y-flow";
 import { readCtx, regionOf, positionAtPieceIndex } from "./flow-read";
 import { pointInRegion } from "./block-text";
-import { STATE_INTERNAL } from "./state-internal";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import { isDevMode } from "./dev-mode";
 
 /**
@@ -45,7 +45,7 @@ export interface SelectionEntry {
 }
 
 export interface UndoRedoResult {
-  readonly state: State;
+  readonly document: Document;
   readonly selection: Selection | null;
   /**
    * BlockIds whose subtrees were mutated by the undo/redo's reversal.
@@ -120,16 +120,16 @@ function encodeSelection(doc: Y.Doc, sel: Selection | null): StoredSelection | n
 }
 
 /**
- * Resolve a stored endpoint against `state` (whose doc has the undo/redo applied).
+ * Resolve a stored endpoint against `document` (whose doc has the undo/redo applied).
  * The block is DERIVED from the resolved `Y.Text` (a peer split may have moved the
  * anchor char's block), never trusted from the stored id — except for a null-`rel`
  * container endpoint. Unresolvable (null) when the anchor char is deleted and not
  * restored, the text / block is gone, or the position is unknown to this doc.
  * A resolved offset is snapped to a grapheme boundary.
  */
-function resolveEndpoint(state: State, ep: StoredEndpoint): Position | null {
-  if (ep.rel === null) return resolveBlock(state, ep.blockId) === null ? null : createPosition(ep.blockId, 0);
-  const doc = state[STATE_INTERNAL].doc;
+function resolveEndpoint(document: Document, ep: StoredEndpoint): Position | null {
+  if (ep.rel === null) return resolveBlock(document, ep.blockId) === null ? null : createPosition(ep.blockId, 0);
+  const doc = document[DOCUMENT_INTERNAL].doc;
   if (ep.rel.item !== null) {
     // The anchor char (the caret's LEFT char, or its right one at offset 0), followed
     // through redone copies: deleted and not restored by this undo → unresolvable.
@@ -141,17 +141,17 @@ function resolveEndpoint(state: State, ep: StoredEndpoint): Position | null {
   const at = positionAtPieceIndex(readCtx(doc), abs.type, abs.index);
   if (at === null) return null;
   const blockId = at.id as BlockId;
-  const content = resolveBlock(state, blockId)?.block.inlineContent ?? null;
+  const content = resolveBlock(document, blockId)?.block.inlineContent ?? null;
   if (content === null) return null;
   return createPosition(blockId, snapOffset(content.items, at.offset));
 }
 
-function resolveSelection(state: State, stored: StoredSelection): Selection | null {
-  const anchor = resolveEndpoint(state, stored.anchor);
-  const focus = stored.focus === stored.anchor ? anchor : resolveEndpoint(state, stored.focus);
+function resolveSelection(document: Document, stored: StoredSelection): Selection | null {
+  const anchor = resolveEndpoint(document, stored.anchor);
+  const focus = stored.focus === stored.anchor ? anchor : resolveEndpoint(document, stored.focus);
   if (anchor === null || focus === null) return null;
-  const ctx = selectionContextOf(state, anchor.blockId);
-  if (ctx === null || ctx !== selectionContextOf(state, focus.blockId)) return createSpan(focus, focus);
+  const ctx = selectionContextOf(document, anchor.blockId);
+  if (ctx === null || ctx !== selectionContextOf(document, focus.blockId)) return createSpan(focus, focus);
   return createSpan(anchor, focus);
 }
 
@@ -169,7 +169,7 @@ function readSelectionEntry(item: YStackItem): StoredEntry | null {
 
 /**
  * Yjs-backed history wrapper. Mutable internal state — instances live
- * alongside an `EditorState`-like container and produce fresh State
+ * alongside an `EditorState`-like container and produce fresh Document
  * references on undo/redo (so consumers can use `oldState !== newState`
  * to detect changes).
  *
@@ -224,9 +224,9 @@ function readSelectionEntry(item: YStackItem): StoredEntry | null {
  * attach the SelectionEntry to. Rather than impose a contract on callers,
  * `commit` is itself no-op-safe: an `OperationResult` with empty
  * `dirtyIds` is silently dropped (no StackItem produced, no selection
- * recorded, `currentState` unchanged). Action handlers conventionally
+ * recorded, `currentDocument` unchanged). Action handlers conventionally
  * short-circuit FIRST via the identity-no-op contract
- * (`result.state === editor.state`) — that returns the SAME editor
+ * (`result.document === editor.document`) — that returns the SAME editor
  * reference on no-ops, the editor module's invariant — but commit does
  * not depend on it for soundness.
  *
@@ -277,7 +277,7 @@ export type BeginKey = "insert" | "delete" | "command";
 export class History {
   private readonly undoManager: Y.UndoManager;
   private readonly maxDepth: number;
-  private currentState: State;
+  private currentDocument: Document;
 
   // Typing-coalescing state. `coalesceKey` is the open group's kind, or
   // null when no coalescible group is open. `lastEditTime` is the injected-clock
@@ -299,13 +299,13 @@ export class History {
   // Rollback bookkeeping for a throwing transaction: the undo-stack depth and the
   // wrapper's state when the outermost batch opened.
   private batchStackDepth = 0;
-  private batchState: State | null = null;
+  private batchDocument: Document | null = null;
   // An inner transaction aborted inside the open batch (its error may have been
   // swallowed by the outer `run`): the outermost batch must roll back entirely.
   private batchPoisoned = false;
 
   constructor(
-    state: State,
+    document: Document,
     maxDepth: number = DEFAULT_MAX_UNDO_DEPTH,
     trackedOrigin: unknown = null,
   ) {
@@ -313,13 +313,13 @@ export class History {
       throw new Error(`History: maxDepth must be >= 1, got ${maxDepth}`);
     }
     this.maxDepth = maxDepth;
-    this.currentState = state;
+    this.currentDocument = document;
     this.undoManager = new Y.UndoManager(
       [
-        getRegistry(state[STATE_INTERNAL].doc),
-        getListDefsMap(state[STATE_INTERNAL].doc),
-        getCommentsMap(state[STATE_INTERNAL].doc),
-        getSuggestionsMap(state[STATE_INTERNAL].doc),
+        getRegistry(document[DOCUMENT_INTERNAL].doc),
+        getListDefsMap(document[DOCUMENT_INTERNAL].doc),
+        getCommentsMap(document[DOCUMENT_INTERNAL].doc),
+        getSuggestionsMap(document[DOCUMENT_INTERNAL].doc),
       ],
       {
         // captureTimeout: Number.MAX_SAFE_INTEGER means "never auto-close
@@ -391,7 +391,7 @@ export class History {
   }
 
   private doc(): Y.Doc {
-    return this.currentState[STATE_INTERNAL].doc;
+    return this.currentDocument[DOCUMENT_INTERNAL].doc;
   }
 
   /**
@@ -417,7 +417,7 @@ export class History {
       this.batchCommitted = false;
       this.batchBefore = encodeSelection(this.doc(), selectionBefore);
       this.batchStackDepth = this.undoManager.undoStack.length;
-      this.batchState = this.currentState;
+      this.batchDocument = this.currentDocument;
       this.batchPoisoned = false;
     }
     this.batchDepth++;
@@ -444,24 +444,24 @@ export class History {
       this.undoManager.stopCapturing();
       this.coalesceKey = null;
       this.batchBefore = null;
-      this.batchState = null;
+      this.batchDocument = null;
     }
   }
 
   /**
    * Abandon the OUTERMOST open transaction after a step threw: revert everything it
    * applied (its single undo item, if it produced one — undone and dropped, never
-   * redoable), restore the wrapper's state, and close the batch. Returns the State the
+   * redoable), restore the wrapper's state, and close the batch. Returns the Document the
    * history is back at. An inner (nested) batch closes and POISONS the outermost one:
    * even if the outer `run` swallows the inner error, ending the outer batch rolls the
    * whole transaction back and throws (`endBatch`).
    */
-  abortBatch(): State {
+  abortBatch(): Document {
     if (this.batchDepth === 0) throw new Error("History.abortBatch: no open batch");
     this.batchDepth--;
     if (this.batchDepth > 0) {
       this.batchPoisoned = true; // the outermost batch rolls back when it ends
-      return this.currentState;
+      return this.currentDocument;
     }
     this.batchPoisoned = false;
     if (this.undoManager.undoStack.length > this.batchStackDepth) {
@@ -471,9 +471,9 @@ export class History {
     this.undoManager.stopCapturing();
     this.coalesceKey = null;
     this.batchBefore = null;
-    const restored = this.batchState ?? this.currentState;
-    this.batchState = null;
-    this.currentState = restored;
+    const restored = this.batchDocument ?? this.currentDocument;
+    this.batchDocument = null;
+    this.currentDocument = restored;
     return restored;
   }
 
@@ -506,7 +506,7 @@ export class History {
    * SelectionEntry onto and nothing to record. The early return below
    * keeps the wrapper consistent in that case. Handlers conventionally
    * short-circuit first via the identity-no-op contract
-   * (`result.state === editor.state`), which is the editor module's
+   * (`result.document === editor.document`), which is the editor module's
    * same-reference-on-no-op invariant; commit's no-op safety is the
    * backstop, not a substitute.
    */
@@ -523,14 +523,14 @@ export class History {
     // The action's transaction has already pushed/merged its StackItem onto
     // `undoStack` (Yjs does this in `afterTransaction`); the group boundary was
     // decided by `beginEntry`/`breakCoalescing` before the transaction ran.
-    // Locate that item BEFORE advancing `currentState`, so a mid-commit throw
+    // Locate that item BEFORE advancing `currentDocument`, so a mid-commit throw
     // (the "impossible" no-item case) never leaves the wrapper half-updated.
     const top =
       this.undoManager.undoStack[this.undoManager.undoStack.length - 1];
     if (top === undefined) {
       // The action mutated tracked types (dirtyIds non-empty) yet produced no
       // undo StackItem — should be impossible. Surface loudly rather than
-      // silently dropping the selection. `currentState` is NOT yet advanced.
+      // silently dropping the selection. `currentDocument` is NOT yet advanced.
       throw new Error(
         `History.commit: no undo StackItem to attach selection to ` +
           `(dirtyIds=${opResult.dirtyIds.size}). ` +
@@ -575,7 +575,7 @@ export class History {
     }
     if (this.batchDepth > 0) this.batchCommitted = true;
     // All bookkeeping succeeded — now advance the wrapper's current state.
-    this.currentState = opResult.state;
+    this.currentDocument = opResult.document;
     // Cap undo depth. Y.UndoManager has no maxDepth, so once the stack
     // exceeds the cap drop the OLDEST entries from the undoStack. Each trimmed
     // StackItem carries its own `.meta` (and thus its SelectionEntry) away
@@ -589,21 +589,21 @@ export class History {
   }
 
   /**
-   * Advance `currentState` after a NON-undoable change (an accept/reject
-   * suggestion-resolve txn that skipped `commit`). It sets `this.currentState =
+   * Advance `currentDocument` after a NON-undoable change (an accept/reject
+   * suggestion-resolve txn that skipped `commit`). It sets `this.currentDocument =
    * newState` ONLY — it does NOT touch the undo/redo stacks, the coalescing
    * state, or the UndoManager.
    *
-   * Without this, `currentState` stays pinned at the pre-resolve snapshot, and
-   * the next `undo`/`redo` — which builds via `freshState(this.currentState,
+   * Without this, `currentDocument` stays pinned at the pre-resolve snapshot, and
+   * the next `undo`/`redo` — which builds via `freshDocument(this.currentDocument,
    * dirtyIds)` — serves any block the resolve changed but the undo did NOT
    * re-dirty from a STALE snapshot (silently wrong render). It deliberately does
    * NOT call `commit` (a non-`null`-origin txn fires no UndoManager StackItem
-   * event, so the stacks stay correct; `advanceState` only reconciles the cached
-   * `currentState`).
+   * event, so the stacks stay correct; `advanceDocument` only reconciles the cached
+   * `currentDocument`).
    */
-  advanceState(newState: State): void {
-    this.currentState = newState;
+  advanceDocument(newDocument: Document): void {
+    this.currentDocument = newDocument;
   }
 
   canUndo(): boolean {
@@ -634,7 +634,7 @@ export class History {
   }
 
   /**
-   * Pop the latest undo entry: mutate Y.Doc back, mint a fresh State,
+   * Pop the latest undo entry: mutate Y.Doc back, mint a fresh Document,
    * and return the pre-action selection so the caller can restore it.
    * Y.UndoManager creates a fresh StackItem on the redo stack; we re-weld
    * this action's `SelectionEntry` onto it (Yjs does not copy `.meta`) so a
@@ -642,18 +642,18 @@ export class History {
    * to undo.
    *
    * **Error recovery:** the whole body is wrapped in try/catch, and
-   * `currentState` is reassigned only on full success (last statement before
+   * `currentDocument` is reassigned only on full success (last statement before
    * the return). The retriability of the wrapper depends on WHERE the throw
    * lands relative to the Yjs reversal:
    *   - A throw BEFORE `undoManager.undo()` mutates the Yjs stacks (i.e. inside
    *     `captureDirtyIds` before the reversal applies) leaves BOTH the Y.Doc and
-   *     `currentState` unchanged → a retry is fully sound.
-   *   - A throw AFTER the reversal applied (only `freshState`, an allocation +
+   *     `currentDocument` unchanged → a retry is fully sound.
+   *   - A throw AFTER the reversal applied (only `freshDocument`, an allocation +
    *     freeze, runs after it) leaves the Y.Doc already reversed and the redo
-   *     entry already re-welded, while `currentState` is stale → the wrapper is
+   *     entry already re-welded, while `currentDocument` is stale → the wrapper is
    *     NOT safely retriable (a blind retry would double-undo). The catch
    *     surfaces this as "history may be inconsistent"; the caller must treat
-   *     history as such rather than retrying blindly. `freshState` is
+   *     history as such rather than retrying blindly. `freshDocument` is
    *     allocation-only and realistically cannot throw, so this window is
    *     theoretical — but the guarantee is the weaker of the two, not "always
    *     retriable".
@@ -664,7 +664,7 @@ export class History {
   undo(): UndoRedoResult | null {
     if (!this.canUndo()) return null;
     try {
-      const doc = this.currentState[STATE_INTERNAL].doc;
+      const doc = this.currentDocument[DOCUMENT_INTERNAL].doc;
       // Capture dirty ids from the UndoManager's internal transaction so the
       // editor's incremental render pipeline can rebuild only the reversed
       // blocks. `undoManager.undo()` returns the popped StackItem; we
@@ -682,13 +682,13 @@ export class History {
       // Yjs's `popStackItem` pops such no-op items as it scans and returns null once
       // nothing reversible remains. Treat it as a graceful no-op (the dead items are
       // already off `undoStack`); the caller's `handleUndo` returns the editor
-      // unchanged. `currentState` is intentionally NOT advanced — the Y.Doc was not
+      // unchanged. `currentDocument` is intentionally NOT advanced — the Y.Doc was not
       // mutated, so the cached state stays valid. (The identity-preserving resolve
       // RESTORED undo-after-resolve for the in-place case; this null-pop path remains
       // only when the resolve deleted the very runs a prior StackItem tracked.)
       if (poppedItem === null) {
         // DEV trip-wire: the "Y.Doc not mutated" claim above is the load-bearing
-        // reason `currentState` stays un-advanced. A no-op pop applies no
+        // reason `currentDocument` stays un-advanced. A no-op pop applies no
         // reversal, so `dirtyIds` MUST be empty. If a future Yjs changes
         // `popStackItem` to mutate while returning null, this surfaces it loudly
         // instead of silently desyncing the cached state.
@@ -717,23 +717,23 @@ export class History {
       if (entry !== null) {
         this.carryEntryToTop(this.undoManager.redoStack, entry);
       }
-      // Construct the new state BEFORE updating currentState. Passing dirtyIds
+      // Construct the new state BEFORE updating currentDocument. Passing dirtyIds
       // builds the new state's cache as an overlay on the prior cache —
       // unchanged blocks stay warm via fall-through. NOTE: the
-      // Yjs reversal above has ALREADY applied at this point, so a freshState
-      // throw here leaves currentState stale relative to the Y.Doc — see the
+      // Yjs reversal above has ALREADY applied at this point, so a freshDocument
+      // throw here leaves currentDocument stale relative to the Y.Doc — see the
       // method docstring; this is the non-retriable window (theoretical, since
-      // freshState is allocation-only).
-      const newState = freshState(this.currentState, dirtyIds);
-      this.currentState = newState;
+      // freshDocument is allocation-only).
+      const newDocument = freshDocument(this.currentDocument, dirtyIds);
+      this.currentDocument = newDocument;
       return {
-        state: newState,
-        selection: entry === null || entry.before === null ? null : resolveSelection(newState, entry.before),
+        document: newDocument,
+        selection: entry === null || entry.before === null ? null : resolveSelection(newDocument, entry.before),
         dirtyIds,
       };
     } catch (err) {
       // Any throw above leaves the Y.Doc possibly mutated (if undoManager.undo
-      // ran) but `currentState` untouched. Surface a wrapped error.
+      // ran) but `currentDocument` untouched. Surface a wrapped error.
       throw new Error(
         `History.undo: failed mid-operation, history may be inconsistent: ${err}`,
       );
@@ -748,16 +748,16 @@ export class History {
    * nothing to redo.
    *
    * **Error recovery:** mirrored from `undo()` — try/catch wraps the
-   * whole body and `currentState` advances only on full success. Same
+   * whole body and `currentDocument` advances only on full success. Same
    * retriability split as `undo()`: a throw before the Yjs re-application is
-   * fully retriable; a `freshState` throw after it leaves `currentState` stale
+   * fully retriable; a `freshDocument` throw after it leaves `currentDocument` stale
    * relative to the already-reapplied Y.Doc (non-retriable, theoretical). See
    * `undo()`'s docstring for the full rationale.
    */
   redo(): UndoRedoResult | null {
     if (!this.canRedo()) return null;
     try {
-      const doc = this.currentState[STATE_INTERNAL].doc;
+      const doc = this.currentDocument[DOCUMENT_INTERNAL].doc;
       let poppedItem: YStackItem | null = null;
       const dirtyIds = captureDirtyIds(doc, () => {
         poppedItem = this.undoManager.redo();
@@ -766,7 +766,7 @@ export class History {
       // of undo()'s handling. An untracked change (a collaborator's edit)
       // that DELETED the very runs a redo StackItem tracked can leave that item a
       // no-op; Yjs's popStackItem pops it and returns null when nothing reapplies.
-      // The Y.Doc was not mutated, so `currentState` stays valid. See undo() for
+      // The Y.Doc was not mutated, so `currentDocument` stays valid. See undo() for
       // the full rationale.
       if (poppedItem === null) {
         // DEV trip-wire: mirror of undo() — a no-op pop must not mutate, so
@@ -793,11 +793,11 @@ export class History {
       if (entry !== null) {
         this.carryEntryToTop(this.undoManager.undoStack, entry);
       }
-      const newState = freshState(this.currentState, dirtyIds);
-      this.currentState = newState;
+      const newDocument = freshDocument(this.currentDocument, dirtyIds);
+      this.currentDocument = newDocument;
       return {
-        state: newState,
-        selection: entry === null || entry.after === null ? null : resolveSelection(newState, entry.after),
+        document: newDocument,
+        selection: entry === null || entry.after === null ? null : resolveSelection(newDocument, entry.after),
         dirtyIds,
       };
     } catch (err) {
@@ -849,11 +849,11 @@ export class History {
  * own edits (see the `History` constructor for the collab-isolation rationale).
  */
 export function createHistory(
-  state: State,
+  document: Document,
   maxDepth?: number,
   trackedOrigin: unknown = null,
 ): History {
-  return new History(state, maxDepth ?? DEFAULT_MAX_UNDO_DEPTH, trackedOrigin);
+  return new History(document, maxDepth ?? DEFAULT_MAX_UNDO_DEPTH, trackedOrigin);
 }
 
 function selectionsEqual(a: Selection, b: Selection): boolean {

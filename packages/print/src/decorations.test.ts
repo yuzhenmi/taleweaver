@@ -148,12 +148,12 @@ function seeded(texts: readonly string[], cfg: core.EditorConfig): { editor: cor
     type: "document",
     children: texts.map((text) => ({ type: "paragraph", inlineContent: { items: [{ kind: "text" as const, text, attrs: {} }] } })),
   };
-  const state = core.buildDocumentFromTree(root, {}, core.createTestAllocator(), TEST_RESOLVER);
+  const document = core.buildDocumentFromTree(root, {}, core.createTestAllocator(), TEST_RESOLVER);
   const ids: core.BlockId[] = [];
   // the root holds sections only; a break-less doc's paragraphs live in its final section.
-  const section = core.getBlock(state, state.rootId)?.lastChildId ?? null;
-  for (let id = section === null ? null : (core.getBlock(state, section)?.firstChildId ?? null); id !== null; id = core.getBlock(state, id)?.nextSiblingId ?? null) ids.push(id);
-  return { editor: core.createEditorStateFromState(state, core.initialSelectionForState(state), cfg), ids };
+  const section = core.getBlock(document, document.rootId)?.lastChildId ?? null;
+  for (let id = section === null ? null : (core.getBlock(document, section)?.firstChildId ?? null); id !== null; id = core.getBlock(document, id)?.nextSiblingId ?? null) ids.push(id);
+  return { editor: core.createEditorStateFromDocument(document, core.initialSelectionForDocument(document), cfg), ids };
 }
 
 function mount(
@@ -288,7 +288,7 @@ describe("print decorations — paint", () => {
     controller.update(editor);
     controller.setDecorations([inline("h", p, 0, 3, { backgroundColor: BAND })]);
     ctxOf(container)._ops.length = 0;
-    controller.setFindHighlights(core.findMatches(editor.state, "foo"), 0);
+    controller.setFindHighlights(core.findMatches(editor.document, "foo"), 0);
     const ctx = ctxOf(container);
     const find = fills(ctx, core.ACTIVE_FIND_HIGHLIGHT_FILL)[0];
     const host = fills(ctx, BAND)[0];
@@ -405,7 +405,7 @@ describe("print decorations — paginated", () => {
     const events: PrintDecorationPointerEvent[] = [];
     const { container, controller } = mount((e) => events.push(e), TWO_PAGES);
     controller.update(editor);
-    controller.setFindHighlights(core.findMatches(editor.state, "alpha"), 0);
+    controller.setFindHighlights(core.findMatches(editor.document, "alpha"), 0);
     const band = fills(ctxOf(container, 0), core.ACTIVE_FIND_HIGHLIGHT_FILL)[0];
     const page0 = container.querySelector('canvas[data-page-index="0"]');
     if (band === undefined || !(page0 instanceof HTMLCanvasElement)) throw new Error("setup");
@@ -741,7 +741,7 @@ describe("print decorations — find highlights through edits", () => {
     if (p === undefined) throw new Error("setup");
     const { container, controller } = mount();
     controller.update(editor);
-    controller.setFindHighlights(core.findMatches(editor.state, "foo"), 0);
+    controller.setFindHighlights(core.findMatches(editor.document, "foo"), 0);
     const before = fills(ctxOf(container), core.FIND_HIGHLIGHT_FILL).at(-1)?.x ?? NaN;
     const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) });
     controller.update(at0);
@@ -857,9 +857,9 @@ describe("print decorations — geometry across pages and regions", () => {
     editor = core.reduceEditor(editor, { type: "INSERT_TABLE", rows: 1, cols: 1 });
     editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "cell" });
     const para = editor.selection.focus.blockId;
-    const cell = core.getBlock(editor.state, para)?.parentId ?? null;
+    const cell = core.getBlock(editor.document, para)?.parentId ?? null;
     let table: core.BlockId | null = cell;
-    while (table !== null && core.getBlock(editor.state, table)?.type !== "table") table = core.getBlock(editor.state, table)?.parentId ?? null;
+    while (table !== null && core.getBlock(editor.document, table)?.type !== "table") table = core.getBlock(editor.document, table)?.parentId ?? null;
     if (cell === null || table === null) throw new Error("no table");
     const { container, controller } = mount(undefined, SLOTTED);
     controller.update(editor);
@@ -911,11 +911,11 @@ describe("print decorations — geometry across pages and regions", () => {
       attrs: { writingMode: "vertical-rl" },
       children: [{ type: "paragraph", attrs: { writingMode: "vertical-rl" }, inlineContent: { items: [{ kind: "text", text: "abc def", attrs: {} }] } }],
     };
-    const state = core.buildDocumentFromTree(root, {}, core.createTestAllocator(), TEST_RESOLVER);
-    const p = core.firstLeafBlock(state, state.rootId); // root → section → paragraph
+    const document = core.buildDocumentFromTree(root, {}, core.createTestAllocator(), TEST_RESOLVER);
+    const p = core.firstLeafBlock(document, document.rootId); // root → section → paragraph
     if (p === null) throw new Error("setup");
     const { container, controller } = mount();
-    controller.update(core.createEditorStateFromState(state, core.initialSelectionForState(state), cfg));
+    controller.update(core.createEditorStateFromDocument(document, core.initialSelectionForDocument(document), cfg));
     ctxOf(container)._ops.length = 0;
     controller.setDecorations([inline("v", p, 0, 3, { backgroundColor: BAND, underline: { color: "red", style: "solid" } })]);
     const ctx = ctxOf(container);
@@ -1054,7 +1054,7 @@ describe("print decorations — review round 2", () => {
   });
 
   it("position: relative content: fragments, paint and hit-test share the shifted frame", () => {
-    const state = core.buildState({
+    const document = core.buildDocument({
       rootId: "doc",
       blocks: [
         core.buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -1066,9 +1066,9 @@ describe("print decorations — review round 2", () => {
     const line = box("line", "p/line", { x: 0, y: 0, w: 100, h: 16 }, { children: [run], baseline: 12, ownerBlockId: "p", inlineOffsetStart: 0, inlineOffsetEnd: 3, isBlockBoundaryLine: true });
     const para = box("block", "p", { x: 0, y: 0, w: 100, h: 16 }, { children: [line], relativeOffset: { dx: 30, dy: 5 } });
     const root = box("block", "doc", { x: 0, y: 0, w: 100, h: 40 }, { children: [para] });
-    const set = core.createDecorationSet(state, [inline("rel", p, 1, 3, { backgroundColor: BAND })]);
+    const set = core.createDecorationSet(document, [inline("rel", p, 1, 3, { backgroundColor: BAND })]);
     const rects = computeDecorationRects({
-      state, decorations: set, root, pageIndex: null, measurer, pageSpanOf: () => null, resolve: () => null,
+      document, decorations: set, root, pageIndex: null, measurer, pageSpanOf: () => null, resolve: () => null,
     });
     const frag = rects.find((r) => r.kind === "inline");
     expect(frag === undefined ? null : [frag.x, frag.y, frag.width]).toEqual([30 + 8, 5, 16]);
@@ -1082,14 +1082,14 @@ describe("print decorations — review round 2", () => {
 });
 
 describe("print decorations — async host (basedOn)", () => {
-  it("decorations computed on an older State land on the right text; an unknown State drops them", () => {
+  it("decorations computed on an older Document land on the right text; an unknown Document drops them", () => {
     const cfg = config();
     const { editor, ids } = seeded(["hello world foo"], cfg);
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
     const { container, controller } = mount();
     controller.update(editor);
-    const old = editor.state;
+    const old = editor.document;
     const decos = [inline("m", p, 6, 11, { backgroundColor: BAND })]; // "world" in `old`
     const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) });
     controller.update(at0);
@@ -1101,7 +1101,7 @@ describe("print decorations — async host (basedOn)", () => {
     expect(d?.kind === "inline" ? [d.from.offset, d.to.offset] : null).toEqual([8, 13]);
     expect(fills(ctxOf(container), BAND)[0]?.x).toBe(glyph(ctxOf(container), "w").x);
 
-    const unknown = seeded(["other"], cfg).editor.state;
+    const unknown = seeded(["other"], cfg).editor.document;
     controller.setDecorations(decos, unknown);
     expect(controller.decorations.decorations).toHaveLength(0);
     controller.destroy();

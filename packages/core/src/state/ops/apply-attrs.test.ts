@@ -1,17 +1,17 @@
 import { describe, it, expect } from "vitest";
 import { applyAttrsToRange, planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
-import { getBlock, applyOperation } from "../state";
-import { buildBlock, buildState, buildFlowDoc, text, embed, inlineContent, withTestAttrs } from "../../test-utils/state-builders";
+import { getBlock, applyOperation } from "../document";
+import { buildBlock, buildDocument, buildFlowDoc, text, embed, inlineContent, withTestAttrs } from "../../test-utils/document-builders";
 import { createPosition, createSpan } from "../block-position";
 import type { BlockId } from "../block-id";
-import { STATE_INTERNAL } from "../state-internal";
+import { DOCUMENT_INTERNAL } from "../document-internal";
 
 describe("applyAttrsToRange — single-block sub-range (splits one item into prefix + middle + suffix)", () => {
   // Block: [text("helloworld") {}]
   // Apply { bold: true } to range [3, 7) — chars "lowo".
   // Expected: [text("hel") {}, text("lowo") {bold:true}, text("rld") {}]
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -25,10 +25,10 @@ describe("applyAttrsToRange — single-block sub-range (splits one item into pre
     });
 
   it("splits the affected text item into prefix + attrs-applied middle + suffix", () => {
-    const state = fixture();
+    const document = fixture();
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
-    const result = applyAttrsToRange(state, span, { bold: true });
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = applyAttrsToRange(document, span, { bold: true });
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hel", attrs: {} });
     expect(items?.[1]).toMatchObject({ kind: "text", text: "lowo", attrs: { bold: true } });
@@ -36,33 +36,33 @@ describe("applyAttrsToRange — single-block sub-range (splits one item into pre
   });
 
   it("returns dirtyIds containing only the modified block", () => {
-    const state = fixture();
+    const document = fixture();
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
-    const result = applyAttrsToRange(state, span, { bold: true });
+    const result = applyAttrsToRange(document, span, { bold: true });
     expect([...result.dirtyIds]).toEqual(["p"]);
   });
 
   it("preserves immutability + structural sharing (input snapshot unchanged; unmodified blocks share identity)", () => {
-    const state = fixture();
-    const beforeP = getBlock(state, "p" as BlockId);
-    const beforeDoc = getBlock(state, "doc" as BlockId);
+    const document = fixture();
+    const beforeP = getBlock(document, "p" as BlockId);
+    const beforeDoc = getBlock(document, "doc" as BlockId);
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
-    const result = applyAttrsToRange(state, span, { bold: true });
-    // Y.Doc op produces a fresh State (new snapshot cache).
-    expect(result.state).not.toBe(state);
+    const result = applyAttrsToRange(document, span, { bold: true });
+    // Y.Doc op produces a fresh Document (new snapshot cache).
+    expect(result.document).not.toBe(document);
     // Modified block produces a fresh snapshot.
-    expect(getBlock(result.state, "p" as BlockId)).not.toBe(beforeP);
+    expect(getBlock(result.document, "p" as BlockId)).not.toBe(beforeP);
     // Original (frozen) snapshot of `p` retains the pre-op view.
     expect(beforeP?.inlineContent?.items).toHaveLength(1);
     expect(beforeP?.inlineContent?.items[0]).toMatchObject({ text: "helloworld", attrs: {} });
     // Unmodified blocks (doc) share snapshot identity via applyOperation's
     // carry-forward cache — memoized renderers can `prev === next` to skip.
-    expect(getBlock(result.state, "doc" as BlockId)).toBe(beforeDoc);
+    expect(getBlock(result.document, "doc" as BlockId)).toBe(beforeDoc);
   });
 
   it("merges incoming attrs with existing attrs (does not replace)", () => {
     // Pre-existing item has { italic: true }; applying { bold: true } should yield { italic: true, bold: true } in the affected range.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -75,8 +75,8 @@ describe("applyAttrsToRange — single-block sub-range (splits one item into pre
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
-    const result = applyAttrsToRange(state, span, { bold: true });
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = applyAttrsToRange(document, span, { bold: true });
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ text: "hel", attrs: { italic: true } });
     expect(items?.[1]).toMatchObject({ text: "lowo", attrs: { italic: true, bold: true } });
@@ -91,7 +91,7 @@ describe("applyAttrsToRange — single-block sub-range (splits one item into pre
     // (no two adjacent text items with equal attrs). The Y.Text identity of
     // the original "helloworld" is lost (rebuilt during the split), but the
     // structural invariant holds.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -104,8 +104,8 @@ describe("applyAttrsToRange — single-block sub-range (splits one item into pre
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
-    const result = applyAttrsToRange(state, span, { bold: true });
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = applyAttrsToRange(document, span, { bold: true });
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "helloworld", attrs: { bold: true } });
   });
@@ -116,7 +116,7 @@ describe("applyAttrsToRange — single block, multi-item span", () => {
     // Block: [text("hello") {}, text("world") { italic: true }]  (length 10)
     // Apply { bold: true } over [3, 8) — covers "lo" (in first item) + "wor" (in second item).
     // Expected: [text("hel") {}, text("lo") {bold:true}, text("wor") {italic:true, bold:true}, text("ld") {italic:true}]
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -129,8 +129,8 @@ describe("applyAttrsToRange — single block, multi-item span", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 8));
-    const result = applyAttrsToRange(state, span, { bold: true });
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = applyAttrsToRange(document, span, { bold: true });
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(4);
     expect(items?.[0]).toMatchObject({ text: "hel", attrs: {} });
     expect(items?.[1]).toMatchObject({ text: "lo", attrs: { bold: true } });
@@ -141,7 +141,7 @@ describe("applyAttrsToRange — single block, multi-item span", () => {
   it("applies attrs to a fully-covered text item without splitting", () => {
     // Block: [text("hello") {}, text("world") {}]
     // Apply { bold: true } over [0, 5) — covers exactly the first item.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -154,8 +154,8 @@ describe("applyAttrsToRange — single block, multi-item span", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
-    const result = applyAttrsToRange(state, span, { bold: true });
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = applyAttrsToRange(document, span, { bold: true });
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(2);
     expect(items?.[0]).toMatchObject({ text: "hello", attrs: { bold: true } });
     expect(items?.[1]).toMatchObject({ text: "world", attrs: {} });
@@ -166,7 +166,7 @@ describe("applyAttrsToRange — single block, multi-item span", () => {
     // Apply { bold: true } over [3, 6) — covers exactly the middle item.
     // First item ends at 3 (itemEnd <= rangeStart) → keep.
     // Last item starts at 6 (itemStart >= rangeEnd) → keep.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -179,8 +179,8 @@ describe("applyAttrsToRange — single block, multi-item span", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 6));
-    const result = applyAttrsToRange(state, span, { bold: true });
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = applyAttrsToRange(document, span, { bold: true });
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ text: "aaa", attrs: {} });
     expect(items?.[1]).toMatchObject({ text: "bbb", attrs: { bold: true } });
@@ -199,7 +199,7 @@ describe("applyAttrsToRange — embed items in range", () => {
     // The embed-affected behavior pins that embed items ARE included in
     // the range: embeds are single positions whose wrap-attrs participate
     // in the merge.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -216,8 +216,8 @@ describe("applyAttrsToRange — embed items in range", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
-    const result = applyAttrsToRange(state, span, { link: "http://x" });
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = applyAttrsToRange(document, span, { link: "http://x" });
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: { link: "http://x" } });
     expect(items?.[1]).toMatchObject({
@@ -232,7 +232,7 @@ describe("applyAttrsToRange — embed items in range", () => {
   it("preserves an embed's pre-existing wrap-attrs and merges with incoming", () => {
     // Embed pre-attrs: { comment: "c1" }; apply { link: "http://x" }
     // Expected merged: { comment: "c1", link: "http://x" }
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -247,8 +247,8 @@ describe("applyAttrsToRange — embed items in range", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 1));
-    const result = applyAttrsToRange(state, span, { link: "http://x" });
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = applyAttrsToRange(document, span, { link: "http://x" });
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({
       kind: "embed",
@@ -263,7 +263,7 @@ describe("applyAttrsToRange — embed items in range", () => {
     // Apply { bold: true } over the whole range. Text items get bold; the two
     // STRUCTURAL MARKER embeds keep attrs={} — markers carry no formattable
     // content (contrast the visible `image` embed tests above, which DO merge).
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -281,8 +281,8 @@ describe("applyAttrsToRange — embed items in range", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 4));
-    const result = applyAttrsToRange(state, span, { bold: true });
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = applyAttrsToRange(document, span, { bold: true });
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(4);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: { bold: true } });
     expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "comment-start", properties: { commentId: "c1" } });
@@ -298,7 +298,7 @@ describe("applyAttrsToRange — embed items in range", () => {
     // comment marker in that range must NOT receive it — else, after the
     // suggestion record is deleted on resolve, the marker keeps a dangling
     // reference to a since-deleted record forever.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -315,8 +315,8 @@ describe("applyAttrsToRange — embed items in range", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
-    const result = applyAttrsToRange(state, span, { "formattingSuggestionId:fs1": true });
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = applyAttrsToRange(document, span, { "formattingSuggestionId:fs1": true });
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "comment-end" });
     expect(items?.[1]?.attrs).toEqual({}); // no dangling formatting tag
   });
@@ -325,7 +325,7 @@ describe("applyAttrsToRange — embed items in range", () => {
 describe("applyAttrsToRange — multi-block span", () => {
   // doc > [p1("hello"), p2("world"), p3("!")]
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
@@ -336,25 +336,25 @@ describe("applyAttrsToRange — multi-block span", () => {
     });
 
   it("applies attrs across two blocks: anchor block partial + focus block partial", () => {
-    const state = fixture();
+    const document = fixture();
     // Span p1@2 → p2@3: covers p1 [2, 5) + p2 [0, 3).
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
-    const result = applyAttrsToRange(state, span, { bold: true });
+    const result = applyAttrsToRange(document, span, { bold: true });
 
     // p1 split: [text("he") {}, text("llo") {bold}]
-    const p1Items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
+    const p1Items = getBlock(result.document, "p1" as BlockId)?.inlineContent?.items;
     expect(p1Items).toHaveLength(2);
     expect(p1Items?.[0]).toMatchObject({ text: "he", attrs: {} });
     expect(p1Items?.[1]).toMatchObject({ text: "llo", attrs: { bold: true } });
 
     // p2 split: [text("wor") {bold}, text("ld") {}]
-    const p2Items = getBlock(result.state, "p2" as BlockId)?.inlineContent?.items;
+    const p2Items = getBlock(result.document, "p2" as BlockId)?.inlineContent?.items;
     expect(p2Items).toHaveLength(2);
     expect(p2Items?.[0]).toMatchObject({ text: "wor", attrs: { bold: true } });
     expect(p2Items?.[1]).toMatchObject({ text: "ld", attrs: {} });
 
     // p3 untouched.
-    const p3Items = getBlock(result.state, "p3" as BlockId)?.inlineContent?.items;
+    const p3Items = getBlock(result.document, "p3" as BlockId)?.inlineContent?.items;
     expect(p3Items).toHaveLength(1);
     expect(p3Items?.[0]).toMatchObject({ text: "!", attrs: {} });
 
@@ -363,24 +363,24 @@ describe("applyAttrsToRange — multi-block span", () => {
   });
 
   it("applies attrs across three blocks: anchor partial, intervening leaf full, focus partial", () => {
-    const state = fixture();
+    const document = fixture();
     // Span p1@1 → p3@1: covers p1 [1, 5) + p2 [0, 5) + p3 [0, 1).
     const span = createSpan(createPosition("p1" as BlockId, 1), createPosition("p3" as BlockId, 1));
-    const result = applyAttrsToRange(state, span, { bold: true });
+    const result = applyAttrsToRange(document, span, { bold: true });
 
     // p1: [text("h") {}, text("ello") {bold}]
-    const p1Items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
+    const p1Items = getBlock(result.document, "p1" as BlockId)?.inlineContent?.items;
     expect(p1Items).toHaveLength(2);
     expect(p1Items?.[0]).toMatchObject({ text: "h", attrs: {} });
     expect(p1Items?.[1]).toMatchObject({ text: "ello", attrs: { bold: true } });
 
     // p2 fully covered → [text("world") {bold}]
-    const p2Items = getBlock(result.state, "p2" as BlockId)?.inlineContent?.items;
+    const p2Items = getBlock(result.document, "p2" as BlockId)?.inlineContent?.items;
     expect(p2Items).toHaveLength(1);
     expect(p2Items?.[0]).toMatchObject({ text: "world", attrs: { bold: true } });
 
     // p3: [text("!") {bold}]
-    const p3Items = getBlock(result.state, "p3" as BlockId)?.inlineContent?.items;
+    const p3Items = getBlock(result.document, "p3" as BlockId)?.inlineContent?.items;
     expect(p3Items).toHaveLength(1);
     expect(p3Items?.[0]).toMatchObject({ text: "!", attrs: { bold: true } });
 
@@ -389,14 +389,14 @@ describe("applyAttrsToRange — multi-block span", () => {
   });
 
   it("preserves structural sharing: untouched blocks share identity across the operation", () => {
-    const state = fixture();
-    const beforeP3 = getBlock(state, "p3" as BlockId);
-    const beforeDoc = getBlock(state, "doc" as BlockId);
+    const document = fixture();
+    const beforeP3 = getBlock(document, "p3" as BlockId);
+    const beforeDoc = getBlock(document, "doc" as BlockId);
     // Span only over p1 and p2.
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 5));
-    const result = applyAttrsToRange(state, span, { bold: true });
-    expect(getBlock(result.state, "p3" as BlockId)).toBe(beforeP3);
-    expect(getBlock(result.state, "doc" as BlockId)).toBe(beforeDoc);
+    const result = applyAttrsToRange(document, span, { bold: true });
+    expect(getBlock(result.document, "p3" as BlockId)).toBe(beforeP3);
+    expect(getBlock(result.document, "doc" as BlockId)).toBe(beforeDoc);
   });
 });
 
@@ -404,7 +404,7 @@ describe("applyAttrsToRange — removing attrs (undefined values)", () => {
   it("removes a key from text items in range when value is undefined", () => {
     // Block: [text("hello world", { bold: true, italic: true })]
     // Apply { bold: undefined } over [3, 8) — should remove `bold` from "lo wo".
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -417,8 +417,8 @@ describe("applyAttrsToRange — removing attrs (undefined values)", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 8));
-    const result = applyAttrsToRange(state, span, { bold: undefined });
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = applyAttrsToRange(document, span, { bold: undefined });
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ text: "hel", attrs: { bold: true, italic: true } });
     expect(items?.[1]).toMatchObject({ text: "lo wo", attrs: { italic: true } });
@@ -426,7 +426,7 @@ describe("applyAttrsToRange — removing attrs (undefined values)", () => {
   });
 
   it("removing a key that doesn't exist on an item is a no-op for that item", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -440,8 +440,8 @@ describe("applyAttrsToRange — removing attrs (undefined values)", () => {
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
     // Attempting to remove `bold` when only `italic` exists.
-    const result = applyAttrsToRange(state, span, { bold: undefined });
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = applyAttrsToRange(document, span, { bold: undefined });
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     // After merge attrs: still { italic: true } (bold key never existed).
     expect(items?.[0]).toMatchObject({ text: "hello", attrs: { italic: true } });
@@ -450,7 +450,7 @@ describe("applyAttrsToRange — removing attrs (undefined values)", () => {
   it("can add and remove attrs in the same call", () => {
     // Block: [text("hello", { bold: true })]
     // Apply { bold: undefined, italic: true }: should remove bold AND add italic.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -463,8 +463,8 @@ describe("applyAttrsToRange — removing attrs (undefined values)", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
-    const result = applyAttrsToRange(state, span, { bold: undefined, italic: true });
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = applyAttrsToRange(document, span, { bold: undefined, italic: true });
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "hello", attrs: { italic: true } });
   });
@@ -477,7 +477,7 @@ describe("applyAttrsToRange — same-attrs no-op (#358)", () => {
     // when `merged` equaled the existing attrs — every block landed in
     // dirtyIds and cascaded into spurious re-render/re-layout. Now the
     // per-item attrsEqual guard skips the write when nothing would change.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -493,14 +493,14 @@ describe("applyAttrsToRange — same-attrs no-op (#358)", () => {
       createPosition("p" as BlockId, 0),
       createPosition("p" as BlockId, 11),
     );
-    const result = applyAttrsToRange(state, span, { bold: true });
+    const result = applyAttrsToRange(document, span, { bold: true });
     expect(result.dirtyIds.size).toBe(0);
-    // applyOperation's no-op contract: result.state === state on empty dirtyIds.
-    expect(result.state).toBe(state);
+    // applyOperation's no-op contract: result.document === state on empty dirtyIds.
+    expect(result.document).toBe(document);
   });
 
   it("applying attrs equal to existing on an embed returns empty dirtyIds", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -518,16 +518,16 @@ describe("applyAttrsToRange — same-attrs no-op (#358)", () => {
       createPosition("p" as BlockId, 0),
       createPosition("p" as BlockId, 1),
     );
-    const result = applyAttrsToRange(state, span, { caption: "alt" });
+    const result = applyAttrsToRange(document, span, { caption: "alt" });
     expect(result.dirtyIds.size).toBe(0);
-    expect(result.state).toBe(state);
+    expect(result.document).toBe(document);
   });
 
   it("mixed range: skips items whose merged attrs are unchanged, dirties items that change", () => {
     // Two text items in one block: "hello" is already bold; "world" is not.
     // Toggling bold over the full range should ONLY rewrite the second item;
     // the first item's per-item attrsEqual guard skips its write.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -546,11 +546,11 @@ describe("applyAttrsToRange — same-attrs no-op (#358)", () => {
       createPosition("p" as BlockId, 0),
       createPosition("p" as BlockId, 11),
     );
-    const result = applyAttrsToRange(state, span, { bold: true });
+    const result = applyAttrsToRange(document, span, { bold: true });
     // The block IS dirty (one item changed); but the per-item guard
     // skipped the no-op write on "hello".
     expect(result.dirtyIds.has("p" as BlockId)).toBe(true);
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     // The read model coalesces the two runs now that both carry `{ bold: true }`.
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "hello world", attrs: { bold: true } });
@@ -559,7 +559,7 @@ describe("applyAttrsToRange — same-attrs no-op (#358)", () => {
 
 describe("applyAttrsToRange — empty span no-op", () => {
   it("returns the original state with empty dirtyIds for a collapsed span", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -568,14 +568,14 @@ describe("applyAttrsToRange — empty span no-op", () => {
     });
     const pos = createPosition("p" as BlockId, 2);
     const span = createSpan(pos, pos);
-    const result = applyAttrsToRange(state, span, { bold: true });
-    expect(result.state).toBe(state);
+    const result = applyAttrsToRange(document, span, { bold: true });
+    expect(result.document).toBe(document);
     expect([...result.dirtyIds]).toEqual([]);
   });
 
   it("returns the original state with empty dirtyIds when incoming attrs is empty {}", () => {
     // No-op for empty attrs — avoids re-allocating items unnecessarily.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -583,8 +583,8 @@ describe("applyAttrsToRange — empty span no-op", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 5));
-    const result = applyAttrsToRange(state, span, {});
-    expect(result.state).toBe(state);
+    const result = applyAttrsToRange(document, span, {});
+    expect(result.document).toBe(document);
     expect([...result.dirtyIds]).toEqual([]);
   });
 });
@@ -596,7 +596,7 @@ describe("applyAttrsToRange — same-attrs merge post-pass", () => {
     // then the post-pass collapses the three same-attrs neighbors into one,
     // upholding mergeAdjacentTextItems's "no adjacent same-attrs text items"
     // invariant.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -613,8 +613,8 @@ describe("applyAttrsToRange — same-attrs merge post-pass", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
-    const result = applyAttrsToRange(state, span, { bold: true });
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = applyAttrsToRange(document, span, { bold: true });
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "abc", attrs: { bold: true } });
   });
@@ -623,7 +623,7 @@ describe("applyAttrsToRange — same-attrs merge post-pass", () => {
     // Block: [text("a"), embed("image"), text("b")]
     // Apply { bold: true } over the whole range — both text items get bold; embed gets bold wrap.
     // Embed is a barrier; text neighbors keep their separate items regardless.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -636,8 +636,8 @@ describe("applyAttrsToRange — same-attrs merge post-pass", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
-    const result = applyAttrsToRange(state, span, { bold: true });
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const result = applyAttrsToRange(document, span, { bold: true });
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: { bold: true } });
     expect(items?.[1]).toMatchObject({ kind: "embed", attrs: { bold: true } });
@@ -647,7 +647,7 @@ describe("applyAttrsToRange — same-attrs merge post-pass", () => {
 
 describe("applyAttrsToRange — error cases", () => {
   it("throws when an endpoint references a missing block", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -658,11 +658,11 @@ describe("applyAttrsToRange — error cases", () => {
       createPosition("p" as BlockId, 0),
       createPosition("missing" as BlockId, 1),
     );
-    expect(() => applyAttrsToRange(state, span, { bold: true })).toThrow(/not found/);
+    expect(() => applyAttrsToRange(document, span, { bold: true })).toThrow(/not found/);
   });
 
   it("throws when an endpoint references a container block (not a leaf)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
@@ -674,11 +674,11 @@ describe("applyAttrsToRange — error cases", () => {
       createPosition("s" as BlockId, 0),
       createPosition("p" as BlockId, 1),
     );
-    expect(() => applyAttrsToRange(state, span, { bold: true })).toThrow(/container/);
+    expect(() => applyAttrsToRange(document, span, { bold: true })).toThrow(/container/);
   });
 
   it("throws when endpoints are in different selection contexts", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -693,7 +693,7 @@ describe("applyAttrsToRange — error cases", () => {
       createPosition("p" as BlockId, 0),
       createPosition("fnp" as BlockId, 1),
     );
-    expect(() => applyAttrsToRange(state, span, { bold: true })).toThrow(/different selection contexts/);
+    expect(() => applyAttrsToRange(document, span, { bold: true })).toThrow(/different selection contexts/);
   });
 });
 
@@ -702,7 +702,7 @@ describe("applyAttrsToRange — plan/InTx split (composition primitive)", () => 
   // InTx primitive directly (not the public op), asserting the same per-item
   // split the public op produces lands AND the merge post-pass runs.
   const fixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -716,18 +716,18 @@ describe("applyAttrsToRange — plan/InTx split (composition primitive)", () => 
     });
 
   it("planApplyAttrsToRange + applyAttrsToRangeInTx applies attrs through a transaction", () => {
-    const state = fixture();
+    const document = fixture();
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
-    const plan = planApplyAttrsToRange(state, span);
+    const plan = planApplyAttrsToRange(document, span);
     expect(plan).not.toBeNull();
     if (plan === null) return;
     // Drive the InTx primitive through applyOperation so reading back the
-    // result sees a fresh State snapshot (a raw runTransaction mutates Yjs but
+    // result sees a fresh Document snapshot (a raw runTransaction mutates Yjs but
     // does not refresh the original state's lazy snapshot cache).
-    const result = applyOperation(state, () =>
-      applyAttrsToRangeInTx(state[STATE_INTERNAL].doc, plan, { bold: true }),
+    const result = applyOperation(document, () =>
+      applyAttrsToRangeInTx(document[DOCUMENT_INTERNAL].doc, plan, { bold: true }),
     );
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "hel", attrs: {} });
     expect(items?.[1]).toMatchObject({ kind: "text", text: "lowo", attrs: { bold: true } });
@@ -737,7 +737,7 @@ describe("applyAttrsToRange — plan/InTx split (composition primitive)", () => 
   it("InTx merge post-pass collapses adjacent same-attrs items", () => {
     // Two adjacent items that converge to the same attrs after applying
     // { bold: true } across the full span — the merge pass must collapse them.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -752,25 +752,25 @@ describe("applyAttrsToRange — plan/InTx split (composition primitive)", () => 
     // Apply { italic: true } across both → first becomes {italic:true}, second
     // stays {italic:true} → adjacent same-attrs → merge collapses to one item.
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 10));
-    const plan = planApplyAttrsToRange(state, span);
+    const plan = planApplyAttrsToRange(document, span);
     expect(plan).not.toBeNull();
     if (plan === null) return;
-    const result = applyOperation(state, () =>
-      applyAttrsToRangeInTx(state[STATE_INTERNAL].doc, plan, { italic: true }),
+    const result = applyOperation(document, () =>
+      applyAttrsToRangeInTx(document[DOCUMENT_INTERNAL].doc, plan, { italic: true }),
     );
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.document, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "helloworld", attrs: { italic: true } });
   });
 
   it("applyAttrsToRangeInTx throws when called outside any Y.Doc transaction", () => {
-    const state = fixture();
+    const document = fixture();
     const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
-    const plan = planApplyAttrsToRange(state, span);
+    const plan = planApplyAttrsToRange(document, span);
     expect(plan).not.toBeNull();
     if (plan === null) return;
     expect(() =>
-      applyAttrsToRangeInTx(state[STATE_INTERNAL].doc, plan, { bold: true }),
+      applyAttrsToRangeInTx(document[DOCUMENT_INTERNAL].doc, plan, { bold: true }),
     ).toThrow(/applyAttrsToRange: must be called inside Y\.Doc\.transact/);
   });
 });
@@ -781,23 +781,23 @@ describe("applyAttrsToRange — formatting over a ¶ writes its character props"
   const doc2 = () => withTestAttrs(buildFlowDoc([{ p: "P", t: "abcd" }, { p: "N", t: "xy" }]));
 
   it("a span covering ¶P (crossing into N) sets the inclusive keys on ¶P only", () => {
-    const s = applyAttrsToRange(doc2(), createSpan(createPosition("P" as BlockId, 1), createPosition("N" as BlockId, 1)), { bold: true, link: "u" }).state;
+    const s = applyAttrsToRange(doc2(), createSpan(createPosition("P" as BlockId, 1), createPosition("N" as BlockId, 1)), { bold: true, link: "u" }).document;
     expect(marks(s, "P")).toEqual({ bold: true });
     expect(marks(s, "N")).toBeUndefined();
   });
 
   it("selecting exactly the ¶ — (P, len)–(N, 0) — formats it; a span ENDING at (P, len) does too", () => {
-    const only = applyAttrsToRange(doc2(), createSpan(createPosition("P" as BlockId, 4), createPosition("N" as BlockId, 0)), { italic: true }).state;
+    const only = applyAttrsToRange(doc2(), createSpan(createPosition("P" as BlockId, 4), createPosition("N" as BlockId, 0)), { italic: true }).document;
     expect(marks(only, "P")).toEqual({ italic: true });
-    const ending = applyAttrsToRange(doc2(), createSpan(createPosition("P" as BlockId, 2), createPosition("P" as BlockId, 4)), { bold: true }).state;
+    const ending = applyAttrsToRange(doc2(), createSpan(createPosition("P" as BlockId, 2), createPosition("P" as BlockId, 4)), { bold: true }).document;
     expect(marks(ending, "P")).toEqual({ bold: true });
   });
 
   it("a span stopping before the end leaves the ¶ alone; removing a key clears it from the ¶", () => {
-    const inner = applyAttrsToRange(doc2(), createSpan(createPosition("P" as BlockId, 0), createPosition("P" as BlockId, 2)), { bold: true }).state;
+    const inner = applyAttrsToRange(doc2(), createSpan(createPosition("P" as BlockId, 0), createPosition("P" as BlockId, 2)), { bold: true }).document;
     expect(marks(inner, "P")).toBeUndefined();
-    const set = applyAttrsToRange(doc2(), createSpan(createPosition("P" as BlockId, 0), createPosition("P" as BlockId, 4)), { bold: true, italic: true }).state;
-    const cleared = applyAttrsToRange(set, createSpan(createPosition("P" as BlockId, 0), createPosition("P" as BlockId, 4)), { bold: undefined }).state;
+    const set = applyAttrsToRange(doc2(), createSpan(createPosition("P" as BlockId, 0), createPosition("P" as BlockId, 4)), { bold: true, italic: true }).document;
+    const cleared = applyAttrsToRange(set, createSpan(createPosition("P" as BlockId, 0), createPosition("P" as BlockId, 4)), { bold: undefined }).document;
     expect(marks(cleared, "P")).toEqual({ italic: true });
   });
 });

@@ -1,6 +1,6 @@
 import type { EditorState } from "../editor-state";
 import { iterateSpan, findItemAtOffset } from "../../state";
-import type { State, Span } from "../../state";
+import type { Document, Span } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./helpers/apply-attrs-or-suggest";
 import { storeTypingAttrs, getTypingAttrs } from "../typing-attrs";
@@ -22,12 +22,12 @@ const STYLE_KEYS: Record<"bold" | "italic" | "underline" | "strikethrough", stri
  * the attr nor blocked from contributing if they do.
  */
 function selectionAllHaveAttr(
-  state: State,
+  document: Document,
   span: Span,
   attrKey: string,
 ): boolean {
   let sawText = false;
-  for (const seg of iterateSpan(state, span)) {
+  for (const seg of iterateSpan(document, span)) {
     const content = seg.block.inlineContent;
     if (content === null) continue;
     // Skip directly to the first item containing rangeStart; iterate
@@ -59,7 +59,6 @@ function selectionAllHaveAttr(
 }
 
 export function handleToggleStyle(editor: EditorState, { style }: ActionOf<"TOGGLE_STYLE">): Edit | null {
-  const { config } = editor;
   const { selection } = editor;
   const attrKey = STYLE_KEYS[style];
   // Collapsed caret: toggle the style for the next typed text (typing attrs),
@@ -69,11 +68,11 @@ export function handleToggleStyle(editor: EditorState, { style }: ActionOf<"TOGG
     return storeTypingAttrs(editor, { [attrKey]: on ? undefined : true });
   }
 
-  const all = selectionAllHaveAttr(editor.state, selection, attrKey);
+  const all = selectionAllHaveAttr(editor.document, selection, attrKey);
   // When all items have the attr → toggle OFF (remove). Else toggle ON.
   const incoming = all ? { [attrKey]: undefined } : { [attrKey]: true };
-  const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
-  if (result.state === editor.state) {
+  const result = applyAttrsOrSuggest(editor, selection, incoming);
+  if (result.document === editor.document) {
     return null;
   }
 

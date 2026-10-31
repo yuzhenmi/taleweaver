@@ -21,7 +21,7 @@ import { createMockShaper } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
 import type { PageConfig } from "../layout/page-config";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
@@ -31,7 +31,7 @@ import {
   createSpan,
   DELETION_SUGGESTION_ATTR,
   type BlockId,
-  type State,
+  type Document,
   type SuggestionId,
 } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
@@ -45,12 +45,12 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 const SID = "s1" as SuggestionId;
 
 function pipeline(
-  state: State,
+  document: Document,
   containerInlineSize: number = 800,
   pageConfig?: PageConfig,
 ): { layout: LayoutBox; shaper: TextShaper } {
   const root = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   ).root;
@@ -63,7 +63,7 @@ describe("getSuggestionRangeRects", () => {
   it("returns rects covering exactly the tagged glyphs (single line)", () => {
     // "hello " (plain) + "world" (deletion-tagged with SID). The suggestion range
     // is offsets 6..11 — "world" at display x [48, 88).
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -78,9 +78,9 @@ describe("getSuggestionRangeRects", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state, 800);
+    const { layout, shaper } = pipeline(document, 800);
 
-    const rects = getSuggestionRangeRects(state, layout, shaper, SID);
+    const rects = getSuggestionRangeRects(document, layout, shaper, SID);
     expect(rects.length).toBe(1);
     const rect = nth(rects, 0, "suggestion rect");
     expect(rect.x).toBe(48);
@@ -93,13 +93,13 @@ describe("getSuggestionRangeRects", () => {
       createPosition("p" as BlockId, 6),
       createPosition("p" as BlockId, 11),
     );
-    expect(rects).toEqual(computeSelectionRects(state, plainSpan, layout, shaper));
+    expect(rects).toEqual(computeSelectionRects(document, plainSpan, layout, shaper));
   });
 
   it("returns one rect per line for a range crossing a soft-wrap boundary", () => {
     let s = "";
     for (let i = 0; i < 20; i++) s += "abcdefghi "; // 200 chars, the whole run tagged
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -111,9 +111,9 @@ describe("getSuggestionRangeRects", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state, 800);
+    const { layout, shaper } = pipeline(document, 800);
 
-    const rects = getSuggestionRangeRects(state, layout, shaper, SID);
+    const rects = getSuggestionRangeRects(document, layout, shaper, SID);
     expect(rects.length).toBeGreaterThanOrEqual(2);
     const ys = new Set(rects.map((r) => r.y));
     expect(ys.size).toBeGreaterThanOrEqual(2);
@@ -122,7 +122,7 @@ describe("getSuggestionRangeRects", () => {
   it("returns rects on each page for a range crossing a page boundary", () => {
     // Five single-line paragraphs, tiny pages → each on its own page. The same
     // suggestion id tags the run in p1 AND p5 → its range spans p1..p5.
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p5" }),
@@ -139,15 +139,15 @@ describe("getSuggestionRangeRects", () => {
       pageMargins: { blockStart: 10, blockEnd: 10, inlineStart: 0, inlineEnd: 0 },
       pageGap: 0,
     };
-    const { layout, shaper } = pipeline(state, 800, pageConfig);
+    const { layout, shaper } = pipeline(document, 800, pageConfig);
 
-    const rects = getSuggestionRangeRects(state, layout, shaper, SID);
+    const rects = getSuggestionRangeRects(document, layout, shaper, SID);
     const pages = new Set(rects.map((r) => r.pageIndex));
     expect(pages.size).toBeGreaterThanOrEqual(2);
   });
 
   it("returns [] for a suggestion id with no tagged content (absent)", () => {
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -159,8 +159,8 @@ describe("getSuggestionRangeRects", () => {
         }),
       ],
     });
-    const { layout, shaper } = pipeline(state, 800);
+    const { layout, shaper } = pipeline(document, 800);
 
-    expect(getSuggestionRangeRects(state, layout, shaper, "nope" as SuggestionId)).toEqual([]);
+    expect(getSuggestionRangeRects(document, layout, shaper, "nope" as SuggestionId)).toEqual([]);
   });
 });

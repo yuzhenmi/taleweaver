@@ -86,7 +86,7 @@ function buildTaggedInput(): {
     ],
   };
 
-  const state = core.buildDocumentFromTree(
+  const document = core.buildDocumentFromTree(
     tree,
     { L1: ORDERED_DEF },
     core.createTestAllocator("blk"), TEST_RESOLVER
@@ -113,8 +113,8 @@ function buildTaggedInput(): {
   // Insert a page header and type into it (a `banner` template body → /Artifact,
   // dropped from the structure tree). Done through the REAL editor so the header
   // materializes into each page's `headerSlot`.
-  const selection = core.initialSelectionForState(state);
-  let editor = core.createEditorStateFromState(state, selection, config);
+  const selection = core.initialSelectionForDocument(document);
+  let editor = core.createEditorStateFromDocument(document, selection, config);
   editor = core.reduceEditor(editor, { type: "INSERT_HEADER" });
   editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "Header" });
 
@@ -126,7 +126,7 @@ function buildTaggedInput(): {
     throw new Error("tagged-pdf test: expected a paginated VirtualLayoutTree");
   }
 
-  const mapped = mapAccessibilityTree(core.buildAccessibilityTree(editor.state));
+  const mapped = mapAccessibilityTree(core.buildAccessibilityTree(editor.document));
   if (mapped === null) throw new Error("tagged-pdf test: structureTree mapped to null");
 
   // A real image provider so the labeled figure draws an XObject (the structRef

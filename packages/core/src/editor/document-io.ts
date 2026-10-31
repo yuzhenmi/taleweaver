@@ -1,7 +1,7 @@
 import type { EditorState } from "./editor-state";
 import type { EditorConfig } from "./editor-config";
-import { createEditorStateFromState } from "./editor-state";
-import { initialSelectionForState } from "./actions";
+import { createEditorStateFromDocument } from "./editor-state";
+import { initialSelectionForDocument } from "./actions";
 import {
   serializeDocument,
   deserializeDocument,
@@ -20,15 +20,15 @@ export function exportDocument(
   format: string,
   registry: SerializerRegistry,
 ): SerializedDocument {
-  return serializeDocument(editor.state, format, registry);
+  return serializeDocument(editor.document, format, registry);
 }
 
 /**
  * Load a serialized document into a fresh `EditorState` — the engine-level
  * "open document" operation. Deserializes via the registry, derives a valid
- * initial caret (`initialSelectionForState`), and builds the full editor
- * (fresh History bound to the loaded State + render/cascade/layout) via
- * `createEditorStateFromState`. Throws `UnknownSerializerFormatError` for an
+ * initial caret (`initialSelectionForDocument`), and builds the full editor
+ * (fresh History bound to the loaded Document + render/cascade/layout) via
+ * `createEditorStateFromDocument`. Throws `UnknownSerializerFormatError` for an
  * unregistered format / `MalformedDocumentError` for invalid wire data (both
  * surfaced from the serializer's decode).
  */
@@ -38,7 +38,7 @@ export function loadDocument(
   registry: SerializerRegistry,
   config: EditorConfig,
 ): EditorState {
-  const state = deserializeDocument(source, format, registry);
-  const selection = initialSelectionForState(state);
-  return createEditorStateFromState(state, selection, config);
+  const document = deserializeDocument(source, format, registry);
+  const selection = initialSelectionForDocument(document);
+  return createEditorStateFromDocument(document, selection, config);
 }

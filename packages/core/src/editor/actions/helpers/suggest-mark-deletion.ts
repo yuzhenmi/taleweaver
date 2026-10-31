@@ -11,8 +11,8 @@ import { caretEdit } from "./caret-edit";
  * the caret moves to `across` (no history entry).
  */
 export function suggestMarkDeletion(editor: EditorState, owner: Block, input: SuggestionMintInput, across: Position): Edit {
-  const result = markParagraphMarkDeletion(editor.state, owner.id, input);
-  if (result.state === editor.state) return { selection: createSpan(across, across) };
+  const result = markParagraphMarkDeletion(editor.document, owner.id, input);
+  if (result.document === editor.document) return { selection: createSpan(across, across) };
   const removed = result.removedBoundary;
   return caretEdit(result, removed === null ? editor.selection.focus : createPosition(removed.survivorId, removed.offset));
 }

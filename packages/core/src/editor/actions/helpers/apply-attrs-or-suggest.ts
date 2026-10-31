@@ -1,5 +1,5 @@
-import type { EditorConfig } from "../../editor-config";
-import { applyAttrsToRange, markFormatting, spanStart, type State, type Span, type ReadonlyAttrs, type OperationResult } from "../../../state";
+import type { EditorState } from "../../editor-state";
+import { applyAttrsToRange, markFormatting, spanStart, type Span, type ReadonlyAttrs, type OperationResult } from "../../../state";
 import { suggestionInputForBlock } from "./suggestion-input-for-block";
 
 /**
@@ -25,13 +25,13 @@ import { suggestionInputForBlock } from "./suggestion-input-for-block";
  * start block resolves to no editing context (see `suggestionInputForBlock`).
  */
 export function applyAttrsOrSuggest(
-  state: State,
+  editor: EditorState,
   span: Span,
   incoming: ReadonlyAttrs,
-  config: EditorConfig,
 ): OperationResult {
-  const input = suggestionInputForBlock(state, spanStart(state, span).blockId, config);
+  const { document } = editor;
+  const input = suggestionInputForBlock(editor, spanStart(document, span).blockId);
   return input === null
-    ? applyAttrsToRange(state, span, incoming)
-    : markFormatting(state, span, incoming, input);
+    ? applyAttrsToRange(document, span, incoming)
+    : markFormatting(document, span, incoming, input);
 }

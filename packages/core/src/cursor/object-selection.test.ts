@@ -10,13 +10,13 @@
 import { describe, it, expect } from "vitest";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
-} from "../test-utils/state-builders";
+} from "../test-utils/document-builders";
 import { asBlockId, createPosition, createSpan, getBlock } from "../state";
-import type { State, BlockKindResolver } from "../state";
+import type { Document, BlockKindResolver } from "../state";
 import { isObjectSelection } from "./object-selection";
 
 const componentRegistry = createDefaultComponentRegistry();
@@ -29,10 +29,10 @@ const ROOT_ID = asBlockId("doc");
  * Build `[para "above"] [image] [trailing para]` purely at the STATE layer
  * (no editor-action import — cursor is below the editor layer). The image is
  * an atomic-leaf block: no children, no inlineContent. Mirrors the
- * State-fixture pattern in `cursor-position.test.ts` / `hit-test.test.ts`.
+ * Document-fixture pattern in `cursor-position.test.ts` / `hit-test.test.ts`.
  */
-function docWithImage(): State {
-  return buildState({
+function docWithImage(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -69,50 +69,50 @@ function docWithImage(): State {
 
 describe("isObjectSelection (#525)", () => {
   it("returns the image's blockId for a collapsed selection at offset 0 of the image", () => {
-    const state = docWithImage();
-    expect(getBlock(state, IMAGE_ID)?.type).toBe("image");
+    const document = docWithImage();
+    expect(getBlock(document, IMAGE_ID)?.type).toBe("image");
     const pos = createPosition(IMAGE_ID, 0);
     const sel = createSpan(pos, pos);
-    expect(isObjectSelection(state, sel, componentRegistry)).toBe(IMAGE_ID);
+    expect(isObjectSelection(document, sel, componentRegistry)).toBe(IMAGE_ID);
   });
 
   it("returns null for a collapsed selection on an inline-bearing (paragraph) block", () => {
-    const state = docWithImage();
+    const document = docWithImage();
     const pos = createPosition(PARA_ID, 0);
     const sel = createSpan(pos, pos);
-    expect(isObjectSelection(state, sel, componentRegistry)).toBeNull();
+    expect(isObjectSelection(document, sel, componentRegistry)).toBeNull();
   });
 
   it("returns null for a non-collapsed range (paragraph → image)", () => {
-    const state = docWithImage();
+    const document = docWithImage();
     const sel = createSpan(createPosition(PARA_ID, 0), createPosition(IMAGE_ID, 0));
-    expect(isObjectSelection(state, sel, componentRegistry)).toBeNull();
+    expect(isObjectSelection(document, sel, componentRegistry)).toBeNull();
   });
 
   it("returns null for a collapsed selection on a container block (document root)", () => {
-    const state = docWithImage();
-    expect(getBlock(state, ROOT_ID)?.firstChildId).not.toBeNull();
+    const document = docWithImage();
+    expect(getBlock(document, ROOT_ID)?.firstChildId).not.toBeNull();
     const pos = createPosition(ROOT_ID, 0);
     const sel = createSpan(pos, pos);
-    expect(isObjectSelection(state, sel, componentRegistry)).toBeNull();
+    expect(isObjectSelection(document, sel, componentRegistry)).toBeNull();
   });
 
   it("returns null (no throw) for a collapsed selection on a missing block id", () => {
-    const state = docWithImage();
+    const document = docWithImage();
     // A stale selection pointing at a block id not present in the state must
     // not throw — getBlock returns null and the predicate bails.
     const missing = asBlockId("gone");
-    expect(getBlock(state, missing)).toBeNull();
+    expect(getBlock(document, missing)).toBeNull();
     const pos = createPosition(missing, 0);
     const sel = createSpan(pos, pos);
-    expect(isObjectSelection(state, sel, componentRegistry)).toBeNull();
+    expect(isObjectSelection(document, sel, componentRegistry)).toBeNull();
   });
 
   it("returns null for a collapsed selection on the atomic block at offset != 0", () => {
-    const state = docWithImage();
+    const document = docWithImage();
     const pos = createPosition(IMAGE_ID, 1);
     const sel = createSpan(pos, pos);
-    expect(isObjectSelection(state, sel, componentRegistry)).toBeNull();
+    expect(isObjectSelection(document, sel, componentRegistry)).toBeNull();
   });
 
   it("resolves an atomic-leaf in a CROSS-TREE body (header/template) — not just the main tree", () => {
@@ -124,7 +124,7 @@ describe("isObjectSelection (#525)", () => {
     // scope so a future cross-tree atomic can't desync click→select from the
     // action guards.)
     const HEADER_IMAGE_ID = asBlockId("hdr-img");
-    const state = buildState({
+    const document = buildDocument({
       rootId: "doc",
       blocks: [buildBlock({ id: "doc", type: "document" })],
       templateContents: [
@@ -144,17 +144,17 @@ describe("isObjectSelection (#525)", () => {
     });
     const pos = createPosition(HEADER_IMAGE_ID, 0);
     const sel = createSpan(pos, pos);
-    expect(isObjectSelection(state, sel, componentRegistry)).toBe(HEADER_IMAGE_ID);
+    expect(isObjectSelection(document, sel, componentRegistry)).toBe(HEADER_IMAGE_ID);
   });
 
   it("returns null when the resolver reports an unknown block type (getBlockKind → null)", () => {
     // Locks the `null === "atomic-leaf"` branch: an unregistered block type
     // yields getBlockKind → null, so even a collapsed-at-offset-0 selection on
     // a real block is not an object selection.
-    const state = docWithImage();
+    const document = docWithImage();
     const unknownResolver: BlockKindResolver = { getBlockKind: () => null, getStorageShape: () => null };
     const pos = createPosition(IMAGE_ID, 0);
     const sel = createSpan(pos, pos);
-    expect(isObjectSelection(state, sel, unknownResolver)).toBeNull();
+    expect(isObjectSelection(document, sel, unknownResolver)).toBeNull();
   });
 });

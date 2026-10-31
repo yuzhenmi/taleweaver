@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createPosition, createSpan, asBlockId } from "../state";
-import type { State } from "../state";
-import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
+import type { Document } from "../state";
+import { buildDocument, buildBlock, inlineContent, text } from "../test-utils/document-builders";
 import { normalizeSelectionForObjects, stepOffObject } from "./object-range";
 
 const at = (b: string, o: number) => createPosition(asBlockId(b), o);
@@ -15,8 +15,8 @@ const table = (id: string, parentId: string, first: string, last: string, sib: {
 ];
 
 /** "abcd" | T[ "o" | U[ "i" ] | "o2" ] | "efgh" — U nested in T's cell. */
-function nested(): State {
-  return buildState({
+function nested(): Document {
+  return buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: "p1" }),
@@ -52,7 +52,7 @@ describe("normalizeSelectionForObjects — a range covers a table whole or not a
     const caret = createSpan(at("i", 1), at("i", 1));
     expect(normalizeSelectionForObjects(s, caret)).toBe(caret);
 
-    const sections = buildState({
+    const sections = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "s1", lastChildId: "s2" }),

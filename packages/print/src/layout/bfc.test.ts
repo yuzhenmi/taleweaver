@@ -1318,7 +1318,7 @@ describe("BFC — list-item leaf carries its own marker presentation (component-
         inlineContent: { items: [] },
       },
       {
-        state: {} as import("@taleweaver/core").State,
+        document: {} as import("@taleweaver/core").Document,
         footnoteNumber: () => undefined,
         counterValue: () => counter,
       },

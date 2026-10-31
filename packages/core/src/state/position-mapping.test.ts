@@ -5,16 +5,16 @@ import type { EditorState } from "../editor/editor-state";
 import { getBlock, iterateLeafBlocksInDocumentOrder, extractText } from "./index";
 import type { BlockId, Position } from "./index";
 import { createPositionMapping, diffRegions, IDENTITY_MAPPING } from "./position-mapping";
-import { TEST_RESOLVER, buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
-import { createState } from "./state";
-import { STATE_INTERNAL } from "./state-internal";
+import { TEST_RESOLVER, buildDocument, buildBlock, inlineContent, text } from "../test-utils/document-builders";
+import { createDocument } from "./document";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import { asBlockId } from "./block-id";
 import { removeBlock } from "./ops/remove-block";
 import { insertText } from "./ops/insert-text";
 
-/** Read every leaf (what a backend render does), so the State's cache is warm. */
+/** Read every leaf (what a backend render does), so the Document's cache is warm. */
 function warm(editor: EditorState): void {
-  for (const b of iterateLeafBlocksInDocumentOrder(editor.state)) void b;
+  for (const b of iterateLeafBlocksInDocumentOrder(editor.document)) void b;
 }
 
 function step(editor: EditorState, action: EditorAction) {
@@ -22,13 +22,13 @@ function step(editor: EditorState, action: EditorAction) {
   const next = reduceEditor(editor, action);
   const dirty = next.lastDirtyIds;
   const mapping =
-    dirty === null ? IDENTITY_MAPPING : createPositionMapping(editor.state, next.state, dirty, editor.selection.focus, next.selection.focus);
+    dirty === null ? IDENTITY_MAPPING : createPositionMapping(editor.document, next.document, dirty, editor.selection.focus, next.selection.focus);
   return { next, mapping };
 }
 
 function firstBlock(editor: EditorState): BlockId {
   // The document's first paragraph (the root holds its final section).
-  for (const b of iterateLeafBlocksInDocumentOrder(editor.state)) return b.id;
+  for (const b of iterateLeafBlocksInDocumentOrder(editor.document)) return b.id;
   throw new Error("no block");
 }
 
@@ -40,7 +40,7 @@ function at(editor: EditorState, blockId: BlockId, offset: number): EditorState 
 function textAt(editor: EditorState, pos: Position | null, length: number): string {
   if (pos === null) throw new Error("unmapped");
   const end = createPosition(pos.blockId, pos.offset + length);
-  return extractText(editor.state, createSpan(pos, end));
+  return extractText(editor.document, createSpan(pos, end));
 }
 
 /** A one-paragraph editor holding `text`, caret at the end. */
@@ -155,8 +155,8 @@ describe("diffRegions", () => {
 
 describe("createPositionMapping — cold blocks (foreign changes)", () => {
   it("a cold block that existed is never mistaken for new when a deleted block preceded it", () => {
-    // prev: K → Z → Y. A peer deletes Z and edits Y; our prev State never read Y.
-    const prev = buildState({
+    // prev: K → Z → Y. A peer deletes Z and edits Y; our prev Document never read Y.
+    const prev = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "K", lastChildId: "Y" }),
@@ -167,12 +167,12 @@ describe("createPositionMapping — cold blocks (foreign changes)", () => {
     });
     // Warm everything but Y (incl. the root's final section, the blocks' parent).
     for (const id of ["doc", getBlock(prev, asBlockId("doc"))?.firstChildId ?? "", "K", "Z"]) getBlock(prev, asBlockId(id));
-    // The peer's edits, applied through an unrelated State over the same Y.Doc.
-    const peer = createState({ resolver: TEST_RESOLVER, rootId: prev.rootId, doc: prev[STATE_INTERNAL].doc });
+    // The peer's edits, applied through an unrelated Document over the same Y.Doc.
+    const peer = createDocument({ resolver: TEST_RESOLVER, rootId: prev.rootId, doc: prev[DOCUMENT_INTERNAL].doc });
     const r1 = removeBlock(peer, asBlockId("Z"));
-    const r2 = insertText(r1.state, createPosition(asBlockId("Y"), 0), ">> ", {});
+    const r2 = insertText(r1.document, createPosition(asBlockId("Y"), 0), ">> ", {});
     const dirty = new Set([...r1.dirtyIds, ...r2.dirtyIds]);
-    const m = createPositionMapping(prev, r2.state, dirty);
+    const m = createPositionMapping(prev, r2.document, dirty);
     // Y's previous text is unknown → conservative, never the stale offset on new text.
     expect(m.map(createPosition(asBlockId("Y"), 5))).toEqual({ position: null, deleted: true });
     expect(m.map(createPosition(asBlockId("K"), 2)).position).toEqual(createPosition(asBlockId("K"), 2));

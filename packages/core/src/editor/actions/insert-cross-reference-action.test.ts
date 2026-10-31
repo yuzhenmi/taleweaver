@@ -23,7 +23,7 @@ import {
 import {
   getBlock,
   getEmbedContent,
-  getListDefsForState,
+  getListDefsForDocument,
   classifyListDef,
   createPosition,
   createSpan,
@@ -46,8 +46,8 @@ function crossRefsOf(
   editor: EditorState,
   blockId: BlockId,
 ): ReadonlyArray<{ targetId: unknown; refMode: unknown }> {
-  const items = getBlock(editor.state, blockId)?.inlineContent?.items ?? [];
-  const bookmarks = collectBookmarks(editor.state);
+  const items = getBlock(editor.document, blockId)?.inlineContent?.items ?? [];
+  const bookmarks = collectBookmarks(editor.document);
   const out: { targetId: unknown; refMode: unknown }[] = [];
   for (const it of items) {
     if (it.kind === "embed" && it.embedType === CROSS_REFERENCE_EMBED_TYPE) {
@@ -60,7 +60,7 @@ function crossRefsOf(
 
 /** Put a collapsed caret at the end of `blockId`. */
 function caretAtEnd(editor: EditorState, blockId: BlockId): EditorState {
-  const pos = createPosition(blockId, blockEnd(editor.state, blockId));
+  const pos = createPosition(blockId, blockEnd(editor.document, blockId));
   return reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(pos, pos) });
 }
 
@@ -68,7 +68,7 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
   it("splices a text-mode reference at the caret and places the caret after it", () => {
     // Two paragraphs: target "abc" (first child) and host "def" (caret at end).
     const doc = stateWithTwoParagraphs();
-    const targetId = firstChildId(doc.state);
+    const targetId = firstChildId(doc.document);
     if (targetId === null) throw new Error("no target paragraph");
     const hostId = doc.selection.focus.blockId;
     const offsetBefore = doc.selection.focus.offset; // end of "def" = 3
@@ -87,7 +87,7 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
 
   it("is its own undo unit — undo removes the inserted reference", () => {
     const doc = stateWithTwoParagraphs();
-    const targetId = firstChildId(doc.state);
+    const targetId = firstChildId(doc.document);
     if (targetId === null) throw new Error("no target paragraph");
     const hostId = doc.selection.focus.blockId;
 
@@ -104,7 +104,7 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
   it("replaces a non-collapsed selection (deletes it) and inserts the field, as one undo step", () => {
     // Host "def"; select "e" (offset 1..2) and insert a text-ref to "abc".
     const doc = stateWithTwoParagraphs();
-    const targetId = firstChildId(doc.state);
+    const targetId = firstChildId(doc.document);
     if (targetId === null) throw new Error("no target paragraph");
     const hostId = doc.selection.focus.blockId;
     const sel = reduceEditor(
@@ -117,13 +117,13 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
       { type: "INSERT_CROSS_REFERENCE", targetId, refMode: "text" },
     );
     // "e" deleted; the ref sits between "d" and "f"; caret just after the ref.
-    expect(getTextOf(out.state, hostId)).toBe("df");
+    expect(getTextOf(out.document, hostId)).toBe("df");
     expect(crossRefsOf(out, hostId)).toEqual([{ targetId, refMode: "text" }]);
     expect(out.selection.focus.offset).toBe(2); // after "d" + the 1-unit field
 
     // ONE undo step restores the deleted text AND removes the field.
     const undone = reduceEditor(out, { type: "UNDO" });
-    expect(getTextOf(undone.state, hostId)).toBe("def");
+    expect(getTextOf(undone.document, hostId)).toBe("def");
     expect(crossRefsOf(undone, hostId)).toHaveLength(0);
   });
 
@@ -131,23 +131,23 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
     // Make the first paragraph a list-item, then reference it by number from the
     // second paragraph.
     let doc = stateWithTwoParagraphs();
-    const targetId = firstChildId(doc.state);
+    const targetId = firstChildId(doc.document);
     if (targetId === null) throw new Error("no target paragraph");
     // Select into the target and toggle it to an ordered list.
     const targetStart = createPosition(targetId, 0);
     doc = reduceEditor(doc, { type: "SET_SELECTION", selection: createSpan(targetStart, targetStart) });
     doc = reduceEditor(doc, { type: "TOGGLE_LIST", listType: "ordered" });
-    const targetBlock = getBlock(doc.state, targetId);
+    const targetBlock = getBlock(doc.document, targetId);
     expect(targetBlock?.type).toBe("list-item");
     // Confirm the target is genuinely ORDERED (not just list-item-typed) — the
     // handler's number-mode gate rejects unordered items, so this proves the
     // positive path passes the real gate.
     const listId = targetBlock?.attrs["listId"];
-    const def = typeof listId === "string" ? getListDefsForState(doc.state).get(listId) : undefined;
+    const def = typeof listId === "string" ? getListDefsForDocument(doc.document).get(listId) : undefined;
     expect(def !== undefined && classifyListDef(def) === "ordered").toBe(true);
 
     // Caret back into the host paragraph (the last child), at its end.
-    const hostId = bodyBlockIds(doc.state).at(-1);
+    const hostId = bodyBlockIds(doc.document).at(-1);
     if (hostId === undefined || hostId === null) throw new Error("no host");
     doc = caretAtEnd(doc, hostId);
 
@@ -160,7 +160,7 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
 
   it("rejects a number-mode reference to a non-list-item target (no-op)", () => {
     const doc = stateWithTwoParagraphs();
-    const targetId = firstChildId(doc.state); // a plain paragraph
+    const targetId = firstChildId(doc.document); // a plain paragraph
     if (targetId === null) throw new Error("no target paragraph");
     const hostId = doc.selection.focus.blockId;
 
@@ -175,16 +175,16 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
     // An unordered (bulleted) item has no number to reference — it would resolve
     // to a bullet glyph, so the handler rejects it.
     let doc = stateWithTwoParagraphs();
-    const targetId = firstChildId(doc.state);
+    const targetId = firstChildId(doc.document);
     if (targetId === null) throw new Error("no target paragraph");
     const targetStart = createPosition(targetId, 0);
     doc = reduceEditor(doc, { type: "SET_SELECTION", selection: createSpan(targetStart, targetStart) });
     doc = reduceEditor(doc, { type: "TOGGLE_LIST", listType: "unordered" });
-    const listId = getBlock(doc.state, targetId)?.attrs["listId"];
-    const def = typeof listId === "string" ? getListDefsForState(doc.state).get(listId) : undefined;
+    const listId = getBlock(doc.document, targetId)?.attrs["listId"];
+    const def = typeof listId === "string" ? getListDefsForDocument(doc.document).get(listId) : undefined;
     expect(def !== undefined && classifyListDef(def) === "unordered").toBe(true);
 
-    const hostId = bodyBlockIds(doc.state).at(-1);
+    const hostId = bodyBlockIds(doc.document).at(-1);
     if (hostId === undefined || hostId === null) throw new Error("no host");
     doc = caretAtEnd(doc, hostId);
 
@@ -208,7 +208,7 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
 
   it("inserts a page-mode reference (default decimal numberStyle) and places the caret after it", () => {
     const doc = stateWithTwoParagraphs();
-    const targetId = firstChildId(doc.state); // an inline-bearing paragraph
+    const targetId = firstChildId(doc.document); // an inline-bearing paragraph
     if (targetId === null) throw new Error("no target paragraph");
     const hostId = doc.selection.focus.blockId;
     const offsetBefore = doc.selection.focus.offset;
@@ -219,7 +219,7 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
     );
 
     // The embed carries refMode "page" and the default "decimal" numberStyle.
-    const items = getBlock(out.state, hostId)?.inlineContent?.items ?? [];
+    const items = getBlock(out.document, hostId)?.inlineContent?.items ?? [];
     const embed = items.find(
       (it) => it.kind === "embed" && it.embedType === CROSS_REFERENCE_EMBED_TYPE,
     );
@@ -235,7 +235,7 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
 
   it("stores a non-default numberStyle for a page-mode reference", () => {
     const doc = stateWithTwoParagraphs();
-    const targetId = firstChildId(doc.state);
+    const targetId = firstChildId(doc.document);
     if (targetId === null) throw new Error("no target paragraph");
     const hostId = doc.selection.focus.blockId;
 
@@ -244,7 +244,7 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
       { type: "INSERT_CROSS_REFERENCE", targetId, refMode: "page", numberStyle: "upper-roman" },
     );
 
-    const items = getBlock(out.state, hostId)?.inlineContent?.items ?? [];
+    const items = getBlock(out.document, hostId)?.inlineContent?.items ?? [];
     const embed = items.find(
       (it) => it.kind === "embed" && it.embedType === CROSS_REFERENCE_EMBED_TYPE,
     );
@@ -261,7 +261,7 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
 
     const out = reduceEditor(
       doc,
-      { type: "INSERT_CROSS_REFERENCE", targetId: doc.state.rootId, refMode: "page" },
+      { type: "INSERT_CROSS_REFERENCE", targetId: doc.document.rootId, refMode: "page" },
     );
     expect(crossRefsOf(out, hostId)).toHaveLength(0); // nothing inserted
   });
@@ -270,14 +270,14 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
     // Insert a footnote — the caret lands in the footnote body paragraph.
     let doc = createInitialEditorState(config);
     doc = reduceEditor(doc, { type: "INSERT_TEXT", text: "x" });
-    const bodyTargetId = firstChildId(doc.state); // a valid main-tree target
+    const bodyTargetId = firstChildId(doc.document); // a valid main-tree target
     if (bodyTargetId === null) throw new Error("no target");
     doc = reduceEditor(doc, { type: "INSERT_FOOTNOTE" });
     const fnBodyParaId = doc.selection.focus.blockId; // caret is in the footnote body
 
     // Sanity: the caret really is in a footnote body (an embedContents block),
     // not the main tree.
-    expect(getEmbedContent(doc.state, fnBodyParaId)).not.toBeNull();
+    expect(getEmbedContent(doc.document, fnBodyParaId)).not.toBeNull();
 
     const out = reduceEditor(
       doc,
@@ -300,7 +300,7 @@ describe("cross-references target bookmarks (Word's model)", () => {
       }
       for (const ch of n.children) walk(ch);
     };
-    walk(render(e.state, config.componentRegistry, config.attrRegistry).root);
+    walk(render(e.document, config.componentRegistry, config.attrRegistry).root);
     if (found === null) throw new Error("no cross-reference field rendered");
     return found;
   }
@@ -313,9 +313,9 @@ describe("cross-references target bookmarks (Word's model)", () => {
     else e = reduceEditor(e, { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } });
     e = reduceEditor({ ...e, config: textConfig }, { type: "INSERT_TEXT", text: "Title" });
     e = reduceEditor({ ...e, config: config }, { type: "SPLIT_NODE" });
-    const t = bodyBlockIds(e.state)[0];
+    const t = bodyBlockIds(e.document)[0];
     if (t === undefined) throw new Error("no target");
-    const host = bodyBlockIds(e.state)[1];
+    const host = bodyBlockIds(e.document)[1];
     if (host === undefined) throw new Error("no host");
     e = reduceEditor(at(e, host, 0), { type: "SET_BLOCK_TYPE", blockType: "paragraph" });
     e = reduceEditor({ ...e, config: refConfig }, { type: "INSERT_CROSS_REFERENCE", targetId: t, refMode });
@@ -325,7 +325,7 @@ describe("cross-references target bookmarks (Word's model)", () => {
   it("Enter at the END of the target heading: the bookmark stays on its text", () => {
     const { e, t } = withRef();
     expect(fieldText(e)).toBe("Title");
-    const len = getBlock(e.state, t)?.inlineContent?.items.length ?? 0;
+    const len = getBlock(e.document, t)?.inlineContent?.items.length ?? 0;
     expect(len).toBe(3); // start marker, "Title", end marker
     const after = reduceEditor(at(e, t, 7), { type: "SPLIT_NODE" });
     expect(fieldText(after)).toBe("Title");
@@ -336,9 +336,9 @@ describe("cross-references target bookmarks (Word's model)", () => {
       const { e, t } = withRef();
       const after = reduceEditor(at(e, t, offset), { type: "SPLIT_NODE" });
       expect(fieldText(after)).toBe("Title"); // no leading "\n"
-      const head = bodyBlockIds(after.state)[0];
-      expect(head === undefined ? null : getTextOf(after.state, head)).toBe("");
-      expect(getBlock(after.state, head ?? t)?.inlineContent?.items).toEqual([]);
+      const head = bodyBlockIds(after.document)[0];
+      expect(head === undefined ? null : getTextOf(after.document, head)).toBe("");
+      expect(getBlock(after.document, head ?? t)?.inlineContent?.items).toEqual([]);
     }
     const { e: n, t: li } = withRef("number");
     expect(fieldText(n)).toBe("1");
@@ -364,12 +364,12 @@ describe("cross-references target bookmarks (Word's model)", () => {
     const w = withRef();
     const whole = reduceEditor(at(w.e, w.t, 1, 7), { type: "DELETE_BACKWARD" });
     expect(fieldText(whole)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
-    expect(getBlock(whole.state, w.t)?.inlineContent?.items).toEqual([]);
+    expect(getBlock(whole.document, w.t)?.inlineContent?.items).toEqual([]);
     expect(whole.selection.focus).toEqual(createPosition(w.t, 0)); // the seam, not past the removed start marker
     // Typing over EXACTLY the bookmarked text: the text replaces it (the bookmark goes) at the seam.
     const o = withRef();
     const over = reduceEditor(at(o.e, o.t, 1, 6), { type: "INSERT_TEXT", text: "New" });
-    expect(getTextOf(over.state, o.t)).toBe("New");
+    expect(getTextOf(over.document, o.t)).toBe("New");
     expect(fieldText(over)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
     expect(over.selection.focus).toEqual(createPosition(o.t, 3));
     // A span covering the start marker but not all the text keeps both markers.
@@ -380,14 +380,14 @@ describe("cross-references target bookmarks (Word's model)", () => {
 
   /** The id of the bookmark around T (its first item is the start marker). */
   const bookmarkIdIn = (e: EditorState, t: BlockId): string => {
-    const first = getBlock(e.state, t)?.inlineContent?.items[0];
+    const first = getBlock(e.document, t)?.inlineContent?.items[0];
     return first?.kind === "embed" ? String(first.properties.bookmarkId) : "";
   };
 
   it("affinity: every caret insertion at the bookmark's start lands inside, at its end outside (Word)", () => {
     /** T's items as embed types / text runs. */
     const shape = (e: EditorState, t: BlockId): string[] =>
-      (getBlock(e.state, t)?.inlineContent?.items ?? []).map((i) => (i.kind === "embed" ? i.embedType : i.text));
+      (getBlock(e.document, t)?.inlineContent?.items ?? []).map((i) => (i.kind === "embed" ? i.embedType : i.text));
     // T = [start] "Title" [end]: offsets 0 and 1 are both "the start", 6 and 7 "the end".
     for (const offset of [0, 1]) {
       const { e, t } = withRef();
@@ -421,14 +421,14 @@ describe("cross-references target bookmarks (Word's model)", () => {
       const { e, t } = withRef();
       const typed = reduceEditor(at(e, t, offset), { type: "INSERT_TEXT", text: "X" });
       expect(fieldText(typed)).toBe("Title");
-      expect(getTextOf(typed.state, t)).toBe("TitleX");
+      expect(getTextOf(typed.document, t)).toBe("TitleX");
       expect(typed.selection.focus).toEqual(createPosition(t, 8));
     }
   });
 
   it("affinity: one character move crosses a character, never stops between a marker and its neighbour", () => {
     const { e, t } = withRef();
-    const s = e.state;
+    const s = e.document;
     expect(caretAfterMarkers(s, createPosition(t, 0))).toEqual(createPosition(t, 1));
     expect(caretAfterMarkers(s, createPosition(t, 6))).toEqual(createPosition(t, 7));
     expect(caretAfterMarkers(s, createPosition(t, 3))).toEqual(createPosition(t, 3));
@@ -444,13 +444,13 @@ describe("cross-references target bookmarks (Word's model)", () => {
   it("affinity: Backspace at the bookmark's start merges in one keypress; Delete before its end marker joins the next ¶", () => {
     const { e, t } = withRef();
     const split = reduceEditor(at(e, t, 0), { type: "SPLIT_NODE" }); // "" | [Title] | host
-    expect(bodyBlockIds(split.state)).toHaveLength(3);
+    expect(bodyBlockIds(split.document)).toHaveLength(3);
     const merged = reduceEditor(at(split, t, 1), { type: "DELETE_BACKWARD" });
-    expect(bodyBlockIds(merged.state)).toHaveLength(2);
+    expect(bodyBlockIds(merged.document)).toHaveLength(2);
     expect(fieldText(merged)).toBe("Title");
     const w = withRef();
     const joined = reduceEditor(at(w.e, w.t, 6), { type: "DELETE_FORWARD" });
-    expect(bodyBlockIds(joined.state)).toHaveLength(1);
+    expect(bodyBlockIds(joined.document)).toHaveLength(1);
     expect(fieldText(joined)).toBe("Title");
   });
 
@@ -458,24 +458,24 @@ describe("cross-references target bookmarks (Word's model)", () => {
     const { e, t } = withRef();
     const bid = bookmarkIdIn(e, t);
     const sel = at(e, t, 1, 6);
-    const clip = encodeFragmentClip(extractFragment(sel.state, sel.selection));
+    const clip = encodeFragmentClip(extractFragment(sel.document, sel.selection));
     const cut = reduceEditor(sel, { type: "DELETE_BACKWARD" });
     expect(fieldText(cut)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
-    const host = bodyBlockIds(cut.state)[1];
+    const host = bodyBlockIds(cut.document)[1];
     if (host === undefined) throw new Error("no host");
     const pasted = reduceEditor(at(cut, host, 0), { type: "PASTE", clip, text: "Title" });
     expect(fieldText(pasted)).toBe("Title");
-    expect(collectBookmarks(pasted.state).get(bid)?.start.blockId).toBe(host);
+    expect(collectBookmarks(pasted.document).get(bid)?.start.blockId).toBe(host);
     // Undo the paste, then the cut: the original is live again.
     const undone = reduceEditor(reduceEditor(pasted, { type: "UNDO" }), { type: "UNDO" });
     expect(fieldText(undone)).toBe("Title");
-    expect(collectBookmarks(undone.state).get(bid)?.start).toEqual(createPosition(t, 1));
+    expect(collectBookmarks(undone.document).get(bid)?.start).toEqual(createPosition(t, 1));
   });
 
   it("a copy of part of the bookmarked text carries no bookmark markers", () => {
     const { e, t } = withRef();
     const sel = at(e, t, 0, 3);
-    const frag = extractFragment(sel.state, sel.selection);
+    const frag = extractFragment(sel.document, sel.selection);
     expect(collectBookmarks(frag).size).toBe(0);
     let markers = 0;
     for (const b of iterateBlocksInDocumentOrder(frag)) for (const i of b.inlineContent?.items ?? []) if (i.kind === "embed") markers++;
@@ -486,16 +486,16 @@ describe("cross-references target bookmarks (Word's model)", () => {
     const { e, t } = withRef();
     const bid = bookmarkIdIn(e, t);
     const sel = at(e, t, 0, 7);
-    const clip = encodeFragmentClip(extractFragment(sel.state, sel.selection));
+    const clip = encodeFragmentClip(extractFragment(sel.document, sel.selection));
     const other = reduceEditor(createInitialEditorState(config), { type: "PASTE", clip, text: "Title" });
-    const range = collectBookmarks(other.state).get(bid);
-    expect(range?.start.blockId).toBe(bodyBlockIds(other.state)[0]);
+    const range = collectBookmarks(other.document).get(bid);
+    expect(range?.start.blockId).toBe(bodyBlockIds(other.document)[0]);
     // A copy WITHIN the source document drops it (the original stays the live pair).
-    const host = bodyBlockIds(e.state)[1];
+    const host = bodyBlockIds(e.document)[1];
     if (host === undefined) throw new Error("no host");
     const inDoc = reduceEditor(at(e, host, 0), { type: "PASTE", clip, text: "Title" });
-    expect(collectBookmarks(inDoc.state).get(bid)?.start.blockId).toBe(t);
-    const hostItems = getBlock(inDoc.state, host)?.inlineContent?.items ?? [];
+    expect(collectBookmarks(inDoc.document).get(bid)?.start.blockId).toBe(t);
+    const hostItems = getBlock(inDoc.document, host)?.inlineContent?.items ?? [];
     expect(hostItems.some((i) => i.kind === "embed" && i.embedType.startsWith("bookmark-"))).toBe(false);
   });
 
@@ -503,42 +503,42 @@ describe("cross-references target bookmarks (Word's model)", () => {
     const suggesting = { ...config, suggestingAuthor: "alice" };
     const { e, t } = withRef("text", suggesting);
     const bid = bookmarkIdIn(e, t);
-    const markers = (getBlock(e.state, t)?.inlineContent?.items ?? []).filter((i) => i.kind === "embed");
+    const markers = (getBlock(e.document, t)?.inlineContent?.items ?? []).filter((i) => i.kind === "embed");
     expect(markers).toHaveLength(2);
     for (const m of markers) expect(m.attrs).toEqual({});
     const rejected = reduceEditor(e, { type: "REJECT_ALL_SUGGESTIONS" });
-    expect(collectBookmarks(rejected.state).get(bid)).toEqual({ start: createPosition(t, 1), end: createPosition(t, 6) });
+    expect(collectBookmarks(rejected.document).get(bid)).toEqual({ start: createPosition(t, 1), end: createPosition(t, 6) });
     // Accepting a tracked deletion of EXACTLY the bookmarked text removes the bookmark, as the
     // direct deletion does: the reference is broken.
     const s = withRef();
     const struck = reduceEditor({ ...at(s.e, s.t, 1, 6), config: suggesting }, { type: "DELETE_BACKWARD" });
-    expect(collectBookmarks(struck.state).has(bookmarkIdIn(s.e, s.t))).toBe(true);
+    expect(collectBookmarks(struck.document).has(bookmarkIdIn(s.e, s.t))).toBe(true);
     const accepted = reduceEditor(struck, { type: "ACCEPT_ALL_SUGGESTIONS" });
     expect(fieldText(accepted)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
-    expect(getBlock(accepted.state, s.t)?.inlineContent?.items).toEqual([]);
+    expect(getBlock(accepted.document, s.t)?.inlineContent?.items).toEqual([]);
     // The bookmarked text is the deleter's OWN pending insertion: a suggested deletion removes it
     // for real — the bookmark goes as on a direct deletion.
     const own = withRef("text", config, suggesting);
     const ownGone = reduceEditor({ ...at(own.e, own.t, 1, 6), config: suggesting }, { type: "DELETE_BACKWARD" });
     expect(fieldText(ownGone)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
-    expect(getBlock(ownGone.state, own.t)?.inlineContent?.items).toEqual([]);
+    expect(getBlock(ownGone.document, own.t)?.inlineContent?.items).toEqual([]);
     // Typing / pasting over it: the new text lands at the seam (where the removed start marker
     // was) and the caret right after it.
     const ty = withRef("text", config, suggesting);
     const typed = reduceEditor({ ...at(ty.e, ty.t, 1, 6), config: suggesting }, { type: "INSERT_TEXT", text: "New" });
-    expect(getTextOf(typed.state, ty.t)).toBe("New");
+    expect(getTextOf(typed.document, ty.t)).toBe("New");
     expect(fieldText(typed)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
     expect(typed.selection.focus).toEqual(createPosition(ty.t, 3));
     const pa = withRef("text", config, suggesting);
     const pasted = reduceEditor({ ...at(pa.e, pa.t, 1, 6), config: suggesting }, { type: "PASTE", text: "New" });
-    expect(getTextOf(pasted.state, pa.t)).toBe("New");
+    expect(getTextOf(pasted.document, pa.t)).toBe("New");
     expect(pasted.selection.focus).toEqual(createPosition(pa.t, 3));
     // Enter over it: the split lands where the removed text and markers were.
     const en = withRef("text", config, suggesting);
     const withTail = reduceEditor(at(en.e, en.t, 7), { type: "INSERT_TEXT", text: "Z" }); // [Title]Z
     const entered = reduceEditor({ ...at(withTail, en.t, 1, 6), config: suggesting }, { type: "SPLIT_NODE" });
     expect(fieldText(entered)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
-    expect(getTextOf(entered.state, en.t)).toBe("Z");
+    expect(getTextOf(entered.document, en.t)).toBe("Z");
     // Two tracked deletions with kept text between them do not cover all of it: the bookmark stays.
     const g = withRef();
     const first = reduceEditor({ ...at(g.e, g.t, 1, 2), config: suggesting }, { type: "DELETE_BACKWARD" });
@@ -549,18 +549,18 @@ describe("cross-references target bookmarks (Word's model)", () => {
   it("find / replace keeps a bookmark unless the replaced text is all of it", () => {
     // Replacing part of the text keeps the bookmark on the rest.
     const { e } = withRef();
-    const head = findMatches(e.state, "Ti", { caseSensitive: true });
+    const head = findMatches(e.document, "Ti", { caseSensitive: true });
     const partial = reduceEditor(e, { type: "REPLACE_ALL", matches: head, replacement: "Q" });
     expect(fieldText(partial)).toBe("Qtle");
     const tail = withRef();
-    const end = reduceEditor(tail.e, { type: "REPLACE_ALL", matches: findMatches(tail.e.state, "le", { caseSensitive: true }), replacement: "Z" });
+    const end = reduceEditor(tail.e, { type: "REPLACE_ALL", matches: findMatches(tail.e.document, "le", { caseSensitive: true }), replacement: "Z" });
     // The replacement takes the replaced text's place (as typing over a selection does): inside.
     expect(fieldText(end)).toBe("TitZ");
     // Replacing ALL the bookmarked text removes the bookmark.
     const w = withRef();
-    const whole = reduceEditor(w.e, { type: "REPLACE_ALL", matches: findMatches(w.e.state, "Title", { caseSensitive: true }), replacement: "New" });
+    const whole = reduceEditor(w.e, { type: "REPLACE_ALL", matches: findMatches(w.e.document, "Title", { caseSensitive: true }), replacement: "New" });
     expect(fieldText(whole)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
-    expect(getTextOf(whole.state, w.t)).toBe("New");
+    expect(getTextOf(whole.document, w.t)).toBe("New");
     expect(whole.selection.focus).toEqual(createPosition(w.t, 0)); // the seam, where the removed start marker was
   });
 
@@ -568,17 +568,17 @@ describe("cross-references target bookmarks (Word's model)", () => {
     // "ab" | [Title] | host — deleting from (A, 1) into the host crosses T entirely.
     const { e, t } = withRef();
     const pre = reduceEditor(at(e, t, 0), { type: "SPLIT_NODE" });
-    const a = bodyBlockIds(pre.state)[0];
+    const a = bodyBlockIds(pre.document)[0];
     if (a === undefined) throw new Error("no head");
     const typed = reduceEditor(at(pre, a, 0), { type: "INSERT_TEXT", text: "ab" });
-    const host = bodyBlockIds(typed.state)[2];
+    const host = bodyBlockIds(typed.document)[2];
     if (host === undefined) throw new Error("no host");
     // T's content is covered entirely: the bookmark goes (broken), and no orphan marker is left.
     const sel = reduceEditor(typed, { type: "SET_SELECTION", selection: createSpan(createPosition(a, 1), createPosition(host, 0)) });
     const gone = reduceEditor(sel, { type: "DELETE_BACKWARD" });
     expect(fieldText(gone)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
-    const survivor = bodyBlockIds(gone.state)[0];
-    const items = survivor === undefined ? [] : (getBlock(gone.state, survivor)?.inlineContent?.items ?? []);
+    const survivor = bodyBlockIds(gone.document)[0];
+    const items = survivor === undefined ? [] : (getBlock(gone.document, survivor)?.inlineContent?.items ?? []);
     expect(items.some((i) => i.kind === "embed" && i.embedType.startsWith("bookmark-"))).toBe(false);
   });
 
@@ -587,10 +587,10 @@ describe("cross-references target bookmarks (Word's model)", () => {
     const build = (): { e: EditorState; a: BlockId; t: BlockId } => {
       const { e, t } = withRef();
       const s1 = reduceEditor(at(e, t, 3), { type: "SPLIT_NODE" }); // [Ti | tle]
-      const head = bodyBlockIds(s1.state)[0];
+      const head = bodyBlockIds(s1.document)[0];
       if (head === undefined) throw new Error("no head");
       const s2 = reduceEditor(at(s1, head, 0), { type: "SPLIT_NODE" }); // "" | [Ti | tle]
-      const a = bodyBlockIds(s2.state)[0];
+      const a = bodyBlockIds(s2.document)[0];
       if (a === undefined) throw new Error("no a");
       const typed = reduceEditor(at(s2, a, 0), { type: "INSERT_TEXT", text: "ab" });
       expect(fieldText(typed)).toBe("Ti\ntle");
@@ -606,7 +606,7 @@ describe("cross-references target bookmarks (Word's model)", () => {
     // All of its content ("Ti" in H, "tle" in T): the bookmark goes — no orphan marker of it stays.
     const gone = del(build(), 3);
     expect(fieldText(gone)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
-    const all = bodyBlockIds(gone.state).flatMap((id) => getBlock(gone.state, id)?.inlineContent?.items ?? []);
+    const all = bodyBlockIds(gone.document).flatMap((id) => getBlock(gone.document, id)?.inlineContent?.items ?? []);
     expect(all.some((i) => i.kind === "embed" && i.embedType.startsWith("bookmark-"))).toBe(false);
     // Accepting a tracked deletion of the same span: one removed set over every block it drops from.
     const suggesting = { ...config, suggestingAuthor: "alice" };
@@ -617,7 +617,7 @@ describe("cross-references target bookmarks (Word's model)", () => {
     // [Ti | t | le]: tracked deletions of "Ti" and "le" leave the untouched middle paragraph's text — the bookmark stays.
     const m = build();
     const split = reduceEditor(at(m.e, m.t, 1), { type: "SPLIT_NODE" }); // T = "t" | "le"
-    const [h, mid, tl] = bodyBlockIds(split.state).slice(1, 4);
+    const [h, mid, tl] = bodyBlockIds(split.document).slice(1, 4);
     if (h === undefined || mid === undefined || tl === undefined) throw new Error("no blocks");
     const d1 = reduceEditor({ ...reduceEditor(split, { type: "SET_SELECTION", selection: createSpan(createPosition(h, 1), createPosition(h, 3)) }), config: suggesting }, { type: "DELETE_BACKWARD" });
     const d2 = reduceEditor({ ...reduceEditor({ ...d1, config: config }, { type: "SET_SELECTION", selection: createSpan(createPosition(tl, 0), createPosition(tl, 2)) }), config: suggesting }, { type: "DELETE_BACKWARD" });

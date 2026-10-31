@@ -20,7 +20,7 @@
  * stranded provenance attr — the MT round-trip that proves no zombie. The final
  * regression block confirms the SAME actions in the MAIN body still track.
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,
@@ -54,7 +54,7 @@ const suggestingConfig: EditorConfig = { ...directConfig, suggestingAuthor: "ali
 
 /** The first body paragraph id under the document root (MAIN tree). */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, finalSectionOf(editor.state));
+  const root = getBlock(editor.document, finalSectionOf(editor.document));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -64,7 +64,7 @@ function bodyParaId(editor: EditorState): BlockId {
 
 /** The text of a block resolved via `resolveBlock` (works for any tree). */
 function textOfResolved(editor: EditorState, blockId: BlockId): string {
-  const block = resolveBlock(editor.state, blockId)?.block ?? null;
+  const block = resolveBlock(editor.document, blockId)?.block ?? null;
   return (block?.inlineContent?.items ?? [])
     .map((it) => (it.kind === "text" ? it.text : ""))
     .join("");
@@ -76,7 +76,7 @@ function anyRunHasAttr(
   blockId: BlockId,
   attr: "insertionSuggestionId" | "deletionSuggestionId" | "formattingSuggestionId",
 ): boolean {
-  const block = resolveBlock(editor.state, blockId)?.block ?? null;
+  const block = resolveBlock(editor.document, blockId)?.block ?? null;
   for (const it of block?.inlineContent?.items ?? []) {
     if (it.kind !== "text") continue;
     if (attr === "formattingSuggestionId" ? formattingSuggestionIds(it.attrs).length > 0 : it.attrs[attr] !== undefined) {
@@ -90,7 +90,7 @@ function anyRunHasAttr(
  *  (the suggesting-mode split marker). `endMarkOf` resolves any tree, so it
  *  works for a non-main-body block. */
 function endsWithSplitMark(editor: EditorState, blockId: BlockId): boolean {
-  return endMarkOf(editor.state, blockId)?.kind === "split";
+  return endMarkOf(editor.document, blockId)?.kind === "split";
 }
 
 /**
@@ -104,13 +104,13 @@ function footnoteBodyFixture(): { editor: EditorState; bodyParaId: BlockId } {
   const withFn = reduceEditor(typed, { type: "INSERT_FOOTNOTE" });
   const bodyPara = withFn.selection.focus.blockId;
   const seeded = reduceEditor(withFn, { type: "INSERT_TEXT", text: "abc" });
-  expect(getSuggestions(seeded.state)).toHaveLength(0);
+  expect(getSuggestions(seeded.document)).toHaveLength(0);
   expect(textOfResolved(seeded, bodyPara)).toBe("abc");
   // Self-guard: the body paragraph must be OUTSIDE the main body (a real
   // footnote-body block in embedContents), else these tests would silently
   // exercise the main-body path and prove nothing about the relaxed gate.
-  expect(selectionContextOf(seeded.state, bodyPara)).not.toBe(seeded.state.rootId);
-  expect(selectionContextOf(seeded.state, bodyPara)).not.toBeNull();
+  expect(selectionContextOf(seeded.document, bodyPara)).not.toBe(seeded.document.rootId);
+  expect(selectionContextOf(seeded.document, bodyPara)).not.toBeNull();
   return { editor: seeded, bodyParaId: bodyPara };
 }
 
@@ -143,7 +143,7 @@ describe("suggesting mode in a footnote BODY now TRACKS (MT-4)", () => {
     const next = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" });
 
     expect(textOfResolved(next, bodyParaId)).toBe("abcZ");
-    const suggestions = getSuggestions(next.state);
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
     expect(anyRunHasAttr(next, bodyParaId, "insertionSuggestionId")).toBe(true);
@@ -156,7 +156,7 @@ describe("suggesting mode in a footnote BODY now TRACKS (MT-4)", () => {
 
     // Soft delete: "c" is kept (struck), not removed.
     expect(textOfResolved(next, bodyParaId)).toBe("abc");
-    const suggestions = getSuggestions(next.state);
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
     expect(anyRunHasAttr(next, bodyParaId, "deletionSuggestionId")).toBe(true);
@@ -169,12 +169,12 @@ describe("suggesting mode in a footnote BODY now TRACKS (MT-4)", () => {
 
     // The live bold attr is NOT applied (it lands only on accept); only the
     // formatting-provenance attr is stamped.
-    const block = resolveBlock(next.state, bodyParaId)?.block ?? null;
+    const block = resolveBlock(next.document, bodyParaId)?.block ?? null;
     const firstText = (block?.inlineContent?.items ?? []).find((it) => it.kind === "text");
     if (firstText?.kind === "text") {
       expect(firstText.attrs.bold).toBeUndefined();
     }
-    const suggestions = getSuggestions(next.state);
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("formatting");
     expect(anyRunHasAttr(next, bodyParaId, "formattingSuggestionId")).toBe(true);
@@ -186,16 +186,16 @@ describe("suggesting mode in a footnote BODY now TRACKS (MT-4)", () => {
     const next = reduceEditor(placed, { type: "SPLIT_NODE" });
     // Real structural split: a NEW head holds "a" and its ¶ is the
     // inserted one; the body block keeps "bc" and the caret (B, 0).
-    const head = resolveBlock(next.state, bodyParaId)?.block.prevSiblingId ?? null;
+    const head = resolveBlock(next.document, bodyParaId)?.block.prevSiblingId ?? null;
     if (head === null) throw new Error("expected a new head");
     expect(textOfResolved(next, head)).toBe("a");
     expect(next.selection.focus).toEqual(createPosition(bodyParaId, 0));
     expect(textOfResolved(next, bodyParaId)).toBe("bc");
-    const suggestions = getSuggestions(next.state);
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
     expect(endsWithSplitMark(next, head)).toBe(true);
-    expect(resolveBlock(next.state, head)?.block.breakSuggestion?.insertionId).toBe(nth(suggestions, 0, "suggestion").id);
+    expect(resolveBlock(next.document, head)?.block.breakSuggestion?.insertionId).toBe(nth(suggestions, 0, "suggestion").id);
   });
 
   it("DELETE_FORWARD (collapsed mid-char) SOFT-deletes; caret ADVANCES to span end (soft-delete rule)", () => {
@@ -205,7 +205,7 @@ describe("suggesting mode in a footnote BODY now TRACKS (MT-4)", () => {
 
     // Soft delete: "b" is kept (struck); body text length unchanged.
     expect(textOfResolved(next, bodyParaId)).toBe("abc");
-    expect(getSuggestions(next.state)).toHaveLength(1);
+    expect(getSuggestions(next.document)).toHaveLength(1);
     expect(anyRunHasAttr(next, bodyParaId, "deletionSuggestionId")).toBe(true);
     // The forward soft-delete caret rule advances to the span END (offset 2),
     // so a repeated Delete strikes the next char — NOT staying at offset 1 as a
@@ -223,7 +223,7 @@ describe("body suggestions RESOLVE cleanly via accept/reject-all — the MT payo
     const resolved = reduceEditor(typed, { type: "ACCEPT_ALL_SUGGESTIONS" });
 
     expect(textOfResolved(resolved, bodyParaId)).toBe("abcZ");
-    expect(getSuggestions(resolved.state)).toHaveLength(0);
+    expect(getSuggestions(resolved.document)).toHaveLength(0);
     expect(anyRunHasAttr(resolved, bodyParaId, "insertionSuggestionId")).toBe(false);
   });
 
@@ -234,7 +234,7 @@ describe("body suggestions RESOLVE cleanly via accept/reject-all — the MT payo
     const resolved = reduceEditor(typed, { type: "REJECT_ALL_SUGGESTIONS" });
 
     expect(textOfResolved(resolved, bodyParaId)).toBe("abc");
-    expect(getSuggestions(resolved.state)).toHaveLength(0);
+    expect(getSuggestions(resolved.document)).toHaveLength(0);
     expect(anyRunHasAttr(resolved, bodyParaId, "insertionSuggestionId")).toBe(false);
   });
 
@@ -245,7 +245,7 @@ describe("body suggestions RESOLVE cleanly via accept/reject-all — the MT payo
     const resolved = reduceEditor(soft, { type: "ACCEPT_ALL_SUGGESTIONS" });
 
     expect(textOfResolved(resolved, bodyParaId)).toBe("ab");
-    expect(getSuggestions(resolved.state)).toHaveLength(0);
+    expect(getSuggestions(resolved.document)).toHaveLength(0);
     expect(anyRunHasAttr(resolved, bodyParaId, "deletionSuggestionId")).toBe(false);
   });
 
@@ -256,7 +256,7 @@ describe("body suggestions RESOLVE cleanly via accept/reject-all — the MT payo
     const resolved = reduceEditor(soft, { type: "REJECT_ALL_SUGGESTIONS" });
 
     expect(textOfResolved(resolved, bodyParaId)).toBe("abc");
-    expect(getSuggestions(resolved.state)).toHaveLength(0);
+    expect(getSuggestions(resolved.document)).toHaveLength(0);
     expect(anyRunHasAttr(resolved, bodyParaId, "deletionSuggestionId")).toBe(false);
   });
 
@@ -264,15 +264,15 @@ describe("body suggestions RESOLVE cleanly via accept/reject-all — the MT payo
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 1);
     const split = reduceEditor(placed, { type: "SPLIT_NODE" });
-    const head = resolveBlock(split.state, bodyParaId)?.block.prevSiblingId ?? null;
+    const head = resolveBlock(split.document, bodyParaId)?.block.prevSiblingId ?? null;
     if (head === null) throw new Error("expected a new head");
     const resolved = reduceEditor(split, { type: "ACCEPT_ALL_SUGGESTIONS" });
     // Split kept: "a" | "bc" in two body blocks; the key is gone.
     expect(textOfResolved(resolved, head)).toBe("a");
     expect(textOfResolved(resolved, bodyParaId)).toBe("bc");
     expect(endsWithSplitMark(resolved, head)).toBe(false);
-    expect(resolveBlock(resolved.state, head)?.block.breakSuggestion).toBeUndefined();
-    expect(getSuggestions(resolved.state)).toHaveLength(0);
+    expect(resolveBlock(resolved.document, head)?.block.breakSuggestion).toBeUndefined();
+    expect(getSuggestions(resolved.document)).toHaveLength(0);
   });
 
   it("body SPLIT_NODE → REJECT_ALL undoes the split (one block), zero suggestions", () => {
@@ -284,7 +284,7 @@ describe("body suggestions RESOLVE cleanly via accept/reject-all — the MT payo
     // Split undone: the body block is back to a single "abc" with no tag.
     expect(textOfResolved(resolved, bodyParaId)).toBe("abc");
     expect(endsWithSplitMark(resolved, bodyParaId)).toBe(false);
-    expect(getSuggestions(resolved.state)).toHaveLength(0);
+    expect(getSuggestions(resolved.document)).toHaveLength(0);
   });
 });
 
@@ -295,8 +295,8 @@ describe("regression: the SAME actions in the MAIN body still create suggestions
     const placed = caretAt(initial, para, 0);
     const next = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" });
 
-    expect(getTextOf(next.state, para)).toBe("Z");
-    const suggestions = getSuggestions(next.state);
+    expect(getTextOf(next.document, para)).toBe("Z");
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
     expect(anyRunHasAttr(next, para, "insertionSuggestionId")).toBe(true);
@@ -311,7 +311,7 @@ describe("regression: the SAME actions in the MAIN body still create suggestions
     const placed = caretAt(seeded, para, 3);
     const next = reduceEditor(placed, { type: "DELETE_BACKWARD" });
 
-    const suggestions = getSuggestions(next.state);
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
     expect(anyRunHasAttr(next, para, "deletionSuggestionId")).toBe(true);
@@ -326,7 +326,7 @@ describe("regression: the SAME actions in the MAIN body still create suggestions
     const selected = selectIn(seeded, para, 0, 3);
     const next = reduceEditor(selected, { type: "TOGGLE_STYLE", style: "bold" });
 
-    const suggestions = getSuggestions(next.state);
+    const suggestions = getSuggestions(next.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("formatting");
     expect(anyRunHasAttr(next, para, "formattingSuggestionId")).toBe(true);

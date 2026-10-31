@@ -1,7 +1,7 @@
 import type * as Y from "yjs";
-import type { State } from "./state";
+import type { Document } from "./document";
 import type { BlockId } from "./block-id";
-import { STATE_INTERNAL } from "./state-internal";
+import { DOCUMENT_INTERNAL } from "./document-internal";
 import { UntrackedOrigin, dirtyIdsFromTransaction } from "./yjs-doc";
 import {
   inspectDocument,
@@ -17,14 +17,14 @@ import { getMetaMap } from "./yjs-doc";
 import { foreignStructSeen, transactionStructs } from "./mark-index";
 
 /**
- * The collaboration seam: subscribe to FOREIGN changes on this `State`'s shared
+ * The collaboration seam: subscribe to FOREIGN changes on this `Document`'s shared
  * `Y.Doc`. Fires `onForeignChange(dirtyIds)` for every transaction whose
  * `origin !== selfOrigin` that touched at least one block — so a host (e.g. a
  * second editor controller bound to the SAME doc) can mint
- * `freshState(state, dirtyIds)` and relayout exactly the changed blocks when a
+ * `freshDocument(state, dirtyIds)` and relayout exactly the changed blocks when a
  * remote peer edits the document.
  *
- * Yjs is a CRDT, so two `State`s over one shared `Y.Doc` (or two docs exchanging
+ * Yjs is a CRDT, so two `Document`s over one shared `Y.Doc` (or two docs exchanging
  * `Y.encodeStateAsUpdate`/`Y.applyUpdate` messages) converge automatically; the
  * only missing piece for a live editor is *noticing* a foreign mutation and
  * re-rendering. This is that notice. Transport (WebSocket / MessageChannel /
@@ -33,8 +33,8 @@ import { foreignStructSeen, transactionStructs } from "./mark-index";
  *
  * **The origin filter is load-bearing.** A controller's OWN edit also fires
  * `afterTransaction` — synchronously, DURING its in-flight `applyOperation`,
- * before its new `State` exists — so reacting to self here is both redundant
- * (`applyOperation` already returns the fresh State) and racy. Each collab host
+ * before its new `Document` exists — so reacting to self here is both redundant
+ * (`applyOperation` already returns the fresh Document) and racy. Each collab host
  * tags its edits with a distinct `selfOrigin` (via `applyOperation`'s `origin`
  * option / `EditorConfig.origin`); this observer ignores those and reacts ONLY to
  * others'. `null`/`undefined` origins (the single-editor default) collapse to one
@@ -56,14 +56,14 @@ import { foreignStructSeen, transactionStructs } from "./mark-index";
  * Returns an unsubscribe — call it on host teardown (it `doc.off`s the listener).
  */
 export function subscribeForeignChanges(
-  state: State,
+  document: Document,
   selfOrigin: unknown,
   onForeignChange: (dirtyIds: ReadonlySet<BlockId>) => void,
   onIncompatible: (report: IncompatibleDocumentReport) => void,
   onCompatible?: () => void,
   options?: CompatibilityGateOptions,
 ): () => void {
-  const { doc } = state[STATE_INTERNAL];
+  const { doc } = document[DOCUMENT_INTERNAL];
   const gate = compatibilityGate(doc, onIncompatible, onCompatible, options);
   const handler = (tx: Y.Transaction): void => {
     const self =
@@ -149,7 +149,7 @@ export function compatibilityGate(
     return { reason: "legacy-write", legacyBlocks: touched, legacyText };
   };
   // A legacy write that landed before this gate started watching (between the upgrade /
-  // `createState` and the subscription) carries no transaction to see: compare the frozen
+  // `createDocument` and the subscription) carries no transaction to see: compare the frozen
   // roots against the upgrade's baseline once, at start (O(legacy content)).
   if (halted === null && schemaOk()) {
     const early = legacyWritesSinceUpgrade(doc);

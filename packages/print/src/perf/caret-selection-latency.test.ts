@@ -80,12 +80,12 @@ function run(paragraphs: number): Result {
     containerWidth: LETTER.pageInlineSize,
     pageConfig: LETTER,
   };
-  const state = core.buildDocumentFromTree(doc(paragraphs), {}, core.createTestAllocator(), TEST_RESOLVER);
-  const first = finalSection(state)?.firstChildId ?? null;
+  const document = core.buildDocumentFromTree(doc(paragraphs), {}, core.createTestAllocator(), TEST_RESOLVER);
+  const first = finalSection(document)?.firstChildId ?? null;
   if (first === null) throw new Error("setup");
-  const container = document.createElement("div");
-  document.body.replaceChildren(container);
-  let editor = core.createEditorStateFromState(state, core.createSpan(core.createPosition(first, 0), core.createPosition(first, 0)), config);
+  const container = globalThis.document.createElement("div");
+  globalThis.document.body.replaceChildren(container);
+  let editor = core.createEditorStateFromDocument(document, core.createSpan(core.createPosition(first, 0), core.createPosition(first, 0)), config);
   const controller = createEditorController(container, {
     measurer: core.createMockMeasurer(8, 16),
     dispatch: (a) => {

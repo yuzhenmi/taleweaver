@@ -4,5 +4,5 @@ import { acceptAll } from "../../state";
 import { resolveEdit } from "./helpers/resolve-edit";
 
 export function handleAcceptAllSuggestions(editor: EditorState): Edit | null {
-  return resolveEdit(acceptAll(editor.state));
+  return resolveEdit(acceptAll(editor.document));
 }

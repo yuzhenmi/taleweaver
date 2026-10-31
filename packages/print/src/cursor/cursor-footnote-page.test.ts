@@ -27,7 +27,7 @@ import type { TextShaper } from "@taleweaver/core";
 import type { PageConfig } from "../layout/page-config";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import {
-  buildState,
+  buildDocument,
   buildBlock,
   inlineContent,
   text,
@@ -35,7 +35,7 @@ import {
 } from "@taleweaver/core";
 import { createPosition, FOOTNOTE_ANCHOR_EMBED_TYPE } from "@taleweaver/core";
 import { collectFootnoteAnchors } from "@taleweaver/core";
-import type { State, BlockId } from "@taleweaver/core";
+import type { Document, BlockId } from "@taleweaver/core";
 import { resolvePixelPosition } from "./cursor-position";
 import { moveToLine, moveToLineBoundary } from "./line-navigation";
 import { getLineIndex } from "./line-flatten";
@@ -60,13 +60,13 @@ function fnAnchor() {
 }
 
 interface Built {
-  state: State;
+  document: Document;
   tree: VirtualLayoutTree;
   shaper: TextShaper;
 }
 
 function buildDoc(footnoteText: string): Built {
-  const state = buildState({
+  const document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -108,7 +108,7 @@ function buildDoc(footnoteText: string): Built {
   });
 
   const out = render(
-    state,
+    document,
     createDefaultComponentRegistry(),
     createDefaultAttrRegistry(),
   );
@@ -121,7 +121,7 @@ function buildDoc(footnoteText: string): Built {
     if (c.type === "element") cascadedEmbedContents.set(id, c);
   }
 
-  const footnoteAnchors = collectFootnoteAnchors(state);
+  const footnoteAnchors = collectFootnoteAnchors(document);
   expect(footnoteAnchors.map((a) => a.contentBlockId)).toEqual([FN_BODY]);
 
   const cfg = pageConfig();
@@ -138,7 +138,7 @@ function buildDoc(footnoteText: string): Built {
     footnoteAnchors,
   );
 
-  return { state, tree, shaper };
+  return { document, tree, shaper };
 }
 
 describe("footnote-body caret resolves per-page (no whole-tree materialization)", () => {
@@ -157,10 +157,10 @@ describe("footnote-body caret resolves per-page (no whole-tree materialization)"
   });
 
   it("resolvePixelPosition resolves a footnote-body caret per-page", () => {
-    const { state, tree, shaper } = buildDoc("note text");
+    const { document, tree, shaper } = buildDoc("note text");
     // Caret at offset 2 inside the footnote body paragraph.
     const pos = createPosition(FN_BODY_P, 2);
-    const pixel = resolvePixelPosition(state, pos, tree, shaper);
+    const pixel = resolvePixelPosition(document, pos, tree, shaper);
     expect(pixel).not.toBeNull();
     // The caret resolves onto page 0 (the body's carrying page), inside the
     // footnote slot band (below the body content).
@@ -168,10 +168,10 @@ describe("footnote-body caret resolves per-page (no whole-tree materialization)"
   });
 
   it("moveToLineBoundary (Home/End) resolves a footnote-body caret per-page", () => {
-    const { state, tree, shaper } = buildDoc("note text");
+    const { document, tree, shaper } = buildDoc("note text");
     const pos = createPosition(FN_BODY_P, 3);
-    const start = moveToLineBoundary(state, pos, tree, shaper, "start");
-    const end = moveToLineBoundary(state, pos, tree, shaper, "end");
+    const start = moveToLineBoundary(document, pos, tree, shaper, "start");
+    const end = moveToLineBoundary(document, pos, tree, shaper, "end");
     expect(start).not.toBeNull();
     expect(end).not.toBeNull();
     expect(start?.blockId).toBe(FN_BODY_P);
@@ -182,13 +182,13 @@ describe("footnote-body caret resolves per-page (no whole-tree materialization)"
   });
 
   it("moveToLine (Up/Down) within the isolated footnote context is a no-op, per-page", () => {
-    const { state, tree, shaper } = buildDoc("note text");
+    const { document, tree, shaper } = buildDoc("note text");
     const pos = createPosition(FN_BODY_P, 2);
     // A single-line footnote body is isolated (its own selection context), so
     // Up/Down stays put (returns null) — the #327 context filter. The point of
     // this test is that it resolves the page per-page.
-    const up = moveToLine(state, pos, tree, shaper, "up", null);
-    const down = moveToLine(state, pos, tree, shaper, "down", null);
+    const up = moveToLine(document, pos, tree, shaper, "up", null);
+    const down = moveToLine(document, pos, tree, shaper, "down", null);
     expect(up).toBeNull();
     expect(down).toBeNull();
   });
@@ -282,7 +282,7 @@ function buildSplitDoc(fnParaCount: number): SplitBuilt {
     }),
   );
 
-  const state = buildState({
+  const document = buildDocument({
     rootId: "doc",
     blocks: [
       buildBlock({
@@ -305,7 +305,7 @@ function buildSplitDoc(fnParaCount: number): SplitBuilt {
     ],
   });
 
-  const out = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry());
+  const out = render(document, createDefaultComponentRegistry(), createDefaultAttrRegistry());
   const cascadedRoot = cascadePass(out.root);
   if (cascadedRoot.type !== "element") throw new Error("root cascade not element");
 
@@ -315,7 +315,7 @@ function buildSplitDoc(fnParaCount: number): SplitBuilt {
     if (c.type === "element") cascadedEmbedContents.set(id, c);
   }
 
-  const footnoteAnchors = collectFootnoteAnchors(state);
+  const footnoteAnchors = collectFootnoteAnchors(document);
   expect(footnoteAnchors.map((a) => a.contentBlockId)).toEqual([FN_SPLIT_BODY]);
 
   const cfg = splitPageConfig();
@@ -332,7 +332,7 @@ function buildSplitDoc(fnParaCount: number): SplitBuilt {
     footnoteAnchors,
   );
 
-  return { state, tree, shaper, fnParaIds };
+  return { document, tree, shaper, fnParaIds };
 }
 
 /**
@@ -362,7 +362,7 @@ describe("footnote body that SPLITS across pages resolves on its continuation pa
   it("a caret in a footnote child paragraph rendered on a later page resolves to that page", () => {
     // 6 single-line footnote paragraphs on a 64px page ⇒ the body's slot can't
     // fit all 6 lines on page 0, so later paragraphs render on continuation slots.
-    const { state, tree, shaper, fnParaIds } = buildSplitDoc(6);
+    const { document, tree, shaper, fnParaIds } = buildSplitDoc(6);
 
     // PRECONDITION: the footnote body genuinely SPLITS — its slot start page and a
     // LATER continuation page both carry footnote lines (both fragments non-empty).
@@ -396,7 +396,7 @@ describe("footnote body that SPLITS across pages resolves on its continuation pa
     // page (> startPage), proving `resolveFootnoteBlockPage`'s forward-walk found
     // the later fragment — resolved per-page, never the whole tree.
     const pos = createPosition(contParaId, 1);
-    const pixel = resolvePixelPosition(state, pos, tree, shaper);
+    const pixel = resolvePixelPosition(document, pos, tree, shaper);
     expect(pixel).not.toBeNull();
     expect(pixel?.pageIndex).toBe(contPage);
     // Strictly greater than the body's first page — a regression that returned the
@@ -411,58 +411,58 @@ describe("unmapped (stale) caret: dev-throws, prod degrades safely (per-page)", 
   });
 
   it("DEV: resolvePixelPosition throws when no page resolver maps the block", () => {
-    const { state, tree, shaper } = buildDoc("note text");
+    const { document, tree, shaper } = buildDoc("note text");
     vi.stubEnv("NODE_ENV", "development");
     const guarded = withUnmappedPlan(tree);
     const pos = createPosition(FN_BODY_P, 1);
-    expect(() => resolvePixelPosition(state, pos, guarded, shaper)).toThrow(/maps to no page/);
+    expect(() => resolvePixelPosition(document, pos, guarded, shaper)).toThrow(/maps to no page/);
   });
 
   it("DEV: moveToLine throws when no page resolver maps the block (stale caret)", () => {
     // Issue 2 lock: the dev-throw in `moveToLineVirtual`'s no-page branch.
     // Without it (regressed to a silent `return null`) this would NOT throw, so
     // the stale-caret programmer error would slip through in dev.
-    const { state, tree, shaper } = buildDoc("note text");
+    const { document, tree, shaper } = buildDoc("note text");
     vi.stubEnv("NODE_ENV", "development");
     const guarded = withUnmappedPlan(tree);
     const pos = createPosition(FN_BODY_P, 1);
-    expect(() => moveToLine(state, pos, guarded, shaper, "up", null)).toThrow(/maps to no page/);
-    expect(() => moveToLine(state, pos, guarded, shaper, "down", null)).toThrow(/maps to no page/);
+    expect(() => moveToLine(document, pos, guarded, shaper, "up", null)).toThrow(/maps to no page/);
+    expect(() => moveToLine(document, pos, guarded, shaper, "down", null)).toThrow(/maps to no page/);
   });
 
   it("DEV: moveToLineBoundary throws when no page resolver maps the block (stale caret)", () => {
     // Issue 2 lock: the dev-throw in `moveToLineBoundary`'s no-page branch.
-    const { state, tree, shaper } = buildDoc("note text");
+    const { document, tree, shaper } = buildDoc("note text");
     vi.stubEnv("NODE_ENV", "development");
     const guarded = withUnmappedPlan(tree);
     const pos = createPosition(FN_BODY_P, 1);
-    expect(() => moveToLineBoundary(state, pos, guarded, shaper, "start")).toThrow(/maps to no page/);
-    expect(() => moveToLineBoundary(state, pos, guarded, shaper, "end")).toThrow(/maps to no page/);
+    expect(() => moveToLineBoundary(document, pos, guarded, shaper, "start")).toThrow(/maps to no page/);
+    expect(() => moveToLineBoundary(document, pos, guarded, shaper, "end")).toThrow(/maps to no page/);
   });
 
   it("PROD: resolvePixelPosition returns null (no throw, per-page)", () => {
-    const { state, tree, shaper } = buildDoc("note text");
+    const { document, tree, shaper } = buildDoc("note text");
     vi.stubEnv("NODE_ENV", "production");
     const guarded = withUnmappedPlan(tree);
     const pos = createPosition(FN_BODY_P, 1);
-    expect(resolvePixelPosition(state, pos, guarded, shaper)).toBeNull();
+    expect(resolvePixelPosition(document, pos, guarded, shaper)).toBeNull();
   });
 
   it("PROD: moveToLine returns null (caret stays put, no throw, per-page)", () => {
-    const { state, tree, shaper } = buildDoc("note text");
+    const { document, tree, shaper } = buildDoc("note text");
     vi.stubEnv("NODE_ENV", "production");
     const guarded = withUnmappedPlan(tree);
     const pos = createPosition(FN_BODY_P, 1);
-    expect(moveToLine(state, pos, guarded, shaper, "up", null)).toBeNull();
-    expect(moveToLine(state, pos, guarded, shaper, "down", null)).toBeNull();
+    expect(moveToLine(document, pos, guarded, shaper, "up", null)).toBeNull();
+    expect(moveToLine(document, pos, guarded, shaper, "down", null)).toBeNull();
   });
 
   it("PROD: moveToLineBoundary returns the input position unchanged (Home/End no-op)", () => {
-    const { state, tree, shaper } = buildDoc("note text");
+    const { document, tree, shaper } = buildDoc("note text");
     vi.stubEnv("NODE_ENV", "production");
     const guarded = withUnmappedPlan(tree);
     const pos = createPosition(FN_BODY_P, 1);
-    expect(moveToLineBoundary(state, pos, guarded, shaper, "start")).toEqual(pos);
-    expect(moveToLineBoundary(state, pos, guarded, shaper, "end")).toEqual(pos);
+    expect(moveToLineBoundary(document, pos, guarded, shaper, "start")).toEqual(pos);
+    expect(moveToLineBoundary(document, pos, guarded, shaper, "end")).toEqual(pos);
   });
 });

@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
-import { applyOperation, getBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, getBlock } from "../document";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { requireInTransaction } from "../yjs-doc";
@@ -46,18 +46,18 @@ export interface InsertTableColumnSpanAwarePlan {
  * transaction (one undo reverts cells + widths).
  *
  * Caller routes here only for a SPANNED, non-ragged table (1×1 tables use the
- * byte-identical plain `insertTableColumn`). NO-OP (same `state`) when the grid
+ * byte-identical plain `insertTableColumn`). NO-OP (same `document`) when the grid
  * can't be built. MAIN-TREE ONLY.
  */
 export function insertTableColumnSpanAware(
-  state: State,
+  document: Document,
   ctx: TableContext,
   position: ColumnPosition,
   allocator: IdAllocator,
 ): OperationResult {
-  const plan = planInsertTableColumnSpanAware(state, ctx, position, allocator);
-  if (plan === null) return { state, dirtyIds: new Set<BlockId>() };
-  return applyOperation(state, (doc) => {
+  const plan = planInsertTableColumnSpanAware(document, ctx, position, allocator);
+  if (plan === null) return { document, dirtyIds: new Set<BlockId>() };
+  return applyOperation(document, (doc) => {
     insertTableColumnSpanAwareInTx(doc, plan);
   });
 }
@@ -70,12 +70,12 @@ export function insertTableColumnSpanAware(
  * neighbour from another row is excluded), mirroring `split-cell`.
  */
 export function planInsertTableColumnSpanAware(
-  state: State,
+  document: Document,
   ctx: TableContext,
   position: ColumnPosition,
   allocator: IdAllocator,
 ): InsertTableColumnSpanAwarePlan | null {
-  const grid = buildTableGrid(state, ctx.tableId);
+  const grid = buildTableGrid(document, ctx.tableId);
   if (grid === null) return null;
   const caret = grid.cells.find((c) => c.cellId === ctx.cellId);
   if (caret === undefined) return null;
@@ -96,7 +96,7 @@ export function planInsertTableColumnSpanAware(
 
   const crossingBumps = [...crossingIds].map((cellId) => {
     const cell = grid.cells.find((c) => c.cellId === cellId);
-    const block = getBlock(state, cellId);
+    const block = getBlock(document, cellId);
     if (cell === undefined || block === null) {
       throw new Error(`insertTableColumnSpanAware: crossing cell "${cellId}" not found in state`);
     }
@@ -129,7 +129,7 @@ export function planInsertTableColumnSpanAware(
   });
 
   // columnWidths lives on the table; a new column raises the count → splice at gc.
-  const table = getBlock(state, ctx.tableId);
+  const table = getBlock(document, ctx.tableId);
   const cw = table?.attrs.columnWidths;
   const newTableAttrs: ReadonlyAttrs | null =
     table !== null && isColumnWidths(cw)

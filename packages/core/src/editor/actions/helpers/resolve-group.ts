@@ -10,5 +10,5 @@ export function resolveGroup(
   mode: "accept" | "reject",
 ): Edit | null {
   const op = mode === "accept" ? acceptSuggestionGroup : rejectSuggestionGroup;
-  return resolveEdit(op(editor.state, groupId));
+  return resolveEdit(op(editor.document, groupId));
 }

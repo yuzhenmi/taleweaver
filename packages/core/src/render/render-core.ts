@@ -29,13 +29,13 @@ import {
   DELETION_SUGGESTION_ATTR,
   pendingFormattingSuggestions,
   resolveFormattingSuggestionTags,
-  readSuggestionRecordFromState,
+  readSuggestionRecordFromDocument,
   itemVisibleInView,
 } from "../state";
 import type {
   Block,
   BlockId,
-  State,
+  Document,
   ReadonlyAttrs,
   InlineContent,
   BookmarkRange,
@@ -81,14 +81,14 @@ import {
 
 
 /** The author color of a boundary mark's first suggestion (null when its record is gone). */
-function markColor(state: State, m: BoundaryMark): string | null {
+function markColor(document: Document, m: BoundaryMark): string | null {
   const first = m.suggestionIds[0];
-  const record = first === undefined ? null : readSuggestionRecordFromState(state, first);
+  const record = first === undefined ? null : readSuggestionRecordFromDocument(document, first);
   return record === null ? null : authorColorOf(record.author);
 }
 
-function markMetadata(state: State, m: BoundaryMark): BoundaryMarkMetadata {
-  return Object.freeze({ kind: m.kind, color: markColor(state, m), suggestionIds: m.suggestionIds });
+function markMetadata(document: Document, m: BoundaryMark): BoundaryMarkMetadata {
+  return Object.freeze({ kind: m.kind, color: markColor(document, m), suggestionIds: m.suggestionIds });
 }
 
 /**
@@ -109,11 +109,11 @@ function withMarkerStyle(node: RenderNode, markAttrs: ReadonlyAttrs | undefined,
  * A text block box with its own tracked ¶ (`endMark`) — derived from the block
  * itself. Not a render child or an inline item: no IFC token, no offset.
  */
-function withBoundaryMetadata(node: RenderNode, blockId: BlockId, state: State): RenderNode {
+function withBoundaryMetadata(node: RenderNode, blockId: BlockId, document: Document): RenderNode {
   if (node.type !== "element") return node;
-  const end = endMarkOf(state, blockId);
+  const end = endMarkOf(document, blockId);
   if (end === null) return node;
-  return createElementBox(node.key, node.style, node.children, { ...(node.metadata ?? {}), endMark: markMetadata(state, end) });
+  return createElementBox(node.key, node.style, node.children, { ...(node.metadata ?? {}), endMark: markMetadata(document, end) });
 }
 
 /**
@@ -157,7 +157,7 @@ export function renderBlockBody(
   block: Block,
   parentComputed: ComputedStyle | null,
   parentSpecified: Partial<Style> | undefined,
-  state: State,
+  document: Document,
   componentRegistry: ComponentRegistry,
   attrRegistry: AttrRegistry,
   context: RenderContext,
@@ -200,7 +200,7 @@ export function renderBlockBody(
     // `outlineSignature` check invalidates the TOC anchors so this branch
     // re-derives.
     if (block.type === "table-of-contents") {
-      return renderTocBlock(block, state, context.suggestionView ?? "suggesting");
+      return renderTocBlock(block, document, context.suggestionView ?? "suggesting");
     }
 
     if (def.kind === "container") {
@@ -218,7 +218,7 @@ export function renderBlockBody(
         // body nested in embedContents/templateContents resolves its
         // children, which live in the same content Y.Map. For main-tree
         // blocks resolveBlock's first arm is getBlock → identical.
-        const child = resolveBlock(state, childId)?.block ?? null;
+        const child = resolveBlock(document, childId)?.block ?? null;
         if (child === null) {
           throw new Error(`render: child "${childId}" of "${block.id}" not found in any tree`);
         }
@@ -259,7 +259,7 @@ export function renderBlockBody(
           specified,
           attrRegistry,
           fnNumbers,
-          state,
+          document,
           numbering,
           context.suggestionView ?? "suggesting",
           block.markAttrs,
@@ -270,7 +270,7 @@ export function renderBlockBody(
     // the block box as metadata (no IFC token, no offset); the backends draw it at the
     // caret paint position of (block, len). Only the literal "suggesting" view shows it.
     if ((context.suggestionView ?? "suggesting") !== "suggesting" || def.leafShape === "atomic") return rendered;
-    return withBoundaryMetadata(rendered, block.id, state);
+    return withBoundaryMetadata(rendered, block.id, document);
   } finally {
     // `visited` tracks the ACTIVE recursion path, not the cumulative
     // set of visited blocks. Draining on every exit (including throws)
@@ -290,14 +290,14 @@ export function renderBlockBody(
  * style). The `tableOfContents` metadata keeps the box recognizable to the DOM
  * controller's TOC hit-test (matching the component's own placeholder box).
  */
-function renderTocBlock(block: Block, state: State, suggestionView: SuggestionView): ElementBox {
+function renderTocBlock(block: Block, document: Document, suggestionView: SuggestionView): ElementBox {
   const attrs: TocAttrs = {
     levels: tocLevelsFromAttrs(block.attrs.levels),
     leader: tocLeaderFromAttrs(block.attrs.leader),
     showPageNumbers: tocShowPageNumbersFromAttrs(block.attrs.showPageNumbers),
     indentStep: tocIndentStepFromAttrs(block.attrs.indentStep),
   };
-  const outline = getOutline(state, { suggestionView });
+  const outline = getOutline(document, { suggestionView });
   const entries = buildTocEntrySubtree(outline, attrs, block.id);
   return createElementBox(block.id, { display: "block" }, entries, { tableOfContents: true });
 }
@@ -352,7 +352,7 @@ export function expandInlineItems(
   blockSpecified: Partial<Style>,
   attrRegistry: AttrRegistry,
   fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
-  state: State,
+  document: Document,
   numbering: ReadonlyMap<BlockId, CounterValue>,
   view: SuggestionView = "suggesting",
   markAttrs?: ReadonlyAttrs,
@@ -381,7 +381,7 @@ export function expandInlineItems(
     const itemStyle: Partial<Style> = resolveSuggestionStyle(
       item.attrs,
       attrRegistry.applyAll(item.attrs, { parentStyle: blockSpecified }),
-      state,
+      document,
       attrRegistry,
       blockSpecified,
       view,
@@ -481,7 +481,7 @@ export function expandInlineItems(
       } else {
         const resolved =
           range !== undefined && (refMode === "number" || refMode === "text")
-            ? resolveCrossReference(state, numbering, { range, refMode }, view)
+            ? resolveCrossReference(document, numbering, { range, refMode }, view)
             : BROKEN_CROSS_REFERENCE_TEXT;
         out.push(
           createElementBox(
@@ -712,7 +712,7 @@ export function expandInlineItems(
  *     insertion+deletion → color + underline + lineThrough).
  *
  * Author color comes from {@link authorColorOf} (stable per author). The record
- * is read from the `suggestions` map by id ({@link readSuggestionRecordFromState});
+ * is read from the `suggestions` map by id ({@link readSuggestionRecordFromDocument});
  * an id with no record (collab race / migration) contributes nothing.
  *
  * The composite attrs are translated through the SAME `attrRegistry.applyAll` an
@@ -723,7 +723,7 @@ export function expandInlineItems(
 function resolveSuggestionStyle(
   attrs: ReadonlyAttrs,
   baseStyle: Partial<Style>,
-  state: State,
+  document: Document,
   attrRegistry: AttrRegistry,
   blockSpecified: Partial<Style>,
   view: SuggestionView,
@@ -732,7 +732,7 @@ function resolveSuggestionStyle(
   const deletionId = attrs[DELETION_SUGGESTION_ATTR];
   // Pending formatting suggestions on the run in (order, createdAt, id) order; a tag whose
   // record is missing (collab race) is ignored.
-  const pending = pendingFormattingSuggestions(attrs, (id) => readSuggestionRecordFromState(state, id));
+  const pending = pendingFormattingSuggestions(attrs, (id) => readSuggestionRecordFromDocument(document, id));
   // Fast path: not a tracked run → no override, return the base unchanged so a
   // plain run is identical to a no-suggestion render.
   if (typeof insertionId !== "string" && typeof deletionId !== "string" && pending.length === 0) {
@@ -760,7 +760,7 @@ function resolveSuggestionStyle(
   // decoration overrides LAST (they are the suggestion's defining visual, not
   // overridable by the proposal).
   const newestFormatting = pending[pending.length - 1]?.record ?? null;
-  const authorColor = resolveRunAuthorColor(state, insertionId, deletionId, newestFormatting);
+  const authorColor = resolveRunAuthorColor(document, insertionId, deletionId, newestFormatting);
   // Insertion → underline; formatting → the same subtle author-color underline
   // indicator. Deletion → lineThrough. A nested run accumulates all flags.
   const wantUnderline = typeof insertionId === "string" || pending.length > 0;
@@ -783,7 +783,7 @@ function resolveSuggestionStyle(
  * to the normal cascade.
  */
 function resolveRunAuthorColor(
-  state: State,
+  document: Document,
   insertionId: unknown,
   deletionId: unknown,
   formattingRecord: SuggestionRecord | null,
@@ -794,7 +794,7 @@ function resolveRunAuthorColor(
   // already read (no second Y.Doc lookup).
   for (const id of [insertionId, deletionId]) {
     if (typeof id !== "string") continue;
-    const record = readSuggestionRecordFromState(state, id as SuggestionId);
+    const record = readSuggestionRecordFromDocument(document, id as SuggestionId);
     if (record !== null) return authorColorOf(record.author);
   }
   if (formattingRecord !== null) return authorColorOf(formattingRecord.author);

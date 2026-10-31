@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
-import type { State, OperationResult } from "../state";
-import { applyOperation, getBlock } from "../state";
+import type { Document, OperationResult } from "../document";
+import { applyOperation, getBlock } from "../document";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { requireInTransaction } from "../yjs-doc";
@@ -51,13 +51,13 @@ export interface InsertTableColumnPlan {
  * and/or a row's child-list change) plus every touched row + new cell.
  */
 export function insertTableColumn(
-  state: State,
+  document: Document,
   ctx: TableContext,
   position: ColumnPosition,
   allocator: IdAllocator,
 ): OperationResult {
-  const plan = planInsertTableColumn(state, ctx, position, allocator);
-  return applyOperation(state, (doc) => {
+  const plan = planInsertTableColumn(document, ctx, position, allocator);
+  return applyOperation(document, (doc) => {
     insertTableColumnInTx(doc, plan);
   });
 }
@@ -65,7 +65,7 @@ export function insertTableColumn(
 /** Build the plan from a resolved context. Allocates one cell + paragraph id per
  *  row, and computes the spliced `columnWidths` attrs bag when present. */
 export function planInsertTableColumn(
-  state: State,
+  document: Document,
   ctx: TableContext,
   position: ColumnPosition,
   allocator: IdAllocator,
@@ -92,7 +92,7 @@ export function planInsertTableColumn(
 
   // columnWidths lives in the table's block attrs. Present → splice + renormalize
   // (one new fraction at targetCol); absent → auto-layout, no attr change.
-  const table = getBlock(state, ctx.tableId);
+  const table = getBlock(document, ctx.tableId);
   const cw = table?.attrs.columnWidths;
   const newTableAttrs: ReadonlyAttrs | null =
     table !== null && isColumnWidths(cw)

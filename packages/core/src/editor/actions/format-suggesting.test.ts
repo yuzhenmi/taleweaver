@@ -15,7 +15,7 @@
  * Plus a guard-lock: CLEAR_FORMATTING in DIRECT mode must NOT strip a
  * suggestion-provenance id (`INLINE_FORMAT_ATTR_KEYS` is a curated allow-list).
  */
-import { finalSectionOf } from "../../test-utils/state-builders";
+import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,
@@ -45,7 +45,7 @@ import { formattingSuggestionIds } from "../../state";
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, finalSectionOf(editor.state));
+  const root = getBlock(editor.document, finalSectionOf(editor.document));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -89,7 +89,7 @@ function seededSelection(config: EditorConfig): { editor: EditorState; paraId: B
 
 /** Every text item of `paraId`. */
 function textItems(editor: EditorState, paraId: BlockId) {
-  return (getBlock(editor.state, paraId)?.inlineContent?.items ?? []).filter(
+  return (getBlock(editor.document, paraId)?.inlineContent?.items ?? []).filter(
     (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",
   );
 }
@@ -168,7 +168,7 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
       }
 
       // (b) one formatting record, by "alice", proposing the action's delta.
-      const suggestions = getSuggestions(next.state);
+      const suggestions = getSuggestions(next.document);
       expect(suggestions).toHaveLength(1);
       expect(nth(suggestions, 0, "suggestion").kind).toBe("formatting");
       expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
@@ -186,7 +186,7 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
       const { editor, paraId } = seededSelection(directConfig);
       const next = reduceEditor(editor, c.action);
 
-      expect(getSuggestions(next.state)).toHaveLength(0);
+      expect(getSuggestions(next.document)).toHaveLength(0);
       // The single non-CLEAR cases set their key live; assert that key landed.
       // CLEAR_FORMATTING on already-clean text is a state no-op (nothing to
       // clear), so we only check it produced no suggestion above.
@@ -231,15 +231,15 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
       { type: "CLEAR_FORMATTING" },
     );
 
-    const id = nth(getSuggestions(cleared.state), 0, "suggestion").id;
-    const accepted = acceptSuggestion(cleared.state, id);
-    const runs = (getBlock(accepted.state, paraId)?.inlineContent?.items ?? []).filter(
+    const id = nth(getSuggestions(cleared.document), 0, "suggestion").id;
+    const accepted = acceptSuggestion(cleared.document, id);
+    const runs = (getBlock(accepted.document, paraId)?.inlineContent?.items ?? []).filter(
       (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",
     );
     for (const run of runs) {
       expect(run.attrs.bold).toBe(true);
       expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
     }
-    expect(getSuggestions(accepted.state)).toHaveLength(0);
+    expect(getSuggestions(accepted.document)).toHaveLength(0);
   });
 });

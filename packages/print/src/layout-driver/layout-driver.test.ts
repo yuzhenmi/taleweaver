@@ -2,7 +2,7 @@
 //
 // Phase 0b slice 3 (D2a), Step 1. The backend layout-driver owns the
 // render → cascade → layout pipeline that used to live inside core's
-// `rebuildTrees` / `createEditorStateFromState`. These tests prove the driver
+// `rebuildTrees` / `createEditorStateFromDocument`. These tests prove the driver
 // is a faithful relocation:
 //   1. `rebuild(editor)` with no dirty set (a full build) produces a layout tree
 //      structurally equal to core's own `editorState.layoutTree` oracle.
@@ -51,7 +51,7 @@ function coreLayoutOracle(
   editor: EditorState,
   config: EditorConfig,
 ): LayoutBox | VirtualLayoutTree {
-  const rendered = render(editor.state, config.componentRegistry, config.attrRegistry);
+  const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   return layoutTreeIncremental(
     cascaded,
@@ -63,7 +63,7 @@ function coreLayoutOracle(
     undefined,
     undefined,
     rendered.footnoteAnchors,
-    makeBlockParentLookup(editor.state),
+    makeBlockParentLookup(editor.document),
   );
 }
 
@@ -126,21 +126,21 @@ describe("createLayoutDriver — Phase 0b relocation of the layout pipeline", ()
     }
   });
 
-  it("a selection-only update (same State, same width, no dirty set) returns the prior tree: a caret move never re-lays-out the document (O(1) per caret move)", () => {
+  it("a selection-only update (same Document, same width, no dirty set) returns the prior tree: a caret move never re-lays-out the document (O(1) per caret move)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "Some text" });
     const driver = createLayoutDriver(LAYOUT_CONFIG);
     const first = driver.rebuild(editor);
     const moved = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(editor.selection.focus.blockId, 1), createPosition(editor.selection.focus.blockId, 1)) });
-    expect(moved.state).toBe(editor.state);
+    expect(moved.document).toBe(editor.document);
     expect(moved.lastDirtyIds).toBeNull();
     expect(driver.rebuild(moved)).toBe(first);
     // A width change still rebuilds.
     const widened = { ...moved, containerWidth: moved.containerWidth + 10 };
     const second = driver.rebuild(widened);
     expect(second).not.toBe(first);
-    // So does a page-setup change on the editor's config (same State, width, no dirty set).
+    // So does a page-setup change on the editor's config (same Document, width, no dirty set).
     const resized = { ...widened, config: { ...widened.config, pageConfig: { ...PAGE_CONFIG, pageBlockSize: PAGE_CONFIG.pageBlockSize + 100 } } };
     expect(driver.rebuild(resized)).not.toBe(second);
   });
@@ -177,6 +177,6 @@ describe("createLayoutDriver — Phase 0b relocation of the layout pipeline", ()
     // Page 0 (far from the edit at the end) is reused by reference.
     expect(firstPageAfter).toBe(firstPageBefore);
     // sanity: the doc genuinely changed at the tail
-    expect(before.state).not.toBe(editor.state);
+    expect(before.document).not.toBe(editor.document);
   });
 });

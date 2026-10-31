@@ -76,7 +76,7 @@ function assembleAllPages(tree: VirtualLayoutTree): LayoutBox {
 }
 
 function paragraphId(ctx: NavCtx): BlockId {
-  const root = finalSection(ctx.editor.state);
+  const root = finalSection(ctx.editor.document);
   if (root === null || root.firstChildId === null) throw new Error("test setup");
   return root.firstChildId;
 }
@@ -104,7 +104,7 @@ const sharedMeasurer: TextMeasurer = adaptShaperToMeasurer(createMockShaper(8, 1
 function coveredExtent(ctx: NavCtx): { lo: number; hi: number; rects: SelectionRect[] } {
   const positioned = positionedTree(ctx);
   const rects = computeSelectionRects(
-    ctx.editor.state,
+    ctx.editor.document,
     ctx.editor.selection,
     positioned,
     sharedMeasurer,
@@ -203,14 +203,14 @@ describe("EXPAND_SELECTION — visual-extent through an RTL run in LTR text (#50
     const positioned = positionedTree(ctx);
     // Four-arg (no affinity) logical output.
     const logical = computeSelectionRects(
-      ctx.editor.state,
+      ctx.editor.document,
       ctx.editor.selection,
       positioned,
       sharedMeasurer,
     );
     // Six-arg with the editor's (undefined) affinities → must be identical.
     const withAffinity = computeSelectionRects(
-      ctx.editor.state,
+      ctx.editor.document,
       ctx.editor.selection,
       positioned,
       sharedMeasurer,
@@ -290,7 +290,7 @@ describe("computeSelectionRects — multi-line bidi visual-extent first-of-multi
     expect(anchorVisualX).toBeGreaterThan(40);
 
     const rects = computeSelectionRects(
-      ctx.editor.state,
+      ctx.editor.document,
       ctx.editor.selection,
       positioned,
       sharedMeasurer,

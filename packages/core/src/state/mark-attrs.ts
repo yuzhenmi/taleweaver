@@ -29,7 +29,7 @@ export function markAttrsOfRun(attrs: ReadonlyAttrs | ReadonlyMap<string, unknow
 const BOUND = new WeakMap<Y.Doc, AttrRegistry>();
 
 /**
- * Bind the host attr registry to `doc` (the editor does, when it adopts a State; a host
+ * Bind the host attr registry to `doc` (the editor does, when it adopts a Document; a host
  * that upgrades a document before any editor adopts it binds it first). Every state
  * writer that judges an attr — a ¶'s inclusive `markAttrs`, a split's one-shot attrs,
  * the upgrade's derived ¶ props — reads it here; none takes it as a parameter.
@@ -46,7 +46,7 @@ export function attrRegistryOf(doc: Y.Doc): AttrRegistry | undefined {
 /** The registry bound to `doc`. Throws when none is (an editor binds its own on adoption). */
 export function requireAttrRegistry(doc: Y.Doc): AttrRegistry {
   const registry = BOUND.get(doc);
-  if (registry === undefined) throw new Error("attrs: no AttrRegistry bound to this document (adopt its State in an editor, or call bindAttrRegistry)");
+  if (registry === undefined) throw new Error("attrs: no AttrRegistry bound to this document (adopt its Document in an editor, or call bindAttrRegistry)");
   return registry;
 }
 

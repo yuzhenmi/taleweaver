@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { clonePastedSubtree } from "./clone-pasted-subtree";
-import { TEST_RESOLVER, testContainer, buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
+import { TEST_RESOLVER, testContainer, buildBlock, buildDocument, text, embed, inlineContent } from "../test-utils/document-builders";
 import { createTestAllocator, type BlockId } from "./block-id";
-import { getBlock, type State } from "./state";
+import { getBlock, type Document } from "./document";
 import type { Block } from "./block";
 
 // Host container types the default registry lacks (file-local registry instance).
@@ -29,7 +29,7 @@ describe("clonePastedSubtree — basic single-leaf clone", () => {
   // Expected: cloned root has new id from allocator; type/attrs/content preserved;
   // parentId/sibling pointers all null on the clone.
   it("clones a single leaf block with text content", () => {
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -43,7 +43,7 @@ describe("clonePastedSubtree — basic single-leaf clone", () => {
       ],
     });
     const allocator = createTestAllocator("clone");
-    const result = clonePastedSubtree(sourceState, "p" as BlockId, allocator);
+    const result = clonePastedSubtree(sourceDocument, "p" as BlockId, allocator);
 
     // The cloned root has the first allocator-produced id.
     expect(result.rootId).toBe("clone-0");
@@ -69,7 +69,7 @@ describe("clonePastedSubtree — basic single-leaf clone", () => {
 describe("clonePastedSubtree — tree shapes", () => {
   it("clones a parent with two children, mapping all internal refs", () => {
     // Source: section > [p1, p2]. Clone the section.
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
@@ -79,7 +79,7 @@ describe("clonePastedSubtree — tree shapes", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    const result = clonePastedSubtree(sourceState, "section" as BlockId, allocator);
+    const result = clonePastedSubtree(sourceDocument, "section" as BlockId, allocator);
 
     // 3 blocks cloned: section + p1 + p2. doc is NOT included (it's outside the subtree).
     expect(result.blocks.size).toBe(3);
@@ -116,7 +116,7 @@ describe("clonePastedSubtree — tree shapes", () => {
     // Source: doc > section > blockquote > [item1, item2]. Clone the section.
     // (A generic CONTAINER nesting test — `clonePastedSubtree` is pure
     // structural copy and does not validate component kinds.)
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
@@ -127,7 +127,7 @@ describe("clonePastedSubtree — tree shapes", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    const result = clonePastedSubtree(sourceState, "section" as BlockId, allocator);
+    const result = clonePastedSubtree(sourceDocument, "section" as BlockId, allocator);
 
     // 5 blocks cloned: section + blockquote + i1 + i2 + the paragraph ending the section
     // (a section ending in a container gets its own terminating ¶).
@@ -154,7 +154,7 @@ describe("clonePastedSubtree — tree shapes", () => {
 
   it("clones a single-child tree (firstChildId === lastChildId)", () => {
     // Source: doc > section > p_only. Clone section.
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
@@ -163,7 +163,7 @@ describe("clonePastedSubtree — tree shapes", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    const result = clonePastedSubtree(sourceState, "section" as BlockId, allocator);
+    const result = clonePastedSubtree(sourceDocument, "section" as BlockId, allocator);
 
     expect(result.blocks.size).toBe(2);
     const newSection = result.blocks.get(result.rootId);
@@ -179,7 +179,7 @@ describe("clonePastedSubtree — tree shapes", () => {
     // Source: doc > [empty_section, p]. Clone the empty container. (An empty
     // SECTION is not in the read model — empty sections are dropped — so the empty
     // container here is a childless blockquote.)
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "empty_section", lastChildId: "p" }),
@@ -188,7 +188,7 @@ describe("clonePastedSubtree — tree shapes", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    const result = clonePastedSubtree(sourceState, "empty_section" as BlockId, allocator);
+    const result = clonePastedSubtree(sourceDocument, "empty_section" as BlockId, allocator);
 
     // An empty container reads as ONE implicit empty paragraph (flow model), cloned with it.
     expect(result.blocks.size).toBe(2);
@@ -208,7 +208,7 @@ describe("clonePastedSubtree — embed-content cloning", () => {
     // Source: doc > [p1[text + embed("footnote-anchor", { contentBlockId: "fn-body" })]] + fn-body in embedContents.
     // Clone p1: should also clone fn-body (into result.embedContents), and the
     // cloned anchor's contentBlockId points to the cloned body.
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
@@ -231,7 +231,7 @@ describe("clonePastedSubtree — embed-content cloning", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    const result = clonePastedSubtree(sourceState, "p1" as BlockId, allocator);
+    const result = clonePastedSubtree(sourceDocument, "p1" as BlockId, allocator);
 
     // 1 block in main tree (p1) and 2 in embedContents (fn-body + its paragraph). doc is outside.
     expect(result.blocks.size).toBe(1);
@@ -261,7 +261,7 @@ describe("clonePastedSubtree — embed-content cloning", () => {
 
   it("clones multiple embed-content references", () => {
     // Source: p1 with TWO footnote anchors → two distinct fn-body clones in embedContents.
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
@@ -283,7 +283,7 @@ describe("clonePastedSubtree — embed-content cloning", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    const result = clonePastedSubtree(sourceState, "p1" as BlockId, allocator);
+    const result = clonePastedSubtree(sourceDocument, "p1" as BlockId, allocator);
 
     // 1 in main tree (p1), 4 in embedContents (fn-a, fn-b + one paragraph each).
     expect(result.blocks.size).toBe(1);
@@ -311,7 +311,7 @@ describe("clonePastedSubtree — embed-content cloning", () => {
   it("clones nested embed-content (footnote body containing its own footnote anchor)", () => {
     // Source: p1 has fn-outer, fn-outer-body has fn-inner anchor, fn-inner-body has plain text.
     // Both fn-outer and fn-inner live in embedContents.
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
@@ -332,7 +332,7 @@ describe("clonePastedSubtree — embed-content cloning", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    const result = clonePastedSubtree(sourceState, "p1" as BlockId, allocator);
+    const result = clonePastedSubtree(sourceDocument, "p1" as BlockId, allocator);
 
     // 1 in main tree (p1), 4 in embedContents (fn-outer + fn-inner + one paragraph each).
     expect(result.blocks.size).toBe(1);
@@ -361,7 +361,7 @@ describe("clonePastedSubtree — embed-content cloning", () => {
 
   it("cloned tree block lands in result.blocks, not result.embedContents (segregation)", () => {
     // A plain paragraph with no embeds: lives only in result.blocks.
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -369,7 +369,7 @@ describe("clonePastedSubtree — embed-content cloning", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    const result = clonePastedSubtree(sourceState, "p" as BlockId, allocator);
+    const result = clonePastedSubtree(sourceDocument, "p" as BlockId, allocator);
 
     expect(result.blocks.size).toBe(1);
     expect(result.embedContents.size).toBe(0);
@@ -380,7 +380,7 @@ describe("clonePastedSubtree — embed-content cloning", () => {
   it("an embed-content block's children are also cloned into result.embedContents", () => {
     // Source: p1 references fn-body; fn-body contains a child (e.g. a paragraph inside the footnote body).
     // Both fn-body AND fn-body's child should land in result.embedContents.
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
@@ -407,7 +407,7 @@ describe("clonePastedSubtree — embed-content cloning", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    const result = clonePastedSubtree(sourceState, "p1" as BlockId, allocator);
+    const result = clonePastedSubtree(sourceDocument, "p1" as BlockId, allocator);
 
     expect(result.blocks.size).toBe(1);
     expect(result.embedContents.size).toBe(2);
@@ -430,28 +430,28 @@ describe("clonePastedSubtree — embed-content cloning", () => {
 
 describe("clonePastedSubtree — block-level invariants", () => {
   it("does not mutate the source state", () => {
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
-    const beforeP = getBlock(sourceState, "p" as BlockId);
-    const beforeDoc = getBlock(sourceState, "doc" as BlockId);
+    const beforeP = getBlock(sourceDocument, "p" as BlockId);
+    const beforeDoc = getBlock(sourceDocument, "doc" as BlockId);
     const allocator = createTestAllocator("c");
-    clonePastedSubtree(sourceState, "p" as BlockId, allocator);
+    clonePastedSubtree(sourceDocument, "p" as BlockId, allocator);
 
     // Source state's blocks unchanged.
-    expect(getBlock(sourceState, "p" as BlockId)).toBe(beforeP);
-    expect(getBlock(sourceState, "doc" as BlockId)).toBe(beforeDoc);
+    expect(getBlock(sourceDocument, "p" as BlockId)).toBe(beforeP);
+    expect(getBlock(sourceDocument, "doc" as BlockId)).toBe(beforeDoc);
     // No new blocks added to the source.
-    expect(getBlock(sourceState, "c-0" as BlockId)).toBeNull();
+    expect(getBlock(sourceDocument, "c-0" as BlockId)).toBeNull();
   });
 
   it("the cloned root has parentId/sibling pointers all null, even when the source did not", () => {
     // Source: section > [p1, p2, p3]. Clone p2 (a middle child with both prev and next siblings).
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
@@ -461,7 +461,7 @@ describe("clonePastedSubtree — block-level invariants", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    const result = clonePastedSubtree(sourceState, "p2" as BlockId, allocator);
+    const result = clonePastedSubtree(sourceDocument, "p2" as BlockId, allocator);
 
     expect(result.blocks.size).toBe(1);
     const newP2 = result.blocks.get(result.rootId);
@@ -472,7 +472,7 @@ describe("clonePastedSubtree — block-level invariants", () => {
   });
 
   it("preserves type, attrs, text content, and embed properties exactly (excluding rewritten contentBlockId)", () => {
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "li" }),
@@ -489,7 +489,7 @@ describe("clonePastedSubtree — block-level invariants", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    const result = clonePastedSubtree(sourceState, "li" as BlockId, allocator);
+    const result = clonePastedSubtree(sourceDocument, "li" as BlockId, allocator);
 
     const newLi = result.blocks.get(result.rootId);
     expect(newLi?.type).toBe("list-item");
@@ -509,7 +509,7 @@ describe("clonePastedSubtree — block-level invariants", () => {
   it("all internal references in the result point to ids in result.blocks or result.embedContents (no leaked source ids)", () => {
     // Source with multiple internal refs. fn is an embed-content body
     // referenced by p1's footnote anchor.
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
@@ -522,7 +522,7 @@ describe("clonePastedSubtree — block-level invariants", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    const result = clonePastedSubtree(sourceState, "section" as BlockId, allocator);
+    const result = clonePastedSubtree(sourceDocument, "section" as BlockId, allocator);
 
     // 3 in main tree (section, p1, p2); 2 in embedContents (fn + its paragraph).
     expect(result.blocks.size).toBe(3);
@@ -555,7 +555,7 @@ describe("clonePastedSubtree — block-level invariants", () => {
 
 describe("clonePastedSubtree — edge cases", () => {
   it("clones a leaf with empty inlineContent.items", () => {
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -563,7 +563,7 @@ describe("clonePastedSubtree — edge cases", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    const result = clonePastedSubtree(sourceState, "p" as BlockId, allocator);
+    const result = clonePastedSubtree(sourceDocument, "p" as BlockId, allocator);
 
     expect(result.blocks.size).toBe(1);
     const newP = result.blocks.get(result.rootId);
@@ -572,7 +572,7 @@ describe("clonePastedSubtree — edge cases", () => {
 
   it("clones an embed item without a contentBlockId (no recursion needed)", () => {
     // Image embed with primitive properties only — no contentBlockId.
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -585,7 +585,7 @@ describe("clonePastedSubtree — edge cases", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    const result = clonePastedSubtree(sourceState, "p" as BlockId, allocator);
+    const result = clonePastedSubtree(sourceDocument, "p" as BlockId, allocator);
 
     expect(result.blocks.size).toBe(1); // only p — no embed-content to follow.
     const newP = result.blocks.get(result.rootId);
@@ -597,7 +597,7 @@ describe("clonePastedSubtree — edge cases", () => {
 
   it("each clonePastedSubtree call uses fresh allocator-produced ids", () => {
     // Same source, two clones with different allocators → all blocks have distinct ids.
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -607,8 +607,8 @@ describe("clonePastedSubtree — edge cases", () => {
 
     const a1 = createTestAllocator("first");
     const a2 = createTestAllocator("second");
-    const r1 = clonePastedSubtree(sourceState, "p" as BlockId, a1);
-    const r2 = clonePastedSubtree(sourceState, "p" as BlockId, a2);
+    const r1 = clonePastedSubtree(sourceDocument, "p" as BlockId, a1);
+    const r2 = clonePastedSubtree(sourceDocument, "p" as BlockId, a2);
 
     expect(r1.rootId).toBe("first-0");
     expect(r2.rootId).toBe("second-0");
@@ -618,7 +618,7 @@ describe("clonePastedSubtree — edge cases", () => {
 
 describe("clonePastedSubtree — error cases", () => {
   it("throws when sourceRootId is not in sourceState.blocks", () => {
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -626,13 +626,13 @@ describe("clonePastedSubtree — error cases", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    expect(() => clonePastedSubtree(sourceState, "missing" as BlockId, allocator)).toThrow(
+    expect(() => clonePastedSubtree(sourceDocument, "missing" as BlockId, allocator)).toThrow(
       /source root ".+" not found/,
     );
   });
 
   it("throws when an embed's contentBlockId references a missing block", () => {
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -645,7 +645,7 @@ describe("clonePastedSubtree — error cases", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    expect(() => clonePastedSubtree(sourceState, "p" as BlockId, allocator)).toThrow(
+    expect(() => clonePastedSubtree(sourceDocument, "p" as BlockId, allocator)).toThrow(
       /block ".+" not found/,
     );
   });
@@ -656,7 +656,7 @@ describe("clonePastedSubtree — error cases", () => {
     // collision check, the cloned subtree would contain id-references that
     // overlap with the source state's namespace, breaking downstream insertion
     // (where the cloned blocks merge into a single Y.Doc).
-    const sourceState = buildState({
+    const sourceDocument = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "c-0" }),
@@ -666,7 +666,7 @@ describe("clonePastedSubtree — error cases", () => {
       ],
     });
     const allocator = createTestAllocator("c");
-    expect(() => clonePastedSubtree(sourceState, "p" as BlockId, allocator)).toThrow(
+    expect(() => clonePastedSubtree(sourceDocument, "p" as BlockId, allocator)).toThrow(
       /allocator returned a colliding id "c-0"/,
     );
   });
@@ -675,7 +675,7 @@ describe("clonePastedSubtree — error cases", () => {
 
 describe("clonePastedSubtree — id-collision check namespace (S-B4)", () => {
   const sourceFixture = () =>
-    buildState({
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -684,9 +684,9 @@ describe("clonePastedSubtree — id-collision check namespace (S-B4)", () => {
     });
 
   it("checks newly-allocated ids against the DESTINATION namespace, not the source", () => {
-    const sourceState = sourceFixture(); // ids: "doc", "p" — no "clone-0"
+    const sourceDocument = sourceFixture(); // ids: "doc", "p" — no "clone-0"
     // Destination ALREADY contains "clone-0" — the first id the counter allocator mints.
-    const destinationState = buildState({
+    const destinationDocument = buildDocument({
       rootId: "root",
       blocks: [
         buildBlock({ id: "root", type: "document", firstChildId: "clone-0", lastChildId: "clone-0" }),
@@ -696,14 +696,14 @@ describe("clonePastedSubtree — id-collision check namespace (S-B4)", () => {
     const allocator = createTestAllocator("clone");
     // Pre-fix (checked source) this would NOT throw — source has no "clone-0".
     expect(() =>
-      clonePastedSubtree(sourceState, "p" as BlockId, allocator, destinationState),
+      clonePastedSubtree(sourceDocument, "p" as BlockId, allocator, destinationDocument),
     ).toThrow(/colliding id "clone-0"/);
   });
 
   it("same-document clone (no destination arg) defaults to source and still works", () => {
-    const sourceState = sourceFixture();
+    const sourceDocument = sourceFixture();
     const allocator = createTestAllocator("clone");
-    const result = clonePastedSubtree(sourceState, "p" as BlockId, allocator);
+    const result = clonePastedSubtree(sourceDocument, "p" as BlockId, allocator);
     expect(result.rootId).toBe("clone-0");
     expect(result.blocks.size).toBe(1);
   });
@@ -711,8 +711,8 @@ describe("clonePastedSubtree — id-collision check namespace (S-B4)", () => {
 
 describe("clonePastedSubtree — bookmarks (Word's paste rule)", () => {
   // A pasted bookmark pair is kept iff the destination has NO live pair of its id.
-  const source = (): State =>
-    buildState({
+  const source = (): Document =>
+    buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
@@ -738,7 +738,7 @@ describe("clonePastedSubtree — bookmarks (Word's paste rule)", () => {
   });
 
   it("a destination with no live pair of the id (cut + paste, another document) keeps the bookmark", () => {
-    const empty = buildState({
+    const empty = buildDocument({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "q", lastChildId: "q" }),

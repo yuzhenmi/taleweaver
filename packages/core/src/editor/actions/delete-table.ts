@@ -12,7 +12,7 @@ import { deleteWholeTable } from "./helpers/delete-whole-table";
  * on `ctx.hasSpans`. Caret-after semantics: see `deleteWholeTable`.
  */
 export function handleDeleteTable(editor: EditorState): Edit | null {
-  const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
+  const ctx = resolveTableContext(editor.document, editor.selection.focus.blockId);
   if (ctx === null) return null;
   return deleteWholeTable(editor, ctx.tableId);
 }

@@ -1,5 +1,5 @@
 /**
- * Compile-time guard: State's public type surface must not expose `doc`
+ * Compile-time guard: Document's public type surface must not expose `doc`
  * or `snapshotCache`. The `@ts-expect-error` directives below FAIL the
  * `npm run build --workspace=packages/core` step if either field ever
  * becomes accessible at the public type level. This is the canonical
@@ -8,10 +8,10 @@
  * `docs/architecture/1-core/1.1-state.md` (Yjs encapsulation) and must
  * STOP and surface for coordination.
  */
-import { TEST_RESOLVER } from "../test-utils/state-builders";
+import { TEST_RESOLVER } from "../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
-import type { State } from "./state";
-import { createState } from "./state";
+import type { Document } from "./document";
+import { createDocument } from "./document";
 import { createYDoc, getMetaMap } from "./yjs-doc";
 import type { BlockId } from "./block-id";
 
@@ -49,38 +49,38 @@ const { join, resolve } = require("path");
 // be type errors; if doc / snapshotCache ever leaked back onto the public
 // type surface, the directives would become "unused suppressions" and
 // `tsc` would fail. That is the encapsulation guard.
-declare const __phantom_state__: State;
-// @ts-expect-error — doc is not part of State's public type surface;
-// it lives behind STATE_INTERNAL and is reachable only from inside state/.
-type _ProvesDocIsPrivate = typeof __phantom_state__.doc;
+declare const __phantom_document__: Document;
+// @ts-expect-error — doc is not part of Document's public type surface;
+// it lives behind DOCUMENT_INTERNAL and is reachable only from inside state/.
+type _ProvesDocIsPrivate = typeof __phantom_document__.doc;
 // @ts-expect-error — snapshotCache is also private; same reasoning as doc.
-type _ProvesSnapshotCacheIsPrivate = typeof __phantom_state__.snapshotCache;
+type _ProvesSnapshotCacheIsPrivate = typeof __phantom_document__.snapshotCache;
 
 // Reference the local type aliases so `noUnusedLocals` doesn't flag them.
 // (They exist purely for the directive payload.)
 type _Used = _ProvesDocIsPrivate | _ProvesSnapshotCacheIsPrivate;
 
-describe("State encapsulation (runtime)", () => {
-  it("rootId is the only enumerable string-keyed field on State", () => {
+describe("Document encapsulation (runtime)", () => {
+  it("rootId is the only enumerable string-keyed field on Document", () => {
     // Runtime sanity: the public-accessible keys are { rootId }. The
     // internal {doc, snapshotCache} live behind a Symbol and so do not
     // appear via Object.keys / for..in / spread. (Symbol-keyed props
     // are still enumerable via Reflect.ownKeys; that's expected — the
     // encapsulation is type-level, not a runtime sandbox.)
-    const state = createState({ resolver: TEST_RESOLVER, rootId: "root" as BlockId });
-    expect(Object.keys(state)).toEqual(["rootId"]);
+    const document = createDocument({ resolver: TEST_RESOLVER, rootId: "root" as BlockId });
+    expect(Object.keys(document)).toEqual(["rootId"]);
     // Throwaway reference so the `_Used` alias survives strict checks.
     const _ignore: _Used | undefined = undefined;
     expect(_ignore).toBeUndefined();
   });
 });
 
-// --- A13: `freshStateFromDoc` is an escape hatch with NO production callers.
+// --- A13: `freshDocumentFromDoc` is an escape hatch with NO production callers.
 //
-// `freshStateFromDoc` (state.ts) mints a State with a completely empty
+// `freshDocumentFromDoc` (state.ts) mints a Document with a completely empty
 // snapshot cache and no overlay continuity — using it in production defeats
-// the per-State view-stability + structural-sharing properties of the
-// snapshot cache (the production undo/redo path uses `freshState(state,
+// the per-Document view-stability + structural-sharing properties of the
+// snapshot cache (the production undo/redo path uses `freshDocument(state,
 // dirtyIds)` instead). Its docstring declares it test-fixture-only. This
 // meta-test enforces that docstring as CI: it walks the source of
 // `packages/core/src` and `packages/print/src`, and asserts no NON-test,
@@ -90,7 +90,7 @@ describe("State encapsulation (runtime)", () => {
 // re-exports it (`state/index.ts`). Everything else is "production" for the
 // purposes of this guard.
 
-const ESCAPE_HATCH_IDENTIFIER = "freshStateFromDoc";
+const ESCAPE_HATCH_IDENTIFIER = "freshDocumentFromDoc";
 
 // This test file lives at packages/core/src/state/encapsulation.test.ts.
 const STATE_DIR = resolve(__dirname); // packages/core/src/state
@@ -141,10 +141,10 @@ function importsIdentifier(source: string, identifier: string): boolean {
 /**
  * True if `source` reaches the identifier via MEMBER ACCESS — i.e. a
  * namespace import (`import * as s from "./state"`) followed by
- * `s.freshStateFromDoc(...)`. The named-import scan above (`importsIdentifier`)
- * only catches `import { freshStateFromDoc }`; a namespace import binds the
+ * `s.freshDocumentFromDoc(...)`. The named-import scan above (`importsIdentifier`)
+ * only catches `import { freshDocumentFromDoc }`; a namespace import binds the
  * module object under an arbitrary alias, so the call site reads
- * `<alias>.freshStateFromDoc` instead. We flag that member-access form
+ * `<alias>.freshDocumentFromDoc` instead. We flag that member-access form
  * directly: `.` (optional whitespace) then the identifier as a whole word.
  * Matching member access avoids false-positiving on the bare identifier in
  * the sanctioned definition file (which is excluded anyway) while still
@@ -178,7 +178,7 @@ describe(`A13: ${ESCAPE_HATCH_IDENTIFIER} escape hatch has no production callers
     }
 
     // If this fails, a production file imported the escape hatch. Use
-    // `freshState(state, dirtyIds)` instead (see state.ts docstring), or —
+    // `freshDocument(state, dirtyIds)` instead (see state.ts docstring), or —
     // if the import is genuinely sanctioned — add it to SANCTIONED_FILES
     // with a justification.
     expect(offenders).toEqual([]);
@@ -198,12 +198,12 @@ describe(`A13: ${ESCAPE_HATCH_IDENTIFIER} escape hatch has no production callers
 const DOC_META_WHITELIST = ["rootId", "schemaVersion"];
 
 describe("A14: doc-meta immutability whitelist", () => {
-  it("a freshly constructed State's doc-meta holds only rootId + schemaVersion", () => {
-    // Build the doc explicitly so we can reach its meta map (the State's
-    // Y.Doc is private behind STATE_INTERNAL; createState reuses the doc we
-    // pass in, so the meta map we inspect is exactly the State's).
+  it("a freshly constructed Document's doc-meta holds only rootId + schemaVersion", () => {
+    // Build the doc explicitly so we can reach its meta map (the Document's
+    // Y.Doc is private behind DOCUMENT_INTERNAL; createDocument reuses the doc we
+    // pass in, so the meta map we inspect is exactly the Document's).
     const doc = createYDoc({ rootId: "root" as BlockId });
-    createState({ resolver: TEST_RESOLVER, rootId: "root" as BlockId, doc });
+    createDocument({ resolver: TEST_RESOLVER, rootId: "root" as BlockId, doc });
 
     const meta = getMetaMap(doc);
     expect([...meta.keys()].sort()).toEqual([...DOC_META_WHITELIST].sort());
