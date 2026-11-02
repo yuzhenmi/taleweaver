@@ -100,7 +100,7 @@ const ALLOWED: Readonly<Record<string, { readonly count: number; readonly why: s
   "commands/helpers/fragment.ts": { count: 9, why: "each fragment kind's storage constructor (kind-internal shape)" },
   "commands/set-object-props.ts": { count: 2, why: "C12 wrap / size / kind props exist only on the generic object" },
   "commands/remove-marker.ts": { count: 1, why: "a marker's ns / id identity (kind-internal)" },
-  "derive/derive-flow.ts": { count: 3, why: "table grid read (deriveTable, its record) and footnote body ownership (X20)" },
+  "derive/derive-flow.ts": { count: 1, why: "footnote body ownership (X20)" },
   "model.ts": { count: 5, why: "change routing: a footnote anchor's body map (X20: its keys / flow re-derive that body, ×3) and the storage-internal sub-flow (X12) walked into (×2) — storage mapping, not category rules" },
   "history.ts": { count: 1, why: "a stored selection's discriminant `object` (StoredSelection), not a flow kind" },
   "position/model-position.ts": { count: 2, why: "the selection kinds `text` / `object` (isTextSelection / isObjectSelection), not flow kinds" },

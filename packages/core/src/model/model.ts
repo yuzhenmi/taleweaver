@@ -11,16 +11,18 @@
  *     hull; an `[S]` map's keys also re-derive the sections (R4 / R5);
  *   - DocMap `s:*` / `h:*` keys: sections; `bodies` keys: header / footer bodies
  *     added / removed / replaced (+ sections, for R5);
+ *   - a cell flow (`c:<col>:flow` of a rendered cell, R8) is a holder's flow like any other;
+ *   - a table's `rows` / `cols`, a ColMap, a RowMap's grid keys, a table map's keys but
+ *     `k`: that table is regridded; a RowMap's `c:<col>:flow` / `c:<col>:a:*`: that cell;
  *   - anything under `listDefs`: list definitions; under `comments` / `suggestions`:
  *     not read in M1 (P4 / P10).
- *
- * ponytail: events inside a table (cell flows, rows / cols, Row / ColMaps) → full
- * re-derive: O(doc) per cell keystroke until P2 M2 (incremental tables).
+ * Storage that is not read (a covered slot, a duplicate row, an orphan column, a table
+ * nowhere rendered) is skipped.
  */
 import * as Y from "yjs";
 import type { BlockId } from "./block";
 import { deriveAll, deriveDocument } from "./derive/derive-document";
-import { deriveFlow, deriveFootnote, removeFlow } from "./derive/derive-flow";
+import { deriveFlow, deriveFootnote, regridTable, removeFlow, updateCell } from "./derive/derive-flow";
 import { readListDefs } from "./derive/list-defs";
 import { writeSections } from "./derive/sections";
 import { Working } from "./derive/working";
@@ -28,15 +30,16 @@ import type { Document } from "./document/types";
 import type { DeltaOp, FlowChange, PieceChange } from "./update/flow-change";
 import { updateFlow } from "./update/update-flow";
 import { recordStep } from "./mapping/map-position";
-import { footnoteBodyId, templateBodyId } from "./ids";
+import { cellId, footnoteBodyId, templateBodyId } from "./ids";
 import type { FootnoteRef } from "./scan/tokens";
 import { getDocMap } from "./storage/doc-map";
 import { type HasItem, itemId, typeId } from "./storage/item-id";
-import { BODIES_KEY, BODY_KEY, COMMENTS_KEY, FLOW_KEY, ITEM_KINDS, LIST_DEFS_KEY, ROOT_MAP, SUGGESTIONS_KEY } from "./storage/keys";
+import { BODIES_KEY, BODY_KEY, COLS_KEY, COMMENTS_KEY, FLOW_KEY, ITEM_KINDS, KIND_KEY, LIST_DEFS_KEY, ROOT_MAP, ROWS_KEY, SUGGESTIONS_KEY, TRACK_KEY } from "./storage/keys";
 import { childMap, flowOf, kindOf } from "./storage/map-reads";
 import { pieceHoldingSubflow } from "./storage/pieces";
 import { BUILTIN_OBJECT_KINDS, type ObjectKindRegistry } from "./object-kinds";
-import { isSectionBreak, kindOfStored } from "./scan/kinds";
+import { holdsFlows, isSectionBreak, kindOfStored } from "./scan/kinds";
+import { cellFlowCol, cellKeyCols, isCellFlowKey, spanKeyCol } from "./storage/table-keys";
 
 export interface ModelChange {
   readonly before: Document;
@@ -59,10 +62,17 @@ interface Classified {
   readonly flows: Map<BlockId, FlowChange>;
   /** Footnote anchors whose `body` was replaced. */
   readonly footnoteBodies: Map<string, FootnoteRef>;
+  /** Rendered tables whose grid may have changed → the RowMaps whose grid keys changed: regridded. */
+  readonly tables: Map<BlockId, Set<Y.Map<unknown>>>;
+  /** RowMaps of rendered tables → the columns whose cell flow / attrs may have changed. */
+  readonly cells: Map<Y.Map<unknown>, { readonly table: BlockId; readonly cols: Set<string> }>;
 }
 
+/** An event in storage that is not read (a cell that is not rendered, a table nowhere rendered). */
+const HIDDEN: unique symbol = Symbol("hidden");
+
 const isEmpty = (c: Classified): boolean =>
-  !c.full && !c.sections && !c.listDefs && c.bodies.size === 0 && c.flows.size === 0 && c.footnoteBodies.size === 0;
+  !c.full && !c.sections && !c.listDefs && c.bodies.size === 0 && c.flows.size === 0 && c.footnoteBodies.size === 0 && c.tables.size === 0 && c.cells.size === 0;
 
 declare function queueMicrotask(cb: () => void): void;
 
@@ -187,28 +197,55 @@ export class Model {
   }
 
   private applyIncremental(w: Working, c: Classified, docMap: Y.Map<unknown>): void {
+    const v = this.current;
+    // One worklist, ancestors first (storage depth): an entry whose flow / table an earlier
+    // one removed or derived from scratch skips itself.
+    const work: { depth: number; run: () => void }[] = [];
+    const add = (t: HasItem | null | undefined, run: () => void): void => {
+      work.push({ depth: t === null || t === undefined ? Infinity : storageDepth(t), run });
+    };
     const bodies = childMap(docMap, BODIES_KEY);
     for (const bodyId of c.bodies) {
-      const holderId = templateBodyId(bodyId);
-      removeFlow(w, holderId);
-      const body = bodies === null ? null : childMap(bodies, bodyId);
-      if (body !== null) deriveFlow(w, holderId, "templateContent", flowOf(body), false);
+      add(bodies, () => {
+        const holderId = templateBodyId(bodyId);
+        removeFlow(w, holderId);
+        const body = bodies === null ? null : childMap(bodies, bodyId);
+        if (body !== null) deriveFlow(w, holderId, "templateContent", flowOf(body), false);
+      });
     }
-    // Holder flows first: their anchor changes add / remove footnote flows.
-    const order = [...c.flows].sort(([a], [b]) => rank(w, a) - rank(w, b));
-    for (const [holderId, ch] of order) updateFlow(w, holderId, ch);
+    for (const [holderId, ch] of c.flows) add(v.flows.get(holderId)?.array, () => updateFlow(w, holderId, ch));
     for (const [anchorId, ref] of c.footnoteBodies) {
       const holderId = footnoteBodyId(anchorId);
-      if (!w.flows.has(holderId) || w.fresh.has(holderId)) continue;
-      removeFlow(w, holderId);
-      deriveFootnote(w, ref);
+      add(v.flows.get(holderId)?.array, () => {
+        if (!w.flows.has(holderId) || w.fresh.has(holderId)) return;
+        removeFlow(w, holderId);
+        deriveFootnote(w, ref);
+      });
     }
+    for (const [id, rows] of c.tables) {
+      add(v.tables.get(id)?.map, () => {
+        const ts = w.tables.get(id);
+        if (ts !== undefined && !w.fresh.has(id)) regridTable(w, id, ts.map, ts.tree, rows);
+      });
+    }
+    for (const [row, { table, cols }] of c.cells) add(row, () => cols.forEach((col) => updateCell(w, table, row, col)));
+    work.sort((a, b) => a.depth - b.depth);
+    for (const x of work) x.run();
     if (c.listDefs) w.listDefs = readListDefs(docMap);
     if (c.sections || c.bodies.size > 0) writeSections(w);
   }
 
   private classify(events: Y.YEvent<Y.AbstractType<unknown>>[], v: Document): Classified {
-    const c: Classified = { full: false, sections: false, listDefs: false, bodies: new Set(), flows: new Map(), footnoteBodies: new Map() };
+    const c: Classified = {
+      full: false,
+      sections: false,
+      listDefs: false,
+      bodies: new Set(),
+      flows: new Map(),
+      footnoteBodies: new Map(),
+      tables: new Map(),
+      cells: new Map(),
+    };
     const docMap = v.docMap;
     const bodies = childMap(docMap, BODIES_KEY);
     const flowChange = (holderId: BlockId): FlowChange => {
@@ -228,10 +265,35 @@ export class Model {
       }
       return p;
     };
-    /** The holder id of a flow array, or null when `arr` is not a holder's flow. */
-    const holderOfFlow = (arr: HasItem): BlockId | null => {
+    /**
+     * The rendered table `t` is (its id; by identity, so a table re-kinded in this transaction
+     * still is), HIDDEN when it is a table map not rendered, null when `t` is no table map.
+     */
+    const tableIdOf = (t: unknown): BlockId | typeof HIDDEN | null => {
+      if (!(t instanceof Y.Map)) return null;
+      const id = typeId(t);
+      if (id !== null && v.tables.get(id)?.map === t) return id;
+      return holdsFlows(kindOfStored(kindOf(t))) ? HIDDEN : null;
+    };
+    /** The table whose `key` (`rows` / `cols`) track array `arr` is (see {@link tableIdOf}). */
+    const tableOfTracks = (arr: unknown, key: string): BlockId | typeof HIDDEN | null => {
+      const it = arr instanceof Y.Array ? arr._item : null;
+      return it === null || it.parentSub !== key ? null : tableIdOf(it.parent);
+    };
+    /** The rendered cell whose flow `arr` (a RowMap's `flowKey`) is, else HIDDEN (covered, a duplicate row, an orphan column, replaced). */
+    const cellOfFlow = (arr: HasItem, rowMap: Y.Map<unknown>, flowKey: string): BlockId | typeof HIDDEN => {
+      const table = tableOfTracks(rowMap._item?.parent, ROWS_KEY);
+      const rowKey: unknown = rowMap.get(TRACK_KEY);
+      if (table === null || table === HIDDEN || typeof rowKey !== "string") return HIDDEN;
+      const id = cellId(table, rowKey, cellFlowCol(flowKey));
+      return v.flows.get(id)?.array === arr ? id : HIDDEN;
+    };
+    /** The holder id of a flow array, HIDDEN when it is a flow that is not read, or null when `arr` is not a holder's flow. */
+    const holderOfFlow = (arr: HasItem): BlockId | typeof HIDDEN | null => {
       const owner = arr._item;
-      if (owner === null || owner.parentSub !== FLOW_KEY || !(owner.parent instanceof Y.Map)) return null;
+      if (owner === null || !(owner.parent instanceof Y.Map)) return null;
+      if (isCellFlowKey(owner.parentSub)) return cellOfFlow(arr, owner.parent, owner.parentSub);
+      if (owner.parentSub !== FLOW_KEY) return null;
       const holder = owner.parent;
       if (holder === docMap) return v.rootId;
       const hi = holder._item;
@@ -243,7 +305,7 @@ export class Model {
       return null;
     };
     /** The holder of the flow a piece (top-level or nested) belongs to, climbing sub-flows. */
-    const holderOfPiece = (piece: Y.Text): BlockId | null => {
+    const holderOfPiece = (piece: Y.Text): BlockId | typeof HIDDEN | null => {
       for (let p = piece; ; ) {
         const it = p._item;
         if (it === null || !(it.parent instanceof Y.Array)) return null;
@@ -264,8 +326,43 @@ export class Model {
     const fullPieceOf = (piece: Y.Text): boolean => {
       const holderId = holderOfPiece(piece);
       if (holderId === null) return false;
-      pieceChange(holderId, piece).full = true;
+      if (holderId !== HIDDEN) pieceChange(holderId, piece).full = true;
       return true;
+    };
+    const addTable = (id: BlockId | typeof HIDDEN, row?: Y.Map<unknown>): void => {
+      if (id === HIDDEN) return;
+      let rows = c.tables.get(id);
+      if (rows === undefined) {
+        rows = new Set();
+        c.tables.set(id, rows);
+      }
+      if (row !== undefined) rows.add(row);
+    };
+    /**
+     * A RowMap's keys: cell keys go to that cell when it is a rendered cell of `row`; grid keys
+     * to the table when they are read (a rendered row, a column that exists) or are `key` (which
+     * can reveal / hide the row).
+     */
+    const rowKeys = (table: BlockId, row: Y.Map<unknown>, keys: Iterable<string>): void => {
+      const rowKey: unknown = row.get(TRACK_KEY);
+      const ts = v.tables.get(table);
+      if (ts === undefined) return;
+      const rendered = typeof rowKey === "string" && ts.rows[ts.rowIndex.get(rowKey) ?? -1]?.map === row;
+      for (const k of keys) {
+        const cols = cellKeyCols(k);
+        const spanCol = spanKeyCol(k);
+        // A grid key: not a cell key, or a span key (both, for keys parsing both ways).
+        if ((cols.length === 0 || spanCol !== null) && (k === TRACK_KEY || (rendered && (spanCol === null || ts.colIndex.has(spanCol))))) addTable(table, row);
+        for (const col of cols) {
+          if (typeof rowKey !== "string" || v.trees[ts.tree].get(cellId(table, rowKey, col))?.parentId !== typeId(row)) continue;
+          let e = c.cells.get(row);
+          if (e === undefined) {
+            e = { table, cols: new Set() };
+            c.cells.set(row, e);
+          }
+          e.cols.add(col);
+        }
+      }
     };
 
     for (const e of events) {
@@ -290,17 +387,23 @@ export class Model {
       if (t instanceof Y.Text) {
         const holderId = holderOfPiece(t);
         if (holderId === null) c.full = true;
-        else pieceChange(holderId, t).delta = e.delta;
+        else if (holderId !== HIDDEN) pieceChange(holderId, t).delta = e.delta;
         continue;
       }
       if (t instanceof Y.Array) {
+        const tracksOf = tableOfTracks(t, ROWS_KEY) ?? tableOfTracks(t, COLS_KEY);
+        if (tracksOf !== null) {
+          addTable(tracksOf);
+          continue;
+        }
         const holderId = holderOfFlow(t);
+        if (holderId === HIDDEN) continue;
         if (holderId !== null) flowChange(holderId).arrayChanged = true;
         else {
           const outer = pieceHoldingSubflow(t);
           const outerHolder = outer === null ? null : holderOfPiece(outer);
           if (outerHolder === null) c.full = true;
-          else flowChange(outerHolder).subArrays.add(t);
+          else if (outerHolder !== HIDDEN) flowChange(outerHolder).subArrays.add(t);
         }
         continue;
       }
@@ -308,9 +411,13 @@ export class Model {
         const it = t._item;
         const k = kindOf(t);
         if (it !== null && it.parent instanceof Y.Text && k !== ITEM_KINDS.sub) {
+          // A table map's keys but `k` are its grid / attrs (regrid); `k` re-kinds the item (its flow).
+          const table = tableIdOf(t);
+          if (table !== null) addTable(table);
+          if (table !== null && !e.changes.keys.has(KIND_KEY)) continue;
           const holderId = holderOfPiece(it.parent);
           if (holderId === null) c.full = true;
-          else pieceChange(holderId, it.parent).mapItems.push(it);
+          else if (holderId !== HIDDEN) pieceChange(holderId, it.parent).mapItems.push(it);
           if (isSectionBreak(kindOfStored(k))) c.sections = true;
           if (k === ITEM_KINDS.footnote && e.changes.keys.has(BODY_KEY)) c.footnoteBodies.set(itemId(it), { id: itemId(it), body: childMap(t, BODY_KEY) });
           continue;
@@ -331,6 +438,17 @@ export class Model {
           if (!fullPieceOf(it.parent)) c.full = true;
           continue;
         }
+        // A RowMap / ColMap.
+        const rows = tableOfTracks(it?.parent, ROWS_KEY);
+        if (rows !== null) {
+          if (rows !== HIDDEN) rowKeys(rows, t, e.changes.keys.keys());
+          continue;
+        }
+        const cols = tableOfTracks(it?.parent, COLS_KEY);
+        if (cols !== null) {
+          addTable(cols);
+          continue;
+        }
       }
       c.full = true;
     }
@@ -338,9 +456,9 @@ export class Model {
   }
 }
 
-/** Process order: body flow, header / footer bodies, then footnote bodies. */
-function rank(w: Working, holderId: BlockId): number {
-  const fs = w.flows.get(holderId);
-  if (fs === undefined) return 3;
-  return fs.isRoot ? 0 : fs.tree === "templateContent" ? 1 : 2;
+/** The number of shared types above `t` (an ancestor is shallower than its descendants). */
+function storageDepth(t: HasItem): number {
+  let d = 0;
+  for (let p = t._item?.parent; p instanceof Y.AbstractType; p = p._item?.parent) d++;
+  return d;
 }

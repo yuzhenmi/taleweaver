@@ -182,7 +182,7 @@ export function selectionOf(d: Document, sel: ModelSelection): string {
   for (let f = 0; f < flows.length; f++) {
     for (const b of flows[f] ?? []) {
       const ts = d.tables.get(b.id);
-      for (const c of ts?.cells ?? []) {
+      for (const c of ts?.rowCells.flat() ?? []) {
         const cell = childrenOf(d, ts?.tree ?? "block", c.id);
         holders.push(c.id);
         flows.push(cell);

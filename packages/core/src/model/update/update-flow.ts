@@ -19,22 +19,21 @@
  *   - a piece removed from the flow array, or a changed piece the flow state does not know;
  *   - an `[S]` in a non-body flow (as an anchor or inside the region);
  *   - a flow that is synthetic (R17) or whose region empties it;
- *   - a region holding a table (P2 M1: tables are derived from scratch with their flow);
  *   - overlapping splices, an anchor whose old record is missing, a section list the
  *     region's old `[S]` cannot be found in (defensive: not produced by any known write).
  * ponytail: several dirty pieces in one transaction form ONE region spanning them all.
  */
 import * as Y from "yjs";
 import type { BlockId } from "../block";
-import { deriveFlow, deriveFootnote, piecesOf, removeFlow, scanCtxOf, segmentsOf, writeSegment } from "../derive/derive-flow";
-import { type BlockEntity, type Entity, group, indexSegments, isBlockEntity, isParaEntity, isSectionBreakEntity } from "../derive/entities";
+import { deriveFlow, deriveFootnote, piecesOf, regridTable, removeFlow, removeTable, scanCtxOf, segmentsOf, writeSegment } from "../derive/derive-flow";
+import { type BlockEntity, type Entity, type TableEntity, group, indexSegments, isBlockEntity, isParaEntity, isSectionBreakEntity, isTableEntity } from "../derive/entities";
 import { sectionRecord } from "../derive/records";
 import { writeSections } from "../derive/sections";
 import type { Working } from "../derive/working";
 import type { FlowState, SectionInfo } from "../document/types";
 import { footnoteBodyId, sectionIdOf } from "../ids";
 import { flattenPiece } from "../scan/flatten-piece";
-import { holdsFlows, isBlockObject, isSectionBreak } from "../scan/kinds";
+import { isBlockObject, isSectionBreak } from "../scan/kinds";
 import { type FootnoteRef, type Segment, isTerminator } from "../scan/tokens";
 import { SUBFLOW_DEPTH_CAP } from "../storage/limits";
 import { pieceHoldingSubflow } from "../storage/pieces";
@@ -219,9 +218,6 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   const objectBefore = L !== null && isBlockObject(L.tok.k) ? L.tok.id : null;
   const oldEnts = group(between(oldScans, oldL, oldR), R === null, holderId, { withItems: false, objectBefore });
   const newEnts = group(between(newScans, L, R), R === null, holderId, { objectBefore });
-  // ponytail: a region holding a block object with flows (a table) re-derives its flow (O(flow)); incremental tables are P2 M2.
-  const withFlows = (e: Entity): boolean => holdsFlows(e.k);
-  if (oldEnts.some(withFlows) || newEnts.some(withFlows)) return rederiveFlow(w, fs);
   if (!fs.isRoot && (isSectionBreak(L?.tok.k) || isSectionBreak(R?.tok.k) || newEnts.some(isSectionBreakEntity) || oldEnts.some(isSectionBreakEntity))) {
     return rederiveFlow(w, fs);
   }
@@ -280,6 +276,13 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   const oldFn = footnotesOf(oldEnts);
   const newFn = footnotesOf(newEnts);
   for (const id of oldFn.keys()) if (!newFn.has(id)) removeFlow(w, footnoteBodyId(id));
+
+  // Tables: a vanished one loses its rows / cells, a new one is read (both: kept, re-linked by writeSegment).
+  const tablesOf = (ents: readonly Entity[]): Map<BlockId, TableEntity> => new Map(ents.filter(isTableEntity).map((e) => [e.id, e]));
+  const oldTables = tablesOf(oldEnts);
+  const newTables = tablesOf(newEnts);
+  for (const id of oldTables.keys()) if (!newTables.has(id)) removeTable(w, id);
+  for (const [id, e] of newTables) if (!oldTables.has(id)) regridTable(w, id, e.map, tree);
 
   // [S] entities are not block records (their section is `${id}/section`): an item whose
   // `k` changed from ¶ / TOC to `[S]` keeps its id but loses its record.

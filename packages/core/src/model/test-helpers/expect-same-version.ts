@@ -23,6 +23,11 @@ function flowStates(d: Document): unknown[] {
     }));
 }
 
+const flowId = (d: Document, id: string): string => {
+  const arr = d.flows.get(id)?.array ?? null;
+  return arr === null ? "-" : (typeId(arr) ?? "?");
+};
+
 /** Each table's read grid, comparable across versions / peers. */
 function tableStates(d: Document): unknown[] {
   return [...d.tables.entries()]
@@ -30,9 +35,11 @@ function tableStates(d: Document): unknown[] {
     .map(([id, ts]) => ({
       id,
       tree: ts.tree,
-      rows: ts.rows.map((r) => `${r.id}:${r.key}:${r.header}`),
+      rows: ts.rows.map((r) => `${r.id}:${r.key}:${r.header}:${JSON.stringify([...r.spans])}`),
       cols: ts.cols.map((c) => c.key),
-      cells: ts.cells.map((c) => `${c.id}:${c.row},${c.col}:${c.rowSpan}x${c.colSpan}:${c.flow === null ? "-" : typeId(c.flow)}`),
+      rowIndex: [...ts.rowIndex],
+      colIndex: [...ts.colIndex],
+      cells: ts.rowCells.map((cs) => cs.map((c) => `${c.id}:${c.colKey}:${c.rowSpan}x${c.colSpan}:${flowId(d, c.id)}`)),
       headerCount: ts.headerCount,
       widths: ts.widths,
     }));

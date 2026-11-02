@@ -27,7 +27,7 @@ function flowsInDocumentOrder(d: Document): BlockId[] {
     out.push(holderId);
     for (const b of flowBlocks(d, holderId)) {
       // A table's cell flows, row-major (rendered cells only), in place.
-      for (const cell of d.tables.get(b.id)?.cells ?? []) visit(cell.id);
+      for (const cells of d.tables.get(b.id)?.rowCells ?? []) for (const cell of cells) visit(cell.id);
       for (const item of b.inlineContent?.items ?? []) {
         const body = item.kind === "embed" && item.embedType === EMBED_TYPES.footnoteAnchor ? item.properties["contentBlockId"] : undefined;
         if (typeof body === "string") visit(body);

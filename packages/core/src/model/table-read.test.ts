@@ -285,7 +285,7 @@ describe("cell ids", () => {
   });
 });
 
-describe("the live model with tables (M1: table changes re-derive)", () => {
+describe("the live model with tables", () => {
   it("every edit around and inside a table reads as from scratch", () => {
     const f = fixture();
     const model = new Model(f.doc);
