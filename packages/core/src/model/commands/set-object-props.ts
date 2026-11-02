@@ -1,4 +1,6 @@
-import type { InlineItem } from "../block";
+import { EMBED_TYPES, type InlineItem } from "../block";
+import { unitsOf } from "../position/items";
+import { isText } from "../scan/kinds";
 import { resolveObjectProps } from "../object-kinds";
 import type { Plan } from "../plan";
 import type { ModelPosition } from "../position/model-position";
@@ -25,7 +27,8 @@ export interface ObjectPropsPatch {
 export function setObjectProps(ctx: CommandContext, at: ModelPosition, patch: ObjectPropsPatch): Plan | null {
   const L = paragraphLayout(ctx.version, at.blockId);
   const item = L === null ? null : embedAt(L.block.inlineContent?.items ?? [], at.offset);
-  if (L === null || item === null || item.kind !== "embed" || item.embedType !== "object") return null;
+  // Object-internal (C12): only the generic object kind has wrap / size / kind props.
+  if (L === null || item === null || isText(item) || item.embedType !== EMBED_TYPES.object) return null;
   const p = pointBefore(L, at.offset);
   const map = p === null ? null : mapAtIndex(p.piece, p.index);
   if (map === null || kindOf(map) !== ITEM_KINDS.object) return null;
@@ -67,8 +70,8 @@ export function setObjectProps(ctx: CommandContext, at: ModelPosition, patch: Ob
 function embedAt(items: readonly InlineItem[], offset: number): InlineItem | null {
   let pos = 0;
   for (const i of items) {
-    const n = i.kind === "text" ? i.text.length : 1;
-    if (offset === pos && i.kind === "embed") return i;
+    const n = unitsOf(i);
+    if (offset === pos && !isText(i)) return i;
     if (offset < pos + n) return null;
     pos += n;
   }

@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 import type { Block, BlockId } from "../block";
-import type { Document, FlowState, ListDef, TreeKind } from "../document/types";
+import type { Document, FlowState, ListDef, TableState, TreeKind } from "../document/types";
 import type { ObjectKindRegistry } from "../object-kinds";
 import { PMap } from "../pmap";
 import { blockEqual } from "./block-equal";
@@ -12,6 +12,7 @@ import { blockEqual } from "./block-equal";
 export class Working {
   trees: Record<TreeKind, PMap<Block>>;
   flows: PMap<FlowState>;
+  tables: PMap<TableState>;
   listDefs: ReadonlyMap<string, ListDef>;
   readonly dirty = new Set<BlockId>();
   /** Flows derived from scratch during this derivation (their storage changes are already read). */
@@ -25,6 +26,7 @@ export class Working {
   ) {
     this.trees = base === null ? { block: PMap.empty(), embedContent: PMap.empty(), templateContent: PMap.empty() } : { ...base.trees };
     this.flows = base === null ? PMap.empty() : base.flows;
+    this.tables = base === null ? PMap.empty() : base.tables;
     this.listDefs = base === null ? new Map() : base.listDefs;
   }
 
@@ -62,6 +64,7 @@ export class Working {
       rootId: this.rootId,
       trees: Object.freeze({ ...this.trees }),
       flows: this.flows,
+      tables: this.tables,
       listDefs: this.listDefs,
       docMap: this.docMap,
       registry: this.registry,

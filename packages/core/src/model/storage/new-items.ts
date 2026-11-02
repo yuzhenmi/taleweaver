@@ -39,6 +39,16 @@ export function newHorizontalRule(): Y.Map<unknown> {
   return mapOf({ [KIND_KEY]: ITEM_KINDS.hr });
 }
 
+/** A line break (Shift+Enter). */
+export function newLineBreak(): Y.Map<unknown> {
+  return mapOf({ [KIND_KEY]: ITEM_KINDS.lineBreak });
+}
+
+/** A field (`field`: page-number / page-count) with its number style. */
+export function newField(field: string, numberStyle: string): Y.Map<unknown> {
+  return mapOf({ [KIND_KEY]: ITEM_KINDS.field, field, numberStyle });
+}
+
 /** `[S]` holding the ended section's `s:*` / `h:*` keys. */
 export function newSectionBreak(keys: FlatKeys = {}): Y.Map<unknown> {
   return mapOf({ ...keys, [KIND_KEY]: ITEM_KINDS.sectionBreak });

@@ -13,6 +13,9 @@
  *     added / removed / replaced (+ sections, for R5);
  *   - anything under `listDefs`: list definitions; under `comments` / `suggestions`:
  *     not read in M1 (P4 / P10).
+ *
+ * ponytail: events inside a table (cell flows, rows / cols, Row / ColMaps) → full
+ * re-derive: O(doc) per cell keystroke until P2 M2 (incremental tables).
  */
 import * as Y from "yjs";
 import type { BlockId } from "./block";
@@ -33,6 +36,7 @@ import { BODIES_KEY, BODY_KEY, COMMENTS_KEY, FLOW_KEY, ITEM_KINDS, LIST_DEFS_KEY
 import { childMap, flowOf, kindOf } from "./storage/map-reads";
 import { pieceHoldingSubflow } from "./storage/pieces";
 import { BUILTIN_OBJECT_KINDS, type ObjectKindRegistry } from "./object-kinds";
+import { isSectionBreak, kindOfStored } from "./scan/kinds";
 
 export interface ModelChange {
   readonly before: Document;
@@ -307,7 +311,7 @@ export class Model {
           const holderId = holderOfPiece(it.parent);
           if (holderId === null) c.full = true;
           else pieceChange(holderId, it.parent).mapItems.push(it);
-          if (k === ITEM_KINDS.sectionBreak) c.sections = true;
+          if (isSectionBreak(kindOfStored(k))) c.sections = true;
           if (k === ITEM_KINDS.footnote && e.changes.keys.has(BODY_KEY)) c.footnoteBodies.set(itemId(it), { id: itemId(it), body: childMap(t, BODY_KEY) });
           continue;
         }

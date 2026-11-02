@@ -12,7 +12,7 @@ import { deleteForward } from "./commands/delete-forward";
 import { deleteSelection } from "./commands/delete-selection";
 import { plan } from "./commands/helpers/build-plan";
 import { insertText } from "./commands/insert-text";
-import { selectAll } from "./commands/selections";
+import { objectSelection, selectAll } from "./commands/selections";
 import { setMarks } from "./commands/set-marks";
 import { setParagraphAttrs } from "./commands/set-paragraph-attrs";
 import { splitParagraph } from "./commands/split-paragraph";
@@ -148,6 +148,17 @@ describe("H1 single-user undo / redo is exact for every command", () => {
         h.run(insertTableOfContents);
         const s = selectAll(h.version);
         if (s !== null) h.selection = s;
+      },
+      (h) => h.run(deleteSelection),
+    ],
+    [
+      "C10 an object selection of a TOC (undo restores an object selection of the re-created TOC)",
+      (h) => {
+        h.caret(1, 0);
+        h.run(insertTableOfContents);
+        const s = objectSelection(h.version, h.blockId(1));
+        if (s !== null) h.selection = s;
+        expect(h.readSelection()).toBe("object 0.1");
       },
       (h) => h.run(deleteSelection),
     ],

@@ -19,9 +19,11 @@
  */
 import type * as Y from "yjs";
 import type { Document } from "../document/types";
-import type { Assoc, ModelPosition } from "../position/model-position";
+import { blockObjectAt } from "../position/block-object";
+import { type Assoc, type ModelPosition, type ModelSelection, caretAt, isAllSelection, isObjectSelection } from "../position/model-position";
 import { paragraphLayout } from "../position/paragraph-layout";
-import { positionAtPoint } from "../position/position-at-point";
+import { positionAtPoint, terminatorAtPoint } from "../position/position-at-point";
+import { isBlockObject } from "../scan/kinds";
 import type { DeltaOp } from "../update/flow-change";
 import { anchorPoint } from "./relative-position";
 
@@ -104,4 +106,45 @@ export function mapPosition(from: Document, to: Document, pos: ModelPosition, as
     cur = step.next;
   }
   return { position: p, deleted };
+}
+
+/** Map storage index `index` of `piece` from version `from` to a later `to`, step by step; null when a step is unknown. */
+function mapPoint(from: Document, to: Document, piece: Y.Text, index: number, assoc: Assoc): { index: number; deleted: boolean } | null {
+  let cur = from;
+  let i = index;
+  let deleted = false;
+  while (cur !== to) {
+    const step = steps.get(cur);
+    if (step === undefined || step.deltas === null) return null;
+    const delta = step.deltas.get(piece);
+    if (delta !== undefined) {
+      const m = mapIndex(delta, i, assoc);
+      i = m.index;
+      deleted ||= m.deleted;
+    }
+    cur = step.next;
+  }
+  return { index: i, deleted };
+}
+
+/**
+ * Map selection `sel` from version `from` to a later `to`; null when it cannot be mapped.
+ * A text selection maps its ends (`assoc` −1, an end that cannot be mapped staying);
+ * an object selection stays one while its object survives, else collapses to a caret
+ * where the object was (`assoc` 1); a select-all stays while its flow exists.
+ */
+export function mapSelection(from: Document, to: Document, sel: ModelSelection): ModelSelection | null {
+  if (isAllSelection(sel)) return to.flows.has(sel.flow) ? sel : null;
+  if (isObjectSelection(sel)) {
+    const o = blockObjectAt(from, sel.object);
+    const m = o === null ? null : mapPoint(from, to, o.point.piece, o.point.index, 1);
+    const fs = o === null ? undefined : to.flows.get(o.fs.holderId);
+    if (o === null || m === null || fs === undefined) return null;
+    const t = m.deleted ? null : terminatorAtPoint(fs, o.point.piece, m.index);
+    if (t !== null && isBlockObject(t.token.k)) return { kind: "object", object: t.token.id };
+    const p = positionAtPoint(to, fs, o.point.piece, m.index, 1);
+    return p === null ? null : caretAt(p.blockId, p.offset);
+  }
+  const m = (p: ModelPosition): ModelPosition => mapPosition(from, to, p, -1).position ?? p;
+  return { anchor: m(sel.anchor), focus: m(sel.focus) };
 }

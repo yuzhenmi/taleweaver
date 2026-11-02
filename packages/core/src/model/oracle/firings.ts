@@ -1,5 +1,6 @@
 import * as Y from "yjs";
 import type { FlowState } from "../document/types";
+import { isParagraphBreak, isSectionBreak, isStructural, kindOfStored } from "../scan/kinds";
 import { readsAsContent } from "../scan/scan-range";
 import { itemId } from "../storage/item-id";
 import { ITEM_KINDS, KIND_KEY, PIECES_KEY } from "../storage/keys";
@@ -8,12 +9,12 @@ import { SUBFLOW_DEPTH_CAP } from "../storage/limits";
 /** A firing of a read rule (or an A1 / A2 / W2 break) in one flow's storage. */
 export interface Firing {
   readonly type: "debris" | "abut" | "SS" | "leadingS" | "trailingS" | "empty";
-  /** What ends it: a TOC, an `[S]`, or the flow end. */
-  readonly end: "toc" | "S" | "end";
+  /** What ends it: a block object, an `[S]`, or the flow end. */
+  readonly end: "blockObject" | "section" | "end";
   readonly where: string;
   /** Live units on its left: the debris run's units (per character), or the object / `[S]` before the gap. */
   readonly left: readonly Y.ID[];
-  /** The TOC / `[S]` that ends it (null at the flow end). */
+  /** The block object / `[S]` that ends it (null at the flow end). */
   readonly right: Y.ID | null;
   /** Deleted ¶s between the left boundary and the right. */
   readonly gap: readonly string[];
@@ -46,19 +47,19 @@ export function firingsOf(fs: FlowState, restores: Map<string, string> = new Map
     return cur;
   };
   const pending: Omit<Firing, "key">[] = [];
-  type Boundary = { k: "start" | "para" | "toc" | "S"; id: Y.ID | null };
+  type Boundary = { k: "start" | "paragraphBreak" | "blockObject" | "section"; id: Y.ID | null };
   let left: Boundary = { k: "start", id: null };
   let run: Y.ID[] = [];
   let gap: string[] = [];
   let any = false;
   const where = fs.holderId;
-  const terminate = (k: "toc" | "S" | "end", id: Y.ID | null): void => {
+  const terminate = (k: "blockObject" | "section" | "end", id: Y.ID | null): void => {
     const leftIds = left.id === null ? [] : [left.id];
     if (run.length > 0) pending.push({ type: "debris", end: k, where, left: run, right: id, gap });
-    else if (left.k === "toc") pending.push({ type: "abut", end: k, where, left: leftIds, right: id, gap });
-    else if (k === "S" && left.k === "S") pending.push({ type: "SS", end: k, where, left: leftIds, right: id, gap });
-    else if (k === "S" && left.k === "start") pending.push({ type: "leadingS", end: k, where, left: leftIds, right: id, gap });
-    else if (k === "end" && left.k === "S") pending.push({ type: "trailingS", end: k, where, left: leftIds, right: id, gap });
+    else if (left.k === "blockObject") pending.push({ type: "abut", end: k, where, left: leftIds, right: id, gap });
+    else if (k === "section" && left.k === "section") pending.push({ type: "SS", end: k, where, left: leftIds, right: id, gap });
+    else if (k === "section" && left.k === "start") pending.push({ type: "leadingS", end: k, where, left: leftIds, right: id, gap });
+    else if (k === "end" && left.k === "section") pending.push({ type: "trailingS", end: k, where, left: leftIds, right: id, gap });
     else if (k === "end" && !any) pending.push({ type: "empty", end: k, where, left: [], right: null, gap });
   };
   const visit = (piece: Y.Text, depth: number): void => {
@@ -74,8 +75,9 @@ export function firingsOf(fs: FlowState, restores: Map<string, string> = new Map
       if (!(c instanceof Y.ContentType) || !(c.type instanceof Y.Map)) continue;
       const m = c.type;
       const kind = rawKind(m);
+      const fk = kindOfStored(kind);
       if (it.deleted) {
-        if (kind === ITEM_KINDS.para) gap.push(itemId(it));
+        if (isParagraphBreak(fk)) gap.push(itemId(it));
         continue;
       }
       if (kind === ITEM_KINDS.sub) {
@@ -83,14 +85,14 @@ export function firingsOf(fs: FlowState, restores: Map<string, string> = new Map
         if (depth < SUBFLOW_DEPTH_CAP && arr instanceof Y.Array) for (const p of arr.toArray()) if (p instanceof Y.Text) visit(p, depth + 1);
         continue;
       }
-      if (kind === ITEM_KINDS.para) {
+      if (isParagraphBreak(fk)) {
         any = true;
-        left = { k: "para", id: it.id };
+        left = { k: "paragraphBreak", id: it.id };
         run = [];
         gap = [];
-      } else if (kind === ITEM_KINDS.toc || kind === ITEM_KINDS.sectionBreak) {
+      } else if (isStructural(fk)) {
         any = true;
-        const k = kind === ITEM_KINDS.toc ? "toc" : "S";
+        const k = isSectionBreak(fk) ? "section" : "blockObject";
         terminate(k, it.id);
         left = { k, id: it.id };
         run = [];
@@ -105,7 +107,7 @@ export function firingsOf(fs: FlowState, restores: Map<string, string> = new Map
 }
 
 /** Shapes A1 / A2 claim unreachable except by Q1 (O7). */
-export const A1A2 = (f: Firing): boolean => f.type === "SS" || f.type === "leadingS" || f.type === "trailingS" || f.type === "empty" || (f.type === "abut" && f.end !== "toc") || (f.type === "debris" && f.end === "end");
+export const A1A2 = (f: Firing): boolean => f.type === "SS" || f.type === "leadingS" || f.type === "trailingS" || f.type === "empty" || (f.type === "abut" && f.end !== "blockObject") || (f.type === "debris" && f.end === "end");
 
 /** One flow's storage with tombstones, for failure reports: `text@id`, `¶id`, `[toc id]`, `[S id]`, `†` = deleted, `|` between pieces, `{…}` a sub-flow. */
 export function storageLine(fs: FlowState): string {
@@ -123,7 +125,10 @@ export function storageLine(fs: FlowState): string {
           const arr = c.type.get(PIECES_KEY);
           if (arr instanceof Y.Array) for (const p of arr.toArray()) if (p instanceof Y.Text) visit(p);
           parts.push("}");
-        } else parts.push(`${k === ITEM_KINDS.para ? "¶" : `[${k} `}${idKey(it.id)}${k === ITEM_KINDS.para ? "" : "]"}${del}`);
+        } else {
+          const para = isParagraphBreak(kindOfStored(k));
+          parts.push(`${para ? "¶" : `[${k} `}${idKey(it.id)}${para ? "" : "]"}${del}`);
+        }
       }
     }
   };

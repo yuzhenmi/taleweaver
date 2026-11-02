@@ -1,4 +1,5 @@
 import { resolveObjectProps } from "../../object-kinds";
+import { FIELD_KINDS, FIELD_NUMBER_STYLES } from "../../scan/field-props";
 import type { ObjectProps } from "../../storage/new-items";
 import { type FlatKeys, type Scalar, isWriteScalar } from "../../storage/scalar";
 import type { CommandContext } from "../command-context";
@@ -29,4 +30,9 @@ export function validObject(ctx: CommandContext, kind: string, o: ObjectProps): 
   const props: Record<string, unknown> = checkScalars(o.props ?? {}, "object prop");
   if (resolveObjectProps(ctx.version.registry, kind, props) === null) throw new Error(`model: object kind ${kind} is unregistered or misses a required prop`);
   for (const n of [o.w, o.h]) if (n !== undefined && !(Number.isFinite(n) && n >= 0)) throw new Error("model: object size must be a finite number ≥ 0");
+}
+
+export function validField(field: string, numberStyle: string): void {
+  if (!FIELD_KINDS.has(field)) throw new Error(`model: field ${field} is not ${[...FIELD_KINDS].join(" / ")}`);
+  if (!FIELD_NUMBER_STYLES.has(numberStyle)) throw new Error(`model: field number style ${numberStyle} is not ${[...FIELD_NUMBER_STYLES].join(" / ")}`);
 }

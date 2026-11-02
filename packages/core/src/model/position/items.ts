@@ -1,11 +1,12 @@
-import { EMBED_TYPES, type InlineItem } from "../block";
+import type { InlineItem } from "../block";
 import type { RunToken } from "../scan/tokens";
 import type { ParagraphLayout } from "./paragraph-layout";
+import { isText } from "../scan/kinds";
 
-export const unitsOf = (i: InlineItem): number => (i.kind === "text" ? i.text.length : 1);
+export const unitsOf = (i: InlineItem): number => (isText(i) ? i.text.length : 1);
 
-export const isFloat = (i: InlineItem | undefined): boolean =>
-  i !== undefined && i.kind === "embed" && i.embedType === EMBED_TYPES.object && typeof i.properties["wrap"] === "string";
+/** A floated inline atom (`wrap` set, C4f): an instance property, whatever the kind. */
+export const isFloat = (i: InlineItem | undefined): boolean => i !== undefined && !isText(i) && typeof i.properties["wrap"] === "string";
 
 // ---------------------------------------------------------------------------
 // Items around an offset. Plans read a paragraph's items through its layout's run
@@ -85,10 +86,10 @@ export function nextItem(L: ParagraphLayout, r: ItemRef): ItemRef | null {
 /** The text items either side of `offset` (embeds skipped); both the same item when `offset` is strictly inside one. */
 export function textNeighbours(L: ParagraphLayout, offset: number): { before: ItemRef | null; after: ItemRef | null } {
   const at = itemAt(L, offset);
-  if (at !== null && at.item.kind === "text" && at.start < offset) return { before: at, after: at };
+  if (at !== null && isText(at.item) && at.start < offset) return { before: at, after: at };
   let after = at;
-  while (after !== null && after.item.kind !== "text") after = nextItem(L, after);
+  while (after !== null && !isText(after.item)) after = nextItem(L, after);
   let before = itemBefore(L, offset);
-  while (before !== null && before.item.kind !== "text") before = prevItem(L, before);
+  while (before !== null && !isText(before.item)) before = prevItem(L, before);
   return { before, after };
 }

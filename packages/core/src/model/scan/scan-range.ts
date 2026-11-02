@@ -1,12 +1,13 @@
 /**
  * Piece scanning: a piece's items → TOKENS — content runs and terminators (¶,
- * block object, `[S]`). The read rules group tokens into paragraphs (`derive/entities.ts`).
+ * block object — TOC or table —, `[S]`). The read rules group tokens into paragraphs (`derive/entities.ts`).
  *
  * Inline item read rules (all total; nothing is rewritten):
  *   - text carries the piece's formatting at its position (Yjs format items);
  *   - an `object` reads by its registered kind, else as a placeholder (R-obj,
  *     `object-kinds.ts`); `w` / `h` are kept only as finite numbers ≥ 0; a `wrap`
  *     outside left|right|break reads as inline;
+ *   - a `field` reads by `field-props.ts` (an unknown field kind is INERT);
  *   - a `marker` with a non-string `ns` / `id` or an `edge` outside start|end, an
  *     embed whose `k` is unknown, and any non-map embed are INERT: they occupy their
  *     storage index but read as nothing;
@@ -24,10 +25,12 @@ import { footnoteBodyId } from "../ids";
 import { type ObjectKindRegistry, resolveObjectProps } from "../object-kinds";
 import { itemId } from "../storage/item-id";
 import { BODY_KEY, ITEM_KINDS } from "../storage/keys";
+import { fieldProps } from "./field-props";
+import { type FlowKind, KINDS, isTerminatorKind, isText, kindOfStored } from "./kinds";
 import { SUBFLOW_DEPTH_CAP } from "../storage/limits";
 import { childMap, kindOf, scalarsWithPrefix } from "../storage/map-reads";
 import { joinsForward, joinsForwardAtEnd } from "./joins";
-import type { FootnoteRef, ScanCtx, TerminatorKind, Token } from "./tokens";
+import type { FootnoteRef, ScanCtx, Token } from "./tokens";
 
 const NO_INERT: readonly number[] = Object.freeze([]);
 
@@ -63,8 +66,8 @@ function pushItem(st: ScanState, item: InlineItem | null, len: number): void {
   if (item === null) return;
   const last = st.items[st.items.length - 1];
   // The flag is read from the slice just taken (a Yjs string), never from the merged text.
-  const joins = item.kind === "text" && joinsForwardAtEnd(item.text);
-  if (item.kind === "text" && last !== undefined && last.kind === "text" && attrsEqual(last.attrs, item.attrs)) {
+  const joins = isText(item) && joinsForwardAtEnd(item.text);
+  if (isText(item) && isText(last) && attrsEqual(last.attrs, item.attrs)) {
     const merged: InlineItem = { kind: "text", text: last.text + item.text, attrs: last.attrs };
     st.items[st.items.length - 1] = merged;
     if (joins) joinsForward.add(merged);
@@ -102,14 +105,17 @@ function markerProps(m: Y.Map<unknown>): { ns: string; id: string; edge: "start"
  * (what {@link scanMap} gives an item), not INERT. `footnotes`: the flow reads anchors.
  */
 export function readsAsContent(m: Y.Map<unknown>, footnotes: boolean): boolean {
-  switch (kindOf(m)) {
-    case ITEM_KINDS.object:
-    case ITEM_KINDS.hr:
+  switch (kindOfStored(kindOf(m))) {
+    case "object":
+    case "hr":
+    case "lineBreak":
       return true;
-    case ITEM_KINDS.footnote:
+    case "footnote":
       return footnotes;
-    case ITEM_KINDS.marker:
+    case "marker":
       return markerProps(m) !== null;
+    case "field":
+      return fieldProps(m) !== null;
     default:
       return false;
   }
@@ -117,53 +123,48 @@ export function readsAsContent(m: Y.Map<unknown>, footnotes: boolean): boolean {
 
 /** Handle one embedded map. Returns false when the scan must abort (a sub-flow in a no-sub scan). */
 function scanMap(st: ScanState, item: Y.Item, m: Y.Map<unknown>, attrs: () => ReadonlyAttrs): boolean {
-  const k = kindOf(m);
-  switch (k) {
-    case ITEM_KINDS.para:
-    case ITEM_KINDS.toc:
-    case ITEM_KINDS.sectionBreak: {
-      flushRun(st);
-      const kind: TerminatorKind = k === ITEM_KINDS.para ? "para" : k === ITEM_KINDS.toc ? "toc" : "S";
-      st.tokens.push({ k: kind, len: 1, id: itemId(item), map: m });
-      return true;
-    }
-    case ITEM_KINDS.sub:
-      if (!st.inertSubs) return false;
-      pushItem(st, null, 1);
-      return true;
-  }
-  // The INERT decision is {@link readsAsContent}'s alone (the oracle's storage walk shares it).
-  if (!readsAsContent(m, st.ctx.footnotes)) {
+  const stored = kindOf(m);
+  if (stored === ITEM_KINDS.sub) {
+    if (!st.inertSubs) return false;
     pushItem(st, null, 1);
     return true;
   }
+  const k = kindOfStored(stored);
+  if (k !== null && isTerminatorKind(k)) {
+    flushRun(st);
+    st.tokens.push({ k, len: 1, id: itemId(item), map: m });
+    return true;
+  }
+  // The INERT decision is {@link readsAsContent}'s alone (the oracle's storage walk shares it).
+  if (k === null || !readsAsContent(m, st.ctx.footnotes)) {
+    pushItem(st, null, 1);
+    return true;
+  }
+  pushItem(st, inlineEmbed(st, k, item, m, attrs()), 1);
+  return true;
+}
+
+/** The read embed of a content item of inline kind `k` (kind-specific props; INERT ones were filtered by {@link readsAsContent}). */
+function inlineEmbed(st: ScanState, k: FlowKind, item: Y.Item, m: Y.Map<unknown>, attrs: ReadonlyAttrs): EmbedItem | null {
+  const embed = (properties: Readonly<Record<string, unknown>>): EmbedItem | null => {
+    const embedType = KINDS[k].embedType;
+    return embedType === null ? null : { kind: "embed", embedType, attrs, properties };
+  };
   switch (k) {
-    case ITEM_KINDS.object:
-      pushItem(st, objectEmbed(m, attrs(), st.ctx.registry), 1);
-      return true;
-    case ITEM_KINDS.hr:
-      pushItem(st, { kind: "embed", embedType: EMBED_TYPES.horizontalLine, attrs: attrs(), properties: {} }, 1);
-      return true;
-    case ITEM_KINDS.footnote: {
+    case "object":
+      return objectEmbed(m, attrs, st.ctx.registry);
+    case "footnote": {
       const id = itemId(item);
       st.footnotes.push({ id, body: childMap(m, BODY_KEY) });
-      pushItem(
-        st,
-        { kind: "embed", embedType: EMBED_TYPES.footnoteAnchor, attrs: attrs(), properties: { contentBlockId: footnoteBodyId(id) } },
-        1,
-      );
-      return true;
+      return embed({ contentBlockId: footnoteBodyId(id) });
     }
-    case ITEM_KINDS.marker: {
-      // readsAsContent checked the props; the null test only narrows the type.
-      const props = markerProps(m);
-      if (props === null) break;
-      pushItem(st, { kind: "embed", embedType: EMBED_TYPES.marker, attrs: attrs(), properties: props }, 1);
-      return true;
-    }
+    case "marker":
+      return embed(markerProps(m) ?? {});
+    case "field":
+      return embed(fieldProps(m) ?? {});
+    default:
+      return embed({});
   }
-  pushItem(st, null, 1);
-  return true;
 }
 
 /** Scan `[from, to)` of `piece` (storage index units) into `st`. False = aborted on a sub-flow. */

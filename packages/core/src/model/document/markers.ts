@@ -1,4 +1,5 @@
 import { type Block, type BlockId, EMBED_TYPES } from "../block";
+import { unitsOf } from "../position/items";
 import { getTemplateContentIds } from "./blocks";
 import type { Document } from "./types";
 
@@ -25,6 +26,8 @@ function flowsInDocumentOrder(d: Document): BlockId[] {
     if (!d.flows.has(holderId)) return;
     out.push(holderId);
     for (const b of flowBlocks(d, holderId)) {
+      // A table's cell flows, row-major (rendered cells only), in place.
+      for (const cell of d.tables.get(b.id)?.cells ?? []) visit(cell.id);
       for (const item of b.inlineContent?.items ?? []) {
         const body = item.kind === "embed" && item.embedType === EMBED_TYPES.footnoteAnchor ? item.properties["contentBlockId"] : undefined;
         if (typeof body === "string") visit(body);
@@ -56,7 +59,8 @@ export const markerKey = (ns: string, id: string): string => `${ns}\u0000${id}`;
  * R12: per (ns, id), the first start pairs with the first end after it in the same
  * flow; every other marker of that key is inert. Flows are taken in document order —
  * the body flow, then header / footer bodies by id — each followed (depth first) by
- * the footnote bodies it anchors, in anchor order; the first flow that pairs a key
+ * the footnote bodies it anchors, in anchor order, and its tables' cell flows
+ * (row-major, at the table's place); the first flow that pairs a key
  * wins. Keyed by {@link markerKey}.
  * ponytail: one O(document) walk per version, memoized; index markers per block if a
  * per-keystroke consumer appears.
@@ -84,7 +88,7 @@ export function markerRanges(d: Document): ReadonlyMap<string, MarkerRange> {
             }
           }
         }
-        offset += item.kind === "text" ? item.text.length : 1;
+        offset += unitsOf(item);
       }
     }
   }

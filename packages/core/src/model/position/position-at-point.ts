@@ -6,6 +6,8 @@ import { debrisBeforeId, flowEndId } from "../ids";
 import { type Assoc, type ModelPosition, position } from "./model-position";
 import { type TerminatorRef, starts } from "./paragraph-layout";
 import { nextTerminator, unitsBefore } from "./terminator-neighbours";
+import { isParagraphBreak } from "../scan/kinds";
+import { unitsOf } from "./items";
 
 /** Read units before run-relative storage offset `s`. */
 function readBefore(inert: readonly number[], s: number): number {
@@ -59,11 +61,20 @@ export function positionAtPoint(d: Document, fs: FlowState, piece: Y.Text, index
   return positionAt(d, fs, at, assoc);
 }
 
+/** The terminator starting exactly at storage point (`piece`, `index`) of flow `fs`, or null (a run there, or the flow end). */
+export function terminatorAtPoint(fs: FlowState, piece: Y.Text, index: number): TerminatorRef | null {
+  const at = locate(fs, piece, index);
+  const seg = at === null ? undefined : fs.segments[at.seg];
+  const token = at === null ? undefined : seg?.tokens[at.tok];
+  const start = at === null || seg === undefined ? undefined : starts(seg)[at.tok];
+  return at === null || token === undefined || token.k === "run" || start !== index ? null : { seg: at.seg, tok: at.tok, index, token };
+}
+
 function blockLength(d: Document, id: BlockId): number | null {
   const items = resolveBlock(d, id)?.block.inlineContent?.items;
   if (items === undefined) return null;
   let n = 0;
-  for (const i of items) n += i.kind === "text" ? i.text.length : 1;
+  for (const i of items) n += unitsOf(i);
   return n;
 }
 
@@ -74,7 +85,7 @@ function probe(fs: FlowState, at: Located): Probe {
   const after = nextTerminator(fs, at.seg, at.tok, at.within);
   const before = unitsBefore(fs, at.seg, at.tok, at.within);
   const t = after.term;
-  if (t !== null && t.token.k === "para") return { pos: position(t.token.id, before.units) };
+  if (t !== null && isParagraphBreak(t.token.k)) return { pos: position(t.token.id, before.units) };
   if (before.units + after.units > 0) return { pos: position(t === null ? flowEndId(fs.holderId) : debrisBeforeId(t.token.id), before.units) };
   if (t === null && fs.synthetic) return { pos: position(flowEndId(fs.holderId), 0) };
   return { after: t, before: before.before };
@@ -100,7 +111,7 @@ function positionAt(d: Document, fs: FlowState, at: Located, assoc: Assoc): Mode
       } else {
         const b = p.before;
         if (b === null) return null;
-        if (b.token.k === "para") {
+        if (isParagraphBreak(b.token.k)) {
           const len = blockLength(d, b.token.id);
           return len === null ? null : position(b.token.id, len);
         }

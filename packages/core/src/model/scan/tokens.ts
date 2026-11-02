@@ -1,6 +1,7 @@
 import type * as Y from "yjs";
 import type { InlineItem } from "../block";
 import type { ObjectKindRegistry } from "../object-kinds";
+import type { TerminatorKind } from "./kinds";
 
 export interface FootnoteRef {
   /** The anchor embed's item id; its body's root id is `${id}/body`. */
@@ -20,8 +21,6 @@ export interface RunToken {
    */
   readonly inert: readonly number[];
 }
-
-export type TerminatorKind = "para" | "toc" | "S";
 
 export interface TerminatorToken {
   readonly k: TerminatorKind;

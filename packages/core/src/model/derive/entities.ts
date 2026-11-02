@@ -2,6 +2,7 @@ import type * as Y from "yjs";
 import { attrsEqual } from "../equality";
 import type { BlockId, InlineItem } from "../block";
 import { debrisBeforeId, flowEndId } from "../ids";
+import { isParagraphBreak, isSectionBreak, isText } from "../scan/kinds";
 import type { FootnoteRef, Segment, Token } from "../scan/tokens";
 
 // ---------------------------------------------------------------------------
@@ -21,18 +22,29 @@ export interface TocEntity {
   readonly id: BlockId;
   readonly map: Y.Map<unknown>;
 }
+/** A table block object; its rows / cells come from its storage (`derive/table/`). */
+export interface TableEntity {
+  readonly k: "table";
+  readonly id: BlockId;
+  readonly map: Y.Map<unknown>;
+}
 export interface SectionBreakEntity {
   readonly k: "S";
   readonly id: BlockId;
   readonly map: Y.Map<unknown>;
 }
-export type Entity = ParaEntity | TocEntity | SectionBreakEntity;
-export type BlockEntity = ParaEntity | TocEntity;
+export type Entity = ParaEntity | TocEntity | TableEntity | SectionBreakEntity;
+export type BlockEntity = ParaEntity | TocEntity | TableEntity;
+
+export const isParaEntity = (e: Entity): e is ParaEntity => isParagraphBreak(e.k);
+export const isSectionBreakEntity = (e: Entity): e is SectionBreakEntity => isSectionBreak(e.k);
+/** Every entity but `[S]` is a block record (an `[S]` is its section's end, R4). */
+export const isBlockEntity = (e: Entity): e is BlockEntity => !isSectionBreak(e.k);
 
 function appendItems(dst: InlineItem[], src: readonly InlineItem[]): void {
   for (const item of src) {
     const last = dst[dst.length - 1];
-    if (item.kind === "text" && last !== undefined && last.kind === "text" && attrsEqual(last.attrs, item.attrs)) {
+    if (isText(item) && isText(last) && attrsEqual(last.attrs, item.attrs)) {
       dst[dst.length - 1] = { kind: "text", text: last.text + item.text, attrs: last.attrs };
     } else {
       dst.push(item);
@@ -57,11 +69,12 @@ export function group(tokens: Iterable<Token>, atEnd: boolean, holderId: BlockId
       if (t.footnotes.length > 0) footnotes = footnotes.concat(t.footnotes);
       continue;
     }
-    if (t.k === "para") {
-      out.push({ k: "para", id: t.id, map: t.map, items, footnotes });
+    const k = t.k;
+    if (isParagraphBreak(k)) {
+      out.push({ k, id: t.id, map: t.map, items, footnotes });
     } else {
       if (content) out.push({ k: "para", id: debrisBeforeId(t.id), map: null, items, footnotes });
-      out.push(t.k === "toc" ? { k: "toc", id: t.id, map: t.map } : { k: "S", id: t.id, map: t.map });
+      out.push({ k, id: t.id, map: t.map });
     }
     items = [];
     footnotes = [];

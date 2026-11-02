@@ -1,5 +1,5 @@
 /**
- * Schema-4 storage (yjs-valid-by-definition r7 §3), tables excluded (P2).
+ * Schema-4 storage (yjs-valid-by-definition r7 §3).
  *
  * Root: `doc.getMap("v4").get("doc")` = DocMap, created together with
  * `meta.schemaVersion = 4`. DocMap keys:
@@ -16,8 +16,14 @@
  *   - `object`: a generic inline object `{kind, w?, h?, wrap?, a:<prop>…}`; images
  *     are kind `"image"` (`a:src`, `a:alt`); `wrap` ∈ left|right|break, absent = inline;
  *   - `hr`: an inline horizontal rule;
+ *   - `br`: an inline line break (Shift+Enter; Word `\v`, GDocs `\u000b`);
+ *   - `field`: an inline field `{field, numberStyle?}` (`field` ∈ page-number|page-count);
  *   - `sectionBreak`: `[S]`, holding the props (`s:*`, `h:*`) of the section it ends;
  *   - `toc`: a table-of-contents block object (`a:*` options);
+ *   - `table`: a table block object `{a:*, rows: Y.Array<RowMap>, cols: Y.Array<ColMap>}`;
+ *     ColMap `{key, weight?}`; RowMap `{key, header?, a:*, c:<col>:a:*,
+ *     c:<col>:rowSpanTo: rowKey, c:<col>:colSpanTo: colKey, c:<col>:flow}` — a cell is
+ *     the slot (row key, column key), its content the `c:<col>:flow` flow (`table-keys.ts`);
  *   - `footnote`: an inline footnote anchor whose `body` is a nested `Y.Map{flow}` (X20);
  *   - `marker`: a generic range marker `{ns, id, edge: "start"|"end"}` (bookmarks,
  *     comment anchors);
@@ -43,13 +49,22 @@ export const SUGGESTIONS_KEY = "suggestions";
 export const KIND_KEY = "k";
 export const PIECES_KEY = "pieces";
 export const BODY_KEY = "body";
+export const ROWS_KEY = "rows";
+export const COLS_KEY = "cols";
+/** A row's / column's track key (rows and columns are addressed by key, never by index). */
+export const TRACK_KEY = "key";
+export const HEADER_KEY = "header";
+export const WEIGHT_KEY = "weight";
 
 export const ITEM_KINDS = {
   para: "para",
   object: "object",
   hr: "hr",
+  lineBreak: "br",
+  field: "field",
   sectionBreak: "sectionBreak",
   toc: "toc",
+  table: "table",
   footnote: "footnote",
   marker: "marker",
   sub: "sub",

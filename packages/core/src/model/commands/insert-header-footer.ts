@@ -7,10 +7,10 @@ import { BODIES_KEY } from "../storage/keys";
 import { childMap } from "../storage/map-reads";
 import { newBody, newParagraphMark } from "../storage/new-items";
 import type { CommandContext } from "./command-context";
-import { rangeOf } from "./helpers/at";
+import { selectionStart } from "./helpers/over-object";
 import { plan } from "./helpers/build-plan";
 import { type Region, type Variant, linkAttr, linkKey } from "./helpers/header-footer-link";
-import { inMainTree } from "./helpers/in-main-tree";
+import { inSections } from "./helpers/placement";
 import { sectionOwner } from "./helpers/section-owner";
 import { keysWrite } from "./helpers/writes";
 
@@ -21,11 +21,11 @@ import { keysWrite } from "./helpers/writes";
  * Previous" edits the shared one).
  */
 export function insertHeaderFooter(ctx: CommandContext, region: Region, variant: Variant = "default"): Plan | null {
-  const r = rangeOf(ctx);
-  if (r === null || !inMainTree(r.start)) return null;
+  const start = selectionStart(ctx);
+  if (start === null || !inSections(start)) return null;
   const d = ctx.version;
-  const section = r.start.L.block.parentId === null ? null : resolveBlock(d, r.start.L.block.parentId)?.block;
-  const owner = sectionOwner(d, r.start);
+  const section = start.L.block.parentId === null ? null : resolveBlock(d, start.L.block.parentId)?.block;
+  const owner = sectionOwner(d, start);
   const bodies = childMap(d.docMap, BODIES_KEY);
   const doc = d.docMap.doc;
   if (section === undefined || section === null || owner === null || bodies === null || doc === null) return null;

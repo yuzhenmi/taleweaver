@@ -1,8 +1,10 @@
 import type { Plan } from "../plan";
-import { caretAt } from "../position/model-position";
+import { caretAt, isObjectSelection } from "../position/model-position";
 import { paragraphLayout } from "../position/paragraph-layout";
 import { paragraphBefore } from "../position/terminator-neighbours";
+import { isAtomicBlockObject, isBlockObject, isParagraphBreak, isRemovedByJoin } from "../scan/kinds";
 import type { CommandContext } from "./command-context";
+import { deleteBlockObject } from "./delete-block-object";
 import { rangeOf } from "./helpers/at";
 import { plan } from "./helpers/build-plan";
 import { deleteRange, deleteSelectionOf } from "./helpers/delete-range";
@@ -10,12 +12,14 @@ import { deleteRule, deleteTerminator, deleteUnits, isRuleParagraph, unitToDelet
 import { isListItem, listExit } from "./helpers/list-exit";
 
 /**
- * Backspace. Range → C9. Mid-paragraph: the grapheme / embed before the caret
- * (C4 — an inline image or `[hr]` is one character, G5; floats and markers are
- * stepped over, C4f). At the paragraph start: a list item exits the list; after a
- * rule paragraph C4r; after a TOC C6; after `[S]` C7; else the C3 join.
+ * Backspace. An object selection → C10. Range → C9. Mid-paragraph: the grapheme / inline atom before the caret
+ * (C4: one character, G5; zero-width anchors and floats are stepped over, C4f). At the
+ * paragraph start: a list item exits the list; after an atomic block object, it goes
+ * (C6); after a block object holding flows, nothing (C5, with table editing, P2 M3);
+ * after a rule paragraph C4r; after `[S]` C7; else the C3 join.
  */
 export function deleteBackward(ctx: CommandContext): Plan | null {
+  if (isObjectSelection(ctx.selection)) return deleteBlockObject(ctx, ctx.selection.object); // C10
   const r = rangeOf(ctx);
   if (r === null) return null;
   if (!r.collapsed) return deleteSelectionOf(ctx, r);
@@ -32,19 +36,17 @@ export function deleteBackward(ctx: CommandContext): Plan | null {
   const before = L.before;
   if (before === null) return null; // the flow's first position
   const here = L.block.id;
-  if (before.token.k === "toc") {
-    // C6: delete the TOC (today's delete-adjacent-atomic-leaf).
-    return plan(d, deleteTerminator(L.fs, before), () => caretAt(here, offset));
-  }
-  // C5 (a table before the paragraph) arrives with tables in P2.
-  const X = before.token.k === "para" ? paragraphLayout(d, before.token.id) : paragraphBefore(d, L.fs, before);
-  if (before.token.k === "para" && X !== null && isRuleParagraph(X)) {
+  const k = before.token.k;
+  if (isAtomicBlockObject(k)) return plan(d, deleteTerminator(L.fs, before), () => caretAt(here, offset)); // C6
+  if (isBlockObject(k)) return null; // C5 arrives with table editing, P2 M3.
+  const X = isParagraphBreak(k) ? paragraphLayout(d, before.token.id) : paragraphBefore(d, L.fs, before);
+  if (isParagraphBreak(k) && X !== null && isRuleParagraph(X)) {
     const writes = deleteRule(d, X);
     return writes.length === 0 ? null : plan(d, writes, () => caretAt(here, offset));
   }
   if (X === null) {
     // C7 with no paragraph before the [S] (Q1's [S][S], or an object): delete only the [S].
-    return before.token.k === "S" ? plan(d, deleteTerminator(L.fs, before), () => caretAt(here, offset)) : null;
+    return isRemovedByJoin(k) ? plan(d, deleteTerminator(L.fs, before), () => caretAt(here, offset)) : null;
   }
   // C3 / C7: the join — delete ¶X (and the [S] after it); skipped markers / floats before the caret stay.
   const del = deleteRange({ L: X, offset: X.length }, { L, offset: 0 });

@@ -1,10 +1,11 @@
 import { attrsEqual } from "../equality";
 import type { Block, InlineItem, ReadonlyAttrs } from "../block";
+import { isText } from "../scan/kinds";
 
 function itemEqual(a: InlineItem, b: InlineItem): boolean {
   if (a === b) return true; // unchanged runs share their item objects
-  if (a.kind === "text") return b.kind === "text" && a.text === b.text && attrsEqual(a.attrs, b.attrs);
-  return b.kind === "embed" && a.embedType === b.embedType && attrsEqual(a.attrs, b.attrs) && attrsEqual(a.properties, b.properties);
+  if (isText(a)) return isText(b) && a.text === b.text && attrsEqual(a.attrs, b.attrs);
+  return !isText(b) && a.embedType === b.embedType && attrsEqual(a.attrs, b.attrs) && attrsEqual(a.properties, b.properties);
 }
 
 const optAttrsEqual = (a: ReadonlyAttrs | undefined, b: ReadonlyAttrs | undefined): boolean =>

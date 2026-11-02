@@ -13,7 +13,7 @@ import { Model } from "../model";
 import { BUILTIN_OBJECT_KINDS } from "../object-kinds";
 import { editKindOf } from "../oracle/random-command";
 import type { Plan } from "../plan";
-import { type ModelPosition, type ModelSelection, caretAt } from "../position/model-position";
+import { type ModelPosition, type ModelSelection, caretAt, isAllSelection, isObjectSelection } from "../position/model-position";
 import { createEditorOrigin } from "../storage/history-hooks";
 import { expectSameVersion } from "./expect-same-version";
 import { type Fixture, childrenOf, fixture } from "./fixture";
@@ -128,9 +128,12 @@ export class Harness {
   /** The caret / selection as [blockIndex, offset] pairs. */
   sel(): string {
     const ids = this.paragraphs().map((b) => b.id);
+    const s = this.selection;
+    if (isObjectSelection(s)) return `object ${ids.indexOf(s.object)}`;
+    if (isAllSelection(s)) return "all";
     const p = (x: ModelPosition): string => `${ids.indexOf(x.blockId)}:${x.offset}`;
-    const a = p(this.selection.anchor);
-    const f = p(this.selection.focus);
+    const a = p(s.anchor);
+    const f = p(s.focus);
     return a === f ? a : `${a}-${f}`;
   }
 
@@ -165,16 +168,38 @@ export function readOf(d: Document): unknown {
   };
 }
 
-/** A selection of `d` without ids: `flow.paragraph:offset` per end (flow 0 = the body, then footnote bodies in anchor order, then header / footer bodies; `L` = leading). */
+/** A selection of `d` without ids: `flow.paragraph:offset` per end (flow 0 = the body, then footnote bodies in anchor order, then header / footer bodies, then table cells row-major by table in flow order, each followed by its footnote bodies; a paragraph's index counts its flow's block objects); `object flow.index` / `all flow` for those kinds. */
 export function selectionOf(d: Document, sel: ModelSelection): string {
   const body = childrenOf(d, "block", d.rootId).flatMap((s) => childrenOf(d, "block", s.id));
-  const footnotes = body.flatMap((b) => (b.inlineContent?.items ?? []).flatMap((i) => (i.kind === "embed" && typeof i.properties["contentBlockId"] === "string" ? [i.properties["contentBlockId"]] : [])));
-  const flows: string[][] = [body.map((b) => b.id), ...footnotes.map((id) => childrenOf(d, "embedContent", id).map((b) => b.id)), ...getTemplateContentIds(d).map((id) => childrenOf(d, "templateContent", id).map((b) => b.id))];
-  const p = (x: ModelPosition): string => {
-    const f = flows.findIndex((ids) => ids.includes(x.blockId));
-    return `${f}.${flows[f]?.indexOf(x.blockId) ?? -1}:${x.offset}${x.leading === true ? "L" : ""}`;
+  const footnotesOf = (blocks: readonly Block[]): string[] =>
+    blocks.flatMap((b) => (b.inlineContent?.items ?? []).flatMap((i) => (i.kind === "embed" && typeof i.properties["contentBlockId"] === "string" ? [i.properties["contentBlockId"]] : [])));
+  const footnotes = footnotesOf(body);
+  const templates = getTemplateContentIds(d);
+  const holders = [d.rootId, ...footnotes, ...templates];
+  const flows: Block[][] = [body, ...footnotes.map((id) => childrenOf(d, "embedContent", id)), ...templates.map((id) => childrenOf(d, "templateContent", id))];
+  // Cell flows after the rest (labels elsewhere unchanged), each followed by the bodies of footnotes anchored
+  // in it; `flows` grows, so cells of tables in cells follow too.
+  for (let f = 0; f < flows.length; f++) {
+    for (const b of flows[f] ?? []) {
+      const ts = d.tables.get(b.id);
+      for (const c of ts?.cells ?? []) {
+        const cell = childrenOf(d, ts?.tree ?? "block", c.id);
+        holders.push(c.id);
+        flows.push(cell);
+        for (const fn of footnotesOf(cell)) {
+          holders.push(fn);
+          flows.push(childrenOf(d, "embedContent", fn));
+        }
+      }
+    }
+  }
+  const at = (id: string): string => {
+    const f = flows.findIndex((bs) => bs.some((b) => b.id === id));
+    return `${f}.${flows[f]?.findIndex((b) => b.id === id) ?? -1}`;
   };
-  return `${p(sel.anchor)}-${p(sel.focus)}`;
+  if (isAllSelection(sel)) return `all ${holders.indexOf(sel.flow)}`;
+  if (isObjectSelection(sel)) return `object ${at(sel.object)}`;
+  return `${at(sel.anchor.blockId)}:${sel.anchor.offset}-${at(sel.focus.blockId)}:${sel.focus.offset}`;
 }
 
 export function line(b: Block): string {
@@ -186,6 +211,8 @@ export function line(b: Block): string {
       if (i.embedType === "horizontal-line") return "[hr]";
       if (i.embedType === "footnote-anchor") return "[fn]";
       if (i.embedType === "marker") return `[${String(i.properties["edge"])}]`;
+      if (i.embedType === "hard-break") return "[br]";
+      if (i.embedType === "page-field") return `[field:${String(i.properties["fieldKind"])}]`;
       return "[?]";
     })
     .join("");

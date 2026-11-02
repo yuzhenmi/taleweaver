@@ -35,9 +35,10 @@ export function peekBlock(d: Document, id: BlockId): Block | undefined {
   return resolveBlock(d, id)?.block;
 }
 
+/** The root flows of `tree` (a table cell's flow has a parent: it is not a root). */
 function flowIdsOf(d: Document, tree: TreeKind): BlockId[] {
   const out: BlockId[] = [];
-  for (const [id, fs] of d.flows.entries()) if (fs.tree === tree) out.push(id);
+  for (const [id, fs] of d.flows.entries()) if (fs.tree === tree && d.trees[tree].get(id)?.parentId === null) out.push(id);
   return out.sort();
 }
 

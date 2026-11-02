@@ -1,6 +1,6 @@
 import { BLOCK_TYPES, type Block, type BlockId, type ReadonlyAttrs } from "../block";
 import { scalarsWithPrefix } from "../storage/map-reads";
-import type { BlockEntity } from "./entities";
+import type { ParaEntity, TocEntity } from "./entities";
 
 // ---------------------------------------------------------------------------
 // Records
@@ -16,22 +16,23 @@ export const RESERVED_TYPES: ReadonlySet<string> = new Set([
   BLOCK_TYPES.tableOfContents,
   BLOCK_TYPES.templateBody,
   BLOCK_TYPES.footnoteBody,
-  "table",
-  "table-row",
-  "table-cell",
+  BLOCK_TYPES.table,
+  BLOCK_TYPES.tableRow,
+  BLOCK_TYPES.tableCell,
   "image",
   "horizontal-line",
 ]);
 
 export const EMPTY_ATTRS: ReadonlyAttrs = Object.freeze({});
 
-interface Links {
+export interface Links {
   readonly parentId: BlockId | null;
   readonly prevSiblingId: BlockId | null;
   readonly nextSiblingId: BlockId | null;
 }
 
-export function entityRecord(e: BlockEntity, links: Links): Block {
+/** A paragraph or TOC record (a table's is `derive-flow.ts` `tableRecord`). */
+export function entityRecord(e: ParaEntity | TocEntity, links: Links): Block {
   if (e.k === "toc") {
     return Object.freeze({
       id: e.id,

@@ -60,7 +60,8 @@ import { deriveDocument } from "../derive/derive-document";
 import type { Document } from "../document/types";
 import { type HistoryStep, UNDO_COALESCE_PAUSE_MS } from "../history";
 import { BUILTIN_OBJECT_KINDS } from "../object-kinds";
-import type { ModelSelection } from "../position/model-position";
+import { blockObjectAt } from "../position/block-object";
+import { type ModelSelection, isAllSelection, isObjectSelection, isTextSelection } from "../position/model-position";
 import { paragraphLayout } from "../position/paragraph-layout";
 import { resolvePosition } from "../position/resolve-position";
 import { getDocMap } from "../storage/doc-map";
@@ -115,10 +116,12 @@ function changed(tr: Y.Transaction): boolean {
 
 /** A selection snapped to caret positions (R14–R16), as restored selections are. */
 function snapped(d: Document, sel: ModelSelection): ModelSelection {
+  if (!isTextSelection(sel)) return sel;
   return { anchor: resolvePosition(d, sel.anchor, OPTIONS) ?? sel.anchor, focus: resolvePosition(d, sel.focus, OPTIONS) ?? sel.focus };
 }
 
-const resolves = (d: Document, sel: ModelSelection): boolean => paragraphLayout(d, sel.anchor.blockId) !== null && paragraphLayout(d, sel.focus.blockId) !== null;
+const resolves = (d: Document, sel: ModelSelection): boolean =>
+  isAllSelection(sel) ? d.flows.has(sel.flow) : isObjectSelection(sel) ? blockObjectAt(d, sel.object) !== null : paragraphLayout(d, sel.anchor.blockId) !== null && paragraphLayout(d, sel.focus.blockId) !== null;
 
 /**
  * One seed. Multi-peer firings are counted by class in `quirks` (labels include `UNCLASSIFIED:*`,
@@ -279,6 +282,7 @@ export function runSeed(seed: number, peerCount: number, steps: number): SeedRes
         const pre = p.history.depths();
         const fromDepth = undo ? pre.undo : pre.redo;
         const toDepth = undo ? pre.redo : pre.undo;
+        const readBefore = readOf(p.model.version);
         let res: HistoryStep | null;
         p.stepping = mode;
         try {
@@ -294,13 +298,18 @@ export function runSeed(seed: number, peerCount: number, steps: number): SeedRes
         const post = p.history.depths();
         const fromNow = undo ? post.undo : post.redo;
         const toNow = undo ? post.redo : post.undo;
-        if (res === null) expect([fromNow, toNow]).toEqual([0, toDepth]);
+        const tag = `seed ${seed} step ${step} peer ${p.index} ${mode}`;
+        // Stock Yjs 13.6.30 (collab-only): redoItem follows `redone` to a copy a peer deleted, so undo() returns a
+        // stack item though nothing changed in scope and no opposite entry is pushed. Counted, never single-peer. Its
+        // stack still moved (by more than one when Yjs first dropped entries a peer's edits emptied: seed 327 17 → 9).
+        const noop = !single && res !== null && fromNow < fromDepth && toNow === toDepth && sameRead(readOf(p.model.version), readBefore);
+        if (noop) yjsUndo.push(`${tag}: ${mode}-noop`);
+        else if (res === null) expect([fromNow, toNow]).toEqual([0, toDepth]);
         else {
           expect(toNow).toBe(toDepth + 1);
           if (single) expect(fromNow).toBe(fromDepth - 1);
           else expect(fromNow).toBeLessThan(fromDepth);
         }
-        const tag = `seed ${seed} step ${step} peer ${p.index} ${mode}`;
         if (judged && !matchesEncoded(p)) {
           yjsUndo.push(`${tag}: O1`);
           p.diverged = true;

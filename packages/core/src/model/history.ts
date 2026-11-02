@@ -26,10 +26,13 @@ import * as Y from "yjs";
 import type { Document } from "./document/types";
 import type { Model } from "./model";
 import { applyPlan, type Plan } from "./plan";
-import type { Assoc, ModelPosition, ModelSelection } from "./position/model-position";
+import { blockObjectAt } from "./position/block-object";
+import { type Assoc, type ModelPosition, type ModelSelection, caretAt, isAllSelection, isObjectSelection, samePosition } from "./position/model-position";
 import { paragraphLayout } from "./position/paragraph-layout";
-import { comparePoints, pointBefore } from "./position/storage-points";
-import { fromRelativePosition, toRelativePosition } from "./mapping/relative-position";
+import { positionAtPoint, terminatorAtPoint } from "./position/position-at-point";
+import { comparePoints } from "./position/storage-points";
+import { anchorPoint, fromRelativePosition, pointOfRelative, relativeItemLive, toRelativePosition } from "./mapping/relative-position";
+import { isBlockObject } from "./scan/kinds";
 import { flowContainerDeleteFilter } from "./storage/history-hooks";
 import { ROOT_MAP } from "./storage/keys";
 
@@ -42,12 +45,12 @@ export type EditKind = "insert" | "delete" | "command";
 interface StoredPosition {
   readonly rel: Y.RelativePosition;
   readonly assoc: Assoc;
-  readonly leading: boolean;
 }
-interface StoredSelection {
-  readonly anchor: StoredPosition;
-  readonly focus: StoredPosition;
-}
+/** A text selection's ends; an object selection as a RelativePosition AT its object's item (Yjs follows a re-created object's `redone` chain); a select-all as its flow. */
+type StoredSelection =
+  | { readonly kind: "text"; readonly anchor: StoredPosition; readonly focus: StoredPosition }
+  | { readonly kind: "object"; readonly rel: Y.RelativePosition }
+  | { readonly kind: "all"; readonly flow: string };
 interface Entry {
   readonly before: StoredSelection | null;
   readonly after: StoredSelection | null;
@@ -60,17 +63,16 @@ export interface HistoryStep {
 
 /** Is `a` at or before `b` (same flow; positions of different flows count as ordered)? */
 function inOrder(d: Document, a: ModelPosition, b: ModelPosition): boolean {
-  if (a.blockId === b.blockId) return a.offset <= b.offset;
   const La = paragraphLayout(d, a.blockId);
   const Lb = paragraphLayout(d, b.blockId);
-  const pa = La === null ? null : pointBefore(La, a.offset);
-  const pb = Lb === null ? null : pointBefore(Lb, b.offset);
-  return pa === null || pb === null || La?.fs !== Lb?.fs || comparePoints(pa, pb) <= 0;
+  const pa = La === null ? null : anchorPoint(La, a.offset, 1);
+  const pb = Lb === null ? null : anchorPoint(Lb, b.offset, 1);
+  return pa === null || pb === null || La?.fs !== Lb?.fs || (comparePoints(pa, pb) || a.offset - b.offset) <= 0;
 }
 
 function storePosition(d: Document, p: ModelPosition, assoc: Assoc): StoredPosition | null {
   const rel = toRelativePosition(d, p, assoc);
-  return rel === null ? null : { rel, assoc, leading: p.leading === true };
+  return rel === null ? null : { rel, assoc };
 }
 
 /**
@@ -79,21 +81,36 @@ function storePosition(d: Document, p: ModelPosition, assoc: Assoc): StoredPosit
  * re-selects exactly the restored text; a caret sticks to the unit after it.
  */
 function storeSelection(d: Document, sel: ModelSelection): StoredSelection | null {
-  const collapsed = sel.anchor.blockId === sel.focus.blockId && sel.anchor.offset === sel.focus.offset;
+  if (isAllSelection(sel)) return { kind: "all", flow: sel.flow };
+  if (isObjectSelection(sel)) {
+    const o = blockObjectAt(d, sel.object);
+    return o === null ? null : { kind: "object", rel: Y.createRelativePositionFromTypeIndex(o.point.piece, o.point.index, 0) };
+  }
+  const collapsed = samePosition(sel.anchor, sel.focus);
   const anchorFirst = collapsed || inOrder(d, sel.anchor, sel.focus);
   const anchor = storePosition(d, sel.anchor, collapsed || anchorFirst ? 1 : -1);
   const focus = collapsed ? anchor : storePosition(d, sel.focus, anchorFirst ? -1 : 1);
-  return anchor === null || focus === null ? null : { anchor, focus };
+  return anchor === null || focus === null ? null : { kind: "text", anchor, focus };
 }
 
 function restorePosition(d: Document, s: StoredPosition): ModelPosition | null {
   const p = fromRelativePosition(d, s.rel, s.assoc);
-  if (p === null || paragraphLayout(d, p.blockId) === null) return null;
-  return s.leading && p.offset === 0 ? { ...p, leading: true } : p;
+  return p === null || paragraphLayout(d, p.blockId) === null ? null : p;
+}
+
+/** An object selection's restore: the object at its point while it is the stored object or its re-created copy (an undo's: its new id), else a caret there (mapSelection's deleted guard). */
+function restoreObject(d: Document, rel: Y.RelativePosition): ModelSelection | null {
+  const at = pointOfRelative(d, rel);
+  const t = at === null || !relativeItemLive(d, rel) ? null : terminatorAtPoint(at.fs, at.piece, at.index);
+  if (t !== null && isBlockObject(t.token.k)) return { kind: "object", object: t.token.id };
+  const p = at === null ? null : positionAtPoint(d, at.fs, at.piece, at.index, 1);
+  return p === null || paragraphLayout(d, p.blockId) === null ? null : caretAt(p.blockId, p.offset);
 }
 
 function restoreSelection(d: Document, s: StoredSelection | null): ModelSelection | null {
   if (s === null) return null;
+  if (s.kind === "all") return d.flows.has(s.flow) ? { kind: "all", flow: s.flow } : null;
+  if (s.kind === "object") return restoreObject(d, s.rel);
   const anchor = restorePosition(d, s.anchor);
   const focus = restorePosition(d, s.focus);
   if (anchor === null) return focus === null ? null : { anchor: focus, focus };

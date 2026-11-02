@@ -9,6 +9,7 @@ import type { CommandContext, CommandOptions } from "../command-context";
 import { rangeOf } from "./at";
 import { plan } from "./build-plan";
 import { deleteRange } from "./delete-range";
+import { overSelection } from "./over-object";
 import { type Keys, joinKeys, keysOf, mKeys, scalar } from "./paragraph-keys";
 import { isInclusive, typeOverAttrs, typingAttrs } from "./typing-attrs";
 import { idAfter, insertAt, keysWrite, materialize } from "./writes";
@@ -28,10 +29,15 @@ function typedMarkKeys(attrs: ReadonlyAttrs, opts: CommandOptions): Keys {
 // ---------------------------------------------------------------------------
 
 /**
- * Replace the selection with `units` (type-over deletes the range first, C9);
+ * Replace the selection with `units` (type-over deletes the range first, C9; an object
+ * selection's object goes, the units going at the start of the paragraph after it);
  * caret after them. `units` receive `attrs` when they carry none of their own.
  */
 export function replaceSelection(ctx: CommandContext, make: (attrs: ReadonlyAttrs) => readonly InsertUnit[], caretAfter?: (after: Document) => ModelSelection | null): Plan | null {
+  return overSelection(ctx, (c) => replaceRange(c, make, caretAfter));
+}
+
+function replaceRange(ctx: CommandContext, make: (attrs: ReadonlyAttrs) => readonly InsertUnit[], caretAfter?: (after: Document) => ModelSelection | null): Plan | null {
   const r = rangeOf(ctx);
   if (r === null) return null;
   const { start, end } = r;
@@ -56,7 +62,7 @@ export function replaceSelection(ctx: CommandContext, make: (attrs: ReadonlyAttr
     if (del === null) return null;
     writes.push(...del.writes);
     survivor = del.survivor;
-    if (comparePoints(del.at, p) < 0) ins = del.at; // the range took leading objects
+    if (comparePoints(del.at, p) < 0) ins = del.at; // a select-all took leading block objects
     if (start.L.block.id !== end.L.block.id) joined = joinKeys(start);
   }
   writes.push(insertAt(ins, units));

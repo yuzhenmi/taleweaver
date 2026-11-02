@@ -53,6 +53,10 @@ export const EMBED_TYPES = {
   /** A generic object (`{k:"object"}`); images are its built-in kind `"image"`. */
   object: "object",
   horizontalLine: "horizontal-line",
+  /** A line break (schema 3's `hard-break`). */
+  lineBreak: "hard-break",
+  /** A page field, `properties: {fieldKind, numberStyle}` (schema 3's `page-field`). */
+  field: "page-field",
   footnoteAnchor: "footnote-anchor",
   marker: "marker",
 } as const;
@@ -63,6 +67,9 @@ export const BLOCK_TYPES = {
   section: "section",
   paragraph: "paragraph",
   tableOfContents: "table-of-contents",
+  table: "table",
+  tableRow: "table-row",
+  tableCell: "table-cell",
   templateBody: "template-body",
   footnoteBody: "footnote-body",
 } as const;

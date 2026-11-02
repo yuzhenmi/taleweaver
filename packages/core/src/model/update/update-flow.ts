@@ -19,6 +19,7 @@
  *   - a piece removed from the flow array, or a changed piece the flow state does not know;
  *   - an `[S]` in a non-body flow (as an anchor or inside the region);
  *   - a flow that is synthetic (R17) or whose region empties it;
+ *   - a region holding a table (P2 M1: tables are derived from scratch with their flow);
  *   - overlapping splices, an anchor whose old record is missing, a section list the
  *     region's old `[S]` cannot be found in (defensive: not produced by any known write).
  * ponytail: several dirty pieces in one transaction form ONE region spanning them all.
@@ -26,25 +27,30 @@
 import * as Y from "yjs";
 import type { BlockId } from "../block";
 import { deriveFlow, deriveFootnote, piecesOf, removeFlow, scanCtxOf, segmentsOf, writeSegment } from "../derive/derive-flow";
-import { type BlockEntity, type Entity, group, indexSegments } from "../derive/entities";
+import { type BlockEntity, type Entity, group, indexSegments, isBlockEntity, isParaEntity, isSectionBreakEntity } from "../derive/entities";
 import { sectionRecord } from "../derive/records";
 import { writeSections } from "../derive/sections";
 import type { Working } from "../derive/working";
 import type { FlowState, SectionInfo } from "../document/types";
 import { footnoteBodyId, sectionIdOf } from "../ids";
 import { flattenPiece } from "../scan/flatten-piece";
-import type { FootnoteRef, Segment } from "../scan/tokens";
+import { holdsFlows, isSectionBreak } from "../scan/kinds";
+import { type FootnoteRef, type Segment, isTerminator } from "../scan/tokens";
 import { SUBFLOW_DEPTH_CAP } from "../storage/limits";
 import { pieceHoldingSubflow } from "../storage/pieces";
 import { type Anchor, type Pos, between, leftAnchor, rightAnchor } from "./anchors";
 import type { FlowChange } from "./flow-change";
-import { isTerminator } from "../scan/tokens";
 import { type Splice, deltaSplice, insertion, subtreeSplice } from "./piece-splice";
 
-/** A from-scratch re-derivation of an existing flow. */
+/** A from-scratch re-derivation of an existing flow (a non-root holder keeps its record's type, attrs and links). */
 export function rederiveFlow(w: Working, fs: FlowState): void {
+  const old = fs.isRoot ? undefined : w.get(fs.tree, fs.holderId);
   removeFlow(w, fs.holderId);
-  deriveFlow(w, fs.holderId, fs.tree, fs.array, fs.isRoot);
+  const holder =
+    old === undefined
+      ? undefined
+      : { type: old.type, attrs: old.attrs, links: { parentId: old.parentId, prevSiblingId: old.prevSiblingId, nextSiblingId: old.nextSiblingId } };
+  deriveFlow(w, fs.holderId, fs.tree, fs.array, fs.isRoot, holder);
 }
 
 /**
@@ -71,11 +77,11 @@ function pieceDepthOrNull(piece: Y.Text): number | null {
 
 const footnotesOf = (ents: readonly Entity[]): Map<string, FootnoteRef> => {
   const m = new Map<string, FootnoteRef>();
-  for (const e of ents) if (e.k === "para") for (const f of e.footnotes) m.set(f.id, f);
+  for (const e of ents) if (isParaEntity(e)) for (const f of e.footnotes) m.set(f.id, f);
   return m;
 };
 
-const sectionBreakIds = (ents: readonly Entity[]): string => ents.filter((e) => e.k === "S").map((e) => e.id).join("\n");
+const sectionBreakIds = (ents: readonly Entity[]): string => ents.filter(isSectionBreakEntity).map((e) => e.id).join("\n");
 
 /** Apply one flow's changes to the working state. */
 export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void {
@@ -210,14 +216,17 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   const oldR: Pos | null = R === null ? null : R.p === zNLast && last.closed ? { p: last.o2 - 1, t: last.endOld - 1 } : { p: R.p - growth, t: R.t };
   const oldEnts = group(between(oldScans, oldL, oldR), R === null, holderId, false);
   const newEnts = group(between(newScans, L, R), R === null, holderId);
-  if (!fs.isRoot && (L?.tok.k === "S" || R?.tok.k === "S" || newEnts.some((e) => e.k === "S") || oldEnts.some((e) => e.k === "S"))) {
+  // ponytail: a region holding a block object with flows (a table) re-derives its flow (O(flow)); incremental tables are P2 M2.
+  const withFlows = (e: Entity): boolean => holdsFlows(e.k);
+  if (oldEnts.some(withFlows) || newEnts.some(withFlows)) return rederiveFlow(w, fs);
+  if (!fs.isRoot && (isSectionBreak(L?.tok.k) || isSectionBreak(R?.tok.k) || newEnts.some(isSectionBreakEntity) || oldEnts.some(isSectionBreakEntity))) {
     return rederiveFlow(w, fs);
   }
   const sectionsChanged = fs.isRoot && sectionBreakIds(oldEnts) !== sectionBreakIds(newEnts);
 
   const tree = fs.tree;
-  const prevBlockId = L !== null && L.tok.k !== "S" ? L.tok.id : null;
-  const rEndsWithS = R !== null && R.tok.k === "S";
+  const prevBlockId = L !== null && !isSectionBreak(L.tok.k) ? L.tok.id : null;
+  const rEndsWithS = R !== null && isSectionBreak(R.tok.k);
   let nextBlockId: BlockId | null = null;
   let trailingContainer: BlockId = fs.isRoot ? (fs.sections[fs.sections.length - 1]?.id ?? holderId) : holderId;
   if (R !== null && !rEndsWithS) {
@@ -239,7 +248,7 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   let sections = fs.sections;
   const removedSections: BlockId[] = [];
   if (sectionsChanged) {
-    const oldS = oldEnts.filter((e) => e.k === "S").map((e) => sectionIdOf(e.id));
+    const oldS = oldEnts.filter(isSectionBreakEntity).map((e) => sectionIdOf(e.id));
     const newS: SectionInfo[] = breaks.map((b) => ({ id: sectionIdOf(b.id), map: b.map }));
     const at = sections.findIndex((x) => x.id === (oldS[0] ?? trailingContainer));
     if (at < 0) return rederiveFlow(w, fs);
@@ -272,8 +281,8 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
 
   // [S] entities are not block records (their section is `${id}/section`): an item whose
   // `k` changed from ¶ / TOC to `[S]` keeps its id but loses its record.
-  const newIds = new Set(newEnts.filter((e) => e.k !== "S").map((e) => e.id));
-  for (const e of oldEnts) if (e.k !== "S" && !newIds.has(e.id)) w.del(tree, e.id);
+  const newIds = new Set(newEnts.filter(isBlockEntity).map((e) => e.id));
+  for (const e of oldEnts) if (isBlockEntity(e) && !newIds.has(e.id)) w.del(tree, e.id);
 
   const lastSeg = rEndsWithS ? m - 1 : m;
   for (let j = 0; j <= lastSeg; j++) {
@@ -295,7 +304,7 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   for (const [id, f] of newFn) if (!oldFn.has(id)) deriveFootnote(w, f);
 
   // R17: only a region left with no block can have emptied the flow.
-  const containers = newEnts.some((e) => e.k !== "S") ? [] : fs.isRoot ? sections.map((s) => s.id) : [holderId];
+  const containers = newEnts.some(isBlockEntity) ? [] : fs.isRoot ? sections.map((s) => s.id) : [holderId];
   if (containers.length > 0 && containers.every((c) => (w.get(tree, c)?.firstChildId ?? null) === null)) {
     const now = w.flows.get(holderId);
     if (now !== undefined) rederiveFlow(w, now);

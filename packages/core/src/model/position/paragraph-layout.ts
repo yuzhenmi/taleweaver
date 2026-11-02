@@ -28,6 +28,7 @@ import { resolveBlock } from "../document/blocks";
 import type { Document, FlowState, TreeKind } from "../document/types";
 import { flowEndId } from "../ids";
 import type { RunToken, Segment, TerminatorToken } from "../scan/tokens";
+import { isParagraphBreak } from "../scan/kinds";
 
 /** An insertion point `index` of `piece`, which is segment `seg`'s piece in its flow. */
 export interface StoragePoint {
@@ -154,7 +155,8 @@ function afterTerminator(fs: FlowState, t: TerminatorRef): StoragePoint | null {
   return seg === undefined ? null : { piece: seg.piece, index: t.index + t.token.len, seg: t.seg };
 }
 
-function flowStart(fs: FlowState): StoragePoint | null {
+/** The flow's start point (before its first segment), or null for a flow with no piece. */
+export function flowStart(fs: FlowState): StoragePoint | null {
   const seg = fs.segments[0];
   return seg === undefined ? null : { piece: seg.piece, index: seg.start, seg: 0 };
 }
@@ -198,7 +200,7 @@ export function paragraphLayout(d: Document, id: BlockId): ParagraphLayout | nul
     end = findTerminator(d, fs, termId);
     // A ¶ id names its own ¶; a `/pre` id names the block object / [S] after the debris.
     const isDebris = termId !== id;
-    if (end === null || isDebris === (end.token.k === "para")) return null;
+    if (end === null || isDebris === isParagraphBreak(end.token.k)) return null;
     from = { seg: end.seg, tok: end.tok };
   }
   const { runs, before } = runsBefore(fs, from.seg, from.tok);
@@ -214,5 +216,5 @@ export function paragraphLayout(d: Document, id: BlockId): ParagraphLayout | nul
     readStart += read;
   }
   const head = before !== null ? afterTerminator(fs, before) : flowStart(fs);
-  return { block: r.block, tree: r.kind, fs, parts, length: readStart, mark: end !== null && end.token.k === "para" ? end.token.map : null, end, before, head };
+  return { block: r.block, tree: r.kind, fs, parts, length: readStart, mark: end !== null && isParagraphBreak(end.token.k) ? end.token.map : null, end, before, head };
 }

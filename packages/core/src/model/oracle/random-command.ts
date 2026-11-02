@@ -8,6 +8,7 @@ import { deleteBlockObject } from "../commands/delete-block-object";
 import { deleteForward } from "../commands/delete-forward";
 import { deleteSelection } from "../commands/delete-selection";
 import type { FragmentItem } from "../commands/helpers/fragment";
+import { objectSelection, selectAll } from "../commands/selections";
 import { insertFootnote } from "../commands/insert-footnote";
 import { insertHeaderFooter } from "../commands/insert-header-footer";
 import { insertHorizontalRule } from "../commands/insert-horizontal-rule";
@@ -27,7 +28,8 @@ import { markerRanges } from "../document/markers";
 import type { Document } from "../document/types";
 import type { EditKind } from "../history";
 import type { Plan } from "../plan";
-import type { ModelPosition, ModelSelection } from "../position/model-position";
+import { type ModelPosition, type ModelSelection, isTextSelection, samePosition } from "../position/model-position";
+import { blockObjectAt } from "../position/block-object";
 import { lengthOf, paragraphIds } from "./document-probes";
 import { pick } from "./random";
 
@@ -75,6 +77,13 @@ export function commandName(roll: number): string {
   return NAMES.find(([t]) => roll < t)?.[1] ?? "paste";
 }
 
+/** The object selection of a random block object of `d`, or null when it has none. */
+function randomObjectSelection(r: () => number, d: Document): ModelSelection | null {
+  const objects = [...d.trees.block.entries()].filter(([id]) => blockObjectAt(d, id) !== null).map(([id]) => id).sort();
+  const id = pick(r, objects);
+  return id === undefined ? null : objectSelection(d, id);
+}
+
 /** A random valid command on `d` (at `selection`, or a random one). Throws only on a bug (O2: Plans are total). */
 export function randomCommand(r: () => number, d: Document, selection?: ModelSelection): RandomCommand {
   const ids = paragraphIds(d);
@@ -84,12 +93,15 @@ export function randomCommand(r: () => number, d: Document, selection?: ModelSel
     return { blockId: id, offset: near0 && r() < 0.5 ? Math.min(len, Math.floor(r() * 3)) : Math.floor(r() * (len + 1)) };
   };
   const roll = r();
+  const text = selection !== undefined && isTextSelection(selection) ? selection : undefined;
   // Backspace / Delete / marker inserts often sit at a paragraph start (markers next to joins).
-  const anchor = selection?.anchor ?? pos(roll >= 0.37 && roll < 0.55);
-  const focus = selection?.focus ?? (r() < 0.6 ? anchor : r() < 0.7 ? { blockId: anchor.blockId, offset: Math.floor(r() * (lengthOf(d, anchor.blockId) + 1)) } : pos());
-  const ctx: CommandContext = { version: d, selection: { anchor, focus }, options: OPTIONS };
+  const anchor = text?.anchor ?? pos(roll >= 0.37 && roll < 0.55);
+  const focus = text?.focus ?? (r() < 0.6 ? anchor : r() < 0.7 ? { blockId: anchor.blockId, offset: Math.floor(r() * (lengthOf(d, anchor.blockId) + 1)) } : pos());
+  // Object / all selections: kept when given, else drawn ~5% (a random block object) / ~3% (select-all of the body).
+  const sel = selection !== undefined && !isTextSelection(selection) ? selection : r() < 0.05 ? randomObjectSelection(r, d) : r() < 0.03 ? selectAll(d) : null;
+  const ctx: CommandContext = { version: d, selection: sel ?? { anchor, focus }, options: OPTIONS };
   /** `cmd`: the command that planned `plan` (its undo grouping). */
-  const out = (cmd: unknown, plan: Plan | null, anywhere = false, keepsMarkers = false): RandomCommand => ({ plan, ctx, anywhere, keepsMarkers: keepsMarkers && (anchor === focus || (anchor.blockId === focus.blockId && anchor.offset === focus.offset)), roll, kind: editKindOf(cmd) });
+  const out = (cmd: unknown, plan: Plan | null, anywhere = false, keepsMarkers = false): RandomCommand => ({ plan, ctx, anywhere, keepsMarkers: keepsMarkers && isTextSelection(ctx.selection) && samePosition(ctx.selection.anchor, ctx.selection.focus), roll, kind: editKindOf(cmd) });
   if (roll < 0.25) {
     const attrs = r() < 0.75 ? undefined : (pick(r, [{ bold: true }, { link: "u" }, { field: "f" }, { link: "u", bold: true }, {}]) ?? {});
     return out(insertText, insertText(ctx, pick(r, ["a", "bc", "é", "e\u0301", "😀", " "]) ?? "a", attrs));

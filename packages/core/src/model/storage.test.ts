@@ -3,7 +3,10 @@ import * as Y from "yjs";
 import { PMap } from "./pmap";
 import { createEditorOrigin, flowContainerDeleteFilter } from "./storage/history-hooks";
 import { PIECE_SOFT_MAX } from "./storage/limits";
-import { newFootnote, newParagraphMark } from "./storage/new-items";
+import { deepClone } from "./storage/deep-clone";
+import { newFootnote, newFootnoteOf, newParagraphMark } from "./storage/new-items";
+import { newColMap, newRowMap, newTable } from "./storage/new-table";
+import { cellFlowOf } from "./storage/table-keys";
 import { insertPieceAfter, pieceDepth, pieceIndex, pieceStructCount } from "./storage/pieces";
 import { writablePoint } from "./storage/writable-point";
 import { fixture } from "./test-helpers/fixture";
@@ -93,5 +96,40 @@ describe("PMap", () => {
     let e = d;
     for (let i = 0; i < 2000; i++) e = e.delete(`k${i}`);
     expect(e.size).toBe(0);
+  });
+});
+
+describe("table storage", () => {
+  it("newRowMap gives every column's slot a one-¶ flow; deepClone copies maps, arrays and formatted texts deeply", () => {
+    const f = fixture();
+    const row = newRowMap("r0", ["a", "b"], { header: true, "c:a:a:bg": "red" });
+    const table = newTable([row], [newColMap("a", 1), newColMap("b")], { "a:style": "s" });
+    f.piece.insertEmbed(0, table);
+    expect(row.toJSON()).toMatchObject({ key: "r0", header: true, "c:a:a:bg": "red" });
+    const a = cellFlowOf(row, "a")?.get(0);
+    if (!(a instanceof Y.Text)) throw new Error("no cell piece");
+    expect(cellFlowOf(row, "b")?.get(0)?.toDelta()).toHaveLength(1);
+    a.insert(0, "xy", { bold: true });
+    a.insert(2, "z", {});
+    const body = new Y.Text();
+    body.insert(0, "note");
+    a.insertEmbed(3, newFootnoteOf(body));
+    a.delete(1, 1); // a tombstone: not copied
+    const copy = deepClone(table);
+    f.piece.insertEmbed(0, copy);
+    expect(copy.toJSON()).toEqual(table.toJSON());
+    const copied = copy.get("rows");
+    const copiedRow: unknown = copied instanceof Y.Array ? copied.get(0) : null;
+    const cp = copiedRow instanceof Y.Map ? cellFlowOf(copiedRow, "a")?.get(0) : undefined;
+    if (!(cp instanceof Y.Text)) throw new Error("no copied piece");
+    expect(cp).not.toBe(a);
+    expect(cp.toDelta().map((op: { insert: unknown; attributes?: unknown }) => [typeof op.insert === "string" ? op.insert : "embed", op.attributes])).toEqual([
+      ["x", { bold: true }],
+      ["z", undefined],
+      ["embed", undefined],
+      ["embed", undefined],
+    ]);
+    const fn: unknown = cp.toDelta()[2]?.insert;
+    expect(fn instanceof Y.Map && fn !== a.toDelta()[2]?.insert).toBe(true);
   });
 });

@@ -76,7 +76,7 @@ export function classify(f: Firing, peers: readonly Peer[], log: Log, earlier: R
       if (seen !== undefined && units.some((y) => (seen.get(idKey(y)) ?? Infinity) < a.seq)) return `transient:${f.type}-${f.end}`;
     }
   }
-  const label = f.type === "debris" && f.end !== "end" ? "Q2" : f.type === "abut" && f.end === "toc" ? "Q3" : null;
+  const label = f.type === "debris" && f.end !== "end" ? "Q2" : f.type === "abut" && f.end === "blockObject" ? "Q3" : null;
   if ((f.type === "abut" || f.type === "SS") && right !== null && f.left.length === 1) {
     const l = f.left[0];
     const a = l === undefined ? null : log.creator(l);

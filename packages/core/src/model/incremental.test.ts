@@ -33,7 +33,7 @@ import { writablePoint } from "./storage/writable-point";
 import { expectSameVersion } from "./test-helpers/expect-same-version";
 import { childrenOf, fixture, idOf, mapAt, textOf } from "./test-helpers/fixture";
 import { applyPlan } from "./plan";
-import type { ModelPosition } from "./position/model-position";
+import { type ModelPosition, isTextSelection } from "./position/model-position";
 import { paragraphLayout } from "./position/paragraph-layout";
 import { positionAtPoint } from "./position/position-at-point";
 import { mapPosition } from "./mapping/map-position";
@@ -664,11 +664,13 @@ function expectWritesLocal(cmd: RandomCommand): void {
   const p = cmd.plan;
   if (p === null || cmd.anywhere) return;
   const d = cmd.ctx.version;
+  const sel = cmd.ctx.selection;
+  if (!isTextSelection(sel)) return;
   // Focus-based commands ignore an anchor in another flow (a cross-flow range is refused).
-  const focusL = paragraphLayout(d, cmd.ctx.selection.focus.blockId);
+  const focusL = paragraphLayout(d, sel.focus.blockId);
   const fsOf = focusL?.fs;
   if (fsOf === undefined) return;
-  const ends = [paragraphLayout(d, cmd.ctx.selection.anchor.blockId), focusL].filter((L) => L?.fs === fsOf);
+  const ends = [paragraphLayout(d, sel.anchor.blockId), focusL].filter((L) => L?.fs === fsOf);
   const order = flowOrder(d, fsOf.holderId);
   const idx = ends.map((L) => order.indexOf(L?.block.id ?? ""));
   const lo = Math.max(0, Math.min(...idx) - 1);

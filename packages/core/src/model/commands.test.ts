@@ -6,7 +6,9 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { caretAt } from "./position/model-position";
+import { idOf } from "./test-helpers/fixture";
 import { Harness, pair, sync, typeLines } from "./test-helpers/harness";
+import { testRow } from "./test-helpers/table";
 import { deleteBackward } from "./commands/delete-backward";
 import { deleteForward } from "./commands/delete-forward";
 import { deleteSelection } from "./commands/delete-selection";
@@ -17,9 +19,11 @@ import { setParagraphAttrs } from "./commands/set-paragraph-attrs";
 import { splitParagraph } from "./commands/split-paragraph";
 import { deleteBlockObject } from "./commands/delete-block-object";
 import type { FragmentItem } from "./commands/helpers/fragment";
+import { insertField } from "./commands/insert-field";
 import { insertFootnote } from "./commands/insert-footnote";
 import { insertHeaderFooter } from "./commands/insert-header-footer";
 import { insertHorizontalRule } from "./commands/insert-horizontal-rule";
+import { insertLineBreak } from "./commands/insert-line-break";
 import { insertMarker } from "./commands/insert-marker";
 import { insertObject } from "./commands/insert-object";
 import { insertSectionBreak } from "./commands/insert-section-break";
@@ -29,10 +33,12 @@ import { removeHeaderFooter } from "./commands/remove-header-footer";
 import { removeMarker } from "./commands/remove-marker";
 import { setObjectProps } from "./commands/set-object-props";
 import { markerRanges } from "./document/markers";
+import { cellId } from "./ids";
 import { Model } from "./model";
 import { applyPlan } from "./plan";
 import { PIECE_SOFT_MAX } from "./storage/limits";
-import { newObject, newTableOfContents } from "./storage/new-items";
+import { newField, newFootnoteOf, newObject, newParagraphMark, newTableOfContents } from "./storage/new-items";
+import { newColMap, newRowMap, newTable } from "./storage/new-table";
 import { pieceStructCount } from "./storage/pieces";
 import type { Scalar } from "./storage/scalar";
 
@@ -162,6 +168,41 @@ describe("C3 / C8 joins", () => {
     expect(h.dump()).toEqual(["paragraph:acd"]);
   });
 
+  it("next to a table, Backspace / Delete do nothing (C5 / its C8 mirror arrive with table editing); a rule beside a table is still C4r", () => {
+    const mk = (debris: boolean): Harness => {
+      const h = new Harness();
+      h.f.doc.transact(() => {
+        h.f.piece.insert(0, "P");
+        if (!debris) h.f.piece.insertEmbed(1, newParagraphMark());
+        const at = debris ? 1 : 2;
+        h.f.piece.insertEmbed(at, newTable([newRowMap("r", ["a"])], [newColMap("a")]));
+        h.f.piece.insert(at + 1, "Q");
+      });
+      return h;
+    };
+    const h = mk(false);
+    const shape = h.dump();
+    expect(shape).toEqual(["paragraph:P", "table", "paragraph:Q"]);
+    h.caret(2, 0);
+    expect(h.run(deleteBackward)).toBe(false);
+    h.caret(0, 1);
+    expect(h.run(deleteForward)).toBe(false);
+    expect(h.dump()).toEqual(shape);
+    const g = mk(true); // debris before the table
+    g.caret(0, 1);
+    expect(g.run(deleteForward)).toBe(false);
+    expect(g.dump()).toEqual(["paragraph:P", "table", "paragraph:Q"]);
+    // A rule paragraph between P and the table: Delete at P's end removes the whole rule paragraph.
+    h.caret(0, 1);
+    h.run(insertHorizontalRule);
+    expect(h.dump()).toEqual(["paragraph:P", "paragraph:[hr]", "paragraph:", "table", "paragraph:Q"]);
+    h.caret(1, 1);
+    h.run(deleteForward); // join the empty paragraph into the rule paragraph
+    h.caret(0, 1);
+    h.run(deleteForward);
+    expect(h.dump()).toEqual(shape);
+  });
+
   it("Backspace at a list item's start exits the list instead of joining", () => {
     const h = doc("a\nb");
     h.caret(1, 0);
@@ -250,6 +291,16 @@ describe("C13 / C4r rules", () => {
     expect(h.dump()).toEqual(["heading(level=1):Title", "paragraph:[hr]", "paragraph:"]);
     expect(h.blockId(2)).toBe(id); // every insert is before the old final ¶ (A1)
     expect(h.sel()).toBe("2:0");
+    // Over a range: the selection is replaced first (C9), then the rule follows the joined paragraph; one undo entry.
+    const g = doc("abc\ndef");
+    g.caret(0, 0);
+    g.run(setParagraphAttrs, { type: "heading", level: 1 });
+    g.select([0, 1], [1, 2]);
+    g.run(insertHorizontalRule);
+    expect(g.dump()).toEqual(["heading(level=1):af", "paragraph:[hr]", "paragraph:"]);
+    expect(g.sel()).toBe("2:0");
+    g.undo();
+    expect(g.dump()).toEqual(["heading(level=1):abc", "paragraph:def"]);
   });
 
   it("Backspace after a rule paragraph deletes it (C4r); typing beside the rule is ordinary text (X28 dropped); Backspace after [hr] deletes only it (G5)", () => {
@@ -268,6 +319,18 @@ describe("C13 / C4r rules", () => {
     h.caret(1, 1);
     h.run(deleteBackward);
     expect(h.dump()).toEqual(["paragraph:a", "paragraph:x", "paragraph:", "paragraph:b"]);
+    // A marked rule is still a rule paragraph: its anchor edges stay, collapsed into the next paragraph.
+    for (const [at, run] of [[[2, 0], deleteBackward], [[0, 1], deleteForward]] as const) {
+      const g = doc("a");
+      g.run(insertHorizontalRule);
+      g.run(insertText, "b");
+      g.select([1, 0], [1, 1]);
+      g.run(insertMarker, "m", "1");
+      expect(g.dump()).toEqual(["paragraph:a", "paragraph:[start][hr][end]", "paragraph:b"]);
+      g.caret(at[0], at[1]);
+      g.run(run);
+      expect(g.dump()).toEqual(["paragraph:a", "paragraph:[start][end]b"]);
+    }
   });
 
   it("Delete at the end of X before a rule paragraph deletes it; the flow's final ¶ / the ¶ before [S] stays (only [hr] goes)", () => {
@@ -314,6 +377,32 @@ describe("C14 / C6 / C10 table of contents", () => {
     h.run(insertTableOfContents);
     // k = 0 after a block object: ¶M first, so W2 holds.
     expect(h.dump()).toEqual(["paragraph:ab", "toc", "paragraph:", "toc", "paragraph:cd"]);
+    // Over a range: the selection is replaced first (C9), then C14's placement at its start.
+    const g = doc("abc\ndef");
+    g.select([0, 1], [1, 2]);
+    g.run(insertTableOfContents);
+    expect(g.dump()).toEqual(["paragraph:a", "toc", "paragraph:f"]);
+    expect(g.sel()).toBe("2:0");
+  });
+
+  it("k = 0 after a table also puts ¶M first (W2), for insert and for a pasted leading TOC", () => {
+    const mk = (): Harness => {
+      const h = new Harness();
+      h.f.doc.transact(() => {
+        h.f.piece.insert(0, "P");
+        h.f.piece.insertEmbed(1, newParagraphMark());
+        h.f.piece.insertEmbed(2, newTable([newRowMap("r", ["a"])], [newColMap("a")]));
+        h.f.piece.insert(3, "Q");
+      });
+      h.caret(2, 0);
+      return h;
+    };
+    const h = mk();
+    h.run(insertTableOfContents);
+    expect(h.dump()).toEqual(["paragraph:P", "table", "paragraph:", "toc", "paragraph:Q"]);
+    const g = mk();
+    g.run(paste, [{ k: "toc" }, { k: "para" }]);
+    expect(g.dump()).toEqual(["paragraph:P", "table", "paragraph:", "toc", "paragraph:", "paragraph:Q"]);
   });
 
   it("Backspace after a TOC deletes it (C6); Delete before one deletes it; C10 deletes by id", () => {
@@ -352,6 +441,12 @@ describe("C15 / C7 / C8 section breaks", () => {
     // The tail section inherits the header (R5).
     const sec2 = d.trees.block.get(s2?.id ?? "");
     expect(sec2?.attrs["headerBlockId"]).toEqual(expect.any(String));
+    // Over a range: the selection is replaced first (C9), then the split at its start.
+    const g = doc("abc\ndef");
+    g.select([0, 1], [1, 2]);
+    g.run(insertSectionBreak);
+    expect(g.dump()).toEqual(["paragraph:a", "|", "paragraph:f"]);
+    expect(g.sel()).toBe("1:0");
   });
 
   it("C7: Backspace after [S] joins across it; C8: Delete before [S] joins too", () => {
@@ -377,6 +472,50 @@ describe("C15 / C7 / C8 section breaks", () => {
     h.caret(1, 0);
     h.run(deleteForward);
     expect(h.dump()).toEqual(["paragraph:x", "paragraph:", "toc", "paragraph:y"]);
+  });
+});
+
+describe("inline atoms: line break, page field", () => {
+  it("Shift+Enter inserts a line break: one unit, one caret stop, Backspace takes it; undo / paste", () => {
+    const h = doc("ab");
+    h.caret(0, 1);
+    h.run(insertLineBreak);
+    expect(h.dump()).toEqual(["paragraph:a[br]b"]);
+    expect(h.sel()).toBe("0:2");
+    // Schema 3's read shape.
+    expect(h.paragraphs()[0]?.inlineContent?.items[1]).toMatchObject({ kind: "embed", embedType: "hard-break", properties: {} });
+    h.run(deleteBackward);
+    expect(h.dump()).toEqual(["paragraph:ab"]);
+    h.undo();
+    expect(h.dump()).toEqual(["paragraph:a[br]b"]);
+    h.caret(0, 3);
+    h.run(paste, [{ k: "lineBreak" }, { k: "text", text: "c" }]);
+    expect(h.dump()).toEqual(["paragraph:a[br]b[br]c"]);
+  });
+
+  it("a page field goes only into a header / footer (today's placement); fields read with a default number style", () => {
+    const h = doc("ab");
+    expect(h.run(insertField, "page-number")).toBe(false);
+    expect(h.run(paste, [{ k: "field", field: "page-number" }])).toBe(false);
+    expect(() => insertField(h.ctx(), "page-total")).toThrow();
+    h.run(insertHeaderFooter, "header");
+    const hp = [...h.version.trees.templateContent.entries()].map(([, b]) => b).find((b) => b.inlineContent !== null);
+    if (hp === undefined) throw new Error("no header paragraph");
+    h.selection = caretAt(hp.id, 0);
+    h.run(insertField, "page-number", "lower-roman");
+    expect(h.templateBodies()).toEqual([["paragraph:[field:page-number]"]]);
+    const item = [...h.version.trees.templateContent.entries()].map(([, b]) => b).find((b) => b.inlineContent !== null)?.inlineContent?.items[0];
+    expect(item).toMatchObject({ kind: "embed", embedType: "page-field", properties: { fieldKind: "page-number", numberStyle: "lower-roman" } });
+    expect(h.selection.focus.offset).toBe(1);
+    h.undo();
+    expect(h.templateBodies()).toEqual([["paragraph:"]]);
+    // A peer's field with an unknown style reads as decimal; an unknown field kind is inert.
+    h.f.doc.transact(() => {
+      h.f.piece.insertEmbed(0, newField("page-count", "bullet"));
+      h.f.piece.insertEmbed(0, newField("bogus", "decimal"));
+    });
+    expect(h.dump()).toEqual(["paragraph:[field:page-count]ab"]);
+    expect(h.paragraphs()[0]?.inlineContent?.items[0]).toMatchObject({ properties: { fieldKind: "page-count", numberStyle: "decimal" } });
   });
 });
 
@@ -418,6 +557,45 @@ describe("S1 footnotes, S2 headers / footers, markers", () => {
     h.caret(0, 1);
     h.run(insertMarker, "bm", "2");
     expect(h.dump()).toEqual(["paragraph:a[start][end]bc"]);
+    // A range delete never deletes an anchor edge (Word bookmarks): those at its ends stay, one inside moves to the
+    // collapse point (the pair shrinks), a pair inside collapses there.
+    const g = doc("abcd");
+    g.select([0, 1], [0, 3]);
+    g.run(insertMarker, "bm", "1"); // a[start]bc[end]d
+    g.select([0, 1], [0, 5]);
+    g.run(deleteSelection);
+    expect(g.dump()).toEqual(["paragraph:a[start][end]d"]);
+    g.select([0, 0], [0, 4]);
+    g.run(deleteSelection);
+    expect(g.dump()).toEqual(["paragraph:[start][end]"]);
+    const k = doc("abcd\nef");
+    k.select([0, 1], [1, 1]);
+    k.run(insertMarker, "bm", "1"); // a[start]bcd¶ e[end]f
+    k.select([0, 0], [0, 3]);
+    k.run(deleteSelection);
+    expect(k.dump()).toEqual(["paragraph:[start]cd", "paragraph:e[end]f"]);
+    k.select([0, 2], [1, 3]);
+    k.run(deleteSelection);
+    expect(k.dump()).toEqual(["paragraph:[start]c[end]"]);
+    expect(markerRanges(k.version).get("bm\u00001")).toMatchObject({ start: { offset: 0 }, end: { offset: 2 } });
+    // In a table cell of a footnote body: R12 walks cell flows too.
+    const cellText = new Y.Text();
+    cellText.insert(0, "cell");
+    cellText.insertEmbed(4, newParagraphMark());
+    const cellFlow = new Y.Array<Y.Text>();
+    cellFlow.insert(0, [cellText]);
+    const table = newTable([testRow("r", { a: cellFlow })], [newColMap("a")]);
+    const body = new Y.Text();
+    body.insertEmbed(0, table);
+    body.insertEmbed(1, newParagraphMark());
+    h.f.doc.transact(() => h.f.piece.insertEmbed(0, newFootnoteOf(body)));
+    const cell = h.version.trees.embedContent.get(cellId(idOf(table), "r", "a"))?.firstChildId ?? "";
+    h.selection = { anchor: { blockId: cell, offset: 1 }, focus: { blockId: cell, offset: 3 } };
+    h.run(insertMarker, "bm", "3");
+    expect(markerRanges(h.version).get("bm\u00003")).toMatchObject({ start: { blockId: cell, offset: 1 }, end: { blockId: cell, offset: 4 } });
+    expect(() => insertMarker(h.ctx(), "bm", "3")).toThrow();
+    expect(h.run(removeMarker, "bm", "3")).toBe(true);
+    expect(cellText.toString()).toBe("cell");
   });
 });
 
@@ -458,6 +636,11 @@ describe("C17 paste (G6)", () => {
     expect(h.dump()).toEqual(["paragraph:a[fn]b", "|", "paragraph:z"]);
     expect(h.version.flows.get(h.version.rootId)?.sections[0]?.map.get("h:header:default")).toBeUndefined();
     expect(() => paste(h.ctx(), [{ k: "text", text: "a" }, { k: "toc" }])).toThrow();
+    // A kind its target cannot hold refuses the whole payload, never throws — inside a pasted footnote's body too; a rule goes anywhere text does.
+    expect(paste(h.ctx(), [{ k: "text", text: "q" }, { k: "footnote", body: [{ k: "toc" }, { k: "para" }] }])).toBeNull();
+    h.caret(0, 1);
+    h.run(paste, [{ k: "footnote", body: [{ k: "hr" }] }]);
+    expect(h.footnoteBodies()).toContainEqual(["paragraph:[hr]"]);
   });
 });
 
@@ -547,7 +730,7 @@ describe("review fixes", () => {
     expect(h.dump()).toEqual(["toc", "paragraph:y"]);
   });
 
-  it("C9 takes leading block objects only from a leading endpoint (select-all, a TOC's object selection)", () => {
+  it("select-all takes leading block objects (AllSelection); an object selection exactly its object (NodeSelection, C10)", () => {
     const h = doc("ab\ncd");
     h.caret(0, 0);
     h.run(insertTableOfContents);
@@ -559,8 +742,13 @@ describe("review fixes", () => {
     const all = selectAll(h.version);
     if (all === null) throw new Error("no selection");
     h.selection = all;
+    // A command's selection mapping keeps a select-all; an object selection refuses formatting.
+    h.run(setParagraphAttrs, { type: "heading" });
+    expect(h.readSelection()).toBe("all 0");
+    expect(h.dump()).toEqual(["toc", "heading:Zb", "heading:cd"]);
     h.run(deleteSelection);
-    expect(h.dump()).toEqual(["paragraph:"]);
+    expect(h.dump()).toEqual(["heading:"]);
+    h.run(setParagraphAttrs, { type: "paragraph" });
     // A TOC's object selection deletes just the TOC.
     h.run(insertText, "q");
     h.caret(0, 1);
@@ -569,8 +757,10 @@ describe("review fixes", () => {
     const obj = objectSelection(h.version, h.blockId(1));
     if (obj === null) throw new Error("no selection");
     h.selection = obj;
+    expect(h.run(setParagraphAttrs, { type: "heading" })).toBe(false);
     h.run(deleteBackward);
     expect(h.dump()).toEqual(["paragraph:q", "paragraph:"]);
+    expect(h.sel()).toBe("1:0");
     // Select-all + type-over replaces a leading TOC too.
     h.caret(0, 0);
     h.run(insertTableOfContents);
@@ -579,6 +769,63 @@ describe("review fixes", () => {
     h.selection = all2;
     h.run(insertText, "Y");
     expect(h.dump()).toEqual(["paragraph:Y"]);
+    // Tables are block objects too. `toc | table | P` (concurrent W2 break): each object selection covers exactly its
+    // object (Word / GDocs), select-all both.
+    const g = new Harness();
+    g.f.doc.transact(() => {
+      g.f.piece.insertEmbed(0, newTableOfContents());
+      g.f.piece.insertEmbed(1, newTable([newRowMap("r", ["a"])], [newColMap("a")]));
+      g.f.piece.insert(2, "P");
+    });
+    for (const [i, left] of [[0, ["table", "paragraph:P"]], [1, ["toc", "paragraph:P"]]] as const) {
+      const sel = objectSelection(g.version, g.blockId(i));
+      if (sel === null) throw new Error("no selection");
+      g.selection = sel;
+      g.run(deleteSelection);
+      expect(g.dump()).toEqual(left);
+      g.undo();
+      // C10 by id: the same single object, whatever its block category.
+      g.run(deleteBlockObject, g.blockId(i));
+      expect(g.dump()).toEqual(left);
+      g.undo();
+    }
+    const both = selectAll(g.version);
+    if (both === null) throw new Error("no selection");
+    g.selection = both;
+    g.run(deleteSelection);
+    expect(g.dump()).toEqual(["paragraph:"]);
+    g.undo();
+    g.f.doc.transact(() => g.f.piece.delete(0, 1)); // drop the TOC: a leading table
+    expect(g.dump()).toEqual(["table", "paragraph:P"]);
+    const all3 = selectAll(g.version);
+    if (all3 === null) throw new Error("no selection");
+    g.selection = all3;
+    g.run(deleteSelection);
+    expect(g.dump()).toEqual(["paragraph:"]);
+    // Type-over of an object selection in `a¶ T1 T2 P`: the object goes, the text starts P, the caret right after it.
+    const k = new Harness();
+    k.f.doc.transact(() => {
+      k.f.piece.insert(0, "a");
+      k.f.piece.insertEmbed(1, newParagraphMark());
+      k.f.piece.insertEmbed(2, newTableOfContents());
+      k.f.piece.insertEmbed(3, newTableOfContents());
+      k.f.piece.insert(4, "P");
+    });
+    for (const i of [1, 2]) {
+      const sel = objectSelection(k.version, k.blockId(i));
+      if (sel === null) throw new Error("no selection");
+      k.selection = sel;
+      k.run(insertText, "xy");
+      expect(k.dump()).toEqual(["paragraph:a", "toc", "paragraph:xyP"]);
+      expect(k.sel()).toBe("2:2");
+      k.undo();
+    }
+    // A section command reads an object selection's section (the paragraph after the object's).
+    const t = objectSelection(k.version, k.blockId(1));
+    if (t === null) throw new Error("no selection");
+    k.selection = t;
+    k.run(insertHeaderFooter, "header");
+    expect(k.templateBodies()).toEqual([["paragraph:"]]);
   });
 
   it("Apply inside an open transaction is refused; invalid attrs / props throw at Plan time", () => {

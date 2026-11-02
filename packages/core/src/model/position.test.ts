@@ -7,10 +7,12 @@ import { deleteSelection } from "./commands/delete-selection";
 import { insertText } from "./commands/insert-text";
 import { splitParagraph } from "./commands/split-paragraph";
 import { insertObject } from "./commands/insert-object";
+import { insertTableOfContents } from "./commands/insert-table-of-contents";
+import { deleteBlockObject } from "./commands/delete-block-object";
 import { setObjectProps } from "./commands/set-object-props";
-import { mapIndex, mapPosition } from "./mapping/map-position";
-import { fromRelativePosition, toRelativePosition } from "./mapping/relative-position";
-import { position } from "./position/model-position";
+import { mapIndex, mapPosition, mapSelection } from "./mapping/map-position";
+import { fromRelativePosition, relativeItemLive, toRelativePosition } from "./mapping/relative-position";
+import { caretAt, position } from "./position/model-position";
 import { paragraphLayout } from "./position/paragraph-layout";
 import { positionAtPoint } from "./position/position-at-point";
 import { resolvePosition } from "./position/resolve-position";
@@ -128,6 +130,17 @@ describe("exact mapping (D8)", () => {
     h.run(deleteSelection);
     expect(mapPosition(v0, h.version, position(second, 1))).toEqual({ position: position(second, 1), deleted: true });
     expect(mapPosition(h.version, v0, position(second, 0)).position).toBeNull();
+    // An object selection whose object a peer deletes collapses to one plain caret where it was; a surviving one stays.
+    const g = doc("x");
+    g.f.doc.transact(() => {
+      g.f.piece.insertEmbed(0, newTableOfContents());
+      g.f.piece.insertEmbed(1, newTableOfContents());
+    });
+    const [t1, t2, x] = [g.blockId(0), g.blockId(1), g.blockId(2)];
+    const w0 = g.version;
+    g.f.doc.transact(() => g.f.piece.delete(1, 1));
+    expect(mapSelection(w0, g.version, { kind: "object", object: t2 })).toEqual(caretAt(x, 0));
+    expect(mapSelection(w0, g.version, { kind: "object", object: t1 })).toEqual({ kind: "object", object: t1 });
   });
 
   it("mapIndex: retain / insert / delete with assoc", () => {
@@ -156,6 +169,16 @@ describe("exact mapping (D8)", () => {
     // The embed's item id is stable too (a sanity check that ids are item ids).
     h.f.doc.transact(() => h.f.piece.insertEmbed(0, newObject("image", { props: { src: "a" } })));
     expect(typeof mapAt(h.f.piece, 0).get("kind")).toBe("string");
+    // An item's RelativePosition is live while the item, or an undo's re-created copy, is (an object selection's restore).
+    const g = doc("x\ny");
+    g.caret(1, 0);
+    g.run(insertTableOfContents);
+    const at = Y.createRelativePositionFromTypeIndex(g.f.piece, 2, 0);
+    expect(relativeItemLive(g.version, at)).toBe(true);
+    g.run(deleteBlockObject, g.blockId(1));
+    expect(relativeItemLive(g.version, at)).toBe(false);
+    g.undo();
+    expect(relativeItemLive(g.version, at)).toBe(true);
   });
 });
 

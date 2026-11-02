@@ -11,7 +11,11 @@
  *   - a header / footer body's id is `h/${escape(bodyId)}`, where the escape turns
  *     `%` into `%25` and `/` into `%2F`: it starts with a letter (never an item id) and
  *     its escaped part holds no `/`, so it never equals another id plus a suffix
- *     (`h/a` + `/end` ≠ `h/a%2Fend`). The escape is total (lone surrogates included).
+ *     (`h/a` + `/end` ≠ `h/a%2Fend`). The escape is total (lone surrogates included);
+ *   - a table cell's id is `${tableId}/${esc(rowKey)}|${esc(colKey)}`, the escape also
+ *     turning `|` into `%7C`: it holds exactly one `|` and no `/` after its base, so it
+ *     never equals a suffixed id (no suffix holds `|`), and a cell with no flow reads
+ *     as `${cellId}/end`. Row / column keys are unique per table after R6.
  * Distinct items give distinct bases and each base takes each suffix at most once
  * per role, so ids are unique across all trees and in the flows map.
  */
@@ -22,4 +26,6 @@ export const flowEndId = (holderId: string): BlockId => `${holderId}/end`;
 export const sectionIdOf = (breakId: string): BlockId => `${breakId}/section`;
 export const finalSectionId = (rootId: string): BlockId => `${rootId}/final`;
 export const footnoteBodyId = (anchorId: string): BlockId => `${anchorId}/body`;
+const escCellKey = (k: string): string => k.replace(/%/g, "%25").replace(/\//g, "%2F").replace(/\|/g, "%7C");
+export const cellId = (tableId: string, rowKey: string, colKey: string): BlockId => `${tableId}/${escCellKey(rowKey)}|${escCellKey(colKey)}`;
 export const templateBodyId = (bodyId: string): BlockId => `h/${bodyId.replace(/%/g, "%25").replace(/\//g, "%2F")}`;

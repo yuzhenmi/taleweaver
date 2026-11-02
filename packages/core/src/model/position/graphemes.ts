@@ -1,6 +1,7 @@
 import { endsJoiningForward } from "../scan/joins";
 import { type ItemRef, itemAt, itemBefore, nextItem, prevItem } from "./items";
 import type { ParagraphLayout } from "./paragraph-layout";
+import { isText } from "../scan/kinds";
 
 // ---------------------------------------------------------------------------
 // Graphemes (R15), atomic marks (R14)
@@ -60,8 +61,8 @@ export function graphemeStep(text: string, offset: number, dir: -1 | 1): number 
  */
 export function textRunAt(L: ParagraphLayout, unit: number): { readonly text: string; readonly start: number } | null {
   const seed = itemAt(L, unit);
-  if (seed === null || seed.item.kind !== "text") return null;
-  const same = (r: ItemRef | null): r is ItemRef => r !== null && r.item.kind === "text";
+  if (seed === null || !isText(seed.item)) return null;
+  const same = (r: ItemRef | null): r is ItemRef => r !== null && isText(r.item);
   const lo = unit - WINDOW;
   const hi = unit + WINDOW;
   let left = seed;
@@ -69,7 +70,7 @@ export function textRunAt(L: ParagraphLayout, unit: number): { readonly text: st
   let text = "";
   const start = Math.max(left.start, lo);
   for (let r: ItemRef | null = left; same(r) && r.start < hi; r = nextItem(L, r)) {
-    if (r.item.kind !== "text") break;
+    if (!isText(r.item)) break;
     text += r.item.text.slice(Math.max(0, lo - r.start), Math.max(0, hi - r.start));
   }
   return { text, start };
@@ -83,12 +84,12 @@ export function textRunAt(L: ParagraphLayout, unit: number): { readonly text: st
  */
 export function graphemeFloorAt(L: ParagraphLayout, offset: number): number {
   const at = itemAt(L, offset);
-  if (at === null || at.item.kind !== "text") return offset;
+  if (at === null || !isText(at.item)) return offset;
   // Fast paths: between two simple code units, inside one item or across an item edge.
   if (at.start < offset && simplePair(at.item.text, offset - at.start)) return offset;
   if (at.start === offset) {
     const b = itemBefore(L, offset);
-    if (b === null || b.item.kind !== "text") return offset;
+    if (b === null || !isText(b.item)) return offset;
     // A simple code unit after an item edge starts a cluster unless the char before may
     // join it (Prepend, GB9b; ZWJ, GB11): read as the flag the scan recorded, not from the (rope) text.
     const y = at.item.text.charCodeAt(0);
@@ -103,7 +104,7 @@ export function graphemeFloorAt(L: ParagraphLayout, offset: number): number {
 export function graphemeStepAt(L: ParagraphLayout, offset: number, dir: -1 | 1): number {
   // Fast path: the stepped-over unit and its neighbour on the far side are simple code units of one item.
   const at = itemAt(L, dir < 0 ? offset - 1 : offset);
-  if (at !== null && at.item.kind === "text") {
+  if (at !== null && isText(at.item)) {
     const local = offset - at.start;
     const t = at.item.text;
     if (dir < 0 && local >= 2 && simplePair(t, local - 1) && (local === t.length || simplePair(t, local))) return offset - 1;

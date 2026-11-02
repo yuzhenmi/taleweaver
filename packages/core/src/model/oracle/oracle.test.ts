@@ -47,6 +47,10 @@ describe("oracle: O1–O7", () => {
   it("regression seeds (3 peers)", () => {
     for (const seed of [572, 3708, 4709, 7172, 7473]) runSeed(seed, 3, steps);
   }, 600_000);
+  // 327: stock Yjs redoItem follows `redone` to a peer-deleted copy; undo() returns non-null with no effect.
+  it("seed 327 (3 peers): the Yjs no-op undo is counted, not failed", () => {
+    expect(runSeed(327, 3, steps).yjsUndo.filter((x) => x.endsWith(": undo-noop"))).toHaveLength(1);
+  }, 600_000);
   const total = new Map<string, number>();
   const yjsUndo: string[] = [];
   for (let from = 1; from <= seeds; from += CHUNK) {
