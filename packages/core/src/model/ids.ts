@@ -5,7 +5,8 @@
  *   - an item id is `${client}:${clock}`: digits, a colon, digits — no `/`, never
  *     starting with a letter;
  *   - every derived id is a BASE followed by a fixed `/suffix`: `/pre` (debris before
- *     a terminator), `/end` (debris / R17 at a flow end), `/section`, `/final`,
+ *     a terminator), `/end` (debris / R17 at a flow end), `/after` (the implicit
+ *     paragraph after a block object no paragraph follows), `/section`, `/final`,
  *     `/body` (a footnote body). A base is an item id, a footnote body id
  *     `${anchor}/body` (for that body's `/end`), or a header / footer body id;
  *   - a header / footer body's id is `h/${escape(bodyId)}`, where the escape turns
@@ -22,6 +23,7 @@
 import type { BlockId } from "./block";
 
 export const debrisBeforeId = (terminatorId: string): BlockId => `${terminatorId}/pre`;
+export const afterObjectId = (objectId: string): BlockId => `${objectId}/after`;
 export const flowEndId = (holderId: string): BlockId => `${holderId}/end`;
 export const sectionIdOf = (breakId: string): BlockId => `${breakId}/section`;
 export const finalSectionId = (rootId: string): BlockId => `${rootId}/final`;

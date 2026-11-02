@@ -1,27 +1,7 @@
 import type { Document, FlowState } from "../document/types";
-import { debrisBeforeId, flowEndId } from "../ids";
-import { isParagraphBreak } from "../scan/kinds";
-import { type ParagraphLayout, type TerminatorRef, paragraphLayout, readLength, runsBefore, starts } from "./paragraph-layout";
-
-/** The next terminator at or after (seg, tok), and whether read units lie before it. */
-export function nextTerminator(fs: FlowState, seg: number, tok: number, within: number): { term: TerminatorRef | null; units: number } {
-  let units = 0;
-  for (let j = seg, t = tok; j < fs.segments.length; j++, t = 0) {
-    const s = fs.segments[j];
-    if (s === undefined) break;
-    for (; t < s.tokens.length; t++) {
-      const token = s.tokens[t];
-      if (token === undefined) continue;
-      if (token.k === "run") {
-        units += readLength(token) - (j === seg && t === tok ? within : 0);
-        continue;
-      }
-      const index = starts(s)[t];
-      return { term: index === undefined ? null : { seg: j, tok: t, index, token }, units };
-    }
-  }
-  return { term: null, units };
-}
+import { afterObjectId, debrisBeforeId, flowEndId } from "../ids";
+import { isBlockObject, isParagraphBreak } from "../scan/kinds";
+import { type ParagraphLayout, type TerminatorRef, nextTerminator, paragraphLayout, readLength, runsBefore } from "./paragraph-layout";
 
 /** Read units from the previous terminator up to (seg, tok, within). */
 export function unitsBefore(fs: FlowState, seg: number, tok: number, within: number): { units: number; before: TerminatorRef | null } {
@@ -34,7 +14,7 @@ export function unitsBefore(fs: FlowState, seg: number, tok: number, within: num
   return { units, before };
 }
 
-/** What directly follows terminator `t`: a paragraph, another terminator with nothing read between, or the flow end. */
+/** What directly follows terminator `t`: a paragraph (after a block object, always: its implicit one when none starts there), another terminator with nothing read between, or the flow end. */
 export type Following =
   | { readonly k: "paragraph"; readonly L: ParagraphLayout }
   /** A block object or `[S]` (whose kind's category the caller asks). */
@@ -45,9 +25,9 @@ export function followingOf(d: Document, fs: FlowState, t: TerminatorRef): Follo
   const seg = fs.segments[t.seg];
   const next = seg !== undefined && t.tok + 1 < seg.tokens.length ? { seg: t.seg, tok: t.tok + 1 } : { seg: t.seg + 1, tok: 0 };
   const { term, units } = nextTerminator(fs, next.seg, next.tok, 0);
-  if (units === 0 && term === null) return { k: "end" };
-  if (units === 0 && term !== null && !isParagraphBreak(term.token.k)) return { k: "terminator", term };
-  const id = term === null ? flowEndId(fs.holderId) : isParagraphBreak(term.token.k) ? term.token.id : debrisBeforeId(term.token.id);
+  const none = units === 0 && (term === null || !isParagraphBreak(term.token.k));
+  if (none && !isBlockObject(t.token.k)) return term === null ? { k: "end" } : { k: "terminator", term };
+  const id = none ? afterObjectId(t.token.id) : term === null ? flowEndId(fs.holderId) : isParagraphBreak(term.token.k) ? term.token.id : debrisBeforeId(term.token.id);
   const L = paragraphLayout(d, id);
   return L === null ? { k: "end" } : { k: "paragraph", L };
 }

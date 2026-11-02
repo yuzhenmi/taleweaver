@@ -28,7 +28,7 @@ import { resolveBlock } from "../document/blocks";
 import type { Document, FlowState, TreeKind } from "../document/types";
 import { flowEndId } from "../ids";
 import type { RunToken, Segment, TerminatorToken } from "../scan/tokens";
-import { isParagraphBreak } from "../scan/kinds";
+import { isBlockObject, isParagraphBreak } from "../scan/kinds";
 
 /** An insertion point `index` of `piece`, which is segment `seg`'s piece in its flow. */
 export interface StoragePoint {
@@ -73,6 +73,8 @@ export interface ParagraphLayout {
   readonly before: TerminatorRef | null;
   /** The storage point of offset 0; null only for a flow with no piece. */
   readonly head: StoragePoint | null;
+  /** Nothing stored (an empty holder's paragraph, R17; a block object's implicit one): a write there creates its ¶ first (X2 / X5). */
+  readonly implicit: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +107,26 @@ function itemOf(doc: Y.Doc, id: string): Y.Item | null {
   if (!Number.isSafeInteger(client) || !Number.isSafeInteger(clock) || clock >= Y.getState(doc.store, client)) return null;
   const s = Y.getItem(doc.store, Y.createID(client, clock));
   return s instanceof Y.Item ? s : null;
+}
+
+/** The next terminator at or after (seg, tok), and whether read units lie before it. */
+export function nextTerminator(fs: FlowState, seg: number, tok: number, within: number): { term: TerminatorRef | null; units: number } {
+  let units = 0;
+  for (let j = seg, t = tok; j < fs.segments.length; j++, t = 0) {
+    const s = fs.segments[j];
+    if (s === undefined) break;
+    for (; t < s.tokens.length; t++) {
+      const token = s.tokens[t];
+      if (token === undefined) continue;
+      if (token.k === "run") {
+        units += readLength(token) - (j === seg && t === tok ? within : 0);
+        continue;
+      }
+      const index = starts(s)[t];
+      return { term: index === undefined ? null : { seg: j, tok: t, index, token }, units };
+    }
+  }
+  return { term: null, units };
 }
 
 /** The terminator token with item id `id` in flow `fs`. */
@@ -192,9 +214,22 @@ export function paragraphLayout(d: Document, id: BlockId): ParagraphLayout | nul
   if (fs === undefined) return null;
   let end: TerminatorRef | null = null;
   let from: { seg: number; tok: number };
+  let implicit = fs.synthetic;
+  const last = fs.segments.length - 1;
+  const flowEnd = { seg: Math.max(0, last), tok: fs.segments[last]?.tokens.length ?? 0 };
   if (id === flowEndId(fs.holderId)) {
-    const j = fs.segments.length - 1;
-    from = { seg: Math.max(0, j), tok: fs.segments[j]?.tokens.length ?? 0 };
+    from = flowEnd;
+  } else if (id.endsWith("/after")) {
+    // The implicit paragraph after a block object: nothing read up to the next terminator, a non-¶ one (or `<end>`).
+    const object = findTerminator(d, fs, id.slice(0, -"/after".length));
+    if (object === null || !isBlockObject(object.token.k)) return null;
+    const seg = fs.segments[object.seg];
+    const next = seg !== undefined && object.tok + 1 < seg.tokens.length ? { seg: object.seg, tok: object.tok + 1 } : { seg: object.seg + 1, tok: 0 };
+    const n = nextTerminator(fs, next.seg, next.tok, 0);
+    if (n.units > 0 || (n.term !== null && isParagraphBreak(n.term.token.k))) return null;
+    end = n.term;
+    from = end ?? flowEnd;
+    implicit = true;
   } else {
     const termId = id.endsWith("/pre") ? id.slice(0, -"/pre".length) : id;
     end = findTerminator(d, fs, termId);
@@ -216,5 +251,5 @@ export function paragraphLayout(d: Document, id: BlockId): ParagraphLayout | nul
     readStart += read;
   }
   const head = before !== null ? afterTerminator(fs, before) : flowStart(fs);
-  return { block: r.block, tree: r.kind, fs, parts, length: readStart, mark: end !== null && isParagraphBreak(end.token.k) ? end.token.map : null, end, before, head };
+  return { block: r.block, tree: r.kind, fs, parts, length: readStart, mark: end !== null && isParagraphBreak(end.token.k) ? end.token.map : null, end, before, head, implicit };
 }

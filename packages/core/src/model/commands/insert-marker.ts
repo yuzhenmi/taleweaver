@@ -21,8 +21,8 @@ export function insertMarker(ctx: CommandContext, ns: string, id: string): Plan 
   if (r === null) return null;
   const start: InsertUnit = { embed: newMarker(ns, id, "start"), attrs: {} };
   const end: InsertUnit = { embed: newMarker(ns, id, "end"), attrs: {} };
-  if (r.start.L.fs.synthetic) {
-    // R17 (an empty holder): the markers go in with the paragraph's ¶ (X2).
+  if (r.collapsed && r.start.L.implicit) {
+    // Nothing stored (R17, an implicit paragraph): the markers go in with the paragraph's ¶ (X2).
     const m = materialize(r.start.L, {}, [start, end]);
     if (m === null) return null;
     return plan(ctx.version, m.writes, () => {
@@ -33,7 +33,10 @@ export function insertMarker(ctx: CommandContext, ns: string, id: string): Plan 
   const a = pointAfter(r.start.L, r.start.offset);
   const b = pointAfter(r.end.L, r.end.offset);
   if (a === null || b === null) return null;
-  const writes: Write[] = r.collapsed ? [insertAt(a, [start, end])] : [insertAt(a, [start]), insertAt(b, [end])];
+  // A range from an implicit paragraph: its start edge goes in with that paragraph's ¶.
+  const m = r.collapsed || !r.start.L.implicit ? null : materialize(r.start.L, {}, [start]);
+  const n = r.collapsed || !r.end.L.implicit ? null : materialize(r.end.L, {}, [end]);
+  const writes: Write[] = r.collapsed ? [insertAt(a, [start, end])] : [...(m?.writes ?? [insertAt(a, [start])]), ...(n?.writes ?? [insertAt(b, [end])])];
   const base = ctx.version;
   const sel = ctx.selection;
   return plan(base, writes, (after) => mappedSelection(base, sel, after));

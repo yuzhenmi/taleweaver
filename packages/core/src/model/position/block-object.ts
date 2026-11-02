@@ -15,10 +15,8 @@ export function blockObjectAt(d: Document, id: BlockId): { readonly fs: FlowStat
   return fs === undefined || term === null || point === null || !isBlockObject(term.token.k) ? null : { fs, term, point };
 }
 
-/** The paragraph after block object `t` (past the block objects abutting it: a concurrent W2 break), or null (an `[S]` / the flow end follows). */
+/** The paragraph right after block object `t` (its implicit one when no paragraph starts there); null only when `t` is not read in `d`. */
 export function paragraphAfterObject(d: Document, fs: FlowState, t: TerminatorRef): ParagraphLayout | null {
-  for (let next = followingOf(d, fs, t); ; next = followingOf(d, fs, next.term)) {
-    if (next.k === "paragraph") return next.L;
-    if (next.k === "end" || !isBlockObject(next.term.token.k)) return null;
-  }
+  const next = followingOf(d, fs, t);
+  return next.k === "paragraph" ? next.L : null;
 }

@@ -3,8 +3,9 @@
  * each) adjacent in every container that places both, every command at a caret before /
  * between / after the pair, over a range across it, over each block object's object
  * selection and over select-all, then undo and redo. Two adjacent block objects (a
- * concurrent W2 break, unreachable single-user) run their object selections and
- * select-all only, the fixture's own W2 break tolerated where a command keeps both objects. Every case
+ * concurrent W2 break, unreachable single-user) read the first one's implicit paragraph
+ * between them (a caret stop, its first write creating its ¶); the fixture's own W2 break
+ * (in storage) is tolerated where a command keeps both objects. Every case
  * checks the generic invariants (plan total, O2 / O4 / O5(a) validity, no A1 / A2 firing,
  * the caret a valid stop, undo / redo exact) and the trait-derived expectation
  * (`expectations.ts`: the whole category sequence after, the caret, the format reached).
@@ -79,8 +80,8 @@ const snapped = (d: Document, sel: ModelSelection): ModelSelection =>
   isTextSelection(sel) ? { anchor: resolvePosition(d, sel.anchor, OPTIONS) ?? sel.anchor, focus: resolvePosition(d, sel.focus, OPTIONS) ?? sel.focus } : sel;
 const message = (e: unknown): string => (e instanceof Error ? e.message.split("\n")[0] ?? "" : String(e));
 
-/** The selections of a case: carets at the three points (both assocs, deduplicated), the range across the pair (unless `objectsOnly`), each block object's object selection and select-all; `dropped`: those that did not resolve. */
-function selections(c: Case, points: readonly [number, number, number], objectsOnly: boolean): { sels: { label: string; sel: ModelSelection }[]; dropped: string[] } {
+/** The selections of a case: carets at the three points (both assocs, deduplicated), the range across the pair, each block object's object selection and select-all; `dropped`: those that did not resolve. */
+function selections(c: Case, points: readonly [number, number, number]): { sels: { label: string; sel: ModelSelection }[]; dropped: string[] } {
   const d = c.h.version;
   const fs = flowOf(d, c.where);
   const dropped: string[] = [];
@@ -90,7 +91,7 @@ function selections(c: Case, points: readonly [number, number, number], objectsO
   const seen = new Set<string>();
   const assocs: readonly (-1 | 1)[] = [-1, 1];
   const named: readonly [string, number][] = [["before", points[0]], ["between", points[1]], ["after", points[2]]];
-  for (const [name, i] of objectsOnly ? [] : named) {
+  for (const [name, i] of named) {
     for (const assoc of assocs) {
       const p = at(i, assoc);
       if (p === null) dropped.push(`caret ${name}${assoc < 0 ? "-" : "+"}`);
@@ -101,9 +102,7 @@ function selections(c: Case, points: readonly [number, number, number], objectsO
   }
   const start = at(points[0], -1);
   const end = at(points[2], -1);
-  if (objectsOnly) {
-    // No text selection.
-  } else if (start !== null && end !== null) out.push({ label: "range across", sel: { anchor: start, focus: end } });
+  if (start !== null && end !== null) out.push({ label: "range across", sel: { anchor: start, focus: end } });
   else dropped.push("range across");
   const blockObjects = [...linear(d, c.where).blockAt.keys()];
   blockObjects.forEach((id, k) => {
@@ -203,12 +202,12 @@ const stats: Stats = { cases: 0, failures: new Map(), skipped: new Set(), knownC
 const t0 = Date.now();
 
 /** Run `cmd` on the pair in `container` at every selection; the failures (each with a repro line). */
-function runCase(container: Container, l: Category, r: Category, cmd: Command, objectsOnly: boolean): string[] | "unresolved" {
+function runCase(container: Container, l: Category, r: Category, cmd: Command): string[] | "unresolved" {
   const seq = sequence(l, r);
   const lenOf = (c: Category): number => (c === "text" || c === "anchor" ? 2 : 1);
   const points: [number, number, number] = [2, 2 + lenOf(l), 2 + lenOf(l) + lenOf(r)];
   const probe = build(container, seq);
-  const { sels, dropped } = selections(probe, points, objectsOnly);
+  const { sels, dropped } = selections(probe, points);
   const unresolved = sels.length === 0 || sels.some((s) => isTextSelection(s.sel) && paragraphLayout(probe.h.version, s.sel.focus.blockId) === null);
   const fails: string[] = [];
   if (container === "cell") {
@@ -296,15 +295,15 @@ for (const container of CONTAINERS) {
       for (const r of CATEGORY_LIST) {
         if (!placeable(l, container) || !placeable(r, container)) continue;
         const why = unreachable(l, r);
-        // Adjacent block objects: unreachable single-user, but a concurrent W2 break reads them (`T T P`).
-        const objectsOnly = why !== null && CATEGORIES[l].blockObject && CATEGORIES[r].blockObject;
-        if (why !== null && !objectsOnly) {
+        // Adjacent block objects: unreachable single-user, but a concurrent W2 break reads them (`T ¶implicit T P`).
+        const w2 = why !== null && CATEGORIES[l].blockObject && CATEGORIES[r].blockObject;
+        if (why !== null && !w2) {
           it.skip(`${l} → ${r}: unreachable (${why})`, () => {});
           continue;
         }
         for (const cmd of COMMANDS) {
-          it(`${l} → ${r} ${cmd.name}${objectsOnly ? " (object / all selections)" : ""}`, (ctx) => {
-            const out = runCase(container, l, r, cmd, objectsOnly);
+          it(`${l} → ${r} ${cmd.name}${w2 ? " (concurrent W2 break)" : ""}`, (ctx) => {
+            const out = runCase(container, l, r, cmd);
             if (out === "unresolved") {
               stats.skipped.add(`${container} ${l} → ${r}: positions do not resolve (P2 M2: cell paragraph ends)`);
               ctx.skip();
@@ -320,9 +319,10 @@ for (const container of CONTAINERS) {
 }
 
 // Runs after every case above (file order). The known cell O2 count is pinned, so a new cell O2 bug changes it;
-// P2 M2 (cell paragraph ends resolve) drives it to 0.
+// P2 M2 (cell paragraph ends resolve) drives it to 0. (1882 → 2618: the W2 pairs' carets and ranges run too, now
+// that the implicit paragraph between the objects reads; with object / all selections only it stays 1882.)
 it("KNOWN O2 count is bounded", () => {
-  expect(stats.knownCellO2).toBe(1882);
+  expect(stats.knownCellO2).toBe(2618);
 });
 
 afterAll(() => {

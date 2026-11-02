@@ -16,7 +16,7 @@ import { overObject, withWrite } from "./helpers/over-object";
 import { containerOf } from "./helpers/placement";
 import { replaceSelection } from "./helpers/replace-selection";
 import { splitWrites } from "./helpers/split-writes";
-import { insertAt, materialize } from "./helpers/writes";
+import { idAfter, insertAt, materialize } from "./helpers/writes";
 
 /**
  * C17 with review-r7 G6. A payload with no ¶ and no block object is typed (C1).
@@ -34,7 +34,7 @@ export function paste(ctx: CommandContext, fragment: readonly FragmentItem[]): P
   return o === null ? null : withWrite(o.write, pasteAt(o.ctx, fragment, o.object));
 }
 
-/** Paste at `ctx`'s selection; `replaced`: the block object an object selection deleted, just before the caret's paragraph (or before the block objects abutting it). */
+/** Paste at `ctx`'s selection; `replaced`: the block object an object selection deleted, just before the caret's paragraph. */
 function pasteAt(ctx: CommandContext, fragment: readonly FragmentItem[], replaced: TerminatorRef | null): Plan | null {
   const r = rangeOf(ctx);
   if (r === null) return null;
@@ -83,6 +83,13 @@ function pasteAt(ctx: CommandContext, fragment: readonly FragmentItem[], replace
   const before = comparePoints(ins, p) < 0 ? undefined : prior === null ? prev?.token.k : prior.units > 0 ? "run" : prior.before?.token.k;
   const lead: InsertUnit[] = [];
   if (startsWithBlock && start.offset === 0 && (isBlockObject(before) || (isSectionBreak(first?.k) && !isParagraphBreak(before)))) lead.push({ embed: newParagraphMark(), attrs: {} });
+  if (r.collapsed && start.L.implicit) {
+    // Separate from the R17 branch above: an implicit paragraph follows a block object, so it needs `lead`, which that branch returns before computing.
+    // The payload goes in with the paragraph's ¶ (X5), which its last paragraph joins.
+    const m = materialize(start.L, {}, [...lead, ...us]);
+    if (m === null) return null;
+    return plan(ctx.version, m.writes, () => caretAt(idAfter(m.map, start.L.block.id), lastLen));
+  }
   writes.push(insertAt(ins, [...lead, ...us]));
   return plan(ctx.version, writes, () => caretAt(tail(), lastLen));
 }

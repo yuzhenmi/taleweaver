@@ -2,14 +2,15 @@
  * Test-only: category permutation fixtures. One representative kind per category; for an
  * ordered pair (L, R) a small valid document `x¶ L R y¶` (padded as the single-user rules
  * need) in a container, built in raw storage; and the container's read as a linear
- * sequence of category units (the same units the storage holds, in order).
+ * sequence of category units (the units the storage holds, in order, and the ¶ of each
+ * block object's implicit paragraph, flagged `implicit`).
  */
 import * as Y from "yjs";
 import type { Block, ReadonlyAttrs } from "../block";
 import { insertFootnote } from "../commands/insert-footnote";
 import { insertHeaderFooter } from "../commands/insert-header-footer";
 import type { Document, FlowState, TreeKind } from "../document/types";
-import { cellId } from "../ids";
+import { afterObjectId, cellId } from "../ids";
 import { OPTIONS } from "../oracle/random-command";
 import { isTextSelection } from "../position/model-position";
 import { paragraphLayout } from "../position/paragraph-layout";
@@ -157,12 +158,19 @@ export function linear(d: Document, w: Where): Linear {
   const attrs: ReadonlyAttrs[] = [];
   const paraStart = new Map<string, number>();
   const blockAt = new Map<string, number>();
-  const push = (c: Category, a: ReadonlyAttrs, label: string = c): void => {
-    out.push({ c, label });
+  const push = (c: Category, a: ReadonlyAttrs, label: string = c, implicit?: true): void => {
+    out.push(implicit === undefined ? { c, label } : { c, label, implicit });
     attrs.push(a);
   };
+  let prev: Block | null = null;
   for (const b of flowBlocks(d, w)) {
+    const implicit = prev !== null && b !== null && b.id === afterObjectId(prev.id);
+    prev = b;
     if (b === null) push("sectionBreak", {});
+    else if (implicit) {
+      paraStart.set(b.id, out.length);
+      push("paragraphBreak", { ...b.attrs, type: b.type }, "paragraphBreak", true);
+    }
     else if (b.inlineContent === null) {
       // A block object read with records of its own holds flows (its category's trait).
       blockAt.set(b.id, out.length);

@@ -47,3 +47,10 @@ export function materialize(L: ParagraphLayout, keys: Keys, before: readonly Ins
 
 /** The id a materialized / surviving ¶ reads as after Apply. */
 export const idAfter = (map: Y.Map<unknown>, fallback: BlockId): BlockId => typeId(map) ?? fallback;
+
+/** X5 for a command whose caret stays in paragraph `L`: an implicit one first gets its ¶ (default keys); the id `L` reads as after Apply. */
+export function keepParagraph(L: ParagraphLayout): { writes: Write[]; id: () => BlockId } {
+  const m = L.implicit ? materialize(L, {}) : null;
+  const id = L.block.id;
+  return m === null ? { writes: [], id: () => id } : { writes: m.writes, id: () => idAfter(m.map, id) };
+}

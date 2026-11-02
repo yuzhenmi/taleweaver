@@ -12,6 +12,8 @@ import { CATEGORIES, type Category, type Container, type FlowKind, allowedIn, ca
 export interface Unit {
   readonly c: Category;
   readonly label: string;
+  /** The ¶ of a block object's implicit paragraph: read only while no paragraph follows the object. */
+  readonly implicit?: true;
 }
 
 /** A command's effect: inserts `n` of `kind` (`text`: the inserted characters; over the range, unless the kind is zero-width: an anchor wraps it), formats (`key` set to `value` on run units / paragraphs), or deletes (`dir` -1 Backspace, 1 Delete, 0 range delete). */
@@ -67,7 +69,8 @@ const firstParaFrom = (u: readonly Unit[], i: number): number => {
   while (j < u.length && !isPara(u[j])) j++;
   return j;
 };
-/** The start of the paragraph at or after `i`, past the block objects there (W2: one follows them). */
+
+/** The start of the paragraph at or after `i`, past the block objects there (a C10 caret, when the deleted object's implicit paragraph went with it). */
 const pastBlockObjects = (u: readonly Unit[], i: number): number => {
   let j = i;
   while (blockObject(u[j])) j++;
@@ -75,8 +78,18 @@ const pastBlockObjects = (u: readonly Unit[], i: number): number => {
 };
 
 const unit = (c: Category, label?: string): Unit => ({ c, label: label ?? c });
+/** A write into an implicit paragraph creates its ¶ (X5): from then on a real one. */
+const real = (u: Unit): Unit => (u.implicit === true ? { c: u.c, label: u.label } : u);
 const NOOP: Expectation = { t: "noop" };
-const seq = (units: readonly Unit[], caret: number | null): Expectation => ({ t: "seq", units, caret });
+/** The read of `units`: an implicit ¶ stays only where the read rule still puts one (right after a block object, a non-¶ terminator or the end next); index `at` moves with the units before it. */
+function settle(units: readonly Unit[], at: number): { units: Unit[]; at: number } {
+  const read = (u: Unit, i: number): boolean => u.implicit !== true || (blockObject(units[i - 1]) && (units[i + 1] === undefined || isBoundary(units[i + 1])));
+  return { units: units.filter(read), at: at - units.filter((u, i) => i < at && !read(u, i)).length };
+}
+const seq = (units: readonly Unit[], caret: number | null): Expectation => {
+  const r = settle(units, caret ?? 0);
+  return { t: "seq", units: r.units, caret: caret === null ? null : r.at };
+};
 /** `u` without the units at `idx` (ascending); the caret at `caret`. */
 const removing = (u: readonly Unit[], idx: readonly number[], caret: number): Expectation => seq(u.filter((_, i) => !idx.includes(i)), caret);
 
@@ -135,22 +148,26 @@ function insert(e: Effect & { t: "insert" }, x: Situation): Expectation {
   }
   // C10 then a caret: an object selection's object goes; what replaces it goes at the start of the paragraph after it.
   const d = x.object === true ? u.filter((_, i) => i !== s) : s === x.e ? [...u] : deleteRange(u, s, x.e);
-  const at0 = x.object === true ? pastBlockObjects(d, s) : s;
+  // What replaces the selection goes in the paragraph at `s` (after an object selection's object there is always
+  // one: W2's, or its implicit one, which then gets its ¶).
+  const target = firstParaFrom(d, s);
+  const tu = d[target];
+  if (tu !== undefined) d[target] = real(tu);
   const put = (at: number, ins: readonly Unit[], caret: number): Expectation => seq([...d.slice(0, at), ...ins, ...d.slice(at)], caret);
   // C13: a paragraph of its own after the collapse point's paragraph, then an empty one with the caret.
   if (t.insertedAlone) {
-    const p = firstParaFrom(d, at0);
+    const p = target;
     return put(p, [unit("paragraphBreak"), ...fresh(1), unit("paragraphBreak")], p + 3);
   }
   if (t.terminator && cat !== "paragraphBreak") {
     // C15: one removed by a join is inserted by a split (C7's inverse). C14: a block object splits at k > 0; at k = 0
     // it gets a ¶ first only after another block object (W2).
-    const before = d[at0 - 1];
+    const before = d[s - 1];
     const lead = t.removedByJoin || (before !== undefined && (!terminator(before) || blockObject(before)));
     const ins: Unit[] = lead ? [unit("paragraphBreak"), ...fresh(1)] : fresh(1);
-    return put(at0, ins, at0 + ins.length);
+    return put(s, ins, s + ins.length);
   }
-  return put(at0, fresh(e.n), at0 + e.n);
+  return put(s, fresh(e.n), s + e.n);
 }
 
 function format(e: Effect & { t: "format" }, x: Situation): Expectation {
@@ -171,11 +188,17 @@ function format(e: Effect & { t: "format" }, x: Situation): Expectation {
   return { t: "seq", units: u, caret: null, applied: { key: e.key, value: e.value, at } };
 }
 
-export function expectation(e: Effect, x: Situation): Expectation {
+export function expectation(e: Effect, x0: Situation): Expectation {
+  // A command at a caret in an implicit paragraph writes as at a real one: it first gets its ¶ (X5).
+  const caretPara = x0.object !== true && x0.s === x0.e ? firstParaFrom(x0.units, x0.s) : -1;
+  const x: Situation = { ...x0, units: x0.units.map((u, i) => (i === caretPara ? real(u) : u)) };
   if (e.t === "format") return format(e, x);
   if (e.t === "insert") return insert(e, x);
   // C10: an object selection's object goes, whatever its category; the caret where it was (the paragraph after it).
-  if (x.object === true) return removing(x.units, [x.s], pastBlockObjects(x.units.filter((_, i) => i !== x.s), x.s));
+  if (x.object === true) {
+    const left = settle(x.units.filter((_, i) => i !== x.s), x.s);
+    return seq(left.units, pastBlockObjects(left.units, left.at));
+  }
   if (x.s !== x.e) {
     // A range of zero-width units only deletes nothing.
     const d = deleteRange(x.units, x.s, x.e);

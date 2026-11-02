@@ -10,6 +10,7 @@ import { plan } from "./helpers/build-plan";
 import { deleteRange, deleteSelectionOf } from "./helpers/delete-range";
 import { deleteRule, deleteTerminator, deleteUnits, isRuleParagraph, unitToDelete } from "./helpers/delete-units";
 import { isListItem, listExit } from "./helpers/list-exit";
+import { keepParagraph } from "./helpers/writes";
 
 /**
  * Backspace. An object selection → C10. Range → C9. Mid-paragraph: the grapheme / inline atom before the caret
@@ -37,7 +38,11 @@ export function deleteBackward(ctx: CommandContext): Plan | null {
   if (before === null) return null; // the flow's first position
   const here = L.block.id;
   const k = before.token.k;
-  if (isAtomicBlockObject(k)) return plan(d, deleteTerminator(L.fs, before), () => caretAt(here, offset)); // C6
+  if (isAtomicBlockObject(k)) {
+    // C6 (an implicit paragraph keeps a ¶ of its own: the object goes, the paragraph stays).
+    const keep = keepParagraph(L);
+    return plan(d, [...keep.writes, ...deleteTerminator(L.fs, before)], () => caretAt(keep.id(), offset));
+  }
   if (isBlockObject(k)) return null; // C5 arrives with table editing, P2 M3.
   const X = isParagraphBreak(k) ? paragraphLayout(d, before.token.id) : paragraphBefore(d, L.fs, before);
   if (isParagraphBreak(k) && X !== null && isRuleParagraph(X)) {

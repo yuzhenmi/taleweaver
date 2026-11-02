@@ -58,7 +58,7 @@ export function pointBefore(L: ParagraphLayout, offset: number): StoragePoint | 
     const seg = L.fs.segments[L.end.seg];
     return seg === undefined ? null : { piece: seg.piece, index: L.end.index, seg: L.end.seg };
   }
-  return L.fs.synthetic ? L.head : flowEnd(L.fs);
+  return L.implicit ? L.head : flowEnd(L.fs);
 }
 
 /** Order of two storage points of one flow. */

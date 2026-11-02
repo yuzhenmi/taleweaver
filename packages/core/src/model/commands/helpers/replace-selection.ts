@@ -47,8 +47,8 @@ function replaceRange(ctx: CommandContext, make: (attrs: ReadonlyAttrs) => reado
   let len = 0;
   for (const u of units) len += "text" in u ? u.text.length : 1;
   const p = pointAfter(start.L, start.offset);
-  if (p === null || start.L.fs.synthetic) {
-    // R17 (an empty holder): the content goes in with its ¶ (and the flow's first piece when it has none).
+  if (p === null || (r.collapsed && start.L.implicit)) {
+    // Nothing stored (R17, an implicit paragraph): the content goes in with its ¶ (and the flow's first piece when it has none).
     const m = materialize(start.L, {}, units);
     if (m === null) return null;
     return plan(ctx.version, m.writes, (after) => caretAfter?.(after) ?? caretAt(idAfter(m.map, start.L.block.id), len));

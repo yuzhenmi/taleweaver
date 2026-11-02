@@ -333,7 +333,7 @@ describe("O4: incremental == from scratch", () => {
     model.destroy();
   });
 
-  it("a ¶ whose k becomes [S] leaves no orphan record", () => {
+  it("a ¶ whose k becomes [S] (or a TOC before an [S]) leaves no orphan record", () => {
     const f = fixture();
     const model = new Model(f.doc);
     f.piece.insert(0, "a");
@@ -342,6 +342,23 @@ describe("O4: incremental == from scratch", () => {
     mapAt(f.piece, 1).set("k", "sectionBreak");
     expect(model.version.trees.block.get(id)).toBeUndefined();
     expect(model.version.trees.block.get(`${id}/section`)?.type).toBe("section");
+    expectSameVersion(model.version, deriveDocument(f.doc, BUILTIN_OBJECT_KINDS));
+    // `a [T][S]`: a ¶ whose k becomes a TOC reads the TOC's implicit paragraph (W2 broken in storage); a paragraph
+    // typed after the TOC replaces it, and deleting that paragraph brings it back (a region right after the TOC).
+    f.piece.insertEmbed(1, newParagraphMark());
+    const t = mapAt(f.piece, 1);
+    t.set("k", "toc");
+    const after = `${idOf(t)}/after`;
+    expect(model.version.trees.block.get(after)?.nextSiblingId).toBeNull();
+    expectSameVersion(model.version, deriveDocument(f.doc, BUILTIN_OBJECT_KINDS));
+    f.doc.transact(() => {
+      f.piece.insert(2, "x");
+      f.piece.insertEmbed(3, newParagraphMark());
+    });
+    expect(model.version.trees.block.get(after)).toBeUndefined();
+    expectSameVersion(model.version, deriveDocument(f.doc, BUILTIN_OBJECT_KINDS));
+    f.piece.delete(2, 2);
+    expect(model.version.trees.block.get(after)?.prevSiblingId).toBe(idOf(t));
     expectSameVersion(model.version, deriveDocument(f.doc, BUILTIN_OBJECT_KINDS));
     model.destroy();
   });

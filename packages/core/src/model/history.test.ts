@@ -419,7 +419,7 @@ describe("proof scripts: r5 undo2", () => {
     a.undo();
     b.undo();
     sync(a, b);
-    expect(a.dump()).toEqual(["paragraph:x", "toc", "toc", "paragraph:y"]);
+    expect(a.dump()).toEqual(["paragraph:x", "toc", "paragraph:", "toc", "paragraph:y"]);
     expect(b.dump()).toEqual(a.dump());
   });
 

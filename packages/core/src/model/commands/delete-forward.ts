@@ -1,7 +1,7 @@
 import type { Plan } from "../plan";
 import { caretAt, isObjectSelection } from "../position/model-position";
 import type { ParagraphLayout } from "../position/paragraph-layout";
-import { followingOf } from "../position/terminator-neighbours";
+import { type Following, followingOf } from "../position/terminator-neighbours";
 import { holdsFlows, isAtomicBlockObject, isRemovedByJoin } from "../scan/kinds";
 import type { CommandContext } from "./command-context";
 import { deleteBlockObject } from "./delete-block-object";
@@ -9,6 +9,7 @@ import { rangeOf } from "./helpers/at";
 import { plan } from "./helpers/build-plan";
 import { deleteRange, deleteSelectionOf } from "./helpers/delete-range";
 import { deleteRule, deleteTerminator, deleteUnits, isRuleParagraph, unitToDelete } from "./helpers/delete-units";
+import { keepParagraph } from "./helpers/writes";
 
 /**
  * Delete (forward): the mirror of Backspace (C8). At the end of a paragraph: the next
@@ -32,16 +33,22 @@ export function deleteForward(ctx: CommandContext): Plan | null {
   }
   const end = L.end;
   if (end === null || holdsFlows(end.token.k)) return null;
-  if (L.mark === null) return plan(d, deleteTerminator(L.fs, end), () => caretAt(here, offset)); // debris: the object / [S] after it
-  const next = followingOf(d, L.fs, end);
+  if (L.mark === null && !L.implicit) return plan(d, deleteTerminator(L.fs, end), () => caretAt(here, offset)); // debris: the object / [S] after it
+  // An implicit paragraph has no ¶: its object / [S] follows it directly.
+  const next: Following = L.implicit ? { k: "terminator", term: end } : followingOf(d, L.fs, end);
   let N: ParagraphLayout;
   if (next.k === "end") return null;
   if (next.k === "terminator") {
     const k = next.term.token.k;
-    if (isAtomicBlockObject(k)) return plan(d, deleteTerminator(L.fs, next.term), () => caretAt(here, offset));
+    // Only the terminator goes: the caret's paragraph stays (an implicit one with a ¶ of its own).
+    const only = (): Plan | null => {
+      const keep = keepParagraph(L);
+      return plan(d, [...keep.writes, ...deleteTerminator(L.fs, next.term)], () => caretAt(keep.id(), offset));
+    };
+    if (isAtomicBlockObject(k)) return only();
     if (!isRemovedByJoin(k)) return null;
     const after = followingOf(d, L.fs, next.term);
-    if (after.k !== "paragraph") return plan(d, deleteTerminator(L.fs, next.term), () => caretAt(here, offset));
+    if (after.k !== "paragraph") return only();
     N = after.L;
   } else {
     N = next.L;

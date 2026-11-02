@@ -18,7 +18,7 @@ import { positionAtPoint } from "./position/position-at-point";
 import { resolvePosition } from "./position/resolve-position";
 import { pointAfter, pointBefore } from "./position/storage-points";
 import { PIECE_SOFT_MAX } from "./storage/limits";
-import { newObject, newParagraphMark, newTableOfContents } from "./storage/new-items";
+import { newObject, newParagraphMark, newSectionBreak, newTableOfContents } from "./storage/new-items";
 import { pieceStructCount } from "./storage/pieces";
 import { mapAt } from "./test-helpers/fixture";
 
@@ -136,7 +136,7 @@ describe("exact mapping (D8)", () => {
       g.f.piece.insertEmbed(0, newTableOfContents());
       g.f.piece.insertEmbed(1, newTableOfContents());
     });
-    const [t1, t2, x] = [g.blockId(0), g.blockId(1), g.blockId(2)];
+    const [t1, t2, x] = [g.blockId(0), g.blockId(2), g.blockId(3)]; // t1's implicit paragraph is block 1
     const w0 = g.version;
     g.f.doc.transact(() => g.f.piece.delete(1, 1));
     expect(mapSelection(w0, g.version, { kind: "object", object: t2 })).toEqual(caretAt(x, 0));
@@ -183,15 +183,16 @@ describe("exact mapping (D8)", () => {
 });
 
 describe("review fixes", () => {
-  it("a point among 60 000 abutting TOCs resolves without recursion (positionAtPoint, mapPosition)", () => {
+  it("a point among 60 000 abutting [S]s resolves without recursion (positionAtPoint, mapPosition)", () => {
+    // (Among abutting block objects a point reads the implicit paragraph of the object before it: no walk.)
     const h = doc("a\nb");
     const v0 = h.version;
     h.f.doc.transact(() => {
-      for (let i = 0; i < 60_000; i++) h.f.piece.insertEmbed(2, newTableOfContents());
+      for (let i = 0; i < 60_000; i++) h.f.piece.insertEmbed(2, newSectionBreak());
     });
     const fs = h.version.flows.get(h.version.rootId);
     if (fs === undefined) throw new Error("no flow");
-    expect(positionAtPoint(h.version, fs, h.f.piece, 30_000, 1)).toEqual(position(h.blockId(60_001), 0));
+    expect(positionAtPoint(h.version, fs, h.f.piece, 30_000, 1)).toEqual(position(h.blockId(1), 0));
     expect(positionAtPoint(h.version, fs, h.f.piece, 30_000, -1)).toEqual(position(h.blockId(0), 1));
     expect(mapPosition(v0, h.version, position(h.blockId(0), 1), 1).position).not.toBeNull();
   });

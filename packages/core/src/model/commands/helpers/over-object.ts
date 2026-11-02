@@ -7,9 +7,9 @@ import { type At, rangeOf } from "./at";
 
 /**
  * Replacing an object selection: the write deleting its object, and the context of a
- * caret at the start of the paragraph after it (W2 puts one there; past the block
- * objects abutting it, a concurrent W2 break), where what replaces the object goes.
- * Null for any other selection, or with no paragraph after the object.
+ * caret at the start of the paragraph right after it (W2 puts one there; after a
+ * concurrent W2 break, its implicit one), where what replaces the object goes.
+ * Null for any other selection.
  */
 export function overObject(ctx: CommandContext): { readonly write: Write; readonly ctx: CommandContext; readonly object: TerminatorRef } | null {
   const sel = ctx.selection;

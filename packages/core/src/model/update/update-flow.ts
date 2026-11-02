@@ -34,7 +34,7 @@ import type { Working } from "../derive/working";
 import type { FlowState, SectionInfo } from "../document/types";
 import { footnoteBodyId, sectionIdOf } from "../ids";
 import { flattenPiece } from "../scan/flatten-piece";
-import { holdsFlows, isSectionBreak } from "../scan/kinds";
+import { holdsFlows, isBlockObject, isSectionBreak } from "../scan/kinds";
 import { type FootnoteRef, type Segment, isTerminator } from "../scan/tokens";
 import { SUBFLOW_DEPTH_CAP } from "../storage/limits";
 import { pieceHoldingSubflow } from "../storage/pieces";
@@ -214,8 +214,11 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   const growth = newScans.length - oldScans.length;
   const oldL: Pos | null = L;
   const oldR: Pos | null = R === null ? null : R.p === zNLast && last.closed ? { p: last.o2 - 1, t: last.endOld - 1 } : { p: R.p - growth, t: R.t };
-  const oldEnts = group(between(oldScans, oldL, oldR), R === null, holderId, false);
-  const newEnts = group(between(newScans, L, R), R === null, holderId);
+  // The region starts after L: a block object there reads its implicit paragraph (if any) in the region. (R is an
+  // unchanged terminator past every change, and so is what follows it: its implicit paragraph, if any, stays.)
+  const objectBefore = L !== null && isBlockObject(L.tok.k) ? L.tok.id : null;
+  const oldEnts = group(between(oldScans, oldL, oldR), R === null, holderId, { withItems: false, objectBefore });
+  const newEnts = group(between(newScans, L, R), R === null, holderId, { objectBefore });
   // ponytail: a region holding a block object with flows (a table) re-derives its flow (O(flow)); incremental tables are P2 M2.
   const withFlows = (e: Entity): boolean => holdsFlows(e.k);
   if (oldEnts.some(withFlows) || newEnts.some(withFlows)) return rederiveFlow(w, fs);
@@ -235,7 +238,6 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
     nextBlockId = rRec.nextSiblingId;
     trailingContainer = rRec.parentId;
   }
-
   const { segments, breaks } = segmentsOf(newEnts);
   const m = breaks.length;
   const containerOf = (j: number): BlockId => {

@@ -706,14 +706,61 @@ describe("review fixes", () => {
     h.run(insertTableOfContents);
     h.caret(1, 0);
     h.run(insertSectionBreak);
-    // x's paragraph is now [T] ¶N [S] x¶: put a second TOC right after the first (a peer's state).
+    // x's paragraph is now [T] ¶N [S] x¶: put a second TOC right after the first (a peer's state). The first reads
+    // an implicit empty paragraph after it.
     h.f.doc.transact(() => h.f.piece.insertEmbed(1, newTableOfContents()));
-    expect(h.dump()).toEqual(["toc", "toc", "paragraph:", "|", "paragraph:x"]);
+    expect(h.dump()).toEqual(["toc", "paragraph:", "toc", "paragraph:", "|", "paragraph:x"]);
     h.run(deleteBlockObject, h.blockId(0));
     expect(h.dump()).toEqual(["toc", "paragraph:", "|", "paragraph:x"]);
-    // [T][S]: a TOC directly before an [S].
+    // [T][S]: a TOC directly before an [S] reads its implicit paragraph too: a caret stop whose first write creates
+    // its ¶ (X5), in the same undo entry.
     h.f.doc.transact(() => h.f.piece.delete(1, 1));
-    expect(h.dump()).toEqual(["toc", "|", "paragraph:x"]);
+    expect(h.dump()).toEqual(["toc", "paragraph:", "|", "paragraph:x"]);
+    h.caret(1, 0);
+    h.run(insertText, "q");
+    expect(h.dump()).toEqual(["toc", "paragraph:q", "|", "paragraph:x"]);
+    expect(h.sel()).toBe("1:1");
+    h.undo();
+    expect(h.dump()).toEqual(["toc", "paragraph:", "|", "paragraph:x"]);
+    // Delete from the implicit paragraph: its ¶ is created and [S] goes (the join), in one undo entry.
+    h.caret(1, 0);
+    h.run(deleteForward);
+    expect(h.dump()).toEqual(["toc", "paragraph:x"]);
+    h.undo();
+    expect(h.dump()).toEqual(["toc", "paragraph:", "|", "paragraph:x"]);
+    // A range from / to the implicit paragraph: the marker edge goes in with its ¶ (no debris), exact undo.
+    h.select([1, 0], [2, 1]);
+    h.run(insertMarker, "m", "1");
+    expect(h.dump()).toEqual(["toc", "paragraph:[start]", "|", "paragraph:x[end]"]);
+    expect(h.blockId(1)).not.toContain("/"); // a real ¶, not the implicit / debris paragraph
+    h.undo();
+    expect(h.dump()).toEqual(["toc", "paragraph:", "|", "paragraph:x"]);
+    // Type-over of an object selection in [T][T][S]: the object goes, the text goes in the paragraph after it,
+    // created — `[T] z¶ [S]` (before, no paragraph followed it: a no-op); undo is exact.
+    h.f.doc.transact(() => h.f.piece.insertEmbed(0, newTableOfContents()));
+    expect(h.dump()).toEqual(["toc", "paragraph:", "toc", "paragraph:", "|", "paragraph:x"]);
+    const second = objectSelection(h.version, h.blockId(2));
+    if (second === null) throw new Error("no selection");
+    h.selection = second;
+    h.run(insertText, "z");
+    expect(h.dump()).toEqual(["toc", "paragraph:z", "|", "paragraph:x"]);
+    expect(h.sel()).toBe("1:1");
+    h.undo();
+    expect(h.dump()).toEqual(["toc", "paragraph:", "toc", "paragraph:", "|", "paragraph:x"]);
+    // A range ending in an implicit paragraph (and starting in one): both edges go in with their ¶s.
+    h.select([1, 0], [3, 0]);
+    h.run(insertMarker, "m", "2");
+    expect(h.dump()).toEqual(["toc", "paragraph:[start]", "toc", "paragraph:[end]", "|", "paragraph:x"]);
+    expect([h.blockId(1), h.blockId(3)].filter((id) => id.includes("/"))).toEqual([]); // both real ¶s
+    h.undo();
+    expect(h.dump()).toEqual(["toc", "paragraph:", "toc", "paragraph:", "|", "paragraph:x"]);
+    // Delete from an implicit paragraph followed by a block object: only the object goes (the `only()` branch).
+    h.caret(1, 0);
+    h.run(deleteForward);
+    expect(h.dump()).toEqual(["toc", "paragraph:", "|", "paragraph:x"]);
+    h.undo();
+    expect(h.dump()).toEqual(["toc", "paragraph:", "toc", "paragraph:", "|", "paragraph:x"]);
+    h.f.doc.transact(() => h.f.piece.delete(0, 1));
     h.run(deleteBlockObject, h.blockId(0));
     expect(h.dump()).toEqual(["|", "paragraph:x"]);
   });
@@ -769,15 +816,16 @@ describe("review fixes", () => {
     h.selection = all2;
     h.run(insertText, "Y");
     expect(h.dump()).toEqual(["paragraph:Y"]);
-    // Tables are block objects too. `toc | table | P` (concurrent W2 break): each object selection covers exactly its
-    // object (Word / GDocs), select-all both.
+    // Tables are block objects too. `toc | table | P` (concurrent W2 break: the TOC's implicit paragraph between):
+    // each object selection covers exactly its object (Word / GDocs), select-all both.
     const g = new Harness();
     g.f.doc.transact(() => {
       g.f.piece.insertEmbed(0, newTableOfContents());
       g.f.piece.insertEmbed(1, newTable([newRowMap("r", ["a"])], [newColMap("a")]));
       g.f.piece.insert(2, "P");
     });
-    for (const [i, left] of [[0, ["table", "paragraph:P"]], [1, ["toc", "paragraph:P"]]] as const) {
+    expect(g.dump()).toEqual(["toc", "paragraph:", "table", "paragraph:P"]);
+    for (const [i, left] of [[0, ["table", "paragraph:P"]], [2, ["toc", "paragraph:P"]]] as const) {
       const sel = objectSelection(g.version, g.blockId(i));
       if (sel === null) throw new Error("no selection");
       g.selection = sel;
@@ -802,7 +850,8 @@ describe("review fixes", () => {
     g.selection = all3;
     g.run(deleteSelection);
     expect(g.dump()).toEqual(["paragraph:"]);
-    // Type-over of an object selection in `a¶ T1 T2 P`: the object goes, the text starts P, the caret right after it.
+    // Type-over of an object selection in `a¶ T1 T2 P`: the object goes, the text goes in the paragraph after it (T1's
+    // implicit one, created; T2's P), the caret right after it.
     const k = new Harness();
     k.f.doc.transact(() => {
       k.f.piece.insert(0, "a");
@@ -811,13 +860,17 @@ describe("review fixes", () => {
       k.f.piece.insertEmbed(3, newTableOfContents());
       k.f.piece.insert(4, "P");
     });
-    for (const i of [1, 2]) {
-      const sel = objectSelection(k.version, k.blockId(i));
-      if (sel === null) throw new Error("no selection");
-      k.selection = sel;
+    expect(k.dump()).toEqual(["paragraph:a", "toc", "paragraph:", "toc", "paragraph:P"]);
+    for (const [i, after, sel] of [
+      [1, ["paragraph:a", "paragraph:xy", "toc", "paragraph:P"], "1:2"],
+      [3, ["paragraph:a", "toc", "paragraph:xyP"], "2:2"],
+    ] as const) {
+      const o = objectSelection(k.version, k.blockId(i));
+      if (o === null) throw new Error("no selection");
+      k.selection = o;
       k.run(insertText, "xy");
-      expect(k.dump()).toEqual(["paragraph:a", "toc", "paragraph:xyP"]);
-      expect(k.sel()).toBe("2:2");
+      expect(k.dump()).toEqual(after);
+      expect(k.sel()).toBe(sel);
       k.undo();
     }
     // A section command reads an object selection's section (the paragraph after the object's).
@@ -1047,7 +1100,7 @@ describe("proof scripts: r6 d1 (a TOC as the block object)", () => {
     b.caret(2, 0);
     b.run(insertTableOfContents);
     sync(a, b);
-    expect(a.dump()).toEqual(["toc", "toc", "paragraph:y"]);
+    expect(a.dump()).toEqual(["toc", "paragraph:", "toc", "paragraph:y"]);
     expect(b.dump()).toEqual(a.dump());
   });
 

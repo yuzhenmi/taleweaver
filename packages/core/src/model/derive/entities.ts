@@ -1,8 +1,8 @@
 import type * as Y from "yjs";
 import { attrsEqual } from "../equality";
 import type { BlockId, InlineItem } from "../block";
-import { debrisBeforeId, flowEndId } from "../ids";
-import { isParagraphBreak, isSectionBreak, isText } from "../scan/kinds";
+import { afterObjectId, debrisBeforeId, flowEndId } from "../ids";
+import { isBlockObject, isParagraphBreak, isSectionBreak, isText } from "../scan/kinds";
 import type { FootnoteRef, Segment, Token } from "../scan/tokens";
 
 // ---------------------------------------------------------------------------
@@ -56,9 +56,15 @@ function appendItems(dst: InlineItem[], src: readonly InlineItem[]): void {
  * R1 / R2: group a token sequence into entities. `atEnd`: the sequence ends at
  * `<end>`. `withItems` false: the entities' kinds, ids and footnotes only (their
  * `items` stay empty) — what an incremental update needs of the OLD region.
+ * `objectBefore`: the block object just before the sequence, if any.
+ *
+ * A block object no paragraph follows (another block object, an `[S]` or `<end>`
+ * next, nothing read between: a concurrent W2 break) reads an implicit empty
+ * paragraph `${object}/after` right after it; the first write there creates its ¶.
  */
-export function group(tokens: Iterable<Token>, atEnd: boolean, holderId: BlockId, withItems = true): Entity[] {
+export function group(tokens: Iterable<Token>, atEnd: boolean, holderId: BlockId, { withItems = true, objectBefore = null }: { withItems?: boolean; objectBefore?: BlockId | null } = {}): Entity[] {
   const out: Entity[] = [];
+  let object = objectBefore;
   let items: InlineItem[] = [];
   let footnotes: FootnoteRef[] = [];
   let content = false;
@@ -74,15 +80,20 @@ export function group(tokens: Iterable<Token>, atEnd: boolean, holderId: BlockId
       out.push({ k, id: t.id, map: t.map, items, footnotes });
     } else {
       if (content) out.push({ k: "para", id: debrisBeforeId(t.id), map: null, items, footnotes });
+      else if (object !== null) out.push(implicitAfter(object));
       out.push({ k, id: t.id, map: t.map });
     }
+    object = isBlockObject(k) ? t.id : null;
     items = [];
     footnotes = [];
     content = false;
   }
   if (atEnd && content) out.push({ k: "para", id: flowEndId(holderId), map: null, items, footnotes });
+  else if (atEnd && object !== null) out.push(implicitAfter(object));
   return out;
 }
+
+const implicitAfter = (object: BlockId): ParaEntity => ({ k: "para", id: afterObjectId(object), map: null, items: [], footnotes: [] });
 
 export function indexSegments(segments: readonly Segment[]): ReadonlyMap<Y.Text, readonly number[]> {
   const m = new Map<Y.Text, number[]>();
