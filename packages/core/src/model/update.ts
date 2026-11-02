@@ -32,6 +32,7 @@ import {
   type Working,
   deriveFlow,
   deriveFootnote,
+  scanCtxOf,
   group,
   indexSegments,
   piecesOf,
@@ -43,6 +44,7 @@ import {
   writeSegment,
 } from "./derive";
 import { footnoteBodyId, sectionIdOf } from "./ids";
+import { SUBFLOW_DEPTH_CAP, pieceHoldingSubflow } from "./storage";
 import { flattenPiece, scanRange, type FootnoteRef, type Segment, type TerminatorToken, type Token } from "./scan";
 
 export interface DeltaOp {
@@ -73,6 +75,28 @@ export interface FlowChange {
 export function rederiveFlow(w: Working, fs: FlowState): void {
   removeFlow(w, fs.holderId);
   deriveFlow(w, fs.holderId, fs.tree, fs.array, fs.isRoot);
+}
+
+/**
+ * Sub-flow depth of a piece array's pieces (0 = a holder's flow), counted up to
+ * SUBFLOW_DEPTH_CAP + 1. A bounded loop: no recursion on peer-controlled nesting.
+ */
+function arrayDepth(arr: Y.Array<Y.Text>): number {
+  let d = 0;
+  for (let p = pieceHoldingSubflow(arr); p !== null && d <= SUBFLOW_DEPTH_CAP; ) {
+    d++;
+    const parent = p._item?.parent;
+    p = parent instanceof Y.Array ? pieceHoldingSubflow(parent) : null;
+  }
+  return d;
+}
+
+/** A piece's sub-flow depth when it is within the read cap, else null (inert, or detached). */
+function pieceDepthOrNull(piece: Y.Text): number | null {
+  const parent = piece._item?.parent;
+  if (!(parent instanceof Y.Array)) return null;
+  const d = arrayDepth(parent);
+  return d > SUBFLOW_DEPTH_CAP ? null : d;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,7 +209,7 @@ function subtreeSplice(fs: FlowState, piece: Y.Text, w: Working): Splice | null 
   const o1 = idx?.[0];
   const oLast = idx?.[idx.length - 1];
   if (o1 === undefined || oLast === undefined) return null;
-  const segs = flattenPiece(piece, w.registry);
+  const segs = flattenPiece(piece, scanCtxOf(w, fs.tree), [], fs.segments[o1]?.depth ?? 0);
   return { o1, o2: oLast + 1, segs, start: 0, endOld: fs.segments[oLast]?.tokens.length ?? 0, endNew: segs[segs.length - 1]?.tokens.length ?? 0, closed: false };
 }
 
@@ -238,12 +262,12 @@ function deltaSplice(fs: FlowState, piece: Y.Text, pc: PieceChange, w: Working):
     }
     pos += t.len;
   }
-  const fresh = scanRange(piece, os.start + iL, os.start + iR + hull.d, w.registry);
+  const fresh = scanRange(piece, os.start + iL, os.start + iR + hull.d, scanCtxOf(w, fs.tree), os.depth);
   if (fresh === null) return "structural";
   // The closing terminator is outside the hull, so it must rescan as the window's last token.
   const lastFresh = fresh[fresh.length - 1];
   if (closed && (lastFresh === undefined || !isTerminator(lastFresh))) return "structural";
-  const seg: Segment = { piece, start: os.start, len: os.len + hull.d, tokens: [...toks.slice(0, start), ...fresh, ...toks.slice(endOld)] };
+  const seg: Segment = { piece, depth: os.depth, start: os.start, len: os.len + hull.d, tokens: [...toks.slice(0, start), ...fresh, ...toks.slice(endOld)] };
   const shifted: [number, Segment][] = [];
   if (hull.d !== 0) {
     for (let j = k + 1; j < segs.length; j++) {
@@ -319,11 +343,12 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
 
   // 1. Splices: whole subtrees (structural changes, new top-level pieces) and single-segment deltas.
   const structural = new Set<Y.Text>();
-  for (const [piece, pc] of ch.pieces) if (pc.full) structural.add(piece);
+  for (const [piece, pc] of ch.pieces) if (pc.full && (fs.segIndex.has(piece) || pieceDepthOrNull(piece) !== null)) structural.add(piece);
   const deltas: { splice: Splice; shifted: readonly [number, Segment][] }[] = [];
   for (const [piece, pc] of ch.pieces) {
     if (structural.has(piece)) continue;
     if (!fs.segIndex.has(piece)) {
+      if (pieceDepthOrNull(piece) === null) continue; // inside an inert sub-flow: not read
       if (!ch.arrayChanged && ch.subArrays.size === 0) return rederiveFlow(w, fs);
       continue; // a new piece: scanned with its array's change
     }
@@ -342,6 +367,8 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   const arrays: Y.Array<Y.Text>[] = [...ch.subArrays];
   if (ch.arrayChanged && fs.array !== null) arrays.push(fs.array);
   for (const arr of arrays) {
+    const depth = arrayDepth(arr);
+    if (depth > SUBFLOW_DEPTH_CAP) continue; // inside an inert sub-flow: not read
     const pieces = piecesOf(arr);
     const live = new Set(pieces);
     for (const sg of oldScans) if (sg.piece._item?.parent === arr && !live.has(sg.piece)) return rederiveFlow(w, fs);
@@ -350,7 +377,7 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
     for (const piece of pieces) {
       const at = fs.segIndex.get(piece)?.[0];
       if (at === undefined) {
-        flattenPiece(piece, w.registry, pending);
+        flattenPiece(piece, scanCtxOf(w, fs.tree), pending, depth);
         continue;
       }
       lastExisting = piece;
@@ -438,7 +465,7 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   const growth = newScans.length - oldScans.length;
   const oldL: Pos | null = L;
   const oldR: Pos | null = R === null ? null : R.p === zNLast && last.closed ? { p: last.o2 - 1, t: last.endOld - 1 } : { p: R.p - growth, t: R.t };
-  const oldEnts = group(between(oldScans, oldL, oldR), R === null, holderId);
+  const oldEnts = group(between(oldScans, oldL, oldR), R === null, holderId, false);
   const newEnts = group(between(newScans, L, R), R === null, holderId);
   if (!fs.isRoot && (L?.tok.k === "S" || R?.tok.k === "S" || newEnts.some((e) => e.k === "S") || oldEnts.some((e) => e.k === "S"))) {
     return rederiveFlow(w, fs);

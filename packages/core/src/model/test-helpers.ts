@@ -57,7 +57,8 @@ function flowStates(d: Document): unknown[] {
         piece: typeId(s.piece),
         start: s.start,
         len: s.len,
-        tokens: s.tokens.map((t) => (t.k === "run" ? `run:${t.len}` : `${t.k}:${t.id}:${t.len}`)),
+        depth: s.depth,
+        tokens: s.tokens.map((t) => (t.k === "run" ? `run:${t.len}:${t.inert.join(",")}` : `${t.k}:${t.id}:${t.len}`)),
       })),
     }));
 }

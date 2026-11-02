@@ -113,33 +113,40 @@ export function newTableOfContents(keys: FlatKeys = {}): Y.Map<unknown> {
   return mapOf({ ...keys, [KIND_KEY]: ITEM_KINDS.toc });
 }
 
-/** A footnote anchor whose nested body holds a fresh flow (one ¶). */
-export function newFootnote(): Y.Map<unknown> {
-  return mapOf({ [KIND_KEY]: ITEM_KINDS.footnote, [BODY_KEY]: newBody() });
+/** A footnote anchor whose nested body holds a fresh flow (one ¶, `mark` when given). */
+export function newFootnote(mark?: Y.Map<unknown>): Y.Map<unknown> {
+  return mapOf({ [KIND_KEY]: ITEM_KINDS.footnote, [BODY_KEY]: newBody(mark) });
 }
 
-/** A header / footer (or footnote) body: `Y.Map{flow}` with one ¶. */
-export function newBody(): Y.Map<unknown> {
-  return mapOf({ [FLOW_KEY]: newFlow() });
+/** A footnote anchor whose body flow is the detached `pieces` (the last must end in a ¶, G3). */
+export function newFootnoteOf(...pieces: Y.Text[]): Y.Map<unknown> {
+  const arr = new Y.Array<Y.Text>();
+  arr.insert(0, pieces);
+  return mapOf({ [KIND_KEY]: ITEM_KINDS.footnote, [BODY_KEY]: mapOf({ [FLOW_KEY]: arr }) });
+}
+
+/** A header / footer (or footnote) body: `Y.Map{flow}` with one ¶ (`mark` when given). */
+export function newBody(mark?: Y.Map<unknown>): Y.Map<unknown> {
+  return mapOf({ [FLOW_KEY]: newFlow(mark) });
 }
 
 export function newMarker(ns: string, id: string, edge: "start" | "end"): Y.Map<unknown> {
   return mapOf({ [KIND_KEY]: ITEM_KINDS.marker, ns, id, edge });
 }
 
-/** A detached flow: one piece holding one default ¶ (G3). */
-export function newFlow(): Y.Array<Y.Text> {
+/** A detached flow: one piece holding one ¶ (default, or `mark`) (G3). */
+export function newFlow(mark: Y.Map<unknown> = newParagraphMark()): Y.Array<Y.Text> {
   const piece = new Y.Text();
-  piece.insertEmbed(0, newParagraphMark());
+  piece.insertEmbed(0, mark);
   const arr = new Y.Array<Y.Text>();
   arr.insert(0, [piece]);
   return arr;
 }
 
-/** A detached sub-flow holding `piece`. */
-export function newSubflow(piece: Y.Text): Y.Map<unknown> {
+/** A detached sub-flow holding `pieces` (in order). */
+export function newSubflow(...pieces: Y.Text[]): Y.Map<unknown> {
   const arr = new Y.Array<Y.Text>();
-  arr.insert(0, [piece]);
+  arr.insert(0, pieces);
   return mapOf({ [KIND_KEY]: ITEM_KINDS.sub, [PIECES_KEY]: arr });
 }
 
@@ -169,6 +176,13 @@ export function createDocMap(doc: Y.Doc, origin: unknown = null): Y.Map<unknown>
   }, origin);
   return docMap;
 }
+
+/**
+ * A value a command may WRITE as a flat key or formatting value: null, a string, a
+ * finite number or a boolean (never a function, symbol, bigint, undefined or NaN).
+ */
+export const isWriteScalar = (v: unknown): v is Scalar =>
+  v === null || typeof v === "string" || typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v));
 
 /** A Yjs scalar (null or a non-object): the only values the read takes from flat keys. */
 export const isScalar = (v: unknown): boolean => v === null || typeof v !== "object";

@@ -17,7 +17,8 @@
 import * as Y from "yjs";
 import type { BlockId } from "./block";
 import { type Document, Working, deriveAll, deriveDocument, deriveFlow, deriveFootnote, readListDefs, removeFlow, writeSections } from "./derive";
-import { updateFlow, type FlowChange, type PieceChange } from "./update";
+import { updateFlow, type DeltaOp, type FlowChange, type PieceChange } from "./update";
+import { recordStep } from "./mapping";
 import { footnoteBodyId, templateBodyId } from "./ids";
 import type { FootnoteRef } from "./scan";
 import { BODIES_KEY, BODY_KEY, COMMENTS_KEY, FLOW_KEY, ITEM_KINDS, LIST_DEFS_KEY, ROOT_MAP, SUGGESTIONS_KEY, childMap, flowOf, getDocMap, itemId, kindOf, pieceHoldingSubflow, typeId, type HasItem } from "./storage";
@@ -63,7 +64,21 @@ export class Model {
   private readonly root: Y.Map<unknown>;
   private readonly listeners = new Set<(c: ModelChange) => void>();
   private readonly onDeep = (events: Y.YEvent<Y.AbstractType<unknown>>[]): void => this.apply(events);
+  private inTransactions = false;
+  private readonly onBefore = (): void => {
+    this.inTransactions = true;
+  };
+  private readonly onAfter = (): void => {
+    this.inTransactions = false;
+  };
 
+  /**
+   * Precondition: construct outside any Yjs transaction (and outside the observers of
+   * one). Yjs exposes no public "in a transaction" flag to check it: constructed
+   * inside one, the model missed its `beforeAllTransactions`, so {@link busy} reads
+   * false until that transaction's observers have run; it is correct from the next
+   * transaction on.
+   */
   constructor(
     readonly doc: Y.Doc,
     readonly registry: ObjectKindRegistry = BUILTIN_OBJECT_KINDS,
@@ -73,6 +88,18 @@ export class Model {
     this.current = deriveDocument(doc, registry);
     this.root = doc.getMap(ROOT_MAP);
     this.root.observeDeep(this.onDeep);
+    doc.on("beforeAllTransactions", this.onBefore);
+    doc.on("afterAllTransactions", this.onAfter);
+  }
+
+  /**
+   * True from the start of a (possibly nested) Yjs transaction until every observer —
+   * this model's derivation and its listeners included — has run. While busy, the
+   * current version may not describe storage yet (Yjs clears `doc._transaction`
+   * before observers run), so plans must not be applied.
+   */
+  get busy(): boolean {
+    return this.inTransactions;
   }
 
   /** The current version. */
@@ -87,6 +114,8 @@ export class Model {
 
   destroy(): void {
     this.root.unobserveDeep(this.onDeep);
+    this.doc.off("beforeAllTransactions", this.onBefore);
+    this.doc.off("afterAllTransactions", this.onAfter);
     this.listeners.clear();
   }
 
@@ -99,6 +128,9 @@ export class Model {
     if (docMap === null || rootId === null) return;
     let w: Working;
     let full: boolean;
+    // The exact mapping (D8): every piece's delta, read inside the observer as Yjs requires.
+    const deltas = new Map<Y.Text, readonly DeltaOp[]>();
+    for (const e of events) if (e.target instanceof Y.Text) deltas.set(e.target, e.delta);
     try {
       const c = this.classify(events, before);
       if (isEmpty(c) && docMap === before.docMap) return;
@@ -120,6 +152,7 @@ export class Model {
       }
     }
     this.current = w.finish();
+    recordStep(before, this.current, docMap === before.docMap ? deltas : null);
     const change: ModelChange = { before, after: this.current, dirtyIds: w.dirty, full };
     for (const fn of [...this.listeners]) {
       try {

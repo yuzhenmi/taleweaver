@@ -4,7 +4,8 @@
  *
  * The run FAILS when a plan budget (build plan P1) is exceeded — checked in
  * `afterAll` on medians this file records itself:
- *   - keystroke ≤ 0.1 ms median at both sizes; 1000-page / 110-page median ratio ≤ 1.5;
+ *   - keystroke ≤ 0.1 ms median at both sizes; 1000-page / 110-page median ratio ≤ 1.5 —
+ *     for the raw write and for the C1 command path (Plan + Apply + derive);
  *   - section break at 1000 pages ≤ 50 ms;
  *   - load (from-scratch derive) 110 pages ≤ 200 ms, 1000 pages ≤ 1.5 s.
  *
@@ -19,8 +20,12 @@ import { afterAll, bench, describe, expect } from "vitest";
 import { Model } from "./model";
 import { deriveDocument } from "./derive";
 import { BUILTIN_OBJECT_KINDS } from "./object-kinds";
-import { createEditorOrigin, newParagraphMark, newSectionBreak, pieceDepth, writablePoint, type PiecePoint } from "./storage";
+import * as Y from "yjs";
+import { PIECE_SOFT_MAX, createDocMap, createEditorOrigin, flowOf, getDocMap, newParagraphMark, pieceStructCount, newSectionBreak, pieceDepth, writablePoint, type PiecePoint } from "./storage";
 import { buildPages as build } from "./test-helpers";
+import { insertText } from "./commands";
+import { applyPlan } from "./plan";
+import { positionAtPoint, caretAt, type ModelSelection } from "./position";
 
 // Module-scoped: core's headless lib has no `console` typing.
 declare const console: { log(...args: unknown[]): void };
@@ -57,6 +62,70 @@ function keystroke(pages: number, withModel: boolean, sections = false): () => v
   };
 }
 
+/**
+ * A keystroke through the C1 command path: Plan (read the version) + Apply (one
+ * transaction, piece-size rule included) + derive. Typed into the FIRST piece, which
+ * both fixtures build identically, so the two sizes differ only in document size (the
+ * mid piece's fill differs between them, and a full piece sends typing to a fresh one).
+ */
+function commandKeystroke(pages: number): () => void {
+  const { doc } = build(pages);
+  const docMap = getDocMap(doc);
+  const piece = docMap === null ? null : flowOf(docMap)?.get(0);
+  if (!(piece instanceof Y.Text)) throw new Error("bench: no first piece");
+  const at = Math.floor(piece.length / 2);
+  const model = new Model(doc);
+  const origin = createEditorOrigin();
+  const fs = model.version.flows.get(model.version.rootId);
+  const start = fs === undefined ? null : positionAtPoint(model.version, fs, piece, at, 1);
+  if (start === null) throw new Error("bench: no caret");
+  let selection: ModelSelection = caretAt(start.blockId, start.offset);
+  return () => {
+    const plan = insertText({ version: model.version, selection }, "x");
+    const next = plan === null ? null : applyPlan(model, plan, origin);
+    if (next === null) throw new Error("bench: keystroke did nothing");
+    selection = next;
+  };
+}
+
+/**
+ * One paragraph of 2000 alternating plain / bold runs (spread over pieces at the cap),
+ * typed into its middle via the command path: the Plan reads only the items around
+ * the caret, so the paragraph's size does not show.
+ */
+function longParagraphKeystroke(): () => void {
+  const doc = new Y.Doc();
+  const docMap = createDocMap(doc);
+  const flow = flowOf(docMap);
+  const first = flow?.get(0);
+  if (flow === null || !(first instanceof Y.Text)) throw new Error("bench: bad root");
+  doc.transact(() => {
+    let piece = first;
+    let idx = 0;
+    for (let i = 0; i < 2000; i++) {
+      if (pieceStructCount(piece) + 4 > PIECE_SOFT_MAX) {
+        const fresh = new Y.Text();
+        flow.insert(flow.length - 1, [fresh]); // before the piece holding the ¶
+        piece = fresh;
+        idx = 0;
+      }
+      piece.insert(idx, "word ", i % 2 === 0 ? { bold: true } : {});
+      idx += 5;
+    }
+  });
+  const model = new Model(doc);
+  const origin = createEditorOrigin();
+  const id = model.version.trees.block.get(model.version.flows.get(model.version.rootId)?.sections[0]?.id ?? "")?.firstChildId;
+  if (id === undefined || id === null) throw new Error("bench: no paragraph");
+  let selection: ModelSelection = caretAt(id, 5000 + 2);
+  return () => {
+    const plan = insertText({ version: model.version, selection }, "x");
+    const next = plan === null ? null : applyPlan(model, plan, origin);
+    if (next === null) throw new Error("bench: keystroke did nothing");
+    selection = next;
+  };
+}
+
 /** Typing at a spot whose piece is full: after 2·10⁴ hot-spot writes from three clientIDs, writes land in nested sub-flow pieces. */
 function subflowKeystroke(): () => void {
   const { doc, piece, at } = build(1000);
@@ -86,6 +155,9 @@ describe("B1 keystroke: raw insert + derive", () => {
   bench("1000 pages, model", timed("k1000", keystroke(1000, true), skip), opts);
   bench("1000 pages, one section per page, model", timed("kSections", keystroke(1000, true, true), skip), opts);
   bench("1000 pages, typing inside a sub-flowed hot spot, model", timed("kSub", subflowKeystroke(), skip), opts);
+  bench("110 pages, C1 command (plan + apply + derive)", timed("c110", commandKeystroke(110), skip), opts);
+  bench("1000 pages, C1 command (plan + apply + derive)", timed("c1000", commandKeystroke(1000), skip), opts);
+  bench("one paragraph of 2000 runs, C1 command", timed("cLong", longParagraphKeystroke(), skip), opts);
   bench("110 pages, yjs only", keystroke(110, false), opts);
   bench("1000 pages, yjs only", keystroke(1000, false), opts);
 });
@@ -129,6 +201,10 @@ afterAll(() => {
     keystroke1000: k1000,
     keystroke1000Sections: median("kSections"),
     keystrokeSubflow: median("kSub"),
+    command110: median("c110"),
+    command1000: median("c1000"),
+    commandRatio: median("c1000") / median("c110"),
+    commandLongParagraph: median("cLong"),
     ratio: k1000 / k110,
     sectionBreak110: median("s110"),
     sectionBreak1000: median("s1000"),
@@ -141,6 +217,10 @@ afterAll(() => {
   expect(report.ratio).toBeLessThanOrEqual(1.5);
   expect(report.keystroke1000Sections).toBeLessThanOrEqual(0.1);
   expect(report.keystrokeSubflow).toBeLessThanOrEqual(0.1);
+  expect(report.command110).toBeLessThanOrEqual(0.1);
+  expect(report.command1000).toBeLessThanOrEqual(0.1);
+  expect(report.commandRatio).toBeLessThanOrEqual(1.5);
+  expect(report.commandLongParagraph).toBeLessThanOrEqual(0.1);
   expect(report.sectionBreak1000).toBeLessThanOrEqual(50);
   expect(report.load110).toBeLessThanOrEqual(200);
   expect(report.load1000).toBeLessThanOrEqual(1500);

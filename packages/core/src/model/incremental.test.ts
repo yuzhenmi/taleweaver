@@ -4,9 +4,9 @@
  * Commands arrive in M2; these writes deliberately include states commands never
  * produce, so every read rule's incremental path is exercised.
  */
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { deriveDocument, type Document, type TreeKind } from "./derive";
+import { deriveDocument, type Document, type FlowState, type TreeKind } from "./derive";
 import { Model } from "./model";
 import { BUILTIN_OBJECT_KINDS } from "./object-kinds";
 import {
@@ -15,6 +15,7 @@ import {
   FLOW_KEY,
   LIST_DEFS_KEY,
   PIECES_KEY,
+  SUBFLOW_DEPTH_CAP,
   childMap,
   createDocMap,
   createEditorOrigin,
@@ -36,7 +37,27 @@ import {
   writablePoint,
   flowContainerDeleteFilter,
 } from "./storage";
-import { expectSameVersion, fixture, idOf, mapAt } from "./test-helpers";
+import { childrenOf, expectSameVersion, fixture, idOf, mapAt, textOf } from "./test-helpers";
+import { applyPlan, type Plan } from "./plan";
+import { type ModelPosition, paragraphLayout, positionAtPoint } from "./position";
+import { mapPosition } from "./mapping";
+import { markerRanges } from "./document";
+import { type CommandContext, type CommandOptions, deleteBackward, deleteForward, deleteSelection, insertText, setMarks, setParagraphAttrs, splitParagraph } from "./commands";
+import {
+  type FragmentItem,
+  deleteBlockObject,
+  insertFootnote,
+  insertHeaderFooter,
+  insertHorizontalRule,
+  insertMarker,
+  insertObject,
+  insertSectionBreak,
+  insertTableOfContents,
+  paste,
+  removeHeaderFooter,
+  removeMarker,
+  setObjectProps,
+} from "./commands-insert";
 
 function rng(seed: number): () => number {
   let s = seed >>> 0 || 1;
@@ -89,6 +110,21 @@ function pick<T>(r: () => number, xs: readonly T[]): T | undefined {
 const P_KEYS = ["p:type", "p:align", "m:bold", "t:ins"];
 const P_VALUES = ["heading", "paragraph", "list-item", "center", "x", null, true, 3];
 
+/** Storage index `i` of `piece` falls between the halves of a surrogate pair. */
+function midPair(piece: Y.Text, i: number): boolean {
+  let n = 0;
+  for (let it = piece._start; it !== null; it = it.right) {
+    if (it.deleted || !it.countable) continue;
+    if (i < n + it.length) {
+      if (!(it.content instanceof Y.ContentString) || i === n) return false;
+      const c = it.content.str.charCodeAt(i - n);
+      return c >= 0xdc00 && c <= 0xdfff;
+    }
+    n += it.length;
+  }
+  return false;
+}
+
 /** One random raw write into `doc`. */
 function randomWrite(r: () => number, doc: Y.Doc): void {
   const docMap = getDocMap(doc);
@@ -96,7 +132,12 @@ function randomWrite(r: () => number, doc: Y.Doc): void {
   const { pieces, flows, subArrays, maps } = storageOf(docMap);
   const piece = pick(r, pieces);
   if (piece === undefined) return;
-  const at = Math.floor(r() * (piece.length + 1));
+  // Raw writes never land inside a surrogate pair: Yjs splitting a string there rewrites
+  // both halves to U+FFFD, and a peer receiving that split for an item that is already
+  // deleted gets no event for it (a Yjs quirk, see the M2 report). Commands never split
+  // a pair (R15); only a foreign writer could.
+  const cut = (i: number): number => (midPair(piece, i) ? i - 1 : i);
+  const at = cut(Math.floor(r() * (piece.length + 1)));
   const roll = r();
   if (roll < 0.25) {
     piece.insert(at, pick(r, ["a", "bc", "def ", "é"]) ?? "a", r() < 0.3 ? { bold: true } : r() < 0.2 ? { italic: true } : {});
@@ -106,13 +147,15 @@ function randomWrite(r: () => number, doc: Y.Doc): void {
     piece.insertEmbed(at, newParagraphMark(keys));
   } else if (roll < 0.5) {
     if (piece.length > 0) {
-      const from = Math.floor(r() * piece.length);
-      piece.delete(from, Math.min(piece.length - from, 1 + Math.floor(r() * 4)));
+      const from = cut(Math.floor(r() * piece.length));
+      const to = cut(Math.min(piece.length, from + 1 + Math.floor(r() * 4)));
+      if (to > from) piece.delete(from, to - from);
     }
   } else if (roll < 0.56) {
     if (piece.length > 0) {
-      const from = Math.floor(r() * piece.length);
-      piece.format(from, Math.min(piece.length - from, 1 + Math.floor(r() * 5)), { bold: r() < 0.5 ? true : null });
+      const from = cut(Math.floor(r() * piece.length));
+      const to = cut(Math.min(piece.length, from + 1 + Math.floor(r() * 5)));
+      if (to > from) piece.format(from, to - from, { bold: r() < 0.5 ? true : null });
     }
   } else if (roll < 0.64) {
     const m = pick(r, maps);
@@ -152,11 +195,14 @@ function randomWrite(r: () => number, doc: Y.Doc): void {
       const inner = new Y.Text();
       inner.insert(0, "sub");
       if (r() < 0.5) inner.insertEmbed(1, newParagraphMark());
-      if (r() < 0.3) {
+      // A chain of nested sub-flows, sometimes past the read's depth cap (read as inert).
+      let tip = inner;
+      for (let n = r() < 0.3 ? 1 + Math.floor(r() * 7) : 0; n > 0; n--) {
         const deeper = new Y.Text();
         deeper.insert(0, "deep");
         if (r() < 0.5) deeper.insertEmbed(2, newParagraphMark());
-        inner.insertEmbed(2, newSubflow(deeper));
+        tip.insertEmbed(2, newSubflow(deeper));
+        tip = deeper;
       }
       piece.insertEmbed(at, newSubflow(inner));
     }
@@ -172,6 +218,7 @@ function randomWrite(r: () => number, doc: Y.Doc): void {
   } else if (roll < 0.9) {
     // the piece-size rule with a tiny budget headroom: may create a piece / sub-flow
     const p = writablePoint({ piece, index: at }, 2000);
+    if (midPair(p.piece, p.index)) return;
     p.piece.insert(p.index, "w");
   } else if (roll < 0.93) {
     const bodies = childMap(docMap, BODIES_KEY);
@@ -217,6 +264,17 @@ function envNumber(name: string, fallback: number): number {
   return typeof v === "string" && v !== "" ? Number(v) : fallback;
 }
 
+// Yield a macrotask between tests: the long synchronous seed chunks otherwise starve the worker's
+// RPC replies, and vitest reports a "Timeout calling onTaskUpdate" after 60 s of file time.
+beforeEach(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+
+/** [from, to] seed ranges of at most 250 seeds. */
+function seedChunks(seeds: number): [number, number][] {
+  const out: [number, number][] = [];
+  for (let from = 1; from <= seeds; from += 250) out.push([from, Math.min(seeds, from + 249)]);
+  return out;
+}
+
 /** Ids whose record identity differs between two versions (added, replaced or removed), all trees. */
 function changedIds(a: Document, b: Document): string[] {
   const out: string[] = [];
@@ -234,8 +292,9 @@ function sync(from: Y.Doc, to: Y.Doc): void {
 describe("O4: incremental == from scratch", () => {
   const seeds = envNumber("MODEL_SEEDS", 150);
   const steps = 120;
-  it(`holds over ${seeds} seeds × ${steps} random transactions (local + remote)`, () => {
-    for (let seed = 1; seed <= seeds; seed++) {
+  // Seeds run in chunks: one long test would time out the vitest worker RPC at MODEL_SEEDS=1500.
+  for (const [from, to] of seedChunks(seeds)) it(`holds over seeds ${from}–${to} × ${steps} random transactions (local + remote)`, () => {
+    for (let seed = from; seed <= to; seed++) {
       const r = rng(seed);
       const f = fixture(1);
       const peer = new Y.Doc();
@@ -405,6 +464,41 @@ describe("O4: incremental == from scratch", () => {
     model.destroy();
   });
 
+  it("peer-controlled nesting is bounded: sub-flows past the depth cap and footnotes outside the body are inert", () => {
+    const f = fixture();
+    f.piece.insert(0, "ab");
+    const model = new Model(f.doc);
+    // 3000 nested sub-flows (well past any recursion-safe read without the cap), one level
+    // per transaction as a peer could. Yjs itself is O(depth²) here, so not 10⁴.
+    let cur = f.piece;
+    let at = 1;
+    for (let i = 0; i < 3000; i++) {
+      const inner = new Y.Text();
+      cur.insertEmbed(at, newSubflow(inner));
+      inner.insert(0, `${i % 10}`);
+      cur = inner;
+      at = 1;
+    }
+    cur.insert(0, "deep");
+    // A footnote chain: a footnote in a footnote body in a footnote body …
+    f.piece.insertEmbed(0, newFootnote());
+    let body = childMap(mapAt(f.piece, 0), BODY_KEY);
+    for (let i = 0; i < 1000 && body !== null; i++) {
+      const piece = flowOf(body)?.get(0);
+      if (!(piece instanceof Y.Text)) break;
+      piece.insertEmbed(0, newFootnote());
+      body = childMap(mapAt(piece, 0), BODY_KEY);
+    }
+    const scratch = deriveDocument(f.doc, BUILTIN_OBJECT_KINDS);
+    expectSameVersion(model.version, scratch);
+    // Read in place down to the cap (depth 1..4 hold "0".."3"); deeper levels read as nothing.
+    const para = childrenOf(scratch, "block", `${f.rootId}/final`)[0];
+    expect(textOf(para)).toBe("￼a0123b");
+    // Exactly one footnote body: the anchor inside it is inert.
+    expect([...scratch.flows.entries()].filter(([, fs]) => fs.tree === "embedContent")).toHaveLength(1);
+    model.destroy();
+  });
+
   it("emits nothing for a comments-only transaction; a footnote anchor's key change is not a full re-derive", () => {
     const f = fixture();
     f.piece.insertEmbed(0, newFootnote());
@@ -451,3 +545,432 @@ describe("O4: incremental == from scratch", () => {
     expect(() => createDocMap(fixture().doc)).toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Commands on two peers (M2): every command's Plan is total on any reachable state,
+// Apply never throws, incremental == scratch, peers converge; single-user runs keep
+// W1 / W2 / A1 / A2.
+// ---------------------------------------------------------------------------
+
+/** Every paragraph id of a version (all trees), sorted. */
+function paragraphIds(d: Document): string[] {
+  const out: string[] = [];
+  for (const tree of ["block", "embedContent", "templateContent"] satisfies TreeKind[]) {
+    for (const [id, b] of d.trees[tree].entries()) if (b.inlineContent !== null) out.push(id);
+  }
+  return out.sort();
+}
+
+function lengthOf(d: Document, id: string): number {
+  let n = 0;
+  for (const i of d.trees.block.get(id)?.inlineContent?.items ?? d.trees.embedContent.get(id)?.inlineContent?.items ?? d.trees.templateContent.get(id)?.inlineContent?.items ?? []) n += i.kind === "text" ? i.text.length : 1;
+  return n;
+}
+
+let markerSeq = 0;
+
+/** Command options the property runs use: atomic `field`, non-inclusive `link`, next styles, one-shot attrs. */
+const OPTIONS: CommandOptions = {
+  isAtomicMark: (k) => k === "field",
+  isInclusiveMark: (k) => k !== "link",
+  nextStyle: (t) => (t === "heading" ? "paragraph" : t === "title" ? "subtitle" : undefined),
+  oneShotAttrs: new Set(["listCounterOverride"]),
+};
+
+interface RandomCommand {
+  readonly plan: Plan | null;
+  readonly ctx: CommandContext;
+  /** Writes may land anywhere (not only around the selection). */
+  readonly anywhere: boolean;
+  /** A collapsed Backspace / Delete: never deletes a marker. */
+  readonly keepsMarkers: boolean;
+  readonly roll: number;
+}
+
+/** A random valid command on `d`. Throws only on a bug (O2: Plans are total). */
+function randomCommand(r: () => number, d: Document): RandomCommand {
+  const ids = paragraphIds(d);
+  const pos = (near0 = false): ModelPosition => {
+    const id = pick(r, ids) ?? d.rootId;
+    const len = lengthOf(d, id);
+    return { blockId: id, offset: near0 && r() < 0.5 ? Math.min(len, Math.floor(r() * 3)) : Math.floor(r() * (len + 1)) };
+  };
+  const roll = r();
+  // Backspace / Delete / marker inserts often sit at a paragraph start (markers next to joins).
+  const anchor = pos(roll >= 0.37 && roll < 0.55);
+  const focus = r() < 0.6 ? anchor : r() < 0.7 ? { blockId: anchor.blockId, offset: Math.floor(r() * (lengthOf(d, anchor.blockId) + 1)) } : pos();
+  const ctx: CommandContext = { version: d, selection: { anchor, focus }, options: OPTIONS };
+  const out = (plan: Plan | null, anywhere = false, keepsMarkers = false): RandomCommand => ({ plan, ctx, anywhere, keepsMarkers: keepsMarkers && anchor === focus, roll });
+  if (roll < 0.25) {
+    const attrs = r() < 0.75 ? undefined : (pick(r, [{ bold: true }, { link: "u" }, { field: "f" }, { link: "u", bold: true }, {}]) ?? {});
+    return out(insertText(ctx, pick(r, ["a", "bc", "é", "e\u0301", "😀", " "]) ?? "a", attrs));
+  }
+  if (roll < 0.37) return out(splitParagraph(ctx));
+  if (roll < 0.47) return out(deleteBackward(ctx), false, true);
+  if (roll < 0.55) return out(deleteForward(ctx), false, true);
+  if (roll < 0.58) return out(deleteSelection(ctx));
+  if (roll < 0.61) return out(setMarks(ctx, { [pick(r, ["bold", "italic", "link"]) ?? "bold"]: r() < 0.6 ? (pick(r, [true, "u"]) ?? true) : null }));
+  if (roll < 0.65) return out(setParagraphAttrs(ctx, { type: pick(r, ["heading", "title", "paragraph", "list-item", null]) ?? null, align: r() < 0.3 ? "center" : undefined, listCounterOverride: r() < 0.2 ? 3 : undefined }));
+  if (roll < 0.68) return out(insertObject(ctx, "image", { props: { src: "a.png" } }));
+  if (roll < 0.7) return out(setObjectProps(ctx, focus, { wrap: pick(r, ["left", "right", "break", null]) ?? null }));
+  if (roll < 0.73) return out(insertHorizontalRule(ctx));
+  if (roll < 0.76) return out(insertTableOfContents(ctx));
+  if (roll < 0.77) {
+    const toc = [...d.trees.block.entries()].find(([, b]) => b.type === "table-of-contents");
+    return out(toc === undefined ? null : deleteBlockObject(ctx, toc[0]), true);
+  }
+  if (roll < 0.8) return out(insertSectionBreak(ctx));
+  if (roll < 0.83) return out(insertFootnote(ctx));
+  if (roll < 0.86) {
+    const keys = [...markerRanges(d).values()];
+    const k = pick(r, keys);
+    return r() < 0.5 || k === undefined ? out(insertMarker(ctx, "m", `${markerSeq++}`)) : out(removeMarker(ctx, k.ns, k.id), true);
+  }
+  if (roll < 0.9) return out(r() < 0.7 ? insertHeaderFooter(ctx, pick(r, ["header", "footer"]) ?? "header") : removeHeaderFooter(ctx, "header"));
+  const frag: FragmentItem[][] = [
+    [{ k: "text", text: "pp" }],
+    [{ k: "text", text: "p1" }, { k: "para", keys: { "p:type": "heading" } }, { k: "text", text: "p2" }],
+    [{ k: "toc" }, { k: "para" }, { k: "text", text: "t" }],
+    [{ k: "para" }, { k: "S", keys: { "s:columnCount": 2 } }, { k: "text", text: "s" }],
+    [{ k: "S" }, { k: "hr" }, { k: "para" }],
+    [{ k: "footnote", body: [{ k: "text", text: "n" }, { k: "para" }, { k: "text", text: "m" }] }, { k: "object", kind: "image", props: { props: { src: "b.png" }, wrap: "left" } }],
+  ];
+  return out(paste(ctx, pick(r, frag) ?? []));
+}
+
+/** The marker embeds of a version, all trees — footnote bodies only when `other` has them too (deleting a footnote deletes its body's markers). */
+function markerCount(d: Document, other: Document): number {
+  let n = 0;
+  for (const tree of ["block", "embedContent", "templateContent"] satisfies TreeKind[]) {
+    for (const [, b] of d.trees[tree].entries()) {
+      if (tree === "embedContent" && !other.flows.has(b.parentId ?? "")) continue;
+      for (const i of b.inlineContent?.items ?? []) if (i.kind === "embed" && i.embedType === "marker") n++;
+    }
+  }
+  return n;
+}
+
+// ---------------------------------------------------------------------------
+// A brute-force reader of one flow's storage, independent of the model's layout code:
+// the oracle for exact mapping. Units in reading order, sub-flows read in place.
+// ---------------------------------------------------------------------------
+
+interface BruteUnit {
+  readonly piece: Y.Text;
+  readonly index: number;
+  readonly kind: "read" | "inert" | "para" | "toc" | "S";
+  readonly id: string;
+}
+
+function bruteUnits(fs: FlowState): { units: BruteUnit[]; gaps: Map<Y.Text, number[]> } {
+  const units: BruteUnit[] = [];
+  const gaps = new Map<Y.Text, number[]>();
+  const footnotes = fs.tree === "block";
+  const visit = (piece: Y.Text, depth: number): void => {
+    const g: number[] = [];
+    gaps.set(piece, g);
+    let idx = 0;
+    for (let it = piece._start; it !== null; it = it.right) {
+      if (it.deleted || !it.countable) continue;
+      const push = (kind: BruteUnit["kind"], i: number): void => {
+        units.push({ piece, index: i, kind, id: `${it.id.client}:${it.id.clock}` });
+      };
+      const c = it.content;
+      for (let k = 0; k < it.length; k++) g[idx + k] = units.length + k;
+      if (c instanceof Y.ContentString) for (let k = 0; k < it.length; k++) push("read", idx + k);
+      else if (c instanceof Y.ContentType && c.type instanceof Y.Map) {
+        const m = c.type;
+        const k = kindOf(m);
+        if (k === "para") push("para", idx);
+        else if (k === "toc") push("toc", idx);
+        else if (k === "sectionBreak") push("S", idx);
+        else if (k === "object" || k === "hr") push("read", idx);
+        else if (k === "footnote") push(footnotes ? "read" : "inert", idx);
+        else if (k === "marker") {
+          const edge = m.get("edge");
+          push(typeof m.get("ns") === "string" && typeof m.get("id") === "string" && (edge === "start" || edge === "end") ? "read" : "inert", idx);
+        } else if (k === "sub" && depth < SUBFLOW_DEPTH_CAP) {
+          const arr = m.get(PIECES_KEY);
+          if (arr instanceof Y.Array) for (const sp of arr.toArray()) if (sp instanceof Y.Text) visit(sp, depth + 1);
+        } else push("inert", idx);
+      } else for (let k = 0; k < it.length; k++) push("inert", idx + k);
+      idx += it.length;
+    }
+    g[idx] = units.length;
+  };
+  for (const p of fs.array?.toArray() ?? []) if (p instanceof Y.Text) visit(p, 0);
+  return { units, gaps };
+}
+
+const isTerm = (u: BruteUnit | undefined): boolean => u !== undefined && (u.kind === "para" || u.kind === "toc" || u.kind === "S");
+
+/** The flow holding paragraph `id` of `d`. */
+function flowOfId(d: Document, id: string): FlowState | undefined {
+  for (const [, fs] of d.flows.entries()) if (flowOrder(d, fs.holderId).includes(id)) return fs;
+  return undefined;
+}
+
+/** Brute force: the storage point a position is anchored at (assoc −1: after the unit before it; 1: at the unit after it). */
+function bruteAnchor(fs: FlowState, pos: ModelPosition, assoc: -1 | 1): { piece: Y.Text; index: number } | null {
+  const { units } = bruteUnits(fs);
+  const endIdx = pos.blockId.endsWith("/end") ? units.length : units.findIndex((u) => isTerm(u) && u.id === (pos.blockId.endsWith("/pre") ? pos.blockId.slice(0, -4) : pos.blockId));
+  if (endIdx < 0) return null;
+  let startIdx = endIdx - 1;
+  while (startIdx >= 0 && !isTerm(units[startIdx])) startIdx--;
+  const reads = units.slice(startIdx + 1, endIdx).filter((u) => u.kind === "read");
+  const at = (u: BruteUnit | undefined, after: boolean): { piece: Y.Text; index: number } | null => (u === undefined ? null : { piece: u.piece, index: u.index + (after ? 1 : 0) });
+  if (assoc < 0) {
+    if (pos.offset > 0) return at(reads[pos.offset - 1], true);
+    if (startIdx >= 0) return at(units[startIdx], true);
+    const first = fs.array?.get(0);
+    return first instanceof Y.Text ? { piece: first, index: 0 } : null;
+  }
+  if (pos.offset < reads.length) return at(reads[pos.offset], false);
+  if (endIdx < units.length) return at(units[endIdx], false);
+  const lastPiece = fs.array?.get((fs.array?.length ?? 1) - 1);
+  return lastPiece instanceof Y.Text ? { piece: lastPiece, index: lastPiece.length } : null;
+}
+
+/** Brute force: the position at storage point (piece, index) — R1 / R2 / R17, else the nearest paragraph on the assoc side. */
+function brutePosition(fs: FlowState, piece: Y.Text, index: number, assoc: -1 | 1): ModelPosition | null {
+  const { units, gaps } = bruteUnits(fs);
+  const g0 = gaps.get(piece)?.[index];
+  if (g0 === undefined) return null;
+  const synthetic = !units.some((u) => u.kind === "para" || u.kind === "toc" || u.kind === "read");
+  const lenBefore = (term: number): number => {
+    let n = 0;
+    for (let i = term - 1; i >= 0 && !isTerm(units[i]); i--) if (units[i]?.kind === "read") n++;
+    return n;
+  };
+  const at = (g: number): ModelPosition | { next: number | null; prev: number | null } => {
+    let j = g;
+    let after = 0;
+    for (; j < units.length && !isTerm(units[j]); j++) if (units[j]?.kind === "read") after++;
+    let i = g - 1;
+    let before = 0;
+    for (; i >= 0 && !isTerm(units[i]); i--) if (units[i]?.kind === "read") before++;
+    const t = units[j];
+    if (t !== undefined && t.kind === "para") return { blockId: t.id, offset: before };
+    if (before + after > 0) return { blockId: t === undefined ? `${fs.holderId}/end` : `${t.id}/pre`, offset: before };
+    if (t === undefined && synthetic) return { blockId: `${fs.holderId}/end`, offset: 0 };
+    return { next: t === undefined ? null : j, prev: i >= 0 ? i : null };
+  };
+  const walk = (dir: -1 | 1): ModelPosition | null => {
+    let p = at(g0);
+    for (;;) {
+      if ("blockId" in p) return p;
+      if (dir > 0) {
+        if (p.next === null) return null;
+        p = at(p.next + 1);
+      } else {
+        if (p.prev === null) return null;
+        const u = units[p.prev];
+        if (u?.kind === "para") return { blockId: u.id, offset: lenBefore(p.prev) };
+        p = at(p.prev);
+      }
+    }
+  };
+  return walk(assoc) ?? walk(assoc < 0 ? 1 : -1);
+}
+
+/** The blocks of a flow in reading order (ids). */
+function flowOrder(d: Document, holderId: string): string[] {
+  const fs = d.flows.get(holderId);
+  if (fs === undefined) return [];
+  const tree = d.trees[fs.tree];
+  const out: string[] = [];
+  for (const c of fs.isRoot ? fs.sections.map((x) => x.id) : [holderId]) {
+    for (let id = tree.get(c)?.firstChildId ?? null; id !== null; ) {
+      out.push(id);
+      id = tree.get(id)?.nextSiblingId ?? null;
+    }
+  }
+  return out;
+}
+
+/**
+ * "Writes land only on the edited paragraphs, items the command creates and items it
+ * deletes": every storage write of a selection command lands within the paragraphs
+ * from the one before the selection to the one after it.
+ */
+function expectWritesLocal(cmd: RandomCommand): void {
+  const p = cmd.plan;
+  if (p === null || cmd.anywhere) return;
+  const d = cmd.ctx.version;
+  // Focus-based commands ignore an anchor in another flow (a cross-flow range is refused).
+  const focusL = paragraphLayout(d, cmd.ctx.selection.focus.blockId);
+  const fsOf = focusL?.fs;
+  if (fsOf === undefined) return;
+  const ends = [paragraphLayout(d, cmd.ctx.selection.anchor.blockId), focusL].filter((L) => L?.fs === fsOf);
+  const order = flowOrder(d, fsOf.holderId);
+  const idx = ends.map((L) => order.indexOf(L?.block.id ?? ""));
+  const lo = Math.max(0, Math.min(...idx) - 1);
+  const hi = Math.max(...idx) + 1;
+  const allowed = new Set(order.slice(lo, hi + 1));
+  // The paragraph at a point (a point between a terminator and a block object belongs to either
+  // neighbour). A point the version cannot resolve is a failure.
+  const ok = (piece: Y.Text, index: number): boolean => {
+    for (const [, fs] of d.flows.entries()) {
+      if (!fs.segIndex.has(piece)) continue;
+      const sides = [positionAtPoint(d, fs, piece, index, -1)?.blockId, positionAtPoint(d, fs, piece, index, 1)?.blockId];
+      return sides.some((id) => id !== undefined && allowed.has(id));
+    }
+    return false;
+  };
+  // An embedded item map's storage point (its parent piece and index).
+  const mapPoint = (m: Y.Map<unknown>): { piece: Y.Text; index: number } | null => {
+    const it = m._item;
+    if (it === null || !(it.parent instanceof Y.Text)) return null;
+    let n = 0;
+    for (let x = it.parent._start; x !== null; x = x.right) {
+      if (x === it) return { piece: it.parent, index: n };
+      if (!x.deleted && x.countable) n += x.length;
+    }
+    return null;
+  };
+  const bodies = childMap(d.docMap, BODIES_KEY);
+  for (const w of p.writes) {
+    const fail = (where: string): never => {
+      throw new Error(`write ${w.k} at ${where} outside ${[...allowed].join(",")} (roll ${cmd.roll})`);
+    };
+    if (w.k === "insert" || w.k === "delete" || w.k === "format") {
+      const at = [w.index, ...(w.k === "insert" ? [] : [w.index + w.len - 1])];
+      for (const i of at) if (!ok(w.piece, i)) fail(String(i));
+    } else if (w.k === "keys") {
+      // A ¶ of an allowed paragraph, an object in one, or a section owner ([S] / DocMap: C15, S2).
+      if (w.map === d.docMap || kindOf(w.map) === "sectionBreak") continue;
+      const id = typeId(w.map);
+      if (id !== null && kindOf(w.map) === "para" && allowed.has(id)) continue;
+      const pt = mapPoint(w.map);
+      if (pt === null || !ok(pt.piece, pt.index)) fail(`map ${id ?? "detached"}`);
+    } else if (w.k === "entry") {
+      if (w.map !== bodies) fail("entry");
+    }
+  }
+}
+
+/** O5(a) subset / O7 on one flow's storage: no debris, nothing but a ¶ after a TOC, a ¶ before every [S], the flow ends in a ¶. */
+function expectWellFormed(d: Document, where: string): void {
+  for (const [holderId, fs] of d.flows.entries()) {
+    const seq: string[] = [];
+    for (const seg of fs.segments) for (const t of seg.tokens) if (t.k !== "run" || t.len > t.inert.length) seq.push(t.k);
+    const s = seq.join(" ");
+    const bad = (why: string): never => {
+      throw new Error(`${where}: flow ${holderId} ${why}: ${s}`);
+    };
+    if (fs.synthetic) bad("is synthetic (R17)");
+    if (seq.length > 0 && seq[seq.length - 1] !== "para") bad("does not end in a ¶ (A1)");
+    seq.forEach((k, i) => {
+      const prev = seq[i - 1];
+      if (k === "toc" || k === "S") {
+        if (prev === "run") bad("has debris (R2)");
+        if (k === "S" && prev !== "para") bad("has an [S] without a ¶ before it (A2)");
+      }
+      if (prev === "toc" && k !== "para" && k !== "run") bad("has a block object not followed by a paragraph (W2)");
+    });
+  }
+}
+
+describe("commands (M2)", () => {
+  const seeds = envNumber("MODEL_SEEDS", 150);
+  const steps = 120;
+
+  for (const [from, to] of seedChunks(seeds)) it(`two peers × seeds ${from}–${to} × ${steps} steps: commands + raw writes + undo; incremental == scratch; convergence; exact mapping == brute-force RelativePosition oracle`, () => {
+    let oracleChecks = 0;
+    for (let seed = from; seed <= to; seed++) {
+      const r = rng(seed * 7919);
+      const a = fixture(1);
+      const b = new Y.Doc();
+      b.clientID = 2;
+      sync(a.doc, b);
+      const peers = [
+        { doc: a.doc, model: new Model(a.doc), origin: createEditorOrigin(), versions: 0 },
+        { doc: b, model: new Model(b), origin: createEditorOrigin(), versions: 0 },
+      ];
+      for (const x of peers) x.model.subscribe(() => x.versions++);
+      const um = new Y.UndoManager(a.doc.getMap("v4"), { trackedOrigins: new Set([peers[0]?.origin]), deleteFilter: flowContainerDeleteFilter, captureTimeout: 0 });
+      for (let step = 0; step < steps; step++) {
+        try {
+          const peer = peers[r() < 0.5 ? 0 : 1];
+          if (peer === undefined) continue;
+          const u = r();
+          const before = peer.model.version;
+          peer.versions = 0;
+          // A RelativePosition oracle for the exact mapping: anchored as Yjs anchors (assoc).
+          const probeId = pick(r, paragraphIds(before));
+          const probeAssoc: -1 | 1 = r() < 0.5 ? -1 : 1;
+          const probeFs = probeId === undefined ? undefined : flowOfId(before, probeId);
+          const probePos = probeId === undefined ? null : { blockId: probeId, offset: Math.floor(r() * (lengthOf(before, probeId) + 1)) };
+          const probePt = probeFs === undefined || probePos === null ? null : bruteAnchor(probeFs, probePos, probeAssoc);
+          const oracle = probePt === null ? null : Y.createRelativePositionFromTypeIndex(probePt.piece, probePt.index, probeAssoc < 0 ? -1 : 0);
+          if (u < 0.05) um.undo();
+          else if (u < 0.07) um.redo();
+          else if (u < 0.17) peer.doc.transact(() => randomWrite(r, peer.doc), peer.origin);
+          else {
+            const c = randomCommand(r, before);
+            if (c.plan !== null) expect(applyPlan(peer.model, c.plan, peer.origin)).not.toBeNull();
+          }
+          if (r() < 0.3) sync(a.doc, b);
+          if (r() < 0.3) sync(b, a.doc);
+          for (const x of peers) expectSameVersion(x.model.version, deriveDocument(x.doc, BUILTIN_OBJECT_KINDS));
+          // An exactly mapped position resolves in the new version.
+          if (oracle !== null && probePos !== null) {
+            const now = peer.model.version;
+            const m = mapPosition(before, now, probePos, probeAssoc);
+            // Once the anchored unit is deleted, a later concurrent insert at that tombstone is
+            // ordered by Yjs item order, which a delta does not carry: compare live anchors only.
+            // Over ONE version step (one transaction). Across several, each intermediate position is
+            // normalized into a paragraph, which a raw storage anchor is not.
+            if (!m.deleted && peer.versions === 1) {
+              const abs = Y.createAbsolutePositionFromRelativePosition(oracle, peer.doc);
+              const nfs = probeFs === undefined ? undefined : now.flows.get(probeFs.holderId);
+              const expected = abs === null || !(abs.type instanceof Y.Text) || nfs === undefined ? null : brutePosition(nfs, abs.type, abs.index, probeAssoc);
+              expect(m.position).toEqual(expected);
+              oracleChecks++;
+            }
+            if (m.position !== null) expect(paragraphIds(now)).toContain(m.position.blockId);
+          }
+        } catch (e) {
+          throw new Error(`seed ${seed} step ${step}: ${e instanceof Error ? e.stack ?? e.message : String(e)}`, { cause: e });
+        }
+      }
+      sync(a.doc, b);
+      sync(b, a.doc);
+      try {
+        expectSameVersion(deriveDocument(b, BUILTIN_OBJECT_KINDS), deriveDocument(a.doc, BUILTIN_OBJECT_KINDS));
+        for (const x of peers) expectSameVersion(x.model.version, deriveDocument(x.doc, BUILTIN_OBJECT_KINDS));
+      } catch (e) {
+        throw new Error(`seed ${seed} convergence: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      um.destroy();
+      for (const x of peers) x.model.destroy();
+    }
+    // The oracle actually ran (most steps are one transaction).
+    expect(oracleChecks).toBeGreaterThan((to - from + 1) * 20);
+  }, 600_000);
+
+  for (const [from, to] of seedChunks(seeds)) it(`single user × seeds ${from}–${to} × ${steps} commands keeps W1 / W2 / A1 / A2 (O5(a) subset, O7); writes stay local; markers survive Backspace / Delete`, () => {
+    for (let seed = from; seed <= to; seed++) {
+      const r = rng(seed * 104729);
+      const f = fixture(1);
+      const model = new Model(f.doc);
+      const origin = createEditorOrigin();
+      for (let step = 0; step < steps; step++) {
+        try {
+          const before = model.version;
+          const c = randomCommand(r, before);
+          expectWritesLocal(c);
+          if (c.plan !== null) expect(applyPlan(model, c.plan, origin)).not.toBeNull();
+          if (c.keepsMarkers) expect(markerCount(model.version, before)).toBe(markerCount(before, model.version));
+          expectWellFormed(model.version, "single user");
+        } catch (e) {
+          throw new Error(`seed ${seed} step ${step}: ${e instanceof Error ? e.stack ?? e.message : String(e)}`);
+        }
+      }
+      expectSameVersion(model.version, deriveDocument(f.doc, BUILTIN_OBJECT_KINDS));
+      model.destroy();
+    }
+  }, 600_000);
+});
+
+

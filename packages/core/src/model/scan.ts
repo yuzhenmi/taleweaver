@@ -10,12 +10,17 @@
  *   - a `marker` with a non-string `ns` / `id` or an `edge` outside start|end, an
  *     embed whose `k` is unknown, and any non-map embed are INERT: they occupy their
  *     storage index but read as nothing;
- *   - a sub-flow is read in place (its pieces' content continues the run).
+ *   - a sub-flow is read in place (its pieces' content continues the run), down to
+ *     {@link SUBFLOW_DEPTH_CAP} (the write side's cap): a sub-flow item inside a piece
+ *     at that depth is INERT, so a peer's arbitrarily deep nesting bounds the read;
+ *   - a footnote anchor outside the main tree (in a footnote, header or footer body:
+ *     Word / GDocs allow footnotes only in the body) is INERT, so footnote bodies nest
+ *     at most one level.
  */
 import * as Y from "yjs";
 import type { EmbedItem, InlineItem, ReadonlyAttrs } from "./block";
 import { EMBED_TYPES, attrsEqual } from "./block";
-import { BODY_KEY, ITEM_KINDS, PIECES_KEY, childMap, itemId, kindOf, scalarsWithPrefix } from "./storage";
+import { BODY_KEY, ITEM_KINDS, PIECES_KEY, SUBFLOW_DEPTH_CAP, childMap, itemId, kindOf, scalarsWithPrefix } from "./storage";
 import { resolveObjectProps, type ObjectKindRegistry } from "./object-kinds";
 import { footnoteBodyId } from "./ids";
 
@@ -31,7 +36,14 @@ export interface RunToken {
   readonly len: number;
   readonly items: readonly InlineItem[];
   readonly footnotes: readonly FootnoteRef[];
+  /**
+   * Run-relative storage offsets (ascending) of the INERT units — storage that reads
+   * as nothing. Read offset ↔ storage index within the run skips exactly these.
+   */
+  readonly inert: readonly number[];
 }
+
+const NO_INERT: readonly number[] = Object.freeze([]);
 
 export type TerminatorKind = "para" | "toc" | "S";
 
@@ -53,6 +65,8 @@ export type Token = RunToken | TerminatorToken;
  */
 export interface Segment {
   readonly piece: Y.Text;
+  /** Sub-flow depth of the piece (0 = top level). */
+  readonly depth: number;
   /** Storage index of the segment's start in its piece. */
   readonly start: number;
   /** Storage index units the segment spans. */
@@ -63,35 +77,94 @@ export interface Segment {
 const isFiniteNonNegative = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
 const WRAPS: ReadonlySet<unknown> = new Set(["left", "right", "break"]);
 
-interface ScanState {
+/** What a flow's read depends on besides storage. */
+export interface ScanCtx {
   readonly registry: ObjectKindRegistry;
+  /** Footnote anchors are read (main tree only); otherwise they are inert. */
+  readonly footnotes: boolean;
+}
+
+interface ScanState {
+  readonly ctx: ScanCtx;
+  /** Sub-flow items are inert (the piece is at the depth cap). */
+  readonly inertSubs: boolean;
   readonly tokens: Token[];
   items: InlineItem[];
   footnotes: FootnoteRef[];
+  inert: number[];
   runLen: number;
   hasRun: boolean;
 }
 
 function flushRun(st: ScanState): void {
   if (!st.hasRun) return;
-  st.tokens.push({ k: "run", len: st.runLen, items: st.items, footnotes: st.footnotes });
+  st.tokens.push({ k: "run", len: st.runLen, items: st.items, footnotes: st.footnotes, inert: st.inert.length === 0 ? NO_INERT : st.inert });
   st.items = [];
   st.footnotes = [];
+  st.inert = [];
   st.runLen = 0;
   st.hasRun = false;
 }
 
 function pushItem(st: ScanState, item: InlineItem | null, len: number): void {
   st.hasRun = true;
+  if (item === null) for (let i = 0; i < len; i++) st.inert.push(st.runLen + i);
   st.runLen += len;
   if (item === null) return;
   const last = st.items[st.items.length - 1];
+  // The flag is read from the slice just taken (a Yjs string), never from the merged text.
+  const joins = item.kind === "text" && joinsForwardAtEnd(item.text);
   if (item.kind === "text" && last !== undefined && last.kind === "text" && attrsEqual(last.attrs, item.attrs)) {
-    st.items[st.items.length - 1] = { kind: "text", text: last.text + item.text, attrs: last.attrs };
+    const merged: InlineItem = { kind: "text", text: last.text + item.text, attrs: last.attrs };
+    st.items[st.items.length - 1] = merged;
+    if (joins) joinsForward.add(merged);
   } else {
     st.items.push(item);
+    if (joins) joinsForward.add(item);
   }
 }
+
+// ---------------------------------------------------------------------------
+// R15 at item edges: MAY a text item's last code point join a following simple code
+// unit (U+0020..U+02FF) into one cluster — a Prepend (GB9b) or a ZWJ before an
+// Extended_Pictographic such as © / ® (GB11)? Conservative: a true flag only routes the
+// boundary check to the exact (segmenting) path. Recorded when the scan builds the
+// item, from the slice of the Yjs string it takes — so a check reads a flag, not the
+// (rope) text.
+// ---------------------------------------------------------------------------
+
+const joinsForward = new WeakSet<InlineItem>();
+const mayJoinMemo = new Map<number, boolean>();
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+const isOneCluster = (s: string): boolean => {
+  let n = 0;
+  for (const _seg of graphemeSegmenter.segment(s)) n++;
+  return n === 1;
+};
+
+/** The code point may join a following simple code unit (per the engine's UAX #29). */
+function mayJoinSimple(cp: number): boolean {
+  let v = mayJoinMemo.get(cp);
+  if (v === undefined) {
+    const c = String.fromCodePoint(cp);
+    v = isOneCluster(`${c}a`) || isOneCluster(`\u{1F469}${c}\u00A9`);
+    mayJoinMemo.set(cp, v);
+  }
+  return v;
+}
+
+function joinsForwardAtEnd(text: string): boolean {
+  const n = text.length;
+  if (n === 0) return false;
+  const last = text.charCodeAt(n - 1);
+  if (last < 0x600) return false; // no Prepend or ZWJ below U+0600
+  const cp = last >= 0xdc00 && last <= 0xdfff && n >= 2 ? (text.codePointAt(n - 2) ?? last) : last;
+  return mayJoinSimple(cp);
+}
+
+/** Whether text item `item`'s last code point may join a following simple code unit (GB9b / GB11). */
+export const endsJoiningForward = (item: InlineItem): boolean => joinsForward.has(item);
 
 function objectEmbed(m: Y.Map<unknown>, attrs: ReadonlyAttrs, registry: ObjectKindRegistry): EmbedItem {
   const rawKind = m.get("kind");
@@ -121,12 +194,16 @@ function scanMap(st: ScanState, item: Y.Item, m: Y.Map<unknown>, attrs: () => Re
       return true;
     }
     case ITEM_KINDS.object:
-      pushItem(st, objectEmbed(m, attrs(), st.registry), 1);
+      pushItem(st, objectEmbed(m, attrs(), st.ctx.registry), 1);
       return true;
     case ITEM_KINDS.hr:
       pushItem(st, { kind: "embed", embedType: EMBED_TYPES.horizontalLine, attrs: attrs(), properties: {} }, 1);
       return true;
     case ITEM_KINDS.footnote: {
+      if (!st.ctx.footnotes) {
+        pushItem(st, null, 1);
+        return true;
+      }
       const id = itemId(item);
       st.footnotes.push({ id, body: childMap(m, BODY_KEY) });
       pushItem(
@@ -145,7 +222,9 @@ function scanMap(st: ScanState, item: Y.Item, m: Y.Map<unknown>, attrs: () => Re
       return true;
     }
     case ITEM_KINDS.sub:
-      return false;
+      if (!st.inertSubs) return false;
+      pushItem(st, null, 1);
+      return true;
     default:
       pushItem(st, null, 1);
       return true;
@@ -187,13 +266,13 @@ function scanInto(st: ScanState, piece: Y.Text, from: number, to: number): boole
   return true;
 }
 
-function newState(registry: ObjectKindRegistry): ScanState {
-  return { registry, tokens: [], items: [], footnotes: [], runLen: 0, hasRun: false };
+function newState(ctx: ScanCtx, inertSubs: boolean): ScanState {
+  return { ctx, inertSubs, tokens: [], items: [], footnotes: [], inert: [], runLen: 0, hasRun: false };
 }
 
-/** Tokens of `[from, to)` of `piece`, or null when the range holds a sub-flow item. */
-export function scanRange(piece: Y.Text, from: number, to: number, registry: ObjectKindRegistry): Token[] | null {
-  const st = newState(registry);
+/** Tokens of `[from, to)` of `piece` at sub-flow `depth`, or null when the range holds a read sub-flow item. */
+export function scanRange(piece: Y.Text, from: number, to: number, ctx: ScanCtx, depth: number): Token[] | null {
+  const st = newState(ctx, depth >= SUBFLOW_DEPTH_CAP);
   if (!scanInto(st, piece, from, to)) return null;
   flushRun(st);
   return st.tokens;
@@ -220,15 +299,18 @@ function subflowItems(piece: Y.Text): { index: number; map: Y.Map<unknown> }[] {
   return out;
 }
 
-/** A piece's segments in reading order, its sub-flows' pieces (recursively) between them. */
-export function flattenPiece(piece: Y.Text, registry: ObjectKindRegistry, out: Segment[] = []): Segment[] {
+/**
+ * A piece's segments in reading order, its sub-flows' pieces (recursively, at most
+ * {@link SUBFLOW_DEPTH_CAP} levels) between them. `depth`: the piece's sub-flow depth.
+ */
+export function flattenPiece(piece: Y.Text, ctx: ScanCtx, out: Segment[] = [], depth = 0): Segment[] {
   let start = 0;
   const seg = (end: number): void => {
-    out.push({ piece, start, len: end - start, tokens: scanRange(piece, start, end, registry) ?? [] });
+    out.push({ piece, depth, start, len: end - start, tokens: scanRange(piece, start, end, ctx, depth) ?? [] });
   };
-  for (const sub of subflowItems(piece)) {
+  for (const sub of depth >= SUBFLOW_DEPTH_CAP ? [] : subflowItems(piece)) {
     seg(sub.index);
-    for (const p of subflowPieces(sub.map)) flattenPiece(p, registry, out);
+    for (const p of subflowPieces(sub.map)) flattenPiece(p, ctx, out, depth + 1);
     start = sub.index + 1;
   }
   seg(piece.length);

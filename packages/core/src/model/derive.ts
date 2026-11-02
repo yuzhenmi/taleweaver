@@ -33,7 +33,7 @@ import * as Y from "yjs";
 import type { Block, BlockId, InlineItem, ReadonlyAttrs } from "./block";
 import { BLOCK_TYPES, EMBED_TYPES, attrsEqual } from "./block";
 import { PMap } from "./pmap";
-import { flattenPiece, type FootnoteRef, type Segment, type Token } from "./scan";
+import { flattenPiece, type FootnoteRef, type ScanCtx, type Segment, type Token } from "./scan";
 import { BODIES_KEY, LIST_DEFS_KEY, childMap, flowOf, getDocMap, scalarsWithPrefix, typeId } from "./storage";
 import { debrisBeforeId, finalSectionId, flowEndId, footnoteBodyId, sectionIdOf, templateBodyId } from "./ids";
 import type { ObjectKindRegistry } from "./object-kinds";
@@ -122,27 +122,34 @@ function appendItems(dst: InlineItem[], src: readonly InlineItem[]): void {
   }
 }
 
-/** R1 / R2: group a token sequence into entities. `atEnd`: the sequence ends at `<end>`. */
-export function group(tokens: Iterable<Token>, atEnd: boolean, holderId: BlockId): Entity[] {
+/**
+ * R1 / R2: group a token sequence into entities. `atEnd`: the sequence ends at
+ * `<end>`. `withItems` false: the entities' kinds, ids and footnotes only (their
+ * `items` stay empty) — what an incremental update needs of the OLD region.
+ */
+export function group(tokens: Iterable<Token>, atEnd: boolean, holderId: BlockId, withItems = true): Entity[] {
   const out: Entity[] = [];
   let items: InlineItem[] = [];
   let footnotes: FootnoteRef[] = [];
+  let content = false;
   for (const t of tokens) {
     if (t.k === "run") {
-      appendItems(items, t.items);
+      if (t.items.length > 0) content = true;
+      if (withItems) appendItems(items, t.items);
       if (t.footnotes.length > 0) footnotes = footnotes.concat(t.footnotes);
       continue;
     }
     if (t.k === "para") {
       out.push({ k: "para", id: t.id, map: t.map, items, footnotes });
     } else {
-      if (items.length > 0) out.push({ k: "para", id: debrisBeforeId(t.id), map: null, items, footnotes });
+      if (content) out.push({ k: "para", id: debrisBeforeId(t.id), map: null, items, footnotes });
       out.push(t.k === "toc" ? { k: "toc", id: t.id, map: t.map } : { k: "S", id: t.id, map: t.map });
     }
     items = [];
     footnotes = [];
+    content = false;
   }
-  if (atEnd && items.length > 0) out.push({ k: "para", id: flowEndId(holderId), map: null, items, footnotes });
+  if (atEnd && content) out.push({ k: "para", id: flowEndId(holderId), map: null, items, footnotes });
   return out;
 }
 
@@ -168,7 +175,7 @@ export function* flatten(segments: readonly Segment[]): Generator<Token> {
  * Block types a `p:type` can never name: they belong to containers / block objects,
  * so a ¶ carrying one reads as a plain paragraph.
  */
-const RESERVED_TYPES: ReadonlySet<string> = new Set([
+export const RESERVED_TYPES: ReadonlySet<string> = new Set([
   BLOCK_TYPES.document,
   BLOCK_TYPES.section,
   BLOCK_TYPES.tableOfContents,
@@ -239,6 +246,7 @@ function containerRecord(id: BlockId, type: string, attrs: ReadonlyAttrs, links:
 }
 
 function itemEqual(a: InlineItem, b: InlineItem): boolean {
+  if (a === b) return true; // unchanged runs share their item objects
   if (a.kind === "text") return b.kind === "text" && a.text === b.text && attrsEqual(a.attrs, b.attrs);
   return b.kind === "embed" && a.embedType === b.embedType && attrsEqual(a.attrs, b.attrs) && attrsEqual(a.properties, b.properties);
 }
@@ -386,10 +394,16 @@ export function writeSegment(w: Working, tree: TreeKind, seg: readonly BlockEnti
 
 const isBlockEntity = (e: Entity): e is BlockEntity => e.k !== "S";
 
+/** The scan context of a flow in `tree`: footnote anchors are read only in the main tree. */
+export function scanCtxOf(w: Working, tree: TreeKind): ScanCtx {
+  return { registry: w.registry, footnotes: tree === "block" };
+}
+
 /** Derive one flow from scratch (and, recursively, the footnote bodies its paragraphs anchor). */
 export function deriveFlow(w: Working, holderId: BlockId, tree: TreeKind, array: Y.Array<Y.Text> | null, isRoot: boolean): void {
   const flowSegments: Segment[] = [];
-  for (const p of piecesOf(array)) flattenPiece(p, w.registry, flowSegments);
+  const ctx = scanCtxOf(w, tree);
+  for (const p of piecesOf(array)) flattenPiece(p, ctx, flowSegments);
   let ents = group(flatten(flowSegments), true, holderId);
   if (!isRoot) ents = ents.filter(isBlockEntity);
   const synthetic = !ents.some(isBlockEntity);
