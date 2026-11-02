@@ -181,6 +181,32 @@ function objectEmbed(m: Y.Map<unknown>, attrs: ReadonlyAttrs, registry: ObjectKi
   return { kind: "embed", embedType: EMBED_TYPES.object, attrs, properties };
 }
 
+/** A marker's `ns` / `id` / `edge`; null when it is INERT. */
+function markerProps(m: Y.Map<unknown>): { ns: string; id: string; edge: "start" | "end" } | null {
+  const ns = m.get("ns");
+  const id = m.get("id");
+  const edge = m.get("edge");
+  return typeof ns === "string" && typeof id === "string" && (edge === "start" || edge === "end") ? { ns, id, edge } : null;
+}
+
+/**
+ * Whether a live embedded map that is not a terminator or a sub-flow reads as content
+ * (what {@link scanMap} gives an item), not INERT. `footnotes`: the flow reads anchors.
+ */
+export function readsAsContent(m: Y.Map<unknown>, footnotes: boolean): boolean {
+  switch (kindOf(m)) {
+    case ITEM_KINDS.object:
+    case ITEM_KINDS.hr:
+      return true;
+    case ITEM_KINDS.footnote:
+      return footnotes;
+    case ITEM_KINDS.marker:
+      return markerProps(m) !== null;
+    default:
+      return false;
+  }
+}
+
 /** Handle one embedded map. Returns false when the scan must abort (a sub-flow in a no-sub scan). */
 function scanMap(st: ScanState, item: Y.Item, m: Y.Map<unknown>, attrs: () => ReadonlyAttrs): boolean {
   const k = kindOf(m);
@@ -193,6 +219,17 @@ function scanMap(st: ScanState, item: Y.Item, m: Y.Map<unknown>, attrs: () => Re
       st.tokens.push({ k: kind, len: 1, id: itemId(item), map: m });
       return true;
     }
+    case ITEM_KINDS.sub:
+      if (!st.inertSubs) return false;
+      pushItem(st, null, 1);
+      return true;
+  }
+  // The INERT decision is {@link readsAsContent}'s alone (the oracle's storage walk shares it).
+  if (!readsAsContent(m, st.ctx.footnotes)) {
+    pushItem(st, null, 1);
+    return true;
+  }
+  switch (k) {
     case ITEM_KINDS.object:
       pushItem(st, objectEmbed(m, attrs(), st.ctx.registry), 1);
       return true;
@@ -200,10 +237,6 @@ function scanMap(st: ScanState, item: Y.Item, m: Y.Map<unknown>, attrs: () => Re
       pushItem(st, { kind: "embed", embedType: EMBED_TYPES.horizontalLine, attrs: attrs(), properties: {} }, 1);
       return true;
     case ITEM_KINDS.footnote: {
-      if (!st.ctx.footnotes) {
-        pushItem(st, null, 1);
-        return true;
-      }
       const id = itemId(item);
       st.footnotes.push({ id, body: childMap(m, BODY_KEY) });
       pushItem(
@@ -214,21 +247,15 @@ function scanMap(st: ScanState, item: Y.Item, m: Y.Map<unknown>, attrs: () => Re
       return true;
     }
     case ITEM_KINDS.marker: {
-      const ns = m.get("ns");
-      const id = m.get("id");
-      const edge = m.get("edge");
-      const valid = typeof ns === "string" && typeof id === "string" && (edge === "start" || edge === "end");
-      pushItem(st, valid ? { kind: "embed", embedType: EMBED_TYPES.marker, attrs: attrs(), properties: { ns, id, edge } } : null, 1);
+      // readsAsContent checked the props; the null test only narrows the type.
+      const props = markerProps(m);
+      if (props === null) break;
+      pushItem(st, { kind: "embed", embedType: EMBED_TYPES.marker, attrs: attrs(), properties: props }, 1);
       return true;
     }
-    case ITEM_KINDS.sub:
-      if (!st.inertSubs) return false;
-      pushItem(st, null, 1);
-      return true;
-    default:
-      pushItem(st, null, 1);
-      return true;
   }
+  pushItem(st, null, 1);
+  return true;
 }
 
 /** Scan `[from, to)` of `piece` (storage index units) into `st`. False = aborted on a sub-flow. */

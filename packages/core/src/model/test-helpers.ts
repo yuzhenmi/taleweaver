@@ -3,7 +3,7 @@ import * as Y from "yjs";
 import { expect } from "vitest";
 import type { Block } from "./block";
 import type { Document, TreeKind } from "./derive";
-import { PIECE_SOFT_MAX, createDocMap, flowOf, newFootnote, newParagraphMark, newSectionBreak, pieceStructCount, typeId } from "./storage";
+import { PIECE_SOFT_MAX, createDocMap, flowOf, getDocMap, newFootnote, newParagraphMark, newSectionBreak, pieceStructCount, typeId } from "./storage";
 
 export interface Fixture {
   readonly doc: Y.Doc;
@@ -14,10 +14,12 @@ export interface Fixture {
   readonly rootId: string;
 }
 
-export function fixture(clientID = 1): Fixture {
-  const doc = new Y.Doc();
+export function fixture(clientID = 1, from?: Y.Doc, gc = true): Fixture {
+  const doc = new Y.Doc({ gc });
   doc.clientID = clientID;
-  const docMap = createDocMap(doc);
+  if (from !== undefined) Y.applyUpdate(doc, Y.encodeStateAsUpdate(from));
+  const docMap = from === undefined ? createDocMap(doc) : getDocMap(doc);
+  if (docMap === null) throw new Error("fixture: no root");
   const flow = flowOf(docMap);
   const piece = flow?.get(0);
   const rootId = typeId(docMap);
@@ -93,7 +95,7 @@ export function textOf(b: Block | undefined): string {
   return (b?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "￼")).join("");
 }
 
-const PARAS_PER_PAGE = 45;
+export const PARAS_PER_PAGE = 45;
 const TEXT = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor in";
 
 /**

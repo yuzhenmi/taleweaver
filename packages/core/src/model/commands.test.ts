@@ -1,11 +1,12 @@
 /**
  * Scenario tests: one per command (r7 §5), single-user behaviour + the resulting version
- * (the harness also checks incremental == scratch after every command).
+ * (the harness also checks incremental == scratch after every command); then the
+ * concurrent proof scripts that never undo.
  */
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { caretAt } from "./position";
-import { Harness, typeLines } from "./command-test-helpers";
+import { Harness, pair, sync, typeLines } from "./command-test-helpers";
 import {
   deleteBackward,
   deleteForward,
@@ -718,5 +719,140 @@ describe("write boundaries and R17 holders", () => {
     const pasted = flowPieces(bodies[0]?.[1]);
     expect(pasted.length).toBeGreaterThan(1);
     for (const p of pasted) expect(pieceStructCount(p)).toBeLessThanOrEqual(PIECE_SOFT_MAX);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Concurrent proof scripts (r5 v1 / v3, r6 d1) and oracle-minimised cases, ported: two
+// peers, no undo. A block object is a TOC here (tables are P2).
+// ---------------------------------------------------------------------------
+
+describe("proof scripts: r5 v1 (non-table)", () => {
+  it("#11 (Q5) join ∥ split puts the attrs on the wrong paragraph", () => {
+    const [a, b] = pair("x\nyz");
+    a.caret(0, 0);
+    a.run(setParagraphAttrs, { type: "heading" });
+    a.caret(1, 0);
+    a.run(setParagraphAttrs, { type: "title" });
+    sync(a, b);
+    a.caret(1, 0);
+    a.run(deleteBackward);
+    b.caret(1, 1);
+    b.run(splitParagraph);
+    sync(a, b);
+    // A's join writes x's heading onto z's ¶; B's new ¶ (a copy of y's title) now ends xy.
+    expect(a.dump()).toEqual(["title:xy", "heading:z"]);
+    expect(b.dump()).toEqual(a.dump());
+  });
+});
+
+describe("proof scripts: r5 v3", () => {
+  it("B9: a block object inserted at the same k by both peers reads as the sequential result", () => {
+    const [a, b] = pair("x1x2");
+    for (const h of [a, b]) {
+      h.caret(0, 2);
+      h.run(insertTableOfContents);
+    }
+    sync(a, b);
+    expect(a.dump()).toEqual(["paragraph:x1", "toc", "paragraph:", "toc", "paragraph:x2"]);
+    expect(b.dump()).toEqual(a.dump());
+  });
+});
+
+describe("proof scripts: r6 d1 (a TOC as the block object)", () => {
+  /** x¶(heading) y¶ on two peers. */
+  function seed(ids: [number, number] = [1, 2]): [Harness, Harness] {
+    const [a, b] = pair("x\ny", ids);
+    a.caret(0, 0);
+    a.run(setParagraphAttrs, { type: "heading" });
+    sync(a, b);
+    a.caret(1, 0);
+    b.caret(1, 0);
+    return [a, b];
+  }
+
+  it("#1 join ∥ an inline image at the start of y → one ordinary paragraph", () => {
+    const [a, b] = seed();
+    a.run(deleteBackward);
+    b.run(insertObject, "image", { props: { src: "a.png" } });
+    sync(a, b);
+    expect(a.dump()).toEqual(["heading:x[img]y"]);
+    expect(b.dump()).toEqual(a.dump());
+  });
+
+  it("#2 (Q2) join ∥ a block object at the start of y → x is debris (default style)", () => {
+    const [a, b] = seed();
+    a.run(deleteBackward);
+    b.run(insertTableOfContents);
+    sync(a, b);
+    expect(a.dump()).toEqual(["paragraph:x", "toc", "heading:y"]);
+    expect(b.dump()).toEqual(a.dump());
+  });
+
+  it("#3 (Q3, B8) [T] ¶a y¶: delete the empty ¶a ∥ insert U at the start of y → [T][U] y¶", () => {
+    const [a, b] = pair("");
+    a.run(insertTableOfContents);
+    a.caret(1, 0);
+    a.run(splitParagraph);
+    a.run(insertText, "y");
+    sync(a, b);
+    expect(a.dump()).toEqual(["toc", "paragraph:", "paragraph:y"]);
+    a.caret(1, 0);
+    a.run(deleteForward);
+    b.caret(2, 0);
+    b.run(insertTableOfContents);
+    sync(a, b);
+    expect(a.dump()).toEqual(["toc", "toc", "paragraph:y"]);
+    expect(b.dump()).toEqual(a.dump());
+  });
+
+  it("#4 delete an inline image ∥ set its wrap → deleted", () => {
+    const [a, b] = pair("ab");
+    a.caret(0, 1);
+    a.run(insertObject, "image", { props: { src: "a.png" } });
+    sync(a, b);
+    a.caret(0, 2);
+    a.run(deleteBackward);
+    b.run(setObjectProps, b.at(0, 1), { wrap: "right" });
+    sync(a, b);
+    expect(a.dump()).toEqual(["paragraph:ab"]);
+    expect(b.dump()).toEqual(a.dump());
+  });
+
+  it("#5 (B11) typing at the start of the final paragraph after a block object ∥ a block object there: the final ¶ stays last, both client orders", () => {
+    for (const ids of [[1, 2], [2, 1]] satisfies [number, number][]) {
+      const [a, b] = pair("", ids);
+      a.run(insertTableOfContents);
+      sync(a, b);
+      a.caret(1, 0);
+      a.run(insertText, "A");
+      b.caret(1, 0);
+      b.run(insertTableOfContents);
+      sync(a, b);
+      expect(a.dump()).toEqual(ids[0] === 1 ? ["toc", "paragraph:A", "toc", "paragraph:"] : ["toc", "paragraph:", "toc", "paragraph:A"]);
+      expect(b.dump()).toEqual(a.dump());
+    }
+  });
+});
+
+describe("oracle minimized cases", () => {
+  // K7 (oracle seeds 1 / 25 / 91): a join deleting the ¶ before a paragraph while the same peer
+  // pastes [S] at its start (k = 0, right after that ¶) ∥ a peer's C15 there. Q-adj, accepted
+  // 2026-11-02: the converged state has adjacent structure the read rules read validly.
+  it("join + paste of [S] at a paragraph start ∥ C15 at that paragraph converge, both client orders", () => {
+    for (const ids of [[1, 2], [2, 1]] satisfies [number, number][]) {
+      const [a, b] = pair("x\n\n", ids);
+      a.caret(1, 0);
+      a.run(deleteForward);
+      a.caret(1, 0);
+      a.run(paste, [{ k: "S" }, { k: "para" }]);
+      b.caret(1, 0);
+      b.run(insertSectionBreak);
+      sync(a, b);
+      const fs = a.version.flows.get(a.version.rootId);
+      expect(fs?.segments.flatMap((s) => s.tokens.map((t) => t.k)).join(" ")).toBe("run para para S S para para");
+      expect(a.dump()).toEqual(["paragraph:x", "paragraph:", "|", "|", "paragraph:", "paragraph:"]);
+      expect(b.dump()).toEqual(a.dump());
+    }
   });
 });

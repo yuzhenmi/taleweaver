@@ -38,36 +38,10 @@ import {
   flowContainerDeleteFilter,
 } from "./storage";
 import { childrenOf, expectSameVersion, fixture, idOf, mapAt, textOf } from "./test-helpers";
-import { applyPlan, type Plan } from "./plan";
+import { applyPlan } from "./plan";
 import { type ModelPosition, paragraphLayout, positionAtPoint } from "./position";
 import { mapPosition } from "./mapping";
-import { markerRanges } from "./document";
-import { type CommandContext, type CommandOptions, deleteBackward, deleteForward, deleteSelection, insertText, setMarks, setParagraphAttrs, splitParagraph } from "./commands";
-import {
-  type FragmentItem,
-  deleteBlockObject,
-  insertFootnote,
-  insertHeaderFooter,
-  insertHorizontalRule,
-  insertMarker,
-  insertObject,
-  insertSectionBreak,
-  insertTableOfContents,
-  paste,
-  removeHeaderFooter,
-  removeMarker,
-  setObjectProps,
-} from "./commands-insert";
-
-function rng(seed: number): () => number {
-  let s = seed >>> 0 || 1;
-  return () => {
-    s ^= s << 13;
-    s ^= s >>> 17;
-    s ^= s << 5;
-    return (s >>> 0) / 0x100000000;
-  };
-}
+import { type RandomCommand, envNumber, lengthOf, paragraphIds, pick, randomCommand, rng, seedChunks, wellFormed } from "./oracle/generate";
 
 /** Every live piece (top-level and sub-flow) of every flow, plus the flow arrays. */
 function storageOf(docMap: Y.Map<unknown>): { pieces: Y.Text[]; flows: Y.Array<Y.Text>[]; subArrays: Y.Array<Y.Text>[]; maps: Y.Map<unknown>[] } {
@@ -101,10 +75,6 @@ function storageOf(docMap: Y.Map<unknown>): { pieces: Y.Text[]; flows: Y.Array<Y
     if (bf !== null) visitArray(bf, true);
   });
   return { pieces, flows, subArrays, maps };
-}
-
-function pick<T>(r: () => number, xs: readonly T[]): T | undefined {
-  return xs[Math.floor(r() * xs.length)];
 }
 
 const P_KEYS = ["p:type", "p:align", "m:bold", "t:ins"];
@@ -256,24 +226,9 @@ function randomWrite(r: () => number, doc: Y.Doc): void {
   }
 }
 
-/** A numeric env var (Node), or `fallback`. */
-function envNumber(name: string, fallback: number): number {
-  const proc: unknown = Reflect.get(globalThis, "process");
-  const env: unknown = typeof proc === "object" && proc !== null ? Reflect.get(proc, "env") : undefined;
-  const v: unknown = typeof env === "object" && env !== null ? Reflect.get(env, name) : undefined;
-  return typeof v === "string" && v !== "" ? Number(v) : fallback;
-}
-
 // Yield a macrotask between tests: the long synchronous seed chunks otherwise starve the worker's
 // RPC replies, and vitest reports a "Timeout calling onTaskUpdate" after 60 s of file time.
 beforeEach(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
-
-/** [from, to] seed ranges of at most 250 seeds. */
-function seedChunks(seeds: number): [number, number][] {
-  const out: [number, number][] = [];
-  for (let from = 1; from <= seeds; from += 250) out.push([from, Math.min(seeds, from + 249)]);
-  return out;
-}
 
 /** Ids whose record identity differs between two versions (added, replaced or removed), all trees. */
 function changedIds(a: Document, b: Document): string[] {
@@ -497,7 +452,7 @@ describe("O4: incremental == from scratch", () => {
     // Exactly one footnote body: the anchor inside it is inert.
     expect([...scratch.flows.entries()].filter(([, fs]) => fs.tree === "embedContent")).toHaveLength(1);
     model.destroy();
-  });
+  }, 30_000); // ~5 s: Yjs is O(depth²) building the chain
 
   it("emits nothing for a comments-only transaction; a footnote anchor's key change is not a full re-derive", () => {
     const f = fixture();
@@ -551,92 +506,6 @@ describe("O4: incremental == from scratch", () => {
 // Apply never throws, incremental == scratch, peers converge; single-user runs keep
 // W1 / W2 / A1 / A2.
 // ---------------------------------------------------------------------------
-
-/** Every paragraph id of a version (all trees), sorted. */
-function paragraphIds(d: Document): string[] {
-  const out: string[] = [];
-  for (const tree of ["block", "embedContent", "templateContent"] satisfies TreeKind[]) {
-    for (const [id, b] of d.trees[tree].entries()) if (b.inlineContent !== null) out.push(id);
-  }
-  return out.sort();
-}
-
-function lengthOf(d: Document, id: string): number {
-  let n = 0;
-  for (const i of d.trees.block.get(id)?.inlineContent?.items ?? d.trees.embedContent.get(id)?.inlineContent?.items ?? d.trees.templateContent.get(id)?.inlineContent?.items ?? []) n += i.kind === "text" ? i.text.length : 1;
-  return n;
-}
-
-let markerSeq = 0;
-
-/** Command options the property runs use: atomic `field`, non-inclusive `link`, next styles, one-shot attrs. */
-const OPTIONS: CommandOptions = {
-  isAtomicMark: (k) => k === "field",
-  isInclusiveMark: (k) => k !== "link",
-  nextStyle: (t) => (t === "heading" ? "paragraph" : t === "title" ? "subtitle" : undefined),
-  oneShotAttrs: new Set(["listCounterOverride"]),
-};
-
-interface RandomCommand {
-  readonly plan: Plan | null;
-  readonly ctx: CommandContext;
-  /** Writes may land anywhere (not only around the selection). */
-  readonly anywhere: boolean;
-  /** A collapsed Backspace / Delete: never deletes a marker. */
-  readonly keepsMarkers: boolean;
-  readonly roll: number;
-}
-
-/** A random valid command on `d`. Throws only on a bug (O2: Plans are total). */
-function randomCommand(r: () => number, d: Document): RandomCommand {
-  const ids = paragraphIds(d);
-  const pos = (near0 = false): ModelPosition => {
-    const id = pick(r, ids) ?? d.rootId;
-    const len = lengthOf(d, id);
-    return { blockId: id, offset: near0 && r() < 0.5 ? Math.min(len, Math.floor(r() * 3)) : Math.floor(r() * (len + 1)) };
-  };
-  const roll = r();
-  // Backspace / Delete / marker inserts often sit at a paragraph start (markers next to joins).
-  const anchor = pos(roll >= 0.37 && roll < 0.55);
-  const focus = r() < 0.6 ? anchor : r() < 0.7 ? { blockId: anchor.blockId, offset: Math.floor(r() * (lengthOf(d, anchor.blockId) + 1)) } : pos();
-  const ctx: CommandContext = { version: d, selection: { anchor, focus }, options: OPTIONS };
-  const out = (plan: Plan | null, anywhere = false, keepsMarkers = false): RandomCommand => ({ plan, ctx, anywhere, keepsMarkers: keepsMarkers && anchor === focus, roll });
-  if (roll < 0.25) {
-    const attrs = r() < 0.75 ? undefined : (pick(r, [{ bold: true }, { link: "u" }, { field: "f" }, { link: "u", bold: true }, {}]) ?? {});
-    return out(insertText(ctx, pick(r, ["a", "bc", "é", "e\u0301", "😀", " "]) ?? "a", attrs));
-  }
-  if (roll < 0.37) return out(splitParagraph(ctx));
-  if (roll < 0.47) return out(deleteBackward(ctx), false, true);
-  if (roll < 0.55) return out(deleteForward(ctx), false, true);
-  if (roll < 0.58) return out(deleteSelection(ctx));
-  if (roll < 0.61) return out(setMarks(ctx, { [pick(r, ["bold", "italic", "link"]) ?? "bold"]: r() < 0.6 ? (pick(r, [true, "u"]) ?? true) : null }));
-  if (roll < 0.65) return out(setParagraphAttrs(ctx, { type: pick(r, ["heading", "title", "paragraph", "list-item", null]) ?? null, align: r() < 0.3 ? "center" : undefined, listCounterOverride: r() < 0.2 ? 3 : undefined }));
-  if (roll < 0.68) return out(insertObject(ctx, "image", { props: { src: "a.png" } }));
-  if (roll < 0.7) return out(setObjectProps(ctx, focus, { wrap: pick(r, ["left", "right", "break", null]) ?? null }));
-  if (roll < 0.73) return out(insertHorizontalRule(ctx));
-  if (roll < 0.76) return out(insertTableOfContents(ctx));
-  if (roll < 0.77) {
-    const toc = [...d.trees.block.entries()].find(([, b]) => b.type === "table-of-contents");
-    return out(toc === undefined ? null : deleteBlockObject(ctx, toc[0]), true);
-  }
-  if (roll < 0.8) return out(insertSectionBreak(ctx));
-  if (roll < 0.83) return out(insertFootnote(ctx));
-  if (roll < 0.86) {
-    const keys = [...markerRanges(d).values()];
-    const k = pick(r, keys);
-    return r() < 0.5 || k === undefined ? out(insertMarker(ctx, "m", `${markerSeq++}`)) : out(removeMarker(ctx, k.ns, k.id), true);
-  }
-  if (roll < 0.9) return out(r() < 0.7 ? insertHeaderFooter(ctx, pick(r, ["header", "footer"]) ?? "header") : removeHeaderFooter(ctx, "header"));
-  const frag: FragmentItem[][] = [
-    [{ k: "text", text: "pp" }],
-    [{ k: "text", text: "p1" }, { k: "para", keys: { "p:type": "heading" } }, { k: "text", text: "p2" }],
-    [{ k: "toc" }, { k: "para" }, { k: "text", text: "t" }],
-    [{ k: "para" }, { k: "S", keys: { "s:columnCount": 2 } }, { k: "text", text: "s" }],
-    [{ k: "S" }, { k: "hr" }, { k: "para" }],
-    [{ k: "footnote", body: [{ k: "text", text: "n" }, { k: "para" }, { k: "text", text: "m" }] }, { k: "object", kind: "image", props: { props: { src: "b.png" }, wrap: "left" } }],
-  ];
-  return out(paste(ctx, pick(r, frag) ?? []));
-}
 
 /** The marker embeds of a version, all trees — footnote bodies only when `other` has them too (deleting a footnote deletes its body's markers). */
 function markerCount(d: Document, other: Document): number {
@@ -849,25 +718,10 @@ function expectWritesLocal(cmd: RandomCommand): void {
   }
 }
 
-/** O5(a) subset / O7 on one flow's storage: no debris, nothing but a ¶ after a TOC, a ¶ before every [S], the flow ends in a ¶. */
+/** {@link wellFormed} on every flow of `d`. */
 function expectWellFormed(d: Document, where: string): void {
   for (const [holderId, fs] of d.flows.entries()) {
-    const seq: string[] = [];
-    for (const seg of fs.segments) for (const t of seg.tokens) if (t.k !== "run" || t.len > t.inert.length) seq.push(t.k);
-    const s = seq.join(" ");
-    const bad = (why: string): never => {
-      throw new Error(`${where}: flow ${holderId} ${why}: ${s}`);
-    };
-    if (fs.synthetic) bad("is synthetic (R17)");
-    if (seq.length > 0 && seq[seq.length - 1] !== "para") bad("does not end in a ¶ (A1)");
-    seq.forEach((k, i) => {
-      const prev = seq[i - 1];
-      if (k === "toc" || k === "S") {
-        if (prev === "run") bad("has debris (R2)");
-        if (k === "S" && prev !== "para") bad("has an [S] without a ¶ before it (A2)");
-      }
-      if (prev === "toc" && k !== "para" && k !== "run") bad("has a block object not followed by a paragraph (W2)");
-    });
+    if (!wellFormed(fs)) throw new Error(`${where}: flow ${holderId} breaks R17 / R2 / A1 / A2 / W2: ${fs.segments.flatMap((seg) => seg.tokens.map((t) => t.k)).join(" ")}`);
   }
 }
 
@@ -972,5 +826,3 @@ describe("commands (M2)", () => {
     }
   }, 600_000);
 });
-
-
