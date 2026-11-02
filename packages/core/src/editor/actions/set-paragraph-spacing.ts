@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../state";
 import type { Document, BlockId } from "../../state";
@@ -47,7 +47,7 @@ import type { ActionOf } from "../editor-action";
  * caret move.
  */
 export function handleSetParagraphSpacing(
-  editor: EditorState,
+  editor: Editor,
   { edge, value }: ActionOf<"SET_PARAGRAPH_SPACING">,
 ): Edit | null {
   const attrKey = edge === "before" ? "marginBlockStart" : "marginBlockEnd";
@@ -90,7 +90,7 @@ export function handleSetParagraphSpacing(
  * lists, the document root — have `inlineContent === null`). Spacing a
  * container is nonsensical: it owns no text. Mirrors `handleSetLineSpacing`.
  */
-function targetLeafBlockIds(editor: EditorState): BlockId[] {
+function targetLeafBlockIds(editor: Editor): BlockId[] {
   const { document, selection } = editor;
 
   if (positionsEqual(selection.anchor, selection.focus)) {

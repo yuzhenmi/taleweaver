@@ -1,8 +1,7 @@
 import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
-  createInitialEditorState,
-  reduceEditor,
+  createEditor,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   getBlock,
@@ -21,7 +20,7 @@ function makeConfig(): EditorConfig {
 }
 
 /** First text item from the doc's first (and only) paragraph. */
-function firstTextItem(editor: ReturnType<typeof createInitialEditorState>): TextItem | null {
+function firstTextItem(editor: ReturnType<typeof createEditor>): TextItem | null {
   const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
   if (root === null) return null;
   const pId = root.firstChildId;
@@ -34,41 +33,40 @@ function firstTextItem(editor: ReturnType<typeof createInitialEditorState>): Tex
 }
 
 function selectAll(
-  editor: ReturnType<typeof createInitialEditorState>,
+  editor: ReturnType<typeof createEditor>,
   length: number,
-): ReturnType<typeof createInitialEditorState> {
+): ReturnType<typeof createEditor> {
   const pId = (() => {
     const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
     if (root === null || root.firstChildId === null) throw new Error("no para");
     return root.firstChildId;
   })();
-  return reduceEditor(
-    editor,
-    {
+  editor.dispatch({
       type: "SET_SELECTION",
       selection: createSpan(createPosition(pId, 0), createPosition(pId, length)),
-    },
-  );
+    });
+    return editor;
 }
 
 describe("handleSetFontSize", () => {
   it("no-op on collapsed selection (no font size can target a single cursor)", () => {
     const config = makeConfig();
-    const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello" });
-    const before = editor;
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "hello" });
+    let editor = initial;
+    const before = editor.snapshot();
     // Collapsed at end.
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 });
+    editor.dispatch({ type: "SET_FONT_SIZE", size: 32 });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(editor.document).toBe(before.document);
   });
 
   it("sets fontSize attr on every text item in the selection", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "size me" });
     editor = selectAll(editor, 7);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 });
+    editor.dispatch({ type: "SET_FONT_SIZE", size: 32 });
 
     const item = firstTextItem(editor);
     expect(item).not.toBeNull();
@@ -79,49 +77,49 @@ describe("handleSetFontSize", () => {
 
   it("clears fontSize attr when given null (size removed → inherit default)", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "size me" });
     editor = selectAll(editor, 7);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 });
+    editor.dispatch({ type: "SET_FONT_SIZE", size: 32 });
     expect(firstTextItem(editor)?.attrs.fontSize).toBe(32);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: null });
+    editor.dispatch({ type: "SET_FONT_SIZE", size: null });
     expect(firstTextItem(editor)?.attrs.fontSize).toBeUndefined();
   });
 
   it("clears fontSize attr when given 0 (non-positive isn't a meaningful size)", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "size me" });
     editor = selectAll(editor, 7);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 });
+    editor.dispatch({ type: "SET_FONT_SIZE", size: 32 });
     expect(firstTextItem(editor)?.attrs.fontSize).toBe(32);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 0 });
+    editor.dispatch({ type: "SET_FONT_SIZE", size: 0 });
     expect(firstTextItem(editor)?.attrs.fontSize).toBeUndefined();
   });
 
   it("clears fontSize attr when given a negative size (non-positive isn't meaningful)", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "size me" });
     editor = selectAll(editor, 7);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 });
+    editor.dispatch({ type: "SET_FONT_SIZE", size: 32 });
     expect(firstTextItem(editor)?.attrs.fontSize).toBe(32);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: -10 });
+    editor.dispatch({ type: "SET_FONT_SIZE", size: -10 });
     expect(firstTextItem(editor)?.attrs.fontSize).toBeUndefined();
   });
 
   it("undo restores the pre-size state", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "size me" });
     editor = selectAll(editor, 7);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 });
+    editor.dispatch({ type: "SET_FONT_SIZE", size: 32 });
     expect(firstTextItem(editor)?.attrs.fontSize).toBe(32);
 
-    editor = reduceEditor(editor, { type: "UNDO" });
+    editor.dispatch({ type: "UNDO" });
     expect(firstTextItem(editor)?.attrs.fontSize).toBeUndefined();
 
-    editor = reduceEditor(editor, { type: "REDO" });
+    editor.dispatch({ type: "REDO" });
     expect(firstTextItem(editor)?.attrs.fontSize).toBe(32);
   });
 });

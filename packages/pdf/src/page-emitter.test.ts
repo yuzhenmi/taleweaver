@@ -9,13 +9,10 @@ import { rectYUp } from "./coordinate";
 import {
   createDefaultAttrRegistry,
   createDefaultComponentRegistry,
-  createInitialEditorState,
+  createEditor,
   createMockShaper,
   createPosition,
-  createSpan,
-  reduceEditor,
-  render,
-} from "@taleweaver/core";
+  createSpan, render } from "@taleweaver/core";
 import { layoutTree } from "@taleweaver/print";
 
 const decode = (b: Uint8Array) => new TextDecoder("latin1").decode(b);
@@ -475,14 +472,15 @@ describe("emitPageContent — suggested-boundary ¶ mark (change tracking)", () 
     const attrRegistry = createDefaultAttrRegistry();
     const direct = { componentRegistry, attrRegistry, containerWidth: 200 };
     const alice = { ...direct, suggestingAuthor: "alice" };
-    let e = createInitialEditorState(direct);
-    e = reduceEditor(e, { type: "INSERT_TEXT", text: "Anna" });
+    let e = createEditor(direct);
+    e.dispatch({ type: "INSERT_TEXT", text: "Anna" });
     const first = e.selection.focus.blockId;
-    e = reduceEditor(e, { type: "SPLIT_NODE" });
-    e = reduceEditor(e, { type: "INSERT_TEXT", text: "Rosa" });
+    e.dispatch({ type: "SPLIT_NODE" });
+    e.dispatch({ type: "INSERT_TEXT", text: "Rosa" });
     const second = e.selection.focus.blockId;
-    e = reduceEditor({ ...e, config: alice }, { type: "SET_SELECTION", selection: createSpan(createPosition(second, 0), createPosition(second, 0)) });
-    e = reduceEditor(e, { type: "DELETE_BACKWARD" }); // a pending join, drawn at the end of "Anna"
+    e.setConfig(alice);
+    e.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(second, 0), createPosition(second, 0)) });
+    e.dispatch({ type: "DELETE_BACKWARD" }); // a pending join, drawn at the end of "Anna"
     const pageConfig = { pageInlineSize: 200, pageBlockSize: 100, pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 }, pageGap: 10 };
     const tree = layoutTree(render(e.document, componentRegistry, attrRegistry).root, 200, createMockShaper(8, 16), pageConfig);
     if (tree.type !== "virtual-root") throw new Error("expected a paginated tree");

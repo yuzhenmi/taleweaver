@@ -402,7 +402,7 @@ describe("line-navigation — multi-column WITHIN-BLOCK column boundary (same bl
     expect(result.position.offset).toBeGreaterThanOrEqual(lastCol0.line.inlineOffsetStart);
 
     // The load-bearing column check: resolved with the affinity the move THREADED
-    // OUT (#500 — `handleMoveLine` seeds `EditorState.caretAffinity` from this, and
+    // OUT (#500 — `handleMoveLine` seeds `Editor.caretAffinity` from this, and
     // `resolvePixelPosition` reads that field), the landed caret must sit in
     // COLUMN 0's x-range (left of the inter-column gap). The shared boundary offset
     // (`lastCol0.end === firstCol1.start`) is ambiguous WITHOUT the affinity — so

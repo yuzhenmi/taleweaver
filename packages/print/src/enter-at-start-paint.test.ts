@@ -10,11 +10,11 @@
 import { describe, it, expect } from "vitest";
 import { paintPage } from "./canvas-renderer";
 import { createPaintCache } from "./paint-cache";
-import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, createPosition, createSpan, render, cascadePass, type EditorConfig, type PageConfig, type EditorState, type BlockId } from "@taleweaver/core";
+import { createEditor, type EditorConfig, type PageConfig, type Editor, type BlockId, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, createPosition, createSpan, render, cascadePass } from "@taleweaver/core";
 import { layoutTree, type LayoutBox } from "./index";
 import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
 
-// Phase 0b: core's `EditorState` is geometry-free — the layout tree lives in the
+// Phase 0b: core's `Editor` is geometry-free — the layout tree lives in the
 // backend driver. Build it via core's render → cascade → layout pipeline (what
 // the driver does) for the paint assertions below.
 const measurer = createMockShaper(8, 16);
@@ -43,7 +43,7 @@ function makeConfig(): EditorConfig {
     attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, pageConfig };
 }
 
-function getPage0(editor: EditorState, config: EditorConfig): LayoutBox {
+function getPage0(editor: Editor, config: EditorConfig): LayoutBox {
   const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   const lt = layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
@@ -55,7 +55,7 @@ function getPage0(editor: EditorState, config: EditorConfig): LayoutBox {
   return page0;
 }
 
-function firstChildId(editor: EditorState): BlockId {
+function firstChildId(editor: Editor): BlockId {
   const root = finalSection(editor.document);
   if (root === null || root.firstChildId === null) throw new Error("no first block");
   return root.firstChildId;
@@ -75,10 +75,10 @@ function welcomeY(fills: FillText[]): number {
 describe("Enter at first position repaints page 0 (view-layer regression)", () => {
   it("repaints 'Welcome' at the new (lower) line after Enter", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
+    let editor = createEditor(config);
     const firstId = firstChildId(editor);
-    editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) });
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "Welcome" });
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) });
+    editor.dispatch({ type: "INSERT_TEXT", text: "Welcome" });
 
     const cache = createPaintCache();
     const mount = makeSpyCtx();
@@ -87,8 +87,8 @@ describe("Enter at first position repaints page 0 (view-layer regression)", () =
 
     // Enter at the very start, then repaint page 0 with the SAME persistent
     // cache — exactly the controller's per-frame flow.
-    editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) });
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) });
+    editor.dispatch({ type: "SPLIT_NODE" });
 
     const after = makeSpyCtx();
     paintPage(after.ctx, getPage0(editor, config), [], [], CURSOR, "active", undefined, cache);

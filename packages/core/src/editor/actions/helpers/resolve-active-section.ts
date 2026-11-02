@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import { getBlock } from "../../../state";
 import type { BlockId } from "../../../state";
 
@@ -31,7 +31,7 @@ const MAX_PARENT_WALK_STEPS = 1_000;
  * `SET_SECTION_COLUMNS`) so the parent-walk is defined once.
  */
 export function resolveActiveSection(
-  editor: EditorState,
+  editor: Editor,
   focusBlockId: BlockId,
 ): BlockId | null {
   const document = editor.document;

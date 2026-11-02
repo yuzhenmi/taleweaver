@@ -4,7 +4,7 @@
 // truth) for NON-spanning-block selections (the per-page path's domain;
 // spanning boundary blocks are routed to the bridge by the controller).
 import { describe, it, expect } from "vitest";
-import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, getBlock, createPosition, createSpan, spanStart, spanEnd, render, cascadePass, type EditorConfig, type PageConfig, type EditorState, type BlockId } from "@taleweaver/core";
+import { createEditor, type EditorConfig, type PageConfig, type Editor, type BlockId, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, getBlock, createPosition, createSpan, spanStart, spanEnd, render, cascadePass } from "@taleweaver/core";
 import { resolvePixelPosition, computeSelectionRects, computeSelectionRectsForPage, layoutTree } from "../index";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import { positionTreeForTest } from "../test-utils/position-tree";
@@ -31,7 +31,7 @@ function makeConfig(): EditorConfig {
 }
 
 /** Build the layout tree the backend driver would (render → cascade → layout). */
-function layoutOf(editor: EditorState, config: EditorConfig): VirtualLayoutTree {
+function layoutOf(editor: Editor, config: EditorConfig): VirtualLayoutTree {
   const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   const tree = layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
@@ -39,12 +39,14 @@ function layoutOf(editor: EditorState, config: EditorConfig): VirtualLayoutTree 
   return tree;
 }
 
-function buildPasted(config: EditorConfig, n: number): EditorState {
+function buildPasted(config: EditorConfig, n: number): Editor {
   const text = Array.from({ length: n }, (_, i) => `para ${i}`).join("\n");
-  return reduceEditor(createInitialEditorState(config), { type: "PASTE", text });
+  const editor = createEditor(config);
+    editor.dispatch({ type: "PASTE", text });
+    return editor;
 }
 
-function nthBlockId(editor: EditorState, n: number): BlockId {
+function nthBlockId(editor: Editor, n: number): BlockId {
   const root = finalSection(editor.document);
   if (root === null || root.firstChildId === null) throw new Error("no blocks");
   let id: BlockId | null = root.firstChildId;

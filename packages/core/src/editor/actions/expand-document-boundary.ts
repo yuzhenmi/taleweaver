@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { createPosition, createSpan, selectionContextOf } from "../../state";
 import type { ActionOf } from "../editor-action";
@@ -22,7 +22,7 @@ import { endOffsetOf } from "./helpers/end-offset-of";
  * CONTAINER ROOT for a body block.
  */
 export function handleExpandDocumentBoundary(
-  editor: EditorState,
+  editor: Editor,
   { boundary }: ActionOf<"EXPAND_DOCUMENT_BOUNDARY">,
 ): Edit | null {
   const ctxRoot = selectionContextOf(editor.document, editor.selection.focus.blockId);

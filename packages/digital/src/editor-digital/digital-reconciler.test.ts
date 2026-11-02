@@ -1,31 +1,20 @@
 import { describe, it, expect } from "vitest";
 import {
-  createInitialEditorState,
-  reduceEditor,
-  createDefaultComponentRegistry,
-  createDefaultAttrRegistry,
-  asBlockId,
-  createPosition,
-  createSpan,
-  setBlockAttrs,
-  paragraphComponent,
-  createElementBox,
-  getBlock,
-  type EditorState,
-  type EditorConfig,
-} from "@taleweaver/core";
+  createEditor,
+  type Editor,
+  type EditorConfig, createDefaultComponentRegistry, createDefaultAttrRegistry, asBlockId, createPosition, createSpan, setBlockAttrs, paragraphComponent, createElementBox, getBlock } from "@taleweaver/core";
 import { createDigitalReconciler } from "./digital-reconciler";
 
-function makeEditor(): { editor: EditorState; config: EditorConfig } {
+function makeEditor(): { editor: Editor; config: EditorConfig } {
   const componentRegistry = createDefaultComponentRegistry();
   const attrRegistry = createDefaultAttrRegistry();
   const config: EditorConfig = { componentRegistry, attrRegistry, containerWidth: 800 };
-  return { editor: createInitialEditorState(config), config };
+  return { editor: createEditor(config), config };
 }
 
-function type(editor: EditorState, text: string): EditorState {
+function type(editor: Editor, text: string): Editor {
   let cur = editor;
-  for (const ch of text) cur = reduceEditor(cur, { type: "INSERT_TEXT", text: ch });
+  for (const ch of text) cur.dispatch({ type: "INSERT_TEXT", text: ch });
   return cur;
 }
 
@@ -64,7 +53,7 @@ describe("DigitalReconciler.reconcile — incremental keying (2c)", () => {
     const { editor, config } = makeEditor();
     // Two paragraphs: "aa" <Enter> "bb".
     let st = type(editor, "aa");
-    st = reduceEditor(st, { type: "SPLIT_NODE" });
+    st.dispatch({ type: "SPLIT_NODE" });
     st = type(st, "bb");
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -77,9 +66,9 @@ describe("DigitalReconciler.reconcile — incremental keying (2c)", () => {
     const secondElBefore = blocksBefore[1];
 
     // Edit ONLY the second paragraph (append "c").
-    const next = reduceEditor(st, { type: "INSERT_TEXT", text: "c" });
-    expect(next.lastDirtyIds).not.toBeNull();
-    r.reconcile(st, next, false);
+    st.dispatch({ type: "INSERT_TEXT", text: "c" });
+    expect(st.lastDirtyIds).not.toBeNull();
+    r.reconcile(st, st, false);
 
     const blocksAfter = paraBlocks(container);
     // First paragraph element is the SAME reference (untouched).
@@ -97,7 +86,7 @@ describe("DigitalReconciler.reconcile — incremental keying (2c)", () => {
     // ancestor chain would wrongly skip the second sibling.
     const { editor, config } = makeEditor();
     let st = type(editor, "aa");
-    st = reduceEditor(st, { type: "SPLIT_NODE" });
+    st.dispatch({ type: "SPLIT_NODE" });
     st = type(st, "bb");
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -117,16 +106,16 @@ describe("DigitalReconciler.reconcile — incremental keying (2c)", () => {
 
     // Select across BOTH paragraphs and toggle bold — dirties both blocks, not the root.
     const span = createSpan(createPosition(asBlockId(id1), 0), createPosition(asBlockId(id2), 1));
-    const selected = reduceEditor(st, { type: "SET_SELECTION", selection: span });
-    const next = reduceEditor(selected, { type: "TOGGLE_STYLE", style: "bold" });
-    expect(next.lastDirtyIds).not.toBeNull();
-    expect(next.lastDirtyIds?.has(asBlockId(id1))).toBe(true);
-    expect(next.lastDirtyIds?.has(asBlockId(id2))).toBe(true);
+    st.dispatch({ type: "SET_SELECTION", selection: span });
+    st.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
+    expect(st.lastDirtyIds).not.toBeNull();
+    expect(st.lastDirtyIds?.has(asBlockId(id1))).toBe(true);
+    expect(st.lastDirtyIds?.has(asBlockId(id2))).toBe(true);
     // The root must NOT be dirty, so each sibling goes through the standalone replace path
     // (the case hasDirtyBlockAncestor governs), not a root parent-replace.
-    if (rootId !== null) expect(next.lastDirtyIds?.has(asBlockId(rootId))).toBe(false);
+    if (rootId !== null) expect(st.lastDirtyIds?.has(asBlockId(rootId))).toBe(false);
 
-    r.reconcile(selected, next, false);
+    r.reconcile(st, st, false);
 
     const blocksAfter = paraBlocks(container);
     expect(blocksAfter.length).toBe(2);
@@ -152,16 +141,16 @@ describe("DigitalReconciler.reconcile — incremental keying (2c)", () => {
     const sel = window.getSelection();
     const textNode = blockEl.firstChild ?? blockEl;
     sel?.setBaseAndExtent(textNode, 0, textNode, 0);
-    const next = reduceEditor(st, { type: "INSERT_TEXT", text: "x" });
+    st.dispatch({ type: "INSERT_TEXT", text: "x" });
     // The composed paragraph IS in the dirty set; without the guard it would be replaced.
     const blockId = blockEl.getAttribute("data-block-id");
     if (blockId === null) throw new Error("block id");
-    expect(next.lastDirtyIds?.has(asBlockId(blockId))).toBe(true);
-    r.reconcile(st, next, true);
+    expect(st.lastDirtyIds?.has(asBlockId(blockId))).toBe(true);
+    r.reconcile(st, st, true);
     // The composed block's element is NOT replaced (same reference) despite being dirty.
     expect(paraBlocks(container)[0]).toBe(blockEl);
     // Sanity: WITHOUT the IME guard the same dirty block WOULD be replaced.
-    r.reconcile(st, next, false);
+    r.reconcile(st, st, false);
     expect(paraBlocks(container)[0]).not.toBe(blockEl);
   });
 });
@@ -177,15 +166,15 @@ describe("DigitalReconciler.reconcile — structural deltas (F3)", () => {
     expect(paraBlocks(container).length).toBe(1);
 
     // Place caret mid-paragraph and split (Enter). This inserts a new block; its PARENT is dirty.
-    const next = reduceEditor(st, { type: "SPLIT_NODE" });
-    r.reconcile(st, next, false);
+    st.dispatch({ type: "SPLIT_NODE" });
+    r.reconcile(st, st, false);
     expect(paraBlocks(container).length).toBe(2);
   });
 
   it("an UNDO that REMOVES a block drops its DOM via the parent-replace", () => {
     const { editor, config } = makeEditor();
     let st = type(editor, "aa");
-    st = reduceEditor(st, { type: "SPLIT_NODE" }); // now 2 blocks
+    st.dispatch({ type: "SPLIT_NODE" }); // now 2 blocks
     st = type(st, "bb");
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -194,11 +183,11 @@ describe("DigitalReconciler.reconcile — structural deltas (F3)", () => {
     expect(paraBlocks(container).length).toBe(2);
 
     // Undo the "bb" typing then undo the split → back to 1 block. Undo carries a real dirty set (F3).
-    const undone = reduceEditor(st, { type: "UNDO" }); // undo bb
-    r.reconcile(st, undone, false);
+    st.dispatch({ type: "UNDO" }); // undo bb
+    r.reconcile(st, st, false);
     const afterFirstUndo = paraBlocks(container).length;
-    const undone2 = reduceEditor(undone, { type: "UNDO" }); // undo split → merge
-    r.reconcile(undone, undone2, false);
+    st.dispatch({ type: "UNDO" }); // undo split → merge
+    r.reconcile(st, st, false);
     expect(paraBlocks(container).length).toBeLessThanOrEqual(afterFirstUndo);
     expect(paraBlocks(container).length).toBe(1);
   });
@@ -221,13 +210,14 @@ describe("DigitalReconciler.reconcile — selection-only no-op (full-rebuild pat
 
     // Move the caret only: SET_SELECTION yields a null dirty set with the state object unchanged.
     const caret = createPosition(asBlockId(blockId), 1);
-    const next = reduceEditor(st, { type: "SET_SELECTION", selection: createSpan(caret, caret) });
-    expect(next.lastDirtyIds).toBeNull();
-    expect(next.document).toBe(st.document);
+    const prev = st.snapshot();
+    st.dispatch({ type: "SET_SELECTION", selection: createSpan(caret, caret) });
+    expect(st.lastDirtyIds).toBeNull();
+    expect(st.document).toBe(prev.document);
 
     // Clear the live selection so we can prove positionToDom re-establishes it.
     window.getSelection()?.removeAllRanges();
-    r.reconcile(st, next, false);
+    r.reconcile(prev, st, false);
 
     // No DOM rebuild: the root element and child set are the SAME references as before.
     expect(container.firstElementChild).toBe(rootBefore);
@@ -249,14 +239,14 @@ describe("DigitalReconciler.reconcile — host-hidden blocks", () => {
     const render: typeof base.render = (view, ctx, inline) =>
       view.attrs.hidden === true ? createElementBox(view.id, { display: "none" }, []) : base.render(view, ctx, inline);
     config.componentRegistry.register({ ...base, render });
-    let st = type(createInitialEditorState(config), "ab");
-    st = reduceEditor(st, { type: "SPLIT_NODE" });
+    let st = type(createEditor(config), "ab");
+    st.dispatch({ type: "SPLIT_NODE" });
     st = type(st, "cd");
     const root = getBlock(st.document, st.document.rootId);
     const second = getBlock(st.document, root?.lastChildId ?? st.document.rootId)?.lastChildId; // root → final section → paragraphs
     if (second == null) throw new Error("setup");
     const hide = setBlockAttrs(st.document, second, { hidden: true });
-    const hidden: EditorState = { ...st, document: hide.document, lastDirtyIds: hide.dirtyIds };
+    const hidden = { selection: st.selection, document: hide.document, lastDirtyIds: hide.dirtyIds };
     const container = document.createElement("div");
     document.body.appendChild(container);
     const r = createDigitalReconciler(config.componentRegistry, config.attrRegistry, document);

@@ -11,22 +11,18 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  config,
-  reduceEditor,
-  createPosition,
-  createSpan,
-} from "./test-helpers";
+  config, createPosition, createSpan } from "./test-helpers";
 import { MAX_LIST_LEVEL } from "./helpers/shift-list-level";
-import { createEditorStateFromDocument, type EditorState } from "../editor-state";
+import { createEditor, type Editor } from "../editor";
 import { getBlock } from "../../state";
 import type { BlockId } from "../../state";
 import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 import type { Document } from "../../state";
 
-// Phase 0b: core's `EditorState` is geometry-free — these state-level action
+// Phase 0b: core's `Editor` is geometry-free — these state-level action
 // tests build only the geometry-free fields (the handler reads no layout).
-function makeEditor(document: Document, selection: EditorState["selection"]): EditorState {
-  return createEditorStateFromDocument(document, selection, config);
+function makeEditor(document: Document, selection: Editor["selection"]): Editor {
+  return createEditor(config, { document, selection: selection });
 }
 
 /** A doc with two list-item leaves (l0, l1) sharing listId "L1" + a trailing plain paragraph. */
@@ -73,10 +69,11 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
 
     expect(getBlock(editor.document, "l0" as BlockId)?.attrs.listLevel).toBeUndefined();
 
-    const next = reduceEditor(editor, { type: "LIST_INDENT" });
+    const before = editor.snapshot();
+    editor.dispatch({ type: "LIST_INDENT" });
 
-    expect(getBlock(next.document, "l0" as BlockId)?.attrs.listLevel).toBe(1);
-    expect(next.document).not.toBe(editor.document);
+    expect(getBlock(editor.document, "l0" as BlockId)?.attrs.listLevel).toBe(1);
+    expect(editor.document).not.toBe(before.document);
   });
 
   it("LIST_INDENT caps at MAX_LIST_LEVEL (8)", () => {
@@ -88,7 +85,7 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
 
     // Indent well past the cap.
     for (let i = 0; i < 12; i++) {
-      editor = reduceEditor(editor, { type: "LIST_INDENT" });
+      editor.dispatch({ type: "LIST_INDENT" });
     }
     expect(getBlock(editor.document, "l0" as BlockId)?.attrs.listLevel).toBe(MAX_LIST_LEVEL);
     expect(MAX_LIST_LEVEL).toBe(8);
@@ -101,10 +98,10 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
       focus: createPosition("l0" as BlockId, 0),
     });
 
-    editor = reduceEditor(editor, { type: "LIST_INDENT" });
+    editor.dispatch({ type: "LIST_INDENT" });
     expect(getBlock(editor.document, "l0" as BlockId)?.attrs.listLevel).toBe(1);
 
-    editor = reduceEditor(editor, { type: "LIST_OUTDENT" });
+    editor.dispatch({ type: "LIST_OUTDENT" });
     // Level 0 clears the attr (renders like a never-nested top-level item).
     expect(getBlock(editor.document, "l0" as BlockId)?.attrs.listLevel).toBeUndefined();
   });
@@ -116,9 +113,11 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
       focus: createPosition("l0" as BlockId, 0),
     });
 
-    const next = reduceEditor(editor, { type: "LIST_OUTDENT" });
+    const before = editor.snapshot();
+    editor.dispatch({ type: "LIST_OUTDENT" });
 
-    expect(next).toBe(editor);
+    expect(editor.document).toBe(before.document);
+    expect(editor.selection).toBe(before.selection);
   });
 
   it("collapsed caret in a non-list-item paragraph: no-op", () => {
@@ -128,10 +127,12 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
       focus: createPosition("p" as BlockId, 0),
     });
 
-    const next = reduceEditor(editor, { type: "LIST_INDENT" });
+    const before = editor.snapshot();
+    editor.dispatch({ type: "LIST_INDENT" });
 
-    expect(next).toBe(editor);
-    expect(getBlock(next.document, "p" as BlockId)?.attrs.listLevel).toBeUndefined();
+    expect(editor.document).toBe(before.document);
+    expect(editor.selection).toBe(before.selection);
+    expect(getBlock(editor.document, "p" as BlockId)?.attrs.listLevel).toBeUndefined();
   });
 
   it("range selection over only non-list-items: no-op (same editor reference)", () => {
@@ -142,9 +143,11 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
       createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 4)),
     );
 
-    const next = reduceEditor(editor, { type: "LIST_INDENT" });
+    const before = editor.snapshot();
+    editor.dispatch({ type: "LIST_INDENT" });
 
-    expect(next).toBe(editor);
+    expect(editor.document).toBe(before.document);
+    expect(editor.selection).toBe(before.selection);
   });
 
   it("range selection over both list-items: each list-item indents (paragraph untouched)", () => {
@@ -154,12 +157,12 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
       createSpan(createPosition("l0" as BlockId, 0), createPosition("p" as BlockId, 4)),
     );
 
-    const next = reduceEditor(editor, { type: "LIST_INDENT" });
+    editor.dispatch({ type: "LIST_INDENT" });
 
-    expect(getBlock(next.document, "l0" as BlockId)?.attrs.listLevel).toBe(1);
-    expect(getBlock(next.document, "l1" as BlockId)?.attrs.listLevel).toBe(1);
+    expect(getBlock(editor.document, "l0" as BlockId)?.attrs.listLevel).toBe(1);
+    expect(getBlock(editor.document, "l1" as BlockId)?.attrs.listLevel).toBe(1);
     // The plain paragraph in the span is NOT a list-item → untouched.
-    expect(getBlock(next.document, "p" as BlockId)?.attrs.listLevel).toBeUndefined();
+    expect(getBlock(editor.document, "p" as BlockId)?.attrs.listLevel).toBeUndefined();
   });
 
   it("preserves the selection (level change does not move the caret)", () => {
@@ -170,9 +173,9 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
     );
     const editor = makeEditor(document, selection);
 
-    const next = reduceEditor(editor, { type: "LIST_INDENT" });
+    editor.dispatch({ type: "LIST_INDENT" });
 
-    expect(next.selection).toEqual(selection);
+    expect(editor.selection).toEqual(selection);
   });
 
   it("undo restores the prior level", () => {
@@ -182,11 +185,11 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
       focus: createPosition("l0" as BlockId, 0),
     });
 
-    editor = reduceEditor(editor, { type: "LIST_INDENT" });
-    const indented = reduceEditor(editor, { type: "LIST_INDENT" });
-    expect(getBlock(indented.document, "l0" as BlockId)?.attrs.listLevel).toBe(2);
+    editor.dispatch({ type: "LIST_INDENT" });
+    editor.dispatch({ type: "LIST_INDENT" });
+    expect(getBlock(editor.document, "l0" as BlockId)?.attrs.listLevel).toBe(2);
 
-    const undone = reduceEditor(indented, { type: "UNDO" });
-    expect(getBlock(undone.document, "l0" as BlockId)?.attrs.listLevel).toBe(1);
+    editor.dispatch({ type: "UNDO" });
+    expect(getBlock(editor.document, "l0" as BlockId)?.attrs.listLevel).toBe(1);
   });
 });

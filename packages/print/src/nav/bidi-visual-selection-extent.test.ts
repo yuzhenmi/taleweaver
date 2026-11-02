@@ -7,7 +7,7 @@
  * press 4 (focus logical offset returns to 3, the anchor's offset → `[3,3)`),
  * so the whole-word highlight vanished and reappeared.
  *
- * The fix (slice 5) reads `EditorState.anchorAffinity` / `caretAffinity` to render
+ * The fix (slice 5) reads `Editor.anchorAffinity` / `caretAffinity` to render
  * the VISUAL extent between the anchor's and the focus's resolved visual coords —
  * a single contiguous interval that only grows. This test drives the REAL nav
  * intents end-to-end and derives the covered x-extent via `computeSelectionRects`,
@@ -33,6 +33,7 @@ import {
   caretAt,
   nav,
   layoutOf,
+  setAffinity,
   type NavCtx,
 } from "./nav-test-helpers";
 import { finalSection } from "../test-utils/final-section"; // body blocks live in the final section
@@ -83,7 +84,7 @@ function paragraphId(ctx: NavCtx): BlockId {
 
 /** Force `caretAffinity` onto the context's editor (the prior-action caret side). */
 function withCaretAffinity(ctx: NavCtx, affinity: "before" | "after"): NavCtx {
-  return { ...ctx, editor: { ...ctx.editor, caretAffinity: affinity } };
+  return setAffinity(ctx, { caretAffinity: affinity });
 }
 
 function expandBack(ctx: NavCtx): NavCtx {

@@ -12,11 +12,10 @@
 //
 // The fixture mirrors insert-page-field-action.test.ts: a main body paragraph
 // built through the full pipeline so the handler + applyEdit have every
-// EditorState field they expect.
+// Editor field they expect.
 
 import { describe, it, expect } from "vitest";
-import { reduceEditor } from "../reduce-editor";
-import { type EditorState, createEditorStateFromDocument } from "../editor-state";
+import { type Editor, createEditor } from "../editor";
 import { type EditorConfig } from "../editor-config";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
@@ -53,13 +52,13 @@ function buildDocumentWithBody(): Document {
 }
 
 /**
- * Build a geometry-free EditorState with the caret at `caret`. Phase 0b: the
+ * Build a geometry-free Editor with the caret at `caret`. Phase 0b: the
  * INSERT_INLINE_IMAGE handler reads only caret/selection state (no layout), so
  * the synthetic state needs only the geometry-free fields.
  */
-function buildEditor(document: Document, caret: { blockId: BlockId; offset: number }): EditorState {
+function buildEditor(document: Document, caret: { blockId: BlockId; offset: number }): Editor {
   const cursor = createPosition(caret.blockId, caret.offset);
-  return createEditorStateFromDocument(document, createSpan(cursor, cursor), config);
+  return createEditor(config, { document, selection: createSpan(cursor, cursor) });
 }
 
 function inlineImageItemsOf(items: readonly InlineItem[] | undefined): EmbedItem[] {
@@ -74,13 +73,11 @@ function bodyInlineImages(document: Document, id: BlockId): EmbedItem[] {
 describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
   it("splices an inline-image EmbedItem at a collapsed caret and advances the caret by 1 (one embed = one offset)", () => {
     const editor = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 1 }); // between "a" and "b"
-    const out = reduceEditor(
-      editor,
-      { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
-    );
+    const before = editor.snapshot();
+    editor.dispatch({ type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt });
 
     // (a) an inline-image embed carrying the supplied properties is inserted at the caret offset
-    const images = bodyInlineImages(out.document, BODY_P);
+    const images = bodyInlineImages(editor.document, BODY_P);
     expect(images.length).toBe(1);
     expect(images[0]?.properties).toEqual({
       src: IMG.src,
@@ -90,33 +87,30 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
     });
 
     // The embed lands at offset 1 (between "a" and "b"): items are ["a", <img>, "b"].
-    const items = getBlock(out.document, BODY_P)?.inlineContent?.items ?? [];
+    const items = getBlock(editor.document, BODY_P)?.inlineContent?.items ?? [];
     expect(items.length).toBe(3);
     expect(items[0]).toMatchObject({ kind: "text", text: "a" });
     expect(items[1]?.kind).toBe("embed");
     expect(items[2]).toMatchObject({ kind: "text", text: "b" });
 
     // (b) the caret lands AFTER the embed — exactly one offset past it.
-    expect(out.selection.focus.blockId).toBe(BODY_P);
-    expect(out.selection.focus.offset).toBe(2);
-    expect(out.selection.anchor).toEqual(out.selection.focus); // collapsed
-    expect(out.document).not.toBe(editor.document);
+    expect(editor.selection.focus.blockId).toBe(BODY_P);
+    expect(editor.selection.focus.offset).toBe(2);
+    expect(editor.selection.anchor).toEqual(editor.selection.focus); // collapsed
+    expect(editor.document).not.toBe(before.document);
   });
 
   it("removes the whole embed in ONE DELETE_BACKWARD step (atomic, #407)", () => {
     const editor = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 1 });
-    const inserted = reduceEditor(
-      editor,
-      { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
-    );
-    expect(bodyInlineImages(inserted.document, BODY_P).length).toBe(1);
+    editor.dispatch({ type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt });
+    expect(bodyInlineImages(editor.document, BODY_P).length).toBe(1);
     // caret is just after the embed (offset 2) — one DELETE_BACKWARD must remove the
     // entire embed in a single step, leaving the text "ab" intact.
-    const deleted = reduceEditor(inserted, { type: "DELETE_BACKWARD" });
-    expect(bodyInlineImages(deleted.document, BODY_P).length).toBe(0);
-    const items = getBlock(deleted.document, BODY_P)?.inlineContent?.items ?? [];
+    editor.dispatch({ type: "DELETE_BACKWARD" });
+    expect(bodyInlineImages(editor.document, BODY_P).length).toBe(0);
+    const items = getBlock(editor.document, BODY_P)?.inlineContent?.items ?? [];
     expect(items.map((it) => (it.kind === "text" ? it.text : "<embed>")).join("")).toBe("ab");
-    expect(deleted.selection.focus.offset).toBe(1); // caret collapses to where the embed was
+    expect(editor.selection.focus.offset).toBe(1); // caret collapses to where the embed was
   });
 
   it("inserts directly (no throw) even when suggesting mode is configured — direct-mode v1", () => {
@@ -125,47 +119,34 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
     // configured suggestingAuthor must NOT throw or alter the direct-insert path.
     const suggestingConfig: EditorConfig = { ...config, suggestingAuthor: "alice" };
     const editor = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 1 });
-    const out = reduceEditor(
-      { ...editor, config: suggestingConfig },
-      { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
-    );
-    expect(bodyInlineImages(out.document, BODY_P).length).toBe(1);
+    editor.setConfig(suggestingConfig);
+    editor.dispatch({ type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt });
+    expect(bodyInlineImages(editor.document, BODY_P).length).toBe(1);
   });
 
   it("is its own undo unit — UNDO removes the inserted image", () => {
     const editor = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 1 });
-    const inserted = reduceEditor(
-      editor,
-      { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
-    );
-    expect(bodyInlineImages(inserted.document, BODY_P).length).toBe(1);
-    const undone = reduceEditor(inserted, { type: "UNDO" });
-    expect(bodyInlineImages(undone.document, BODY_P).length).toBe(0);
+    editor.dispatch({ type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt });
+    expect(bodyInlineImages(editor.document, BODY_P).length).toBe(1);
+    editor.dispatch({ type: "UNDO" });
+    expect(bodyInlineImages(editor.document, BODY_P).length).toBe(0);
   });
 
   it("REPLACES an expanded selection (delete-then-insert, one undo step) — Google Docs field behavior", () => {
-    const editor: EditorState = (() => {
-      const base = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 0 });
-      // select the whole "ab"
-      return {
-        ...base,
-        selection: createSpan(createPosition(BODY_P, 0), createPosition(BODY_P, 2)),
-      };
-    })();
-    const out = reduceEditor(
-      editor,
-      { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
-    );
+    const editor = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 0 });
+    // select the whole "ab"
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(BODY_P, 0), createPosition(BODY_P, 2)) });
+    editor.dispatch({ type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt });
     // "ab" replaced by the single image embed; caret after it (offset 1).
-    expect(bodyInlineImages(out.document, BODY_P).length).toBe(1);
-    const items = getBlock(out.document, BODY_P)?.inlineContent?.items ?? [];
+    expect(bodyInlineImages(editor.document, BODY_P).length).toBe(1);
+    const items = getBlock(editor.document, BODY_P)?.inlineContent?.items ?? [];
     expect(items.length).toBe(1);
     expect(items[0]?.kind).toBe("embed");
-    expect(out.selection.focus.offset).toBe(1);
+    expect(editor.selection.focus.offset).toBe(1);
 
     // delete+insert is ONE undo unit → a single UNDO restores "ab".
-    const undone = reduceEditor(out, { type: "UNDO" });
-    const restored = getBlock(undone.document, BODY_P)?.inlineContent?.items ?? [];
+    editor.dispatch({ type: "UNDO" });
+    const restored = getBlock(editor.document, BODY_P)?.inlineContent?.items ?? [];
     expect(restored.map((it) => (it.kind === "text" ? it.text : "<embed>")).join("")).toBe("ab");
   });
 });

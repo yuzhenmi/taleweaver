@@ -25,7 +25,7 @@
 // calling `layoutOf` + `paintAllPages` after each edit exactly as the controller
 // paints every frame. Assertions byte-identical.
 import { describe, it, expect } from "vitest";
-import { render, cascadePass, getBlock, type EditorState, type EditorConfig, type BlockId } from "@taleweaver/core";
+import { render, cascadePass, getBlock, type Editor, type EditorSnapshot, type EditorConfig, type BlockId } from "@taleweaver/core";
 import { layoutTree, moveToLine, type LayoutBox, type VirtualLayoutTree } from "../index";
 import {
   makeNavEditor,
@@ -54,7 +54,7 @@ const PAGE_OPTS: MakeNavEditorOptions = {
  * CURRENT state, built straight off the core pipeline (no prevTree → no reuse).
  * The measurer + pageConfig match the driver's (mock 8/16, PAGE_OPTS geometry).
  */
-function freshLayout(ctx: NavCtx, editor: EditorState): LayoutBox | VirtualLayoutTree {
+function freshLayout(ctx: NavCtx, editor: EditorSnapshot): LayoutBox | VirtualLayoutTree {
   const config: EditorConfig = ctx.config;
   const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascadedRoot = cascadePass(rendered.root);
@@ -88,7 +88,7 @@ function paintFrame(ctx: NavCtx): LayoutBox | VirtualLayoutTree {
   return lt;
 }
 
-function firstBlockIdOf(editor: EditorState): BlockId {
+function firstBlockIdOf(editor: Editor): BlockId {
   const root = finalSection(editor.document);
   if (root === null || root.firstChildId === null) throw new Error("no first block");
   return root.firstChildId;
@@ -190,14 +190,14 @@ describe("virtual-layout caret/paint regressions", () => {
     });
     paintFrame(ctx);
 
-    const before = ctx.editor;
+    const before = ctx.editor.snapshot();
     const oracle = moveToLine(
       before.document,
       before.selection.focus,
       freshLayout(ctx, before),
       ctx.measurer,
       "up",
-      before.targetX,
+      ctx.editor.targetX,
     );
     if (oracle === null) throw new Error("oracle move failed");
 

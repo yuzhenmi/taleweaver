@@ -86,7 +86,7 @@ export type EditorAction =
   | { type: "TRANSACTION"; run: (tx: Transaction) => void }
   /**
    * A collaborator's change has landed in this editor's Y.Doc (`dirtyIds` = the blocks
-   * it touched; see `subscribeRemoteChanges`): reconcile the EditorState and rebase the
+   * it touched; see `subscribeRemoteChanges`): reconcile the Editor and rebase the
    * local selection through it. Never touches local undo grouping.
    */
   | { type: "APPLY_FOREIGN_CHANGE"; dirtyIds: ReadonlySet<BlockId> }
@@ -175,7 +175,7 @@ export type EditorAction =
    * is only rebased through it. `basedOn`: the version the edit positions refer to —
    * mapped through the change chain (stale when the ranges changed). Refused whole when
    * invalid / self-overlapping / overlapping a pending suggestion. The verdict lands on
-   * `EditorState.lastProposal`.
+   * `Editor.lastProposal`.
    */
   | { type: "PROPOSE"; proposal: Proposal; basedOn?: Document };
 

@@ -17,7 +17,7 @@
 import { finalSectionOf } from "../../test-utils/document-builders";
 import { topLevelBlockIds } from "../../state";
 import { describe, it, expect } from "vitest";
-import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, getBlock, createPosition, render, cascadePass, type EditorConfig, type PageConfig, type EditorState, type BlockId } from "../../index";
+import { createEditor, type EditorConfig, type PageConfig, type Editor, type BlockId, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, getBlock, createPosition, render, cascadePass } from "../../index";
 import { layoutTree } from "@taleweaver/print";
 import type { VirtualLayoutTree } from "@taleweaver/print";
 import type { LayoutBox } from "@taleweaver/print";
@@ -48,20 +48,22 @@ function makeConfig(): EditorConfig {
 }
 
 /** Build the layout tree the backend driver would (render → cascade → layout). */
-function layoutOf(editor: EditorState, config: EditorConfig): LayoutBox | VirtualLayoutTree {
+function layoutOf(editor: Editor, config: EditorConfig): LayoutBox | VirtualLayoutTree {
   const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   return layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
 }
 
 /** Build an N-paragraph doc in one O(N) PASTE (one paragraph per line). */
-function buildPasted(config: EditorConfig, n: number): EditorState {
+function buildPasted(config: EditorConfig, n: number): Editor {
   const text = Array.from({ length: n }, (_, i) => `para ${i}`).join("\n");
-  return reduceEditor(createInitialEditorState(config), { type: "PASTE", text });
+  const editor = createEditor(config);
+  editor.dispatch({ type: "PASTE", text });
+  return editor;
 }
 
 /** The document root's direct children (its sections), in order. */
-function rootChildIds(editor: EditorState): BlockId[] {
+function rootChildIds(editor: Editor): BlockId[] {
   const root = getBlock(editor.document, editor.document.rootId);
   if (root === null || root.firstChildId === null) return [];
   const ids: BlockId[] = [];
@@ -74,7 +76,7 @@ function rootChildIds(editor: EditorState): BlockId[] {
 }
 
 /** The nth top-level body block id (paragraphs, pre-section-break). */
-function nthBlockId(editor: EditorState, n: number): BlockId {
+function nthBlockId(editor: Editor, n: number): BlockId {
   const ids = topLevelBlockIds(editor.document);
   const id = ids[n];
   if (id === undefined) throw new Error(`no block ${n}`);
@@ -88,26 +90,24 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 }
 
 /** Place the caret at offset 0 of `blockId`. */
-function placeCaret(editor: EditorState, blockId: BlockId): EditorState {
-  return reduceEditor(
-    editor,
-    {
+function placeCaret(editor: Editor, blockId: BlockId): Editor {
+  editor.dispatch({
       type: "SET_SELECTION",
       selection: { anchor: createPosition(blockId, 0), focus: createPosition(blockId, 0) },
-    },
-  );
+    });
+    return editor;
 }
 
 /** Make two sections (section A = [p0], section B = [p1..]) with cursor in B. */
 function twoSectionEditor(config: EditorConfig, n = 4): {
-  editor: EditorState;
+  editor: Editor;
   sectionA: BlockId;
   sectionB: BlockId;
 } {
   let editor = buildPasted(config, n);
   const boundary = nthBlockId(editor, 1);
   editor = placeCaret(editor, boundary);
-  editor = reduceEditor(editor, { type: "SECTION_BREAK" });
+  editor.dispatch({ type: "SECTION_BREAK" });
   const sectionIds = rootChildIds(editor);
   if (sectionIds.length !== 2) throw new Error(`expected 2 sections, got ${sectionIds.length}`);
   const sectionA = nth(sectionIds, 0, "section");
@@ -121,7 +121,7 @@ function twoSectionEditor(config: EditorConfig, n = 4): {
 
 /** The (uniform) `columnConfig.columnCount` of the section's plan pages. */
 function sectionPlanColumnCounts(
-  editor: EditorState,
+  editor: Editor,
   sectionId: BlockId,
   config: EditorConfig,
 ): number[] {
@@ -149,7 +149,7 @@ function sectionPlanColumnCounts(
 }
 
 /** Every plan entry's `columnConfig.columnCount` (whole-doc). */
-function allPlanColumnCounts(editor: EditorState, config: EditorConfig): number[] {
+function allPlanColumnCounts(editor: Editor, config: EditorConfig): number[] {
   const tree = layoutOf(editor, config);
   if (tree.type !== "virtual-root") throw new Error("expected a VirtualLayoutTree");
   return tree.plan.entries.map((e) => e.columnConfig.columnCount);
@@ -163,28 +163,26 @@ describe("handleSetSectionColumns — SET_SECTION_COLUMNS action", () => {
     // Baseline: every page is single-column.
     expect(sectionPlanColumnCounts(initial, sectionB, config).every((n) => n === 1)).toBe(true);
 
-    const next = reduceEditor(
-      initial,
-      { type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 },
-    );
+    const before = initial.snapshot();
+    initial.dispatch({ type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 });
 
     // A real change produces a NEW state reference.
-    expect(next.document).not.toBe(initial.document);
+    expect(initial.document).not.toBe(before.document);
 
     // Section B's attrs carry the override.
-    const secB = getBlock(next.document, sectionB);
+    const secB = getBlock(initial.document, sectionB);
     expect(secB?.attrs.columnCount).toBe(2);
     expect(secB?.attrs.columnGap).toBe(24);
 
     // Section A untouched (no override).
-    const secA = getBlock(next.document, sectionA);
+    const secA = getBlock(initial.document, sectionA);
     expect(secA?.attrs.columnCount).toBeUndefined();
 
     // RESOLVED PLAN: section B's pages are 2-column, section A's stay 1-column.
-    const countsB = sectionPlanColumnCounts(next, sectionB, config);
+    const countsB = sectionPlanColumnCounts(initial, sectionB, config);
     expect(countsB.length).toBeGreaterThan(0);
     expect(countsB.every((n) => n === 2)).toBe(true);
-    expect(sectionPlanColumnCounts(next, sectionA, config).every((n) => n === 1)).toBe(true);
+    expect(sectionPlanColumnCounts(initial, sectionA, config).every((n) => n === 1)).toBe(true);
   });
 
   it("applies columns DOC-WIDE when there is no section break (writes the final section)", () => {
@@ -194,17 +192,14 @@ describe("handleSetSectionColumns — SET_SECTION_COLUMNS action", () => {
     // Baseline: single-column doc-wide.
     expect(allPlanColumnCounts(editor, config).every((n) => n === 1)).toBe(true);
 
-    const next = reduceEditor(
-      editor,
-      { type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 },
-    );
+    editor.dispatch({ type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 });
 
     // The (final) section carries the override (there is always a section).
-    expect(getBlock(next.document, finalSectionOf(next.document))?.attrs.columnCount).toBe(2);
-    expect(getBlock(next.document, next.document.rootId)?.attrs.columnCount).toBeUndefined();
+    expect(getBlock(editor.document, finalSectionOf(editor.document))?.attrs.columnCount).toBe(2);
+    expect(getBlock(editor.document, editor.document.rootId)?.attrs.columnCount).toBeUndefined();
 
     // RESOLVED: the whole doc's pages are 2-column.
-    const counts = allPlanColumnCounts(next, config);
+    const counts = allPlanColumnCounts(editor, config);
     expect(counts.length).toBeGreaterThan(0);
     expect(counts.every((n) => n === 2)).toBe(true);
   });
@@ -213,62 +208,51 @@ describe("handleSetSectionColumns — SET_SECTION_COLUMNS action", () => {
     const config = makeConfig();
     const { editor: initial, sectionB } = twoSectionEditor(config);
 
-    const twoCol = reduceEditor(
-      initial,
-      { type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 },
-    );
-    expect(sectionPlanColumnCounts(twoCol, sectionB, config).every((n) => n === 2)).toBe(true);
+    initial.dispatch({ type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 });
+    expect(sectionPlanColumnCounts(initial, sectionB, config).every((n) => n === 2)).toBe(true);
 
-    const oneCol = reduceEditor(twoCol, { type: "SET_SECTION_COLUMNS", columnCount: 1 });
+    initial.dispatch({ type: "SET_SECTION_COLUMNS", columnCount: 1 });
 
     // columnCount: 1 explicitly (single column), and the plan is 1-column again.
-    expect(getBlock(oneCol.document, sectionB)?.attrs.columnCount).toBe(1);
-    expect(sectionPlanColumnCounts(oneCol, sectionB, config).every((n) => n === 1)).toBe(true);
+    expect(getBlock(initial.document, sectionB)?.attrs.columnCount).toBe(1);
+    expect(sectionPlanColumnCounts(initial, sectionB, config).every((n) => n === 1)).toBe(true);
     // A bare count-only change does NOT clobber the existing columnGap (the
     // handler writes gap/rule only when the action provides them).
-    expect(getBlock(oneCol.document, sectionB)?.attrs.columnGap).toBe(24);
+    expect(getBlock(initial.document, sectionB)?.attrs.columnGap).toBe(24);
   });
 
   it("is a no-op (same STATE reference) when the columnCount is already set (identity guard)", () => {
     const config = makeConfig();
     const { editor: initial } = twoSectionEditor(config);
 
-    const twoCol = reduceEditor(
-      initial,
-      { type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 },
-    );
+    initial.dispatch({ type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 });
     // Re-dispatching the SAME count + gap is a no-op merge. Phase 0b: the no-op
     // identity is `document` reference equality — the editor OBJECT differs because
     // the dispatch entry-clear strips the prior mutating action's stale
     // `lastDirtyIds` hint (twoCol carries a non-null set; again clears it to null).
-    const again = reduceEditor(
-      twoCol,
-      { type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 },
-    );
-    expect(again.document).toBe(twoCol.document);
-    expect(again.selection).toBe(twoCol.selection);
-    expect(again.lastDirtyIds).toBeNull();
+    const before = initial.snapshot();
+    initial.dispatch({ type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 });
+    expect(initial.document).toBe(before.document);
+    expect(initial.selection).toBe(before.selection);
+    expect(initial.lastDirtyIds).toBeNull();
   });
 
   it("is ONE undo unit: undo restores the prior 1-column plan", () => {
     const config = makeConfig();
     const { editor: initial, sectionB } = twoSectionEditor(config);
 
-    const twoCol = reduceEditor(
-      initial,
-      { type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 },
-    );
-    expect(getBlock(twoCol.document, sectionB)?.attrs.columnCount).toBe(2);
+    initial.dispatch({ type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 });
+    expect(getBlock(initial.document, sectionB)?.attrs.columnCount).toBe(2);
 
-    const undone = reduceEditor(twoCol, { type: "UNDO" });
+    initial.dispatch({ type: "UNDO" });
 
     // One undo step reverts the whole column change.
-    expect(getBlock(undone.document, sectionB)?.attrs.columnCount).toBeUndefined();
-    expect(sectionPlanColumnCounts(undone, sectionB, config).every((n) => n === 1)).toBe(true);
+    expect(getBlock(initial.document, sectionB)?.attrs.columnCount).toBeUndefined();
+    expect(sectionPlanColumnCounts(initial, sectionB, config).every((n) => n === 1)).toBe(true);
 
     // Redo re-applies it.
-    const redone = reduceEditor(undone, { type: "REDO" });
-    expect(getBlock(redone.document, sectionB)?.attrs.columnCount).toBe(2);
-    expect(sectionPlanColumnCounts(redone, sectionB, config).every((n) => n === 2)).toBe(true);
+    initial.dispatch({ type: "REDO" });
+    expect(getBlock(initial.document, sectionB)?.attrs.columnCount).toBe(2);
+    expect(sectionPlanColumnCounts(initial, sectionB, config).every((n) => n === 2)).toBe(true);
   });
 });

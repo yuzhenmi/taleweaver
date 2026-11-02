@@ -96,7 +96,7 @@ const P1 = "p1" as core.BlockId;
 const LEGACY_SCHEMA: core.IncompatibleDocumentReport = { reason: "legacy-schema", legacyBlocks: [core.asBlockId("doc"), P1], legacyText: {} };
 
 /** Mount `useEditor` + `EditorView` with NO halt wiring; `remount()` re-creates the view. */
-function mount(options: { readonly wrapDispatch?: boolean } = {}) {
+function mount() {
   const hook = vi.fn();
   /** The view's own `onIncompatibleDocument` prop (an extra observer). */
   const viewHook = vi.fn();
@@ -114,8 +114,7 @@ function mount(options: { readonly wrapDispatch?: boolean } = {}) {
     return (
       <EditorView
         key={box.viewKey}
-        editorState={api.editorState}
-        dispatch={options.wrapDispatch === true ? (a) => api.dispatch(a) : api.dispatch}
+        editor={api.editor}
         containerRef={api.containerRef}
         measurer={api.shaper}
         decorations={box.decorations}
@@ -130,8 +129,8 @@ function mount(options: { readonly wrapDispatch?: boolean } = {}) {
     return box.api;
   };
   act(() => api().dispatch({ type: "INSERT_TEXT", text: "hello" }));
-  const id = api().editorState.selection.focus.blockId;
-  const doc = core.getYDoc(api().editorState.document);
+  const id = api().editor.selection.focus.blockId;
+  const doc = core.getYDoc(api().editor.document);
   // A peer replica, synced both ways (the peer is an engine-less Y.Doc here).
   const peer = new Y.Doc();
   Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
@@ -167,7 +166,7 @@ function mount(options: { readonly wrapDispatch?: boolean } = {}) {
   };
 }
 
-const textOf = (e: core.EditorState, id: core.BlockId): string =>
+const textOf = (e: core.Editor, id: core.BlockId): string =>
   (core.getBlock(e.document, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
 
 describe("useEditor — HALTED", () => {
@@ -182,9 +181,9 @@ describe("useEditor — HALTED", () => {
     expect(m.hook).toHaveBeenCalledWith({ reason: "legacy-write", legacyBlocks: [m.id], legacyText: { [m.id]: "old" } });
 
     // dispatch is ignored while halted.
-    const halted = m.api().editorState;
+    const halted = m.api().editor.snapshot();
     act(() => m.api().dispatch({ type: "INSERT_TEXT", text: "x" }));
-    expect(m.api().editorState).toBe(halted);
+    expect(m.api().editor.document).toBe(halted.document);
 
     // Exit: the host replaces the document (a fresh Document over the same Y.Doc).
     fills = [];
@@ -193,7 +192,7 @@ describe("useEditor — HALTED", () => {
     // The replacement dropped every layer; the view set its `decorations` prop again.
     expect(fills).toContain(tint);
     act(() => m.api().dispatch({ type: "INSERT_TEXT", text: "!" }));
-    expect(textOf(m.api().editorState, m.id)).toBe("!hello"); // the legacy write was not merged
+    expect(textOf(m.api().editor, m.id)).toBe("!hello"); // the legacy write was not merged
   });
 
   it("a legacy-write halt is STICKY: an upgrade (by a peer or locally) does not resume the hook, nor does re-creating the view", async () => {
@@ -230,7 +229,7 @@ describe("useEditor — HALTED", () => {
     });
     expect(m.api().halted).toBe(false);
     act(() => m.api().dispatch({ type: "INSERT_TEXT", text: "!" }));
-    expect(textOf(m.api().editorState, P1)).toBe("!legacy");
+    expect(textOf(m.api().editor, P1)).toBe("!legacy");
     expect(m.hook).toHaveBeenCalledTimes(1);
   });
 
@@ -248,9 +247,9 @@ describe("useEditor — HALTED", () => {
     expect(m.api().halted).toBe(true);
     expect(m.hook).toHaveBeenCalledTimes(2);
     expect(m.hook).toHaveBeenLastCalledWith({ reason: "legacy-write", legacyBlocks: ["p1"], legacyText: { p1: "again" } });
-    const halted = m.api().editorState;
+    const halted = m.api().editor.document;
     act(() => m.api().dispatch({ type: "INSERT_TEXT", text: "x" }));
-    expect(m.api().editorState).toBe(halted);
+    expect(m.api().editor.document).toBe(halted);
     // The host replaces the document with another not-yet-upgraded one: the controller
     // refuses it, the hook halts again — and that document's upgrade resumes it.
     const y = notYetUpgraded();
@@ -266,7 +265,7 @@ describe("useEditor — HALTED", () => {
     });
     expect(m.api().halted).toBe(false);
     act(() => m.api().dispatch({ type: "INSERT_TEXT", text: "!" }));
-    expect(textOf(m.api().editorState, P1)).toBe("!legacy");
+    expect(textOf(m.api().editor, P1)).toBe("!legacy");
   });
 
   it("an upgrade while the view is unmounted resumes the hook when the view mounts again", async () => {
@@ -283,32 +282,21 @@ describe("useEditor — HALTED", () => {
     });
     expect(m.api().halted).toBe(false);
     act(() => m.api().dispatch({ type: "INSERT_TEXT", text: "!" }));
-    expect(textOf(m.api().editorState, P1)).toBe("!legacy");
-  });
-
-  it("dev builds warn once when a view gets a hook's state with another (wrapped) dispatch", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    mount({ wrapDispatch: true });
-    const linkWarnings = warn.mock.calls.filter(([msg]) => typeof msg === "string" && msg.includes("own dispatch"));
-    expect(linkWarnings).toHaveLength(1);
-    warn.mockClear();
-    mount(); // the hook's own dispatch: no warning
-    expect(warn.mock.calls.some(([msg]) => typeof msg === "string" && msg.includes("own dispatch"))).toBe(false);
-    warn.mockRestore();
+    expect(textOf(m.api().editor, P1)).toBe("!legacy");
   });
 
   it("two replaceDocument calls in one batch destroy every replaced history (no leak)", () => {
     const m = mount();
-    const proto: object = Object.getPrototypeOf(m.api().editorState.history);
+    const proto: object = Object.getPrototypeOf(m.api().editor.history);
     const destroyed = new Set<unknown>();
     const destroy = vi.spyOn(proto as { destroy(): void }, "destroy").mockImplementation(function (this: unknown) {
       destroyed.add(this);
     });
-    const original = m.api().editorState.history;
+    const original = m.api().editor.history;
     const copy = (): core.Document => {
       const d = new Y.Doc();
       Y.applyUpdate(d, Y.encodeStateAsUpdate(m.doc));
-      return core.createDocument({ resolver: RESOLVER, rootId: m.api().editorState.document.rootId, doc: d });
+      return core.createDocument({ resolver: RESOLVER, rootId: m.api().editor.document.rootId, doc: d });
     };
     act(() => {
       m.api().replaceDocument(copy());
@@ -317,6 +305,6 @@ describe("useEditor — HALTED", () => {
     destroy.mockRestore();
     expect(destroyed.size).toBe(2);
     expect(destroyed.has(original)).toBe(true);
-    expect(destroyed.has(m.api().editorState.history)).toBe(false);
+    expect(destroyed.has(m.api().editor.history)).toBe(false);
   });
 });

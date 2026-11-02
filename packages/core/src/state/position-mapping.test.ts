@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { config, reduceEditor, createInitialEditorState, createPosition, createSpan } from "../editor/actions/test-helpers";
+import { config, createPosition, createSpan, createEditor } from "../editor/actions/test-helpers";
 import type { EditorAction } from "../editor/editor-action";
-import type { EditorState } from "../editor/editor-state";
+import type { Editor } from "../editor/editor";
 import { getBlock, iterateLeafBlocksInDocumentOrder, extractText } from "./index";
 import type { BlockId, Position } from "./index";
 import { createPositionMapping, diffRegions, IDENTITY_MAPPING } from "./position-mapping";
@@ -13,40 +13,42 @@ import { removeBlock } from "./ops/remove-block";
 import { insertText } from "./ops/insert-text";
 
 /** Read every leaf (what a backend render does), so the Document's cache is warm. */
-function warm(editor: EditorState): void {
+function warm(editor: Editor): void {
   for (const b of iterateLeafBlocksInDocumentOrder(editor.document)) void b;
 }
 
-function step(editor: EditorState, action: EditorAction) {
+function step(editor: Editor, action: EditorAction) {
   warm(editor);
-  const next = reduceEditor(editor, action);
-  const dirty = next.lastDirtyIds;
+  const before = editor.snapshot();
+  editor.dispatch(action);
+  const dirty = editor.lastDirtyIds;
   const mapping =
-    dirty === null ? IDENTITY_MAPPING : createPositionMapping(editor.document, next.document, dirty, editor.selection.focus, next.selection.focus);
-  return { next, mapping };
+    dirty === null ? IDENTITY_MAPPING : createPositionMapping(before.document, editor.document, dirty, before.selection.focus, editor.selection.focus);
+  return { next: editor, mapping };
 }
 
-function firstBlock(editor: EditorState): BlockId {
+function firstBlock(editor: Editor): BlockId {
   // The document's first paragraph (the root holds its final section).
   for (const b of iterateLeafBlocksInDocumentOrder(editor.document)) return b.id;
   throw new Error("no block");
 }
 
-function at(editor: EditorState, blockId: BlockId, offset: number): EditorState {
+function at(editor: Editor, blockId: BlockId, offset: number): Editor {
   const p = createPosition(blockId, offset);
-  return reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(p, p) });
+  editor.dispatch({ type: "SET_SELECTION", selection: createSpan(p, p) });
+  return editor;
 }
 
-function textAt(editor: EditorState, pos: Position | null, length: number): string {
+function textAt(editor: Editor, pos: Position | null, length: number): string {
   if (pos === null) throw new Error("unmapped");
   const end = createPosition(pos.blockId, pos.offset + length);
   return extractText(editor.document, createSpan(pos, end));
 }
 
 /** A one-paragraph editor holding `text`, caret at the end. */
-function seeded(text: string): { editor: EditorState; p: BlockId } {
-  let editor = createInitialEditorState(config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text });
+function seeded(text: string): { editor: Editor; p: BlockId } {
+  let editor = createEditor(config);
+  editor.dispatch({ type: "INSERT_TEXT", text });
   return { editor, p: firstBlock(editor) };
 }
 
@@ -131,8 +133,8 @@ describe("createPositionMapping", () => {
 
   it("formatting changes are identity; undo maps back", () => {
     const { editor, p } = seeded("bold me");
-    const sel = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(p, 0), createPosition(p, 4)) });
-    const bold = step(sel, { type: "TOGGLE_STYLE", style: "bold" });
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(p, 0), createPosition(p, 4)) });
+    const bold = step(editor, { type: "TOGGLE_STYLE", style: "bold" });
     expect(bold.mapping.identity).toBe(true);
 
     const typed = step(at(bold.next, p, 0), { type: "INSERT_TEXT", text: "xx" }).next;

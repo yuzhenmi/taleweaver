@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { insertLineBreak, mintLineBreak, markDeletion, deleteRange, createPosition, createSpan, spanStart, spanEnd, clipSpanToText, resolveBlock } from "../../state";
 import type { BlockId, OperationResult, Position, Document, ReplaceSuggestionInput } from "../../state";
@@ -19,7 +19,7 @@ import { caretEdit } from "./helpers/caret-edit";
  * a selection is struck (not deleted). No-op (same editor) for a cross-context /
  * un-deletable selection.
  */
-export function handleInsertLineBreak(editor: EditorState): Edit | null {
+export function handleInsertLineBreak(editor: Editor): Edit | null {
   const { selection } = editor;
   const input = replaceSuggestionInputForBlock(editor, spanStart(editor.document, selection).blockId);
   if (input !== null) return suggestLineBreak(editor, input);
@@ -48,7 +48,7 @@ export function handleInsertLineBreak(editor: EditorState): Edit | null {
  * strike removed the start block's own pending ¶ (the merge keeps the start block's
  * content at the front of the paragraph after it), the caret follows to that survivor.
  */
-function suggestLineBreak(editor: EditorState, input: ReplaceSuggestionInput): Edit | null {
+function suggestLineBreak(editor: Editor, input: ReplaceSuggestionInput): Edit | null {
   const { selection } = editor;
   if (!isCollapsed(selection) && isCrossContextSelection(editor.document, selection)) return null;
   // The break goes at the start of the span's TEXT (after an object start — a covered

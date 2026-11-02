@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import { createPosition, createSpan, spanStart, bookmarkDeletionSpan, clipSpanToText } from "../../state";
@@ -22,7 +22,7 @@ import type { ActionOf } from "../editor-action";
  * NOT the anchor). In suggesting mode this SOFT-deletes (markDeletion stamps the
  * runs, struck text stays).
  */
-export function handleDeleteRange(editor: EditorState, { span }: ActionOf<"DELETE_RANGE">): Edit | null {
+export function handleDeleteRange(editor: Editor, { span }: ActionOf<"DELETE_RANGE">): Edit | null {
   // Normalized, and grown over any atomic mark it only partly covers.
   const norm = expandSpanOverAtomicMarks(editor.document, span);
   const result = deleteRangeOrSuggest(editor, norm);

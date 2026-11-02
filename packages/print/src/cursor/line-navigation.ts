@@ -39,7 +39,7 @@ import { isDevMode } from "@taleweaver/core";
  * which line the caret renders on. The hit-test at the target line's own
  * coordinates already computed the correct side (it picked the target line at
  * the target's block-axis band), so the move THREADS it out to seed
- * `EditorState.caretAffinity` — without it, an offset-shared caret renders with
+ * `Editor.caretAffinity` — without it, an offset-shared caret renders with
  * the default ("after"), which pins to the LATER line, so an ArrowUp across a
  * column/soft-wrap boundary would appear to do nothing. For the common
  * NON-boundary offset the affinity is the same value the caret would have anyway
@@ -66,7 +66,7 @@ type LineMoveResult = {
  * `targetX` is the value to thread into the next vertical move (pass
  * it back as the `targetX` arg) so the caret remembers its column
  * across multiple up/down keystrokes. `caretAffinity` seeds
- * `EditorState.caretAffinity` so an offset shared across a soft-wrap / column
+ * `Editor.caretAffinity` so an offset shared across a soft-wrap / column
  * boundary renders on the line the move landed on — see `LineMoveResult`.
  *
  * Edge cases:

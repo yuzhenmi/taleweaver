@@ -2,7 +2,7 @@
  * Editor-flow integration tests against the new (post-P11 cutover) pipeline.
  *
  * Each test exercises a user-level flow by dispatching EditorAction objects
- * through `reduceEditor` and asserting on the resulting EditorState's
+ * through `reduceEditor` and asserting on the resulting Editor's
  * underlying block tree + selection. These restore some of the integration
  * coverage that was removed in T1 (which deleted 11 editor-flow tests built
  * against legacy types).
@@ -24,7 +24,8 @@ import {
   createPosition,
   createSpan,
   render,
-  type EditorState,
+  type Editor,
+  type EditorSnapshot,
   type EditorConfig,
   type Block,
   type BlockId,
@@ -40,7 +41,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 }
 
 /** Returns the (only) paragraph block in a freshly-created editor. */
-function firstParagraph(editor: EditorState): Block {
+function firstParagraph(editor: Editor): Block {
   // the root holds sections only — descend to the first paragraph.
   const firstId = firstLeafBlock(editor.document, editor.document.rootId);
   if (firstId === null) throw new Error("test setup: no paragraph");
@@ -50,7 +51,7 @@ function firstParagraph(editor: EditorState): Block {
 }
 
 /** Returns the text contents of a leaf block's first text item, or "" if none. */
-function blockText(editor: EditorState, blockId: BlockId): string {
+function blockText(editor: Editor, blockId: BlockId): string {
   const block = getBlock(editor.document, blockId);
   if (block === null || block.inlineContent === null) return "";
   let out = "";
@@ -360,19 +361,19 @@ describe("editor flow: EXPAND_WORD selects the surrounding word", () => {
 });
 
 // The incremental RENDER pipeline (RenderCache + dirtyIds) left core's
-// `EditorState` in Phase 0b — `render()` is now driven by the print backend's
+// `Editor` in Phase 0b — `render()` is now driven by the print backend's
 // LayoutDriver with `{prev, prevDocument, dirtyIds}`, keyed off the geometry-free
 // `editor.lastDirtyIds` core still surfaces after each dispatch. These tests
 // drive that exact seam directly (the same call the driver makes) and assert the
-// same ref-equality the old `EditorState.renderOutput` assertions did.
+// same ref-equality the old `Editor.renderOutput` assertions did.
 describe("R-D incremental pipeline (end-to-end)", () => {
   /** Render `editor.document`, reusing `prev`/`prevDocument` against the just-applied
    *  `editor.lastDirtyIds` (the incremental path the driver takes). */
   function renderIncremental(
-    editor: EditorState,
+    editor: Editor,
     config: EditorConfig,
     prev: RenderOutput,
-    prevState: EditorState,
+    prevState: EditorSnapshot,
   ): RenderOutput {
     if (editor.lastDirtyIds === null) throw new Error("expected a dirty set after the edit");
     return render(editor.document, config.componentRegistry, config.attrRegistry, {
@@ -389,7 +390,7 @@ describe("R-D incremental pipeline (end-to-end)", () => {
     return section !== undefined && section.type === "element" ? section.children[0] : undefined;
   }
 
-  function renderFull(editor: EditorState, config: EditorConfig): RenderOutput {
+  function renderFull(editor: EditorSnapshot, config: EditorConfig): RenderOutput {
     return render(editor.document, config.componentRegistry, config.attrRegistry);
   }
 
@@ -408,7 +409,7 @@ describe("R-D incremental pipeline (end-to-end)", () => {
     // Now editor has two paragraphs. Capture the first paragraph's RenderNode
     // reference, then insert text in the SECOND paragraph and verify the first
     // paragraph's RenderNode is ref-equal across the keystroke's incremental render.
-    const beforeEditor = ctx.editor;
+    const beforeEditor = ctx.editor.snapshot();
     const before = renderFull(beforeEditor, ctx.config);
     const beforeRoot = before.root;
     if (beforeRoot.type !== "element") throw new Error("expected element root");
@@ -450,7 +451,7 @@ describe("R-D incremental pipeline (end-to-end)", () => {
     // Type "X" in the SECOND paragraph.
     ctx = dispatch(ctx, { type: "INSERT_TEXT", text: "X" });
 
-    const beforeEditor = ctx.editor;
+    const beforeEditor = ctx.editor.snapshot();
     const before = renderFull(beforeEditor, ctx.config);
     const beforeRoot = before.root;
     if (beforeRoot.type !== "element") throw new Error("expected element root");

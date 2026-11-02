@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import {
   getBlock,
@@ -41,7 +41,7 @@ type ListType = "ordered" | "unordered";
  * is a no-op returning the same `editor` reference (never calling
  * `history.commit`).
  */
-export function handleToggleList(editor: EditorState, { listType }: ActionOf<"TOGGLE_LIST">): Edit | null {
+export function handleToggleList(editor: Editor, { listType }: ActionOf<"TOGGLE_LIST">): Edit | null {
   const { config } = editor;
   const targets = eligibleTargets(editor);
   if (targets.length === 0) return null;
@@ -134,7 +134,7 @@ export function handleToggleList(editor: EditorState, { listType }: ActionOf<"TO
 }
 
 /** The text-leaf blocks the toggle applies to (paragraph or list-item). */
-function eligibleTargets(editor: EditorState): Block[] {
+function eligibleTargets(editor: Editor): Block[] {
   const { document, selection } = editor;
   if (positionsEqual(selection.anchor, selection.focus)) {
     const focus = getBlock(document, selection.focus.blockId);

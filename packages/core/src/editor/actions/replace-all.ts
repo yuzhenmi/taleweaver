@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { planReplaceMatches, applyReplaceAllPlan, createPosition, createSpan } from "../../state";
 import type { ActionOf } from "../editor-action";
@@ -13,7 +13,7 @@ import type { ActionOf } from "../editor-action";
  * Empty `matches` → no-op (returns `editor` unchanged, identity preserved).
  */
 export function handleReplaceAll(
-  editor: EditorState,
+  editor: Editor,
   { matches, replacement }: ActionOf<"REPLACE_ALL">,
 ): Edit | null {
   if (matches.length === 0) return null;

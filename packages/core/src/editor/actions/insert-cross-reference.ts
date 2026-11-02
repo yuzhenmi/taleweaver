@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import {
   insertCrossReference,
@@ -56,7 +56,7 @@ import type { ActionOf } from "../editor-action";
  * continued typing — the Google-Docs field convention.
  */
 export function handleInsertCrossReference(
-  editor: EditorState,
+  editor: Editor,
   { targetId, refMode, numberStyle }: ActionOf<"INSERT_CROSS_REFERENCE">,
 ): Edit | null {
   const focus = editor.selection.focus;

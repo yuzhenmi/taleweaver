@@ -1,18 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   buildDocumentFromTree,
-  createInitialEditorState,
-  reduceEditor,
-  createPosition,
-  createSpan,
-  getBlock,
+  createEditor,
   type EditorConfig,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   productionAllocator,
   type ContainerBlockNode,
-  type Document,
-} from "@taleweaver/core";
+  type Document, createPosition, createSpan, getBlock } from "@taleweaver/core";
 import { renderDocumentToDom } from "./render-to-dom";
 
 const TEST_RESOLVER = createDefaultComponentRegistry();
@@ -62,19 +57,19 @@ describe("renderDocumentToDom (end-to-end)", () => {
 
   it("an empty paragraph's line takes its ¶ character props (the render strut sentinel, `markAttrs`)", () => {
     const config: EditorConfig = { componentRegistry: components, attrRegistry: attrs, containerWidth: 800 };
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "c" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "a" });
+    editor.dispatch({ type: "SPLIT_NODE" });
+    editor.dispatch({ type: "SPLIT_NODE" });
+    editor.dispatch({ type: "INSERT_TEXT", text: "c" });
     const c = editor.selection.focus.blockId;
     const two = getBlock(editor.document, c)?.prevSiblingId;
     if (two === null || two === undefined) throw new Error("no empty paragraph");
     const plain = renderDocumentToDom(editor.document, components, attrs, document, { stampBlockIds: true });
     expect(plain.querySelector(`[data-block-id="${two}"] > br[data-tw-empty-line]`)?.hasAttribute("style")).toBe(false);
     // Formatting over the empty paragraph's ¶ — (E, 0)–(C, 0) — writes its markAttrs.
-    editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(two, 0), createPosition(c, 0)) });
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 40 });
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(two, 0), createPosition(c, 0)) });
+    editor.dispatch({ type: "SET_FONT_SIZE", size: 40 });
     expect(getBlock(editor.document, two)?.markAttrs).toBeDefined();
     const root = renderDocumentToDom(editor.document, components, attrs, document, { stampBlockIds: true });
     const br = root.querySelector(`[data-block-id="${two}"] > br[data-tw-empty-line]`);
@@ -83,16 +78,16 @@ describe("renderDocumentToDom (end-to-end)", () => {
 
   it("a list marker takes its ¶ character props (`list.markerStyle` from `markAttrs`; Word formats the number with the ¶'s rPr)", () => {
     const config: EditorConfig = { componentRegistry: components, attrRegistry: attrs, containerWidth: 800 };
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "one" });
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
-    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "two" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "one" });
+    editor.dispatch({ type: "SPLIT_NODE" });
+    editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
+    editor.dispatch({ type: "INSERT_TEXT", text: "two" });
     const two = editor.selection.focus.blockId;
     const one = getBlock(editor.document, two)?.prevSiblingId;
     if (one === null || one === undefined) throw new Error("no first item");
-    editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(one, 0), createPosition(two, 3)) });
-    editor = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" });
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(one, 0), createPosition(two, 3)) });
+    editor.dispatch({ type: "TOGGLE_LIST", listType: "ordered" });
     const root = renderDocumentToDom(editor.document, components, attrs, document);
     const markers = Array.from(root.querySelectorAll("[data-tw-marker]")).map((m) => m.getAttribute("style") ?? "");
     expect(markers).toHaveLength(2);

@@ -1,10 +1,10 @@
 /**
  * P1 (live-collab): `reconcileForeignChange(editorState, dirtyIds)` is the
- * editor-level seam that applies a PEER's edit to the local `EditorState`.
+ * editor-level seam that applies a PEER's edit to the local `Editor`.
  *
  * The collab flow: a remote peer mutates the shared `Y.Doc`; the local
  * `subscribeForeignChanges` observer fires with the foreign dirty block ids;
- * the host calls `reconcileForeignChange` to mint a new `EditorState` whose
+ * the host calls `reconcileForeignChange` to mint a new `Editor` whose
  * snapshot cache is invalidated for those blocks (so reads pick up the live
  * Y.Doc mutation) while every unchanged block stays reference-equal, and whose
  * `lastDirtyIds` drives the print backend's incremental relayout. Selection and
@@ -13,7 +13,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { reconcileForeignChange } from "./reconcile-foreign-change";
-import { createEditorStateFromDocument, clearTransientViewState, type EditorState } from "./editor-state";
+import { createEditor, clearTransientViewState } from "./editor";
+import { EDITOR_INTERNAL } from "./editor-internal";
 import { config } from "./actions/test-helpers";
 import { applyOperation, getBlock, createPosition, createSpan } from "../state";
 import { subscribeForeignChanges } from "../state";
@@ -53,7 +54,7 @@ function collapsedAtP1Start() {
 describe("reconcileForeignChange (live-collab P1)", () => {
   it("applies a foreign block edit so the new state reads the live Y.Doc mutation", () => {
     const document = makeDocument();
-    const editor = createEditorStateFromDocument(document, collapsedAtP1Start(), config);
+    const editor = createEditor(config, { document, selection: collapsedAtP1Start() });
 
     // Warm the local cache: the stale snapshot of p1 is "paragraph".
     expect(getBlock(editor.document, asBlockId("p1"))?.type).toBe("paragraph");
@@ -79,16 +80,17 @@ describe("reconcileForeignChange (live-collab P1)", () => {
     const dirtyIds = new Set(dirty);
     expect(dirtyIds.has(asBlockId("p1"))).toBe(true);
 
-    const reconciled = reconcileForeignChange(editor, dirtyIds);
+    const stale = editor.document;
+    reconcileForeignChange(editor, dirtyIds);
 
-    // Stale local state still reads the pre-edit snapshot; reconciled reads live.
-    expect(getBlock(editor.document, asBlockId("p1"))?.type).toBe("paragraph");
-    expect(getBlock(reconciled.document, asBlockId("p1"))?.type).toBe("heading");
+    // The stale Document handle still reads the pre-edit snapshot; the reconciled one reads live.
+    expect(getBlock(stale, asBlockId("p1"))?.type).toBe("paragraph");
+    expect(getBlock(editor.document, asBlockId("p1"))?.type).toBe("heading");
   });
 
   it("keeps an untouched sibling block reference-equal (structural sharing)", () => {
     const document = makeDocument();
-    const editor = createEditorStateFromDocument(document, collapsedAtP1Start(), config);
+    const editor = createEditor(config, { document, selection: collapsedAtP1Start() });
 
     // Warm p2's snapshot in the local cache.
     const p2Before = getBlock(editor.document, asBlockId("p2"));
@@ -102,70 +104,65 @@ describe("reconcileForeignChange (live-collab P1)", () => {
       { origin: "peerA" },
     );
 
-    const reconciled = reconcileForeignChange(editor, new Set([asBlockId("p1")]));
+    reconcileForeignChange(editor, new Set([asBlockId("p1")]));
 
     // p2 was not in dirtyIds → falls through the overlay to the same snapshot object.
-    expect(getBlock(reconciled.document, asBlockId("p2"))).toBe(p2Before);
+    expect(getBlock(editor.document, asBlockId("p2"))).toBe(p2Before);
   });
 
   it("sets lastDirtyIds to the foreign set and passes selection + history through", () => {
     const document = makeDocument();
-    const editor = createEditorStateFromDocument(document, collapsedAtP1Start(), config);
+    const editor = createEditor(config, { document, selection: collapsedAtP1Start() });
     const dirtyIds = new Set([asBlockId("p1")]);
 
-    const reconciled = reconcileForeignChange(editor, dirtyIds);
+    const before = { ...editor[EDITOR_INTERNAL] };
+    reconcileForeignChange(editor, dirtyIds);
 
-    expect(reconciled.lastDirtyIds).toBe(dirtyIds);
-    expect(reconciled.selection).toBe(editor.selection);
-    expect(reconciled.history).toBe(editor.history);
-    expect(reconciled.containerWidth).toBe(editor.containerWidth);
+    expect(editor.lastDirtyIds).toBe(dirtyIds);
+    expect(editor.selection).toBe(before.selection);
+    expect(editor.history).toBe(before.history);
+    expect(editor.containerWidth).toBe(before.containerWidth);
   });
 
   it("clears the stale line-nav goal column + bidi affinities like any document mutation", () => {
     const document = makeDocument();
-    const editor = createEditorStateFromDocument(document, collapsedAtP1Start(), config);
+    const editor = createEditor(config, { document, selection: collapsedAtP1Start() });
     // Seed the view fields a prior vertical-nav / bidi-boundary caret would leave;
     // a foreign edit invalidates all three (resolved against the pre-edit structure).
-    // Typed annotation narrows the affinity literals to CaretAffinity — no cast.
-    const navigated: EditorState = {
-      ...editor,
-      targetX: 42,
-      caretAffinity: "after",
-      anchorAffinity: "before",
-    };
+    editor.dispatch({ type: "SET_SELECTION", selection: editor.selection, targetX: 42, caretAffinity: "after", anchorAffinity: "before" });
+    expect([editor.targetX, editor.caretAffinity, editor.anchorAffinity]).toEqual([42, "after", "before"]);
 
-    const reconciled = reconcileForeignChange(navigated, new Set([asBlockId("p1")]));
+    reconcileForeignChange(editor, new Set([asBlockId("p1")]));
 
-    expect(reconciled.targetX).toBeNull();
-    expect(reconciled.caretAffinity).toBeUndefined();
-    expect(reconciled.anchorAffinity).toBeUndefined();
+    expect(editor.targetX).toBeNull();
+    expect(editor.caretAffinity).toBeUndefined();
+    expect(editor.anchorAffinity).toBeUndefined();
   });
 });
 
 describe("clearTransientViewState (shared stale-on-mutation home)", () => {
   it("clears targetX + bidi affinities, leaving other fields intact", () => {
     const document = makeDocument();
-    const base = createEditorStateFromDocument(document, collapsedAtP1Start(), config);
-    const dirty: EditorState = {
-      ...base,
-      targetX: 42,
-      caretAffinity: "after",
-      anchorAffinity: "before",
-    };
+    const base = createEditor(config, { document, selection: collapsedAtP1Start() });
+    base.dispatch({ type: "SET_SELECTION", selection: base.selection, targetX: 42, caretAffinity: "after", anchorAffinity: "before" });
+    expect([base.targetX, base.caretAffinity, base.anchorAffinity]).toEqual([42, "after", "before"]);
+    const before = { ...base[EDITOR_INTERNAL] };
 
-    const cleared = clearTransientViewState(dirty);
+    clearTransientViewState(base);
 
-    expect(cleared.targetX).toBeNull();
-    expect(cleared.caretAffinity).toBeUndefined();
-    expect(cleared.anchorAffinity).toBeUndefined();
-    expect(cleared.selection).toBe(dirty.selection);
-    expect(cleared.document).toBe(dirty.document);
+    expect(base.targetX).toBeNull();
+    expect(base.caretAffinity).toBeUndefined();
+    expect(base.anchorAffinity).toBeUndefined();
+    expect(base.selection).toBe(before.selection);
+    expect(base.document).toBe(before.document);
   });
 
-  it("returns the SAME reference when nothing is stale (allocation guard)", () => {
+  it("changes nothing when nothing is stale", () => {
     const document = makeDocument();
-    const base = createEditorStateFromDocument(document, collapsedAtP1Start(), config);
+    const base = createEditor(config, { document, selection: collapsedAtP1Start() });
     // A fresh editor has targetX null + both affinities undefined already.
-    expect(clearTransientViewState(base)).toBe(base);
+    const before = { ...base[EDITOR_INTERNAL] };
+    clearTransientViewState(base);
+    expect({ ...base[EDITOR_INTERNAL] }).toEqual(before);
   });
 });

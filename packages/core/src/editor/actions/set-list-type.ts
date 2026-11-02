@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import {
   getBlock,
@@ -27,7 +27,7 @@ type ListType = "ordered" | "unordered";
  * list-items, or one where every touched list already matches, is a no-op
  * returning the same `editor` reference.
  */
-export function handleSetListType(editor: EditorState, { listType }: ActionOf<"SET_LIST_TYPE">): Edit | null {
+export function handleSetListType(editor: Editor, { listType }: ActionOf<"SET_LIST_TYPE">): Edit | null {
   const listIds = distinctSelectedListIds(editor);
   if (listIds.size === 0) return null;
 
@@ -55,7 +55,7 @@ export function handleSetListType(editor: EditorState, { listType }: ActionOf<"S
 }
 
 /** The distinct `listId`s of list-items the selection touches. */
-function distinctSelectedListIds(editor: EditorState): Set<string> {
+function distinctSelectedListIds(editor: Editor): Set<string> {
   const { document, selection } = editor;
   const ids = new Set<string>();
   const addFrom = (block: Block | null): void => {

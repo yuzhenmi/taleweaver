@@ -21,8 +21,7 @@ import {
   config,
   componentRegistry,
   attrRegistry,
-  createInitialEditorState,
-  reduceEditor,
+  createEditor
 } from "../editor/actions/test-helpers";
 import { collectFootnoteAnchors, type FootnoteNumber } from "../footnotes";
 import { FOOTNOTE_ANCHOR_EMBED_TYPE } from "../state";
@@ -40,9 +39,9 @@ function docWithOneFootnote(): {
   contentBlockId: BlockId;
   hostBlockId: BlockId;
 } {
-  let editor = createInitialEditorState(config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
-  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
+  let editor = createEditor(config);
+  editor.dispatch({ type: "INSERT_TEXT", text: "a" });
+  editor.dispatch({ type: "INSERT_FOOTNOTE" });
   const anchors = collectFootnoteAnchors(editor.document);
   if (anchors.length !== 1) {
     throw new Error(`expected exactly one footnote anchor, got ${anchors.length}`);

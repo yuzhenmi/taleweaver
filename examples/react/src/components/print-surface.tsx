@@ -52,7 +52,7 @@ export function PrintSurface({
     (from: Position, to: Position) => viewRef.current?.createAnchor(from, to) ?? null,
     [],
   );
-  const check = useAsyncCheck(editor.editorState, createAnchor);
+  const check = useAsyncCheck(editor.editor, createAnchor);
   // Suggest-edit demo (host proposals) — same as the digital tab.
   const propose = useCallback<Propose>(
     (proposal, options) =>
@@ -60,8 +60,8 @@ export function PrintSurface({
       Promise.resolve({ ok: false, reason: "rejected", problem: { kind: "invalid", message: "not mounted" } }),
     [],
   );
-  const suggest = useSuggestEdit(editor.editorState, propose);
-  useWritingAids(aids, editor.editorState, setDecorations, check.decorations);
+  const suggest = useSuggestEdit(editor.editor, propose);
+  useWritingAids(aids, editor.editor, setDecorations, check.decorations);
 
   // Register the live-state getter for the tab-bar hand-off (stable across renders).
   useEffect(() => {
@@ -89,17 +89,17 @@ export function PrintSurface({
 
   return (
     <>
-      <EditorChrome dispatch={editor.dispatch} editorState={editor.editorState} focus={editor.focus} />
+      <EditorChrome dispatch={editor.dispatch} editor={editor.editor} focus={editor.focus} />
       <WritingAidsToggle checked={aids} onChange={setAids} />
       <ExtensionsHint />
       <AsyncCheckBar check={check} />
-      <SuggestEditBar tool={suggest} editorState={editor.editorState} dispatch={editor.dispatch} />
+      <SuggestEditBar tool={suggest} editor={editor.editor} dispatch={editor.dispatch} />
       <div className="relative flex-1 overflow-y-auto bg-[#f9fbfd]">
         {findMode && viewRef.current && (
           <FindBar
             handle={viewRef.current}
             mode={findMode}
-            editorState={editor.editorState}
+            editor={editor.editor}
             onClose={() => {
               setFindMode(null);
               editor.focus();
@@ -121,7 +121,7 @@ export function PrintSurface({
       </div>
       <WritingAidPopover event={pointer} />
       <MentionPicker
-        editorState={editor.editorState}
+        editor={editor.editor}
         dispatch={editor.dispatch}
         bridge={bridge}
         caretRect={(p) => printCaretRect(viewRef.current, p)}

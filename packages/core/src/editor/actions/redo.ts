@@ -1,7 +1,7 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 
-export function handleRedo(editor: EditorState): Edit | null {
+export function handleRedo(editor: Editor): Edit | null {
   const result = editor.history.redo();
   // `redo()` returns null both when there is nothing to redo and when a redo
   // StackItem was left dead by a non-undoable same-block resolve (mirror of

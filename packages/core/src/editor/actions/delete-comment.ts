@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { deleteComment, createPosition, createSpan, getBlock, COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE, type CommentId, type Position } from "../../state";
 import type { ActionOf } from "../editor-action";
@@ -17,7 +17,7 @@ import type { ActionOf } from "../editor-action";
  * with no stripped markers (the sidebar-driven case — caret elsewhere) the remap is
  * the identity, so the supported path is unchanged.
  */
-export function handleDeleteComment(editor: EditorState, { id }: ActionOf<"DELETE_COMMENT">): Edit | null {
+export function handleDeleteComment(editor: Editor, { id }: ActionOf<"DELETE_COMMENT">): Edit | null {
   const result = deleteComment(editor.document, id);
   if (result.document === editor.document) return null;
   const remap = (p: Position): Position => {
@@ -35,7 +35,7 @@ export function handleDeleteComment(editor: EditorState, { id }: ActionOf<"DELET
  * stripped. Markers are zero-width (one offset unit each), so this is exact; a
  * block with no markers for `id` yields 0 (identity remap).
  */
-function strippedMarkersBefore(editor: EditorState, id: CommentId, pos: Position): number {
+function strippedMarkersBefore(editor: Editor, id: CommentId, pos: Position): number {
   const items = getBlock(editor.document, pos.blockId)?.inlineContent?.items ?? [];
   let running = 0;
   let stripped = 0;

@@ -16,39 +16,37 @@
 import { describe, it, expect } from "vitest";
 import {
   config,
-  createInitialEditorState,
-  reduceEditor,
-  firstChildId,
-  createPosition,
-} from "./test-helpers";
-import { createEditorStateFromDocument, type EditorState } from "../editor-state";
+  createEditor, firstChildId, createPosition } from "./test-helpers";
+import { type Editor } from "../editor";
 import { getBlock } from "../../state";
 import type { BlockId } from "../../state";
 import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 
 describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
   it("collapsed selection: sets lineHeight on the focus block", () => {
-    const initial = createInitialEditorState(config);
-    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    const paraId = firstChildId(editor.document) as BlockId;
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "hi" });
+    const paraId = firstChildId(initial.document) as BlockId;
 
     // Baseline: default (no lineHeight attr).
-    expect(getBlock(editor.document, paraId)?.attrs.lineHeight).toBeUndefined();
+    expect(getBlock(initial.document, paraId)?.attrs.lineHeight).toBeUndefined();
 
-    const next = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 });
+    const before = initial.snapshot();
+    initial.dispatch({ type: "SET_LINE_SPACING", spacing: 2 });
 
-    expect(getBlock(next.document, paraId)?.attrs.lineHeight).toBe(2);
+    expect(getBlock(initial.document, paraId)?.attrs.lineHeight).toBe(2);
     // A real change → new state reference.
-    expect(next.document).not.toBe(editor.document);
+    expect(initial.document).not.toBe(before.document);
   });
 
   it("preserves the selection (line spacing does not move the caret)", () => {
-    const initial = createInitialEditorState(config);
-    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "hi" });
 
-    const next = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 1.5 });
+    const before = initial.snapshot();
+    initial.dispatch({ type: "SET_LINE_SPACING", spacing: 1.5 });
 
-    expect(next.selection).toEqual(editor.selection);
+    expect(initial.selection).toEqual(before.selection);
   });
 
   it("multi-block selection: spaces every covered LEAF, NOT the section/list containers", () => {
@@ -92,22 +90,22 @@ describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
         }),
       ],
     });
-    const editor: EditorState = createEditorStateFromDocument(initialDocument, {
+    const editor: Editor = createEditor(config, { document: initialDocument, selection: {
         anchor: createPosition("p0" as BlockId, 0),
         focus: createPosition("p2" as BlockId, 2),
-      }, config);
+      } });
 
-    const next = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 1.5 });
+    editor.dispatch({ type: "SET_LINE_SPACING", spacing: 1.5 });
 
     // Every LEAF in the span is spaced.
-    expect(getBlock(next.document, "p0" as BlockId)?.attrs.lineHeight).toBe(1.5);
-    expect(getBlock(next.document, "li" as BlockId)?.attrs.lineHeight).toBe(1.5);
-    expect(getBlock(next.document, "p2" as BlockId)?.attrs.lineHeight).toBe(1.5);
+    expect(getBlock(editor.document, "p0" as BlockId)?.attrs.lineHeight).toBe(1.5);
+    expect(getBlock(editor.document, "li" as BlockId)?.attrs.lineHeight).toBe(1.5);
+    expect(getBlock(editor.document, "p2" as BlockId)?.attrs.lineHeight).toBe(1.5);
 
     // Containers are NOT spaced: their attrs are untouched.
-    expect(getBlock(next.document, "sec" as BlockId)?.attrs.lineHeight).toBeUndefined();
+    expect(getBlock(editor.document, "sec" as BlockId)?.attrs.lineHeight).toBeUndefined();
     // The flat list-item is a leaf, so it gets spaced; its list attrs are kept.
-    expect(getBlock(next.document, "li" as BlockId)?.attrs).toEqual({
+    expect(getBlock(editor.document, "li" as BlockId)?.attrs).toEqual({
       listId: "L1",
       listLevel: 0,
       lineHeight: 1.5,
@@ -115,33 +113,36 @@ describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
   });
 
   it("undo restores the prior line spacing", () => {
-    const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "hi" });
+    let editor = initial;
     const paraId = firstChildId(editor.document) as BlockId;
 
     // First set to 1.15 so the prior spacing is a concrete value.
-    editor = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 1.15 });
+    editor.dispatch({ type: "SET_LINE_SPACING", spacing: 1.15 });
     expect(getBlock(editor.document, paraId)?.attrs.lineHeight).toBe(1.15);
 
-    const doubled = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 });
-    expect(getBlock(doubled.document, paraId)?.attrs.lineHeight).toBe(2);
+    editor.dispatch({ type: "SET_LINE_SPACING", spacing: 2 });
+    expect(getBlock(editor.document, paraId)?.attrs.lineHeight).toBe(2);
 
-    const undone = reduceEditor(doubled, { type: "UNDO" });
-    expect(getBlock(undone.document, paraId)?.attrs.lineHeight).toBe(1.15);
+    editor.dispatch({ type: "UNDO" });
+    expect(getBlock(editor.document, paraId)?.attrs.lineHeight).toBe(1.15);
   });
 
   it("no-op: setting the spacing a block already has returns the same editor", () => {
-    const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
-    editor = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 });
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "hi" });
+    let editor = initial;
+    editor.dispatch({ type: "SET_LINE_SPACING", spacing: 2 });
 
-    const again = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 });
+    const before = editor.snapshot();
+    editor.dispatch({ type: "SET_LINE_SPACING", spacing: 2 });
 
     // No commit, no state change (the identity-no-op contract). Phase 0b: the no-op
     // identity is `document` reference equality — the editor OBJECT differs because
     // the dispatch entry-clear strips the prior mutating action's stale
     // `lastDirtyIds` hint (the SET_LINE_SPACING above set a non-null set).
-    expect(again.document).toBe(editor.document);
-    expect(again.lastDirtyIds).toBeNull();
+    expect(editor.document).toBe(before.document);
+    expect(editor.lastDirtyIds).toBeNull();
   });
 });

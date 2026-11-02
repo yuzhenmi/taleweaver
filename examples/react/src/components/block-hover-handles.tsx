@@ -8,7 +8,7 @@ import {
   inlineContentLength,
   type BlockId,
   type EditorAction,
-  type EditorState,
+  type Editor,
   type Document,
 } from "@taleweaver/core";
 
@@ -104,12 +104,12 @@ function blockAtY(wrapper: HTMLElement, document: Document, clientY: number): Ho
  */
 export function BlockHoverHandles({
   dispatch,
-  editorState,
+  editor,
   containerRef,
   focus,
 }: {
   dispatch: Dispatch<EditorAction>;
-  editorState: EditorState;
+  editor: Editor;
   containerRef: React.RefObject<HTMLDivElement | null>;
   focus: () => void;
 }) {
@@ -121,8 +121,8 @@ export function BlockHoverHandles({
   const clusterRef = useRef<HTMLDivElement>(null);
 
   // Live refs for the window/wrapper listeners (which close over a stale render).
-  const documentRef = useRef<Document>(editorState.document);
-  documentRef.current = editorState.document;
+  const documentRef = useRef<Document>(editor.document);
+  documentRef.current = editor.document;
   const hoveredRef = useRef<Hovered | null>(hovered);
   hoveredRef.current = hovered;
   const menuOpenRef = useRef<boolean>(menu !== null);

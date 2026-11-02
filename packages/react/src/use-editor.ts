@@ -1,15 +1,12 @@
-import { useReducer, useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useCallback, useState, useSyncExternalStore } from "react";
 import {
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
-  createInitialEditorState,
-  createEditorStateFromDocument,
-  initialSelectionForDocument,
-  reduceEditor,
+  createEditor,
   createDocument,
   getYDoc,
   type EditorAction,
-  type EditorState,
+  type Editor,
   type EditorConfig,
   type AttrRegistry,
   type EditorExtensions,
@@ -25,7 +22,7 @@ export interface UseEditorOptions {
   /**
    * The attribute registry (built-in formatting + any host marks registered with
    * `registerMark`). Default: `createDefaultAttrRegistry()`. Like every option here it
-   * lands on `editorState.config`, which the reducer and the print controller both read.
+   * lands on `editor.config`, which the reducer and the print controller both read.
    */
   readonly attrRegistry?: AttrRegistry;
   /** Host extensions (commands, keymap, input rules, triggers). */
@@ -42,8 +39,7 @@ export interface UseEditorOptions {
    * ("legacy-schema") also resumes BY ITSELF once it is upgraded (`upgradeDocument`,
    * single authority): the hook replaces it with a fresh Document over the same Y.Doc. The halt
    * reaches the hook from the `EditorView` it drives automatically — linked through the
-   * hook's OWN `dispatch`, so pass the returned `dispatch` to the view unwrapped (a
-   * wrapper breaks the link; dev builds warn). Called once per halt; the hook mirrors the
+   * hook's `editor`, which the view receives. Called once per halt; the hook mirrors the
    * controller, so it halts (and calls this) again when legacy storage returns before a
    * resume reaches the controller, or the controller refuses a replacement.
    */
@@ -52,35 +48,35 @@ export interface UseEditorOptions {
 
 /**
  * @internal The link between a `useEditor` hook and the `EditorView` it drives, keyed by
- * the hook's stable `dispatch` (which every view receives): the view reports a halt and
- * a document that became compatible again to the hook, and reads whether the hook is
- * halted (a halted hook's state is never handed to a controller).
+ * every `Editor` the hook created (the view receives one): the view reports a halt and a
+ * document that became compatible again to the hook, and reads whether the hook is
+ * halted (a halted hook's editor is never handed to a controller).
  */
 export interface HaltLink {
   readonly halted: () => boolean;
   readonly onIncompatibleDocument: (report: IncompatibleDocumentReport) => void;
   readonly onDocumentCompatible: () => void;
 }
-const haltLinks = new WeakMap<object, HaltLink>();
+const haltLinks = new WeakMap<Editor, HaltLink>();
 
-/** @internal The halt link of the hook that owns `dispatch`, if any. */
-export function haltLinkOf(dispatch: object): HaltLink | undefined {
-  return haltLinks.get(dispatch);
+/** @internal The halt link of the hook that created `editor`, if any. */
+export function haltLinkOf(editor: Editor): HaltLink | undefined {
+  return haltLinks.get(editor);
 }
 
-/** Every EditorState a hook handed out → that hook's `dispatch` (dev-time link check). */
-const stateOwners = new WeakMap<EditorState, object>();
-
-/**
- * @internal The `dispatch` of the `useEditor` hook that produced `editorState`, if any —
- * a view given a hook's state with ANOTHER dispatch (e.g. a wrapper) is not linked.
- */
-export function hookDispatchOf(editorState: EditorState): object | undefined {
-  return stateOwners.get(editorState);
+/** An editor and a counter its subscription bumps: the snapshot `useSyncExternalStore` reads. */
+interface Tracked {
+  readonly editor: Editor;
+  version: number;
 }
 
-/** A reducer message: an editor action, or a whole-document replacement. */
-type EditorMessage = EditorAction | { readonly type: "react.replaceDocument"; readonly editorState: EditorState };
+function track(editor: Editor): Tracked {
+  const tracked: Tracked = { editor, version: 0 };
+  editor.subscribe(() => {
+    tracked.version++;
+  });
+  return tracked;
+}
 
 function createConfig(options?: UseEditorOptions): EditorConfig {
   // Pass createCanvasShaper directly. The legacy
@@ -120,28 +116,28 @@ export function useEditor(options?: UseEditorOptions) {
   }
   const shaper = shaperRef.current;
 
-  const [editorState, send] = useReducer(
-    (state: EditorState, message: EditorMessage) =>
-      message.type === "react.replaceDocument" ? message.editorState : reduceEditor(state, message),
-    config,
-    createInitialEditorState,
-  );
-  const stateRef = useRef(editorState);
-  stateRef.current = editorState;
+  // The ONE editor (replaced only by `replaceDocument`). It changes in place; the hook
+  // re-renders from its subscription.
+  const [tracked, setTracked] = useState(() => track(createEditor(config)));
+  const editor = tracked.editor;
+  const subscribe = useCallback((onChange: () => void) => tracked.editor.subscribe(onChange), [tracked]);
+  useSyncExternalStore(subscribe, () => tracked.version);
+  const editorRef = useRef(editor);
+  editorRef.current = editor;
   // The LIVE history, updated synchronously by `replaceDocument` (the render-time
-  // `stateRef` lags until React re-renders, so two replacements in one batch would
+  // `editorRef` lags until React re-renders, so two replacements in one batch would
   // destroy the same history twice and leak the first replacement's).
-  const historyRef = useRef(editorState.history);
+  const historyRef = useRef(editor.history);
 
   // HALTED mirrors the print controller's (spread `onIncompatibleDocument` into
-  // `EditorView`): while halted no action reaches the reducer (it would read the
+  // `EditorView`): while halted no action reaches the editor (it would read the
   // incompatible document).
   const [halted, setHalted] = useState(false);
   const haltedRef = useRef(false);
   const hostHook = useRef(options?.onIncompatibleDocument);
   hostHook.current = options?.onIncompatibleDocument;
   const dispatch = useCallback((action: EditorAction) => {
-    if (!haltedRef.current) send(action);
+    if (!haltedRef.current) editorRef.current.dispatch(action);
   }, []);
   /** Why the hook halted: only a not-yet-upgraded document ("legacy-schema") resumes on its own. */
   const haltReasonRef = useRef<IncompatibleDocumentReport["reason"] | null>(null);
@@ -152,31 +148,31 @@ export function useEditor(options?: UseEditorOptions) {
     setHalted(true);
     hostHook.current?.(report);
   }, []);
-  /** Show another document (fresh history, caret at its start) — also how a halted editor resumes. */
+  /** Show another document (a new editor: fresh history, caret at its start) — also how a halted editor resumes. */
   const replaceDocument = useCallback(
     (document: Document) => {
-      const next = createEditorStateFromDocument(document, initialSelectionForDocument(document), config);
+      const next = createEditor(config, { document });
       historyRef.current.destroy(); // detach the old document's undo manager
       historyRef.current = next.history;
+      haltLinks.set(next, linkRef.current);
+      editorRef.current = next;
       haltedRef.current = false;
       setHalted(false);
-      send({ type: "react.replaceDocument", editorState: next });
+      setTracked(track(next));
     },
     [config],
   );
-  // Halted on a NOT-YET-UPGRADED document that is now upgraded: the hook owns the state,
+  // Halted on a NOT-YET-UPGRADED document that is now upgraded: the hook owns the editor,
   // so it resumes by replacing it with a fresh Document over it. A sticky halt (a legacy
   // write, a newer schema, a second Yjs instance) never resumes on its own — even when a
   // view re-created while halted reports its (already current) document compatible.
   const onDocumentCompatible = useCallback(() => {
     if (!haltedRef.current || haltReasonRef.current !== "legacy-schema") return;
-    const halted = stateRef.current.document;
+    const halted = editorRef.current.document;
     replaceDocument(createDocument({ rootId: halted.rootId, doc: getYDoc(halted), resolver: config.componentRegistry }));
   }, [replaceDocument, config]);
-  if (!haltLinks.has(dispatch)) {
-    haltLinks.set(dispatch, { halted: () => haltedRef.current, onIncompatibleDocument, onDocumentCompatible });
-  }
-  stateOwners.set(editorState, dispatch);
+  const linkRef = useRef<HaltLink>({ halted: () => haltedRef.current, onIncompatibleDocument, onDocumentCompatible });
+  if (!haltLinks.has(editor)) haltLinks.set(editor, linkRef.current);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -203,7 +199,7 @@ export function useEditor(options?: UseEditorOptions) {
   }, []);
 
   return {
-    editorState,
+    editor,
     dispatch,
     containerRef,
     shaper,

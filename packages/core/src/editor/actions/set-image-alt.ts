@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs } from "../../state";
 import type { ActionOf } from "../editor-action";
@@ -24,7 +24,7 @@ import type { ActionOf } from "../editor-action";
  * already-unlabeled image). Selection is UNCHANGED. One undo entry.
  */
 export function handleSetImageAlt(
-  editor: EditorState,
+  editor: Editor,
   { blockId, alt }: ActionOf<"SET_IMAGE_ALT">,
 ): Edit | null {
   const block = getBlock(editor.document, blockId);

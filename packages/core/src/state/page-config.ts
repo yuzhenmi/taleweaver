@@ -4,7 +4,7 @@
 // geometry: page setup round-trips with the document (Google Docs File ▸ Page
 // setup; Word per-section; .docx). It lives in `state/` (mode-agnostic, no
 // `layout/` dependency) so core's `EditorConfig` can carry it — read by
-// `toggle-section-landscape` AND, from the same `EditorState.config`, by the print
+// `toggle-section-landscape` AND, from the same `Editor.config`, by the print
 // backend's layout-driver for pagination. The
 // `layout/page-config.ts` file re-exports these for back-compat.
 

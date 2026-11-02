@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as core from "@taleweaver/core";
-import { createEditorController, type EditorController } from "./index";
+import { createEditorController } from "./index";
 
 const SELECTION_FILL = "rgba(59, 130, 246, 0.3)";
 
@@ -54,16 +54,13 @@ function mount(object: core.EditorAction) {
     attrRegistry: core.createDefaultAttrRegistry(),
     containerWidth: 600,
   };
-  let editor = core.reduceEditor(core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "abcd" }), object);
+  const editor = core.createEditor(cfg);
+  editor.dispatch({ type: "INSERT_TEXT", text: "abcd" });
+  editor.dispatch(object);
   const container = document.createElement("div");
   document.body.appendChild(container);
-  let controller: EditorController | null = null;
-  const dispatch = (a: core.EditorAction): void => {
-    editor = core.reduceEditor(editor, a);
-    controller?.update(editor);
-  };
-  controller = createEditorController(container, { measurer: core.createMockMeasurer(8, 16), dispatch, accessibilityMirror: true });
-  controller.update(editor);
+  const dispatch = (a: core.EditorAction): void => editor.dispatch(a);
+  const controller = createEditorController(container, { measurer: core.createMockMeasurer(8, 16), editor, accessibilityMirror: true });
   const st = editor.document;
   const first = core.firstLeafBlock(st, st.rootId);
   const section = first === null ? null : core.getBlock(st, first)?.parentId ?? null;

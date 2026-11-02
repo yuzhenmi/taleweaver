@@ -3,22 +3,21 @@
  * editor-level "open / save" operations over the engine's
  * `serializeDocument` / `deserializeDocument`. `exportDocument` serializes the
  * editor's current `Document`; `loadDocument` deserializes bytes into a FRESH
- * `EditorState` (fresh `History` + a valid initial caret + full
+ * `Editor` (fresh `History` + a valid initial caret + full
  * render/cascade/layout).
  *
  * Also covers the shared `initialSelectionForDocument` caret-derivation helper:
- * both `createInitialEditorState` (empty doc) and `loadDocument` (arbitrary
+ * both `createEditor` (empty doc) and `loadDocument` (arbitrary
  * deserialized doc) derive the initial collapsed caret through it, on the first
  * CONTENT-bearing leaf (robust against a first child that is a container, e.g.
  * a section wrapping a paragraph).
  */
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import { config, reduceEditor } from "./actions/test-helpers";
+import { config } from "./actions/test-helpers";
 import {
-  createInitialEditorState,
-  createEditorStateFromDocument,
-} from "./editor-state";
+  createEditor
+} from "./editor";
 import { exportDocument, loadDocument } from "./document-io";
 import { initialSelectionForDocument } from "./actions";
 import {
@@ -136,11 +135,7 @@ function sectionWrappedDocument(): Document {
 describe("document-io — exportDocument / loadDocument", () => {
   it("export → load round-trip preserves the document", () => {
     const document = twoParagraphDocument();
-    const editor = createEditorStateFromDocument(
-      document,
-      initialSelectionForDocument(document),
-      config,
-    );
+    const editor = createEditor(config, { document });
     const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
     const bytes = exportDocument(editor, BINARY_FORMAT, reg);
     const loaded = loadDocument(bytes, BINARY_FORMAT, reg, config);
@@ -152,11 +147,7 @@ describe("document-io — exportDocument / loadDocument", () => {
 
   it("loadDocument places a valid collapsed initial caret on a content leaf", () => {
     const document = twoParagraphDocument();
-    const editor = createEditorStateFromDocument(
-      document,
-      initialSelectionForDocument(document),
-      config,
-    );
+    const editor = createEditor(config, { document });
     const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
     const bytes = exportDocument(editor, BINARY_FORMAT, reg);
     const loaded = loadDocument(bytes, BINARY_FORMAT, reg, config);
@@ -175,8 +166,8 @@ describe("document-io — exportDocument / loadDocument", () => {
   it("loadDocument gives a fresh, independent History (cannot undo into the exporting edits)", () => {
     // Build content via the editor pipeline so the EXPORTING editor has a
     // non-empty undo history; the loaded editor must NOT inherit it.
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "history" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "history" });
     expect(editor.history.canUndo()).toBe(true);
 
     const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
@@ -190,18 +181,14 @@ describe("document-io — exportDocument / loadDocument", () => {
 
   it("loadDocument yields a live, editable editor (INSERT_TEXT round-trips through the full pipeline)", () => {
     const document = twoParagraphDocument();
-    const editor = createEditorStateFromDocument(
-      document,
-      initialSelectionForDocument(document),
-      config,
-    );
+    const editor = createEditor(config, { document });
     const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
     const bytes = exportDocument(editor, BINARY_FORMAT, reg);
     const loaded = loadDocument(bytes, BINARY_FORMAT, reg, config);
 
     const caretBlockId = loaded.selection.anchor.blockId;
-    const edited = reduceEditor(loaded, { type: "INSERT_TEXT", text: "X" });
-    const editedBlock = getBlock(edited.document, caretBlockId);
+    loaded.dispatch({ type: "INSERT_TEXT", text: "X" });
+    const editedBlock = getBlock(loaded.document, caretBlockId);
     expect(editedBlock).not.toBeNull();
     const text = editedBlock?.inlineContent?.items
       .map((it) => (it.kind === "text" ? it.text : ""))
@@ -210,7 +197,7 @@ describe("document-io — exportDocument / loadDocument", () => {
   });
 
   it("exportDocument throws UnknownSerializerFormatError for an unregistered format", () => {
-    const editor = createInitialEditorState(config);
+    const editor = createEditor(config);
     const emptyReg = createSerializerRegistry();
     expect(() => exportDocument(editor, BINARY_FORMAT, emptyReg)).toThrow(
       UnknownSerializerFormatError,
@@ -220,7 +207,7 @@ describe("document-io — exportDocument / loadDocument", () => {
   it("loadDocument throws UnknownSerializerFormatError for an unregistered format", () => {
     // Produce valid bytes via a populated registry, then attempt to load with
     // an empty one — the format lookup fails before any decode.
-    const editor = createInitialEditorState(config);
+    const editor = createEditor(config);
     const fullReg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
     const bytes = serializeDocument(editor.document, BINARY_FORMAT, fullReg);
     const emptyReg = createSerializerRegistry();
@@ -245,7 +232,7 @@ describe("document-io — exportDocument / loadDocument", () => {
 
 describe("initialSelectionForDocument — robust caret derivation", () => {
   it("empty document: caret on the seeded paragraph (a content leaf)", () => {
-    const editor = createInitialEditorState(config);
+    const editor = createEditor(config);
     const sel = editor.selection;
     expect(sel.anchor.blockId).toBe(sel.focus.blockId);
     expect(sel.anchor.offset).toBe(0);

@@ -5,7 +5,7 @@ import type { TextShaper, TextMeasurer, Hyphenator } from "@taleweaver/core";
  * render → cascade → layout pipeline it owns: the GEOMETRY (print text-shaping)
  * fields that are not part of core's `EditorConfig` — core's reducer never sees them.
  * Everything document-side (component / attr registries, page setup) the driver reads
- * from the `EditorState` it rebuilds (`editor.config`), the single source the reducer
+ * from the `Editor` it rebuilds (`editor.config`), the single source the reducer
  * also runs with.
  */
 export interface LayoutConfig {

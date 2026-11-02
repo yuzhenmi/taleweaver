@@ -4,11 +4,10 @@ import {
   currentTransactionOrigin,
   UntrackedOrigin,
 } from "../../state";
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { ActionOf } from "../editor-action";
 import {
   applyProposal,
-  chainOutcome,
   mapProposal,
   mappingSince,
   validateProposal,
@@ -33,10 +32,10 @@ import {
  * kept. The verdict is `lastProposal`.
  */
 export function handlePropose(
-  editor: EditorState,
+  editor: Editor,
   { proposal: input, basedOn }: ActionOf<"PROPOSE">,
 ): Edit | null {
-  const outcomeOf = (verdict: Verdict): ProposalOutcome => chainOutcome(editor.lastProposal, { ...verdict, proposal: input });
+  const outcomeOf = (verdict: Verdict): ProposalOutcome => ({ ...verdict, proposal: input });
   const verdict = (v: Verdict): Edit => ({ proposal: outcomeOf(v) });
   let proposal = input;
   if (basedOn !== undefined && basedOn !== editor.document) {

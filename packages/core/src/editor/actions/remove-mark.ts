@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { iterateSpan, blockMarkRanges, markEqualityOf, deepValueEqual, createPosition, createSpan } from "../../state";
 import type { Span, ReadonlyAttrs, Document } from "../../state";
@@ -45,7 +45,7 @@ function removalDeltas(
  * every value otherwise.
  */
 export function handleRemoveMark(
-  editor: EditorState,
+  editor: Editor,
   { key, value, span }: ActionOf<"REMOVE_MARK">,
 ): Edit | null {
   const target = usableSpan(editor, span);

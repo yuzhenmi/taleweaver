@@ -20,8 +20,7 @@
 // span endpoints are unambiguous.
 
 import { describe, it, expect } from "vitest";
-import { reduceEditor } from "../reduce-editor";
-import { type EditorState, createEditorStateFromDocument } from "../editor-state";
+import { type Editor, createEditor } from "../editor";
 import { type EditorConfig } from "../editor-config";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
@@ -137,26 +136,26 @@ function buildMainOnlyDocument(): Document {
   });
 }
 
-function buildEditor(document: Document, caret: { blockId: BlockId; offset: number }): EditorState {
+function buildEditor(document: Document, caret: { blockId: BlockId; offset: number }): Editor {
   // Phase 0b: SELECT_ALL is context-aware but reads no layout — geometry-free.
   const cursor = createPosition(caret.blockId, caret.offset);
-  return createEditorStateFromDocument(document, createSpan(cursor, cursor), config);
+  return createEditor(config, { document, selection: createSpan(cursor, cursor) });
 }
 
 describe("SELECT_ALL — context-aware span", () => {
   it("caret in the MAIN body selects the whole main tree (first→last main leaf)", () => {
     const editor = buildEditor(buildDocumentWithHeaderFooter(), { blockId: BODY_P1, offset: 2 });
-    const next = reduceEditor(editor, { type: "SELECT_ALL" });
+    editor.dispatch({ type: "SELECT_ALL" });
 
-    const { anchor, focus } = next.selection;
+    const { anchor, focus } = editor.selection;
     // Both endpoints are MAIN-tree blocks.
     expect(anchor.blockId).toBe(BODY_P1);
     expect(anchor.offset).toBe(0);
     expect(focus.blockId).toBe(BODY_P2);
     expect(focus.offset).toBe("body two".length);
     // The whole span is in the main context.
-    expect(selectionContextOf(next.document, anchor.blockId)).toBe(next.document.rootId);
-    expect(selectionContextOf(next.document, focus.blockId)).toBe(next.document.rootId);
+    expect(selectionContextOf(editor.document, anchor.blockId)).toBe(editor.document.rootId);
+    expect(selectionContextOf(editor.document, focus.blockId)).toBe(editor.document.rootId);
     // Does NOT touch the header/footer.
     expect(anchor.blockId).not.toBe(HDR_P1);
     expect(focus.blockId).not.toBe(HDR_P2);
@@ -165,18 +164,18 @@ describe("SELECT_ALL — context-aware span", () => {
 
   it("caret in a HEADER body selects ONLY that header (first→last header leaf)", () => {
     const editor = buildEditor(buildDocumentWithHeaderFooter(), { blockId: HDR_P1, offset: 1 });
-    const next = reduceEditor(editor, { type: "SELECT_ALL" });
+    editor.dispatch({ type: "SELECT_ALL" });
 
-    const { anchor, focus } = next.selection;
+    const { anchor, focus } = editor.selection;
     // Both endpoints are in the HEADER body.
     expect(anchor.blockId).toBe(HDR_P1);
     expect(anchor.offset).toBe(0);
     expect(focus.blockId).toBe(HDR_P2);
     expect(focus.offset).toBe("beta".length);
     // Whole span is in the header context, NOT the main body.
-    expect(selectionContextOf(next.document, anchor.blockId)).toBe(HDR_ROOT);
-    expect(selectionContextOf(next.document, focus.blockId)).toBe(HDR_ROOT);
-    expect(selectionContextOf(next.document, anchor.blockId)).not.toBe(next.document.rootId);
+    expect(selectionContextOf(editor.document, anchor.blockId)).toBe(HDR_ROOT);
+    expect(selectionContextOf(editor.document, focus.blockId)).toBe(HDR_ROOT);
+    expect(selectionContextOf(editor.document, anchor.blockId)).not.toBe(editor.document.rootId);
     // Does NOT include the main body or the footer.
     expect(anchor.blockId).not.toBe(BODY_P1);
     expect(focus.blockId).not.toBe(BODY_P2);
@@ -185,15 +184,15 @@ describe("SELECT_ALL — context-aware span", () => {
 
   it("caret in a FOOTER body selects ONLY that footer", () => {
     const editor = buildEditor(buildDocumentWithHeaderFooter(), { blockId: FTR_P1, offset: 3 });
-    const next = reduceEditor(editor, { type: "SELECT_ALL" });
+    editor.dispatch({ type: "SELECT_ALL" });
 
-    const { anchor, focus } = next.selection;
+    const { anchor, focus } = editor.selection;
     expect(anchor.blockId).toBe(FTR_P1);
     expect(anchor.offset).toBe(0);
     expect(focus.blockId).toBe(FTR_P1);
     expect(focus.offset).toBe("footer text".length);
-    expect(selectionContextOf(next.document, anchor.blockId)).toBe(FTR_ROOT);
-    expect(selectionContextOf(next.document, focus.blockId)).toBe(FTR_ROOT);
+    expect(selectionContextOf(editor.document, anchor.blockId)).toBe(FTR_ROOT);
+    expect(selectionContextOf(editor.document, focus.blockId)).toBe(FTR_ROOT);
     // Does NOT include the main body or the header.
     expect(anchor.blockId).not.toBe(BODY_P1);
     expect(focus.blockId).not.toBe(HDR_P2);
@@ -201,9 +200,9 @@ describe("SELECT_ALL — context-aware span", () => {
 
   it("NO-REGRESSION: main-only doc spans the whole main tree", () => {
     const editor = buildEditor(buildMainOnlyDocument(), { blockId: BODY_P1, offset: 1 });
-    const next = reduceEditor(editor, { type: "SELECT_ALL" });
+    editor.dispatch({ type: "SELECT_ALL" });
 
-    const { anchor, focus } = next.selection;
+    const { anchor, focus } = editor.selection;
     expect(anchor.blockId).toBe(BODY_P1);
     expect(anchor.offset).toBe(0);
     expect(focus.blockId).toBe(BODY_P2);

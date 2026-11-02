@@ -2,7 +2,7 @@
 //
 // Phase 0b slice 3 (D2a), Step 1. The backend layout-driver owns the
 // render → cascade → layout pipeline that used to live inside core's
-// `rebuildTrees` / `createEditorStateFromDocument`. These tests prove the driver
+// `rebuildTrees` / `createEditor`. These tests prove the driver
 // is a faithful relocation:
 //   1. `rebuild(editor)` with no dirty set (a full build) produces a layout tree
 //      structurally equal to core's own `editorState.layoutTree` oracle.
@@ -12,7 +12,7 @@
 // Real core (no `@taleweaver/core` mock): the driver IS core's pipeline.
 
 import { describe, it, expect } from "vitest";
-import { createInitialEditorState, reduceEditor, createSpan, createPosition, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockMeasurer, render, cascadePass, makeBlockParentLookup, type EditorConfig, type EditorState, type PageConfig } from "@taleweaver/core";
+import { createEditor, type EditorConfig, type Editor, type PageConfig, createSpan, createPosition, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockMeasurer, render, cascadePass, makeBlockParentLookup } from "@taleweaver/core";
 import { layoutTreeIncremental, type LayoutBox, type VirtualLayoutTree, type PageBox } from "../index";
 import { createLayoutDriver } from "./layout-driver";
 import type { LayoutConfig } from "./layout-config";
@@ -48,7 +48,7 @@ const LAYOUT_CONFIG: LayoutConfig = { measurer };
  * + parent-lookup the driver does so the trees are byte-comparable.
  */
 function coreLayoutOracle(
-  editor: EditorState,
+  editor: Editor,
   config: EditorConfig,
 ): LayoutBox | VirtualLayoutTree {
   const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
@@ -100,13 +100,13 @@ function fingerprint(box: { type: string; children?: readonly unknown[] } & Reco
 }
 
 describe("createLayoutDriver — Phase 0b relocation of the layout pipeline", () => {
-  it("full rebuild (null dirtyIds) matches core's editorState.layoutTree oracle", () => {
+  it("full rebuild (null dirtyIds) matches core's layoutTree oracle", () => {
     const config = makeConfig();
     // A multi-paragraph doc so pagination actually splits across pages.
-    let editor = createInitialEditorState(config);
+    let editor = createEditor(config);
     for (let i = 0; i < 40; i++) {
-      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `Paragraph ${i} text` });
-      editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+      editor.dispatch({ type: "INSERT_TEXT", text: `Paragraph ${i} text` });
+      editor.dispatch({ type: "SPLIT_NODE" });
     }
 
     const oracle = coreLayoutOracle(editor, config);
@@ -128,16 +128,17 @@ describe("createLayoutDriver — Phase 0b relocation of the layout pipeline", ()
 
   it("a selection-only update (same Document, same width, no dirty set) returns the prior tree: a caret move never re-lays-out the document (O(1) per caret move)", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "Some text" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "Some text" });
     const driver = createLayoutDriver(LAYOUT_CONFIG);
     const first = driver.rebuild(editor);
-    const moved = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(editor.selection.focus.blockId, 1), createPosition(editor.selection.focus.blockId, 1)) });
-    expect(moved.document).toBe(editor.document);
-    expect(moved.lastDirtyIds).toBeNull();
-    expect(driver.rebuild(moved)).toBe(first);
+    const before = editor.document;
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(editor.selection.focus.blockId, 1), createPosition(editor.selection.focus.blockId, 1)) });
+    expect(editor.document).toBe(before);
+    expect(editor.lastDirtyIds).toBeNull();
+    expect(driver.rebuild(editor)).toBe(first);
     // A width change still rebuilds.
-    const widened = { ...moved, containerWidth: moved.containerWidth + 10 };
+    const widened = { document: editor.document, config: editor.config, lastDirtyIds: editor.lastDirtyIds, containerWidth: editor.containerWidth + 10 };
     const second = driver.rebuild(widened);
     expect(second).not.toBe(first);
     // So does a page-setup change on the editor's config (same Document, width, no dirty set).
@@ -147,10 +148,10 @@ describe("createLayoutDriver — Phase 0b relocation of the layout pipeline", ()
 
   it("incremental rebuild reuses an unchanged page by reference, rebuilds the edited one", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
+    let editor = createEditor(config);
     for (let i = 0; i < 40; i++) {
-      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `Paragraph ${i} text` });
-      editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+      editor.dispatch({ type: "INSERT_TEXT", text: `Paragraph ${i} text` });
+      editor.dispatch({ type: "SPLIT_NODE" });
     }
 
     const driver = createLayoutDriver(LAYOUT_CONFIG);
@@ -162,8 +163,8 @@ describe("createLayoutDriver — Phase 0b relocation of the layout pipeline", ()
     const firstPageBefore = tree1.getPage(0);
 
     // Edit at the END of the document (last block), then incrementally rebuild.
-    const before = editor;
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" });
+    const before = editor.snapshot();
+    editor.dispatch({ type: "INSERT_TEXT", text: "X" });
     expect(editor.lastDirtyIds).not.toBeNull();
     const dirty = editor.lastDirtyIds;
     expect(dirty).not.toBeNull();

@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { addComment, spanStart, spanEnd, selectionContextOf, comparePositions, createPosition, createSpan } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
@@ -42,7 +42,7 @@ import type { ActionOf } from "../editor-action";
  * selection stays forward and a backward one stays backward.
  */
 export function handleAddComment(
-  editor: EditorState,
+  editor: Editor,
   { id, author, body, createdAt }: ActionOf<"ADD_COMMENT">,
 ): Edit | null {
   // A comment needs a range, not a caret.

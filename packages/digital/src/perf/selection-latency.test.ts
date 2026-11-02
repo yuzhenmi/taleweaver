@@ -1,3 +1,4 @@
+import { browserHtmlParser } from "../editor-digital/html-parser";
 import * as Y from "yjs";
 import { describe, it, expect } from "vitest";
 import {
@@ -5,13 +6,12 @@ import {
   createTestAllocator,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
-  createEditorStateFromDocument,
+  createEditor,
   createPosition,
   createDocument,
   createSpan,
   getBlock,
   getYDoc,
-  reduceEditor,
   type BlockId,
   type ContainerBlockNode,
   report,
@@ -56,12 +56,10 @@ function shiftDown(from: number): { touched: number[]; walked: number[]; rendere
   globalThis.document.body.replaceChildren(container);
   const controller = createDigitalController({
     container,
-    componentRegistry: createDefaultComponentRegistry(),
-    attrRegistry: createDefaultAttrRegistry(),
-    initialDocument: buildDocumentFromTree(chapter(1000), {}, createTestAllocator(), createDefaultComponentRegistry()),
     doc: globalThis.document,
+    editor: createEditor({ componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, htmlParser: browserHtmlParser }, { document: buildDocumentFromTree(chapter(1000), {}, createTestAllocator(), createDefaultComponentRegistry()) }),
   });
-  const document = controller.editorState.document;
+  const document = controller.editor.document;
   // The root's children are sections: the body is the final section.
   const body = getBlock(document, getBlock(document, document.rootId)?.lastChildId ?? document.rootId);
   const ids: BlockId[] = [];
@@ -100,7 +98,7 @@ function shiftDown(from: number): { touched: number[]; walked: number[]; rendere
     walked.push(countOf("digital.selectedParagraphWalk"));
     rendered += countOf("digital.renderBlock");
   }
-  expect(controller.editorState.selection.focus).toEqual(createPosition(at(from + STEPS), 0));
+  expect(controller.editor.selection.focus).toEqual(createPosition(at(from + STEPS), 0));
   const selected = container.querySelectorAll(".tw-selected").length;
   controller.destroy();
   return { touched, walked, rendered, medianMs: median(samples), selected };
@@ -135,7 +133,7 @@ describe("digital selected-¶ under a peer's edit", () => {
       if (id === undefined) throw new Error("setup");
       return id;
     };
-    let peer = createEditorStateFromDocument(documentA, caret(at(450), 3), cfg);
+    let peer = createEditor(cfg, { document: documentA, selection: caret(at(450), 3) });
     const docA = getYDoc(documentA);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
@@ -144,30 +142,28 @@ describe("digital selected-¶ under a peer's edit", () => {
     document.body.replaceChildren(container);
     const controller = createDigitalController({
       container,
-      componentRegistry: createDefaultComponentRegistry(),
-      attrRegistry: createDefaultAttrRegistry(),
-      initialDocument: createDocument({ resolver: createDefaultComponentRegistry(), rootId: documentA.rootId, doc: docB }),
       doc: document,
+      editor: createEditor({ componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, htmlParser: browserHtmlParser }, { document: createDocument({ resolver: createDefaultComponentRegistry(), rootId: documentA.rootId, doc: docB }) }),
     });
     controller.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(at(0), 0), createPosition(at(900), 0)) });
     const walks: number[] = [];
     for (const [i, text] of [[450, "x"], [0, "y"], [900, "z"], [950, "w"]] as const) {
-      peer = reduceEditor(peer, { type: "SET_SELECTION", selection: caret(at(i), 3) });
+      peer.dispatch({ type: "SET_SELECTION", selection: caret(at(i), 3) });
       resetPerfTrace();
       setPerfTraceEnabled(true);
       try {
-        peer = reduceEditor(peer, { type: "INSERT_TEXT", text });
+        peer.dispatch({ type: "INSERT_TEXT", text });
       } finally {
         setPerfTraceEnabled(false);
       }
       walks.push(countOf("digital.selectedParagraphWalk"));
     }
     // A peer's Enter inside the selection: the new ¶ is selected, without a selection walk.
-    peer = reduceEditor(peer, { type: "SET_SELECTION", selection: caret(at(300), 3) });
+    peer.dispatch({ type: "SET_SELECTION", selection: caret(at(300), 3) });
     resetPerfTrace();
     setPerfTraceEnabled(true);
     try {
-      peer = reduceEditor(peer, { type: "SPLIT_NODE" });
+      peer.dispatch({ type: "SPLIT_NODE" });
     } finally {
       setPerfTraceEnabled(false);
     }
@@ -175,17 +171,17 @@ describe("digital selected-¶ under a peer's edit", () => {
     expect(container.querySelectorAll(".tw-selected").length).toBe(901);
     // The peer removes the anchor's paragraph (merging it into the next): the anchor maps
     // to the survivor, without a selection walk.
-    peer = reduceEditor(peer, { type: "SET_SELECTION", selection: createSpan(createPosition(at(0), 0), createPosition(at(1), 0)) });
+    peer.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(at(0), 0), createPosition(at(1), 0)) });
     resetPerfTrace();
     setPerfTraceEnabled(true);
     try {
-      peer = reduceEditor(peer, { type: "DELETE_BACKWARD" });
+      peer.dispatch({ type: "DELETE_BACKWARD" });
     } finally {
       setPerfTraceEnabled(false);
     }
     walks.push(countOf("digital.selectedParagraphWalk"));
-    expect(getBlock(controller.editorState.document, at(0))).toBeNull();
-    expect(controller.editorState.selection.anchor.blockId).toBe(at(1));
+    expect(getBlock(controller.editor.document, at(0))).toBeNull();
+    expect(controller.editor.selection.anchor.blockId).toBe(at(1));
     console.log(`selected-¶ walk per remote change, 900-paragraph selection: ${walks.join(", ")}`);
     expect(container.textContent).toContain("x");
     expect(Math.max(...walks)).toBeLessThanOrEqual(8);

@@ -9,8 +9,7 @@ import {
 import {
   type TextShaper,
   type TextMeasurer,
-  type EditorAction,
-  type EditorState,
+  type Editor,
   type FindMatchesOptions,
   type Hyphenator,
   type Position,
@@ -28,11 +27,10 @@ import {
   markEnd,
   recordSample,
   isPerfTraceEnabled,
-  isDevMode,
   inspectDocument,
   getYDoc,
 } from "@taleweaver/core";
-import { haltLinkOf, hookDispatchOf } from "./use-editor";
+import { haltLinkOf } from "./use-editor";
 import {
   createEditorController,
   type EditorController,
@@ -42,8 +40,11 @@ import {
 } from "@taleweaver/print";
 
 export interface EditorViewProps {
-  editorState: EditorState;
-  dispatch: React.Dispatch<EditorAction>;
+  /**
+   * The editor shown. The view's controller subscribes to it (re-rendering after every
+   * dispatch) and its input dispatches to it; another `editor` is a document replacement.
+   */
+  editor: Editor;
   containerRef: React.RefObject<HTMLDivElement | null>;
   measurer: TextShaper | TextMeasurer;
   pageHeight?: number;
@@ -51,11 +52,11 @@ export interface EditorViewProps {
   /**
    * Auto-hyphenation: print mechanics, not part of core's `EditorConfig`. `undefined` ⇒
    * no hyphenation. (Page setup, the registries and the host keymap come from
-   * `editorState.config` — the config the reducer runs with.)
+   * `editor.config` — the config the reducer runs with.)
    */
   hyphenator?: Hyphenator;
   /**
-   * View-only host decorations (see core `Decoration`). Applied after the editor state
+   * View-only host decorations (see core `Decoration`). Applied to the document version
    * they were computed against; the controller keeps them mapped through later edits
    * until this prop changes.
    */
@@ -81,10 +82,9 @@ export interface EditorViewProps {
   suggestionStyles?: SuggestionGroupStyle | null;
   /**
    * The controller halted on incompatible (legacy) document storage in a peer update
-   * (see the print controller's `onIncompatibleDocument`). A `useEditor` hook driving
-   * this view is told AUTOMATICALLY — linked through the hook's OWN `dispatch`, which
-   * must be passed unwrapped (dev builds warn when a hook's state arrives with another
-   * dispatch); this prop is for other hosts, or extra observers.
+   * (see the print controller's `onIncompatibleDocument`). A `useEditor` hook whose
+   * `editor` this view shows is told AUTOMATICALLY; this prop is for other hosts, or extra
+   * observers.
    */
   onIncompatibleDocument?: (report: IncompatibleDocumentReport) => void;
 }
@@ -131,7 +131,7 @@ const handleProfile: ProfilerOnRenderCallback = (id, _phase, actualDuration) => 
 
 export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
   function EditorView(
-    { editorState, dispatch, containerRef, measurer, pageHeight, pageGap, hyphenator, decorations, decorationsBasedOn, onDecorationPointer, remoteChanges, suggestionStyles, onIncompatibleDocument },
+    { editor, containerRef, measurer, pageHeight, pageGap, hyphenator, decorations, decorationsBasedOn, onDecorationPointer, remoteChanges, suggestionStyles, onIncompatibleDocument },
     ref,
   ) {
   const controllerRef = useRef<EditorController | null>(null);
@@ -172,21 +172,8 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
     [],
   );
 
-  // The `useEditor` hook driving this view (if any) — linked through its `dispatch`.
-  const link = haltLinkOf(dispatch);
-  // A hook's state with another dispatch (a wrapper): the halt link is broken — the
-  // hook would never learn of a halt. Warn once in dev builds.
-  const warnedRef = useRef(false);
-  if (link === undefined && !warnedRef.current && isDevMode()) {
-    const owner = hookDispatchOf(editorState);
-    if (owner !== undefined && owner !== dispatch) {
-      warnedRef.current = true;
-      console.warn(
-        "EditorView: `editorState` comes from useEditor but `dispatch` is not that hook's own dispatch; " +
-          "pass the hook's dispatch unwrapped, or the hook is never told when the editor halts.",
-      );
-    }
-  }
+  // The `useEditor` hook that created this editor (if any).
+  const link = haltLinkOf(editor);
   const decorationsRef = useRef({ decorations, decorationsBasedOn, suggestionStyles });
   decorationsRef.current = { decorations, decorationsBasedOn, suggestionStyles };
 
@@ -196,11 +183,11 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
     incompatibleRef.current?.(report);
   }
 
-  /** Hand the state to the controller — never a halted hook's; re-apply props on resume. */
-  function show(ctrl: EditorController, next: EditorState): void {
+  /** Hand the editor to the controller — never a halted hook's; re-apply props on resume. */
+  function show(ctrl: EditorController, next: Editor): void {
     if (link?.halted() === true) return;
     const wasHalted = ctrl.halted;
-    ctrl.update(next);
+    ctrl.setEditor(next);
     // The controller is the source of truth: a replacement it refused (legacy storage
     // still / again) halts the hook again.
     if (ctrl.halted && link !== undefined && !link.halted()) {
@@ -218,7 +205,7 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
     if (!el) return;
     const ctrl = createEditorController(el, {
       measurer,
-      dispatch,
+      editor,
       pageHeight,
       pageGap,
       hyphenator,
@@ -227,29 +214,30 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
       onIncompatibleDocument: reportIncompatible,
       onDocumentCompatible: () => link?.onDocumentCompatible(),
       // Re-created while the hook is halted: start halted (watching the document).
-      ...(link?.halted() === true ? { startHaltedOn: editorState } : {}),
+      ...(link?.halted() === true ? { startHalted: true } : {}),
     });
     controllerRef.current = ctrl;
-    show(ctrl, editorState);
     return () => ctrl.destroy();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // mount-only
 
+  // Another editor (a document replacement): hand it over. Edits reach the controller
+  // through its own subscription, not through React.
   useEffect(() => {
     const t = markStart("react.subscribe.notify");
     try {
       const ctrl = controllerRef.current;
-      if (ctrl !== null) show(ctrl, editorState);
+      if (ctrl !== null) show(ctrl, editor);
     } finally {
       markEnd("react.subscribe.notify", t);
     }
-  }, [editorState]);
+  }, [editor]);
 
   useEffect(() => {
     controllerRef.current?.setSuggestionStyles(suggestionStyles ?? null);
   }, [suggestionStyles]);
 
-  // After the state update above, so decorations land on the state they were computed for.
+  // After the editor hand-over above, so decorations land on the document they were computed for.
   useEffect(() => {
     controllerRef.current?.setDecorations(decorations ?? [], decorationsBasedOn);
   }, [decorations, decorationsBasedOn]);

@@ -50,10 +50,10 @@ export { hashPaintInputs, createPaintCache } from "./paint-cache";
 
 // Re-exports from core (backward compatibility, geometry-free)
 export type { EditorAction } from "@taleweaver/core";
-export type { EditorState, EditorConfig } from "@taleweaver/core";
+export type { Editor, EditorConfig } from "@taleweaver/core";
 export { History } from "@taleweaver/core";
 export type { SelectionEntry, UndoRedoResult } from "@taleweaver/core";
-export { createInitialEditorState, reduceEditor } from "@taleweaver/core";
+export { createEditor } from "@taleweaver/core";
 export type { CounterFormat, FootnoteNumberingPolicy } from "@taleweaver/core";
 export { documentFootnotePolicy } from "@taleweaver/core";
 // Find & Replace: re-export the find primitives the find-bar UI needs.
@@ -89,11 +89,11 @@ export type { IFCState, IFCStateCache } from "./layout/ifc-state";
 export { createIFCStateCache } from "./layout/ifc-state";
 export { computeIntrinsicSizes } from "./layout/intrinsic-sizes-pass";
 export { computeUsedStyle } from "./layout/used-style";
-// Virtualized layout: the `VirtualLayoutTree` is `EditorState.layoutTree` in
+// Virtualized layout: the `VirtualLayoutTree` is `Editor.layoutTree` in
 // paginated mode; consumers read it per-page via `getPage(i)`.
 export type { VirtualLayoutTree } from "./layout/virtual-layout-tree";
 // Layout-driver: the print backend's render → cascade → layout pipeline. A
-// consumer builds a layout tree from a (geometry-free) core `EditorState` by calling
+// consumer builds a layout tree from a (geometry-free) core `Editor` by calling
 // `createLayoutDriver(layoutConfig).rebuild(editorState)`. The `LayoutConfig` carries
 // the print-only geometry capabilities (measurer / hyphenator) that are not on core's
 // `EditorConfig`; the registries and page setup come from `editorState.config`.

@@ -5,7 +5,7 @@ import {
   getBlock,
   type BlockId,
   type Decoration,
-  type EditorState,
+  type Editor,
   type Document,
 } from "@taleweaver/core";
 import { mentionDecorations } from "./mentions";
@@ -105,11 +105,11 @@ export function writingAidDecorations(document: Document): Decoration[] {
  */
 export function useWritingAids(
   enabled: boolean,
-  editorState: EditorState,
+  editor: Editor,
   setDecorations: (decorations: readonly Decoration[], basedOn: Document) => void,
   extra: () => readonly Decoration[] = () => [],
 ): void {
-  const document = editorState.document;
+  const document = editor.document;
   useEffect(() => {
     // Computed against `document`; the editor maps the result through any edits made since.
     const compute = () => [

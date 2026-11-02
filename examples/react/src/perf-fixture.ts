@@ -1,7 +1,6 @@
 import {
-  createInitialEditorState,
-  reduceEditor,
-  type EditorState,
+  createEditor,
+  type Editor,
   type EditorConfig,
 } from "@taleweaver/core";
 
@@ -9,7 +8,7 @@ const SAMPLE_TEXT =
   "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt.";
 
 /**
- * Build a synthetic EditorState containing `paragraphCount` paragraphs, each
+ * Build a synthetic Editor containing `paragraphCount` paragraphs, each
  * with a single text run of ~`charsPerParagraph` characters.
  *
  * Implementation: a SINGLE `PASTE` of the newline-joined paragraphs. `handlePaste`
@@ -27,20 +26,21 @@ export function buildPerfFixture(
   config: EditorConfig,
   paragraphCount: number,
   charsPerParagraph = 80,
-): EditorState {
+): Editor {
   const para = SAMPLE_TEXT.slice(0, charsPerParagraph);
   const text = Array.from({ length: paragraphCount }, () => para).join("\n");
-  const editor = createInitialEditorState(config);
-  return reduceEditor(editor, { type: "PASTE", text });
+  const editor = createEditor(config);
+  editor.dispatch({ type: "PASTE", text });
+    return editor;
 }
 
 /**
- * Read `?perfFixture=N` from the current URL. Returns an `EditorState` with
+ * Read `?perfFixture=N` from the current URL. Returns an `Editor` with
  * N paragraphs if the param is present and valid; otherwise returns `null`.
  */
 export function tryLoadPerfFixtureFromUrl(
   config: EditorConfig,
-): EditorState | null {
+): Editor | null {
   if (typeof window === "undefined") return null;
   const params = new URLSearchParams(window.location.search);
   const raw = params.get("perfFixture");

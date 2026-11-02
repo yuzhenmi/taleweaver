@@ -45,38 +45,43 @@ const cfg: core.EditorConfig = {
 
 /** A host loop: the controller dispatches into the real reducer, the host updates it. */
 function mount(
-  editor: core.EditorState,
+  editor: core.Editor,
   remoteChanges?: "observe" | "ignore",
   accessibilityMirror = false,
 ): {
   textarea: HTMLTextAreaElement;
   controller: EditorController;
-  get: () => core.EditorState;
+  get: () => core.Editor;
   actions: core.EditorAction[];
   container: HTMLElement;
+  setEditor: (e: core.Editor) => void;
 } {
   let current = editor;
   const actions: core.EditorAction[] = [];
   const container = document.createElement("div");
   document.body.appendChild(container);
-  let controller: EditorController | null = null;
-  controller = createEditorController(container, {
+  // Every action that reaches an editor shown (the controller's own and the peers' it applies).
+  const record = (e: core.Editor): void => {
+    e.subscribe(({ action }) => actions.push(action));
+  };
+  record(current);
+  const controller = createEditorController(container, {
     measurer: core.createMockMeasurer(8, 16),
-    dispatch: (a) => {
-      actions.push(a);
-      current = core.reduceEditor(current, a);
-      controller?.update(current);
-    },
+    editor: current,
     ...(remoteChanges !== undefined ? { remoteChanges } : {}),
     ...(accessibilityMirror ? { accessibilityMirror } : {}),
   });
-  controller.update(current);
   const textarea = container.querySelector("textarea");
   if (!(textarea instanceof HTMLTextAreaElement)) throw new Error("no textarea");
-  return { textarea, controller, get: () => current, actions, container };
+  const setEditor = (e: core.Editor): void => {
+    record(e);
+    current = e;
+    controller.setEditor(e);
+  };
+  return { textarea, controller, get: () => current, actions, container, setEditor };
 }
 
-const textOf = (e: core.EditorState, id: core.BlockId): string =>
+const textOf = (e: core.Editor, id: core.BlockId): string =>
   (core.getBlock(e.document, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
 const caretAt = (id: core.BlockId, o: number): core.EditorAction => ({
   type: "SET_SELECTION",
@@ -91,7 +96,9 @@ function type(textarea: HTMLTextAreaElement, text: string): void {
 
 describe("print — anchors and versions", () => {
   it("an anchor follows typing and undo; mapPosition / createAnchor({ basedOn }) map from an older version", () => {
-    const m = mount(core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" }));
+    const seeded = core.createEditor(cfg);
+    seeded.dispatch({ type: "INSERT_TEXT", text: "hello world" });
+    const m = mount(seeded);
     const id = m.get().selection.focus.blockId;
     const v0 = m.controller.version;
     if (v0 === null) throw new Error("no version");
@@ -105,29 +112,54 @@ describe("print — anchors and versions", () => {
     const late = m.controller.createAnchor(core.createPosition(id, 0), core.createPosition(id, 5), { basedOn: v0 });
     expect(late === null ? null : [late.from.offset, late.to.offset]).toEqual([0, 5]);
   });
+
+  it("a dispatch from a subscriber that runs before the controller's is laid out after it, each change in turn", () => {
+    const seeded = core.createEditor(cfg);
+    seeded.dispatch({ type: "INSERT_TEXT", text: "ab" });
+    seeded.dispatch({ type: "SPLIT_NODE" });
+    seeded.dispatch({ type: "INSERT_TEXT", text: "cd" });
+    const b = seeded.selection.focus.blockId;
+    const a = core.getBlock(seeded.document, b)?.prevSiblingId;
+    if (a == null) throw new Error("setup");
+    let pending = true;
+    seeded.subscribe(({ action }) => {
+      // Typing in the second paragraph deletes the first paragraph's "a" — a different block.
+      if (action.type !== "INSERT_TEXT" || !pending) return;
+      pending = false;
+      seeded.dispatch({ type: "DELETE_RANGE", span: core.createSpan(core.createPosition(a, 0), core.createPosition(a, 1)) });
+    });
+    const m = mount(seeded);
+    type(m.textarea, "X");
+    // The second paragraph is laid out with the typed "X": its end is three 8px glyphs in.
+    const start = m.controller.getCaretRect(core.createPosition(b, 0));
+    const end = m.controller.getCaretRect(core.createPosition(b, 3));
+    expect([textOf(m.get(), a), textOf(m.get(), b)]).toEqual(["b", "cdX"]);
+    expect(start !== null && end !== null ? end.left - start.left : null).toBe(24);
+  });
 });
 
 describe("print — collaboration", () => {
   it("a peer's update reaches the host as APPLY_FOREIGN_CHANGE: text, rebased caret, anchors", () => {
-    let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" });
+    let peerA = core.createEditor(cfg);
+    peerA.dispatch({ type: "INSERT_TEXT", text: "hello world" });
     const docA = core.getYDoc(peerA.document);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
     const documentB = core.createDocument({ resolver: TEST_RESOLVER, rootId: peerA.document.rootId, doc: docB });
-    const m = mount(core.createEditorStateFromDocument(documentB, core.initialSelectionForDocument(documentB), cfg));
+    const m = mount(core.createEditor(cfg, { document: documentB }));
     docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
     const id = peerA.selection.focus.blockId;
     m.controller.runCommand((_e, dispatch) => (dispatch?.(caretAt(id, 5)), true));
     const anchor = m.controller.createAnchor(core.createPosition(id, 6), core.createPosition(id, 11));
-    peerA = core.reduceEditor(peerA, caretAt(id, 0));
-    peerA = core.reduceEditor(peerA, { type: "INSERT_TEXT", text: "Oh, " });
+    peerA.dispatch(caretAt(id, 0));
+    peerA.dispatch({ type: "INSERT_TEXT", text: "Oh, " });
     expect(textOf(m.get(), id)).toBe("Oh, hello world");
     expect(m.get().selection.focus).toEqual(core.createPosition(id, 9));
     expect(anchor === null ? null : [anchor.from.offset, anchor.to.offset]).toEqual([10, 15]);
     expect(m.controller.getCaretRect(m.get().selection.focus)?.left).toBe(9 * 8);
     // A peer deleting the anchored word: the anchor reports it.
-    peerA = core.reduceEditor(peerA, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(id, 9), core.createPosition(id, 15)) });
-    peerA = core.reduceEditor(peerA, { type: "DELETE_BACKWARD" });
+    peerA.dispatch({ type: "SET_SELECTION", selection: core.createSpan(core.createPosition(id, 9), core.createPosition(id, 15)) });
+    peerA.dispatch({ type: "DELETE_BACKWARD" });
     expect(textOf(m.get(), id)).toBe("Oh, hello");
     expect(anchor?.deleted).toBe(true);
     // Local typing + undo stay local.
@@ -140,7 +172,8 @@ describe("print — collaboration", () => {
 
 /** Peer A (driven through the reducer) and a replica Document over a second, synced Y.Doc. */
 function peerPair(text = "hello world") {
-  let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text });
+  let peerA = core.createEditor(cfg);
+    peerA.dispatch({ type: "INSERT_TEXT", text });
   const docA = core.getYDoc(peerA.document);
   const docB = new Y.Doc();
   Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
@@ -149,18 +182,19 @@ function peerPair(text = "hello world") {
   const id = peerA.selection.focus.blockId;
   return {
     id,
-    editorB: () => core.createEditorStateFromDocument(documentB, core.initialSelectionForDocument(documentB), cfg),
+    editorB: () => core.createEditor(cfg, { document: documentB }),
     type: (t: string) => {
-      peerA = core.reduceEditor(peerA, { type: "INSERT_TEXT", text: t });
+      peerA.dispatch({ type: "INSERT_TEXT", text: t });
     },
   };
 }
 const foreign = (actions: core.EditorAction[]) => actions.filter((a) => a.type === "APPLY_FOREIGN_CHANGE").length;
 
 describe("print — remote-change subscription lifetime", () => {
-  it("local transactions dispatch nothing; after destroy() a peer update dispatches nothing", () => {
+  it("local transactions dispatch nothing; after destroy() a peer update dispatches nothing, and the editor (the host's) still undoes", () => {
     const pair = peerPair();
-    const m = mount(pair.editorB());
+    const editor = pair.editorB();
+    const m = mount(editor);
     type(m.textarea, "!");
     expect(foreign(m.actions)).toBe(0);
     pair.type("A");
@@ -168,13 +202,16 @@ describe("print — remote-change subscription lifetime", () => {
     m.controller.destroy();
     pair.type("B");
     expect(foreign(m.actions)).toBe(1);
+    const typed = editor.document;
+    editor.dispatch({ type: "UNDO" });
+    expect(editor.document).not.toBe(typed);
   });
 
   it("after the host swaps documents, only the NEW document's peer updates are dispatched", () => {
     const oldPair = peerPair("old");
     const newPair = peerPair("new");
     const m = mount(oldPair.editorB());
-    m.controller.update(newPair.editorB());
+    m.setEditor(newPair.editorB());
     oldPair.type("x");
     expect(foreign(m.actions)).toBe(0);
     newPair.type("y");
@@ -187,8 +224,13 @@ describe("print — remote-change subscription lifetime", () => {
     const owner = mount(editor);
     const other = mount(editor, "ignore");
     pair.type("A");
+    // Both record every action the shared editor receives: the peer change arrived ONCE.
     expect(foreign(owner.actions)).toBe(1);
-    expect(foreign(other.actions)).toBe(0);
+    expect(foreign(other.actions)).toBe(1);
+    // ...dispatched by the observing controller: without it, the other dispatches none.
+    owner.controller.destroy();
+    pair.type("B");
+    expect(foreign(other.actions)).toBe(1);
   });
 
   it("a peer change during IME composition leaves the textarea (the IME's buffer) untouched", () => {

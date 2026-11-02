@@ -2,18 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { EditorView, type EditorViewHandle } from "@taleweaver/react";
 import {
   createEmptyDocument,
-  reduceEditor,
-  createEditorStateFromDocument,
-  initialSelectionForDocument,
-  createDefaultComponentRegistry,
-  createDefaultAttrRegistry,
-  createDocument,
-  getYDoc,
   type EditorConfig,
   type BlockKindResolver,
   type Document,
-  type Position,
-} from "@taleweaver/core";
+  type Position, createDefaultComponentRegistry, createDefaultAttrRegistry, createDocument, getYDoc, createEditor } from "@taleweaver/core";
 import * as Y from "yjs";
 import { useCollabEditor } from "../use-collab-editor";
 
@@ -59,8 +51,8 @@ export function CollabSurface({
 
   // Hand off pane A's live document on a tab switch (both peers hold the same synced
   // content, so A is an arbitrary-but-fine choice).
-  const latestDocumentA = useRef(paneA.editorState.document);
-  latestDocumentA.current = paneA.editorState.document;
+  const latestDocumentA = useRef(paneA.editor.document);
+  latestDocumentA.current = paneA.editor.document;
   useEffect(() => {
     registerGetDocument(() => latestDocumentA.current);
   }, [registerGetDocument]);
@@ -75,7 +67,7 @@ export function CollabSurface({
         <CollabPane
           label="Peer A"
           pane={paneA}
-          remoteCaret={paneB.editorState.selection.focus}
+          remoteCaret={paneB.editor.selection.focus}
           remoteColor={peerColor(1)}
           remoteLabel="Peer B"
         />
@@ -83,7 +75,7 @@ export function CollabSurface({
         <CollabPane
           label="Peer B"
           pane={paneB}
-          remoteCaret={paneA.editorState.selection.focus}
+          remoteCaret={paneA.editor.selection.focus}
           remoteColor={peerColor(0)}
           remoteLabel="Peer A"
         />
@@ -219,11 +211,8 @@ function makeStarterDoc(): Document {
     containerWidth: 600,
   };
   const empty = createEmptyDocument({ resolver: config.componentRegistry });
-  let editor = createEditorStateFromDocument(empty, initialSelectionForDocument(empty), config);
-  editor = reduceEditor(
-    editor,
-    { type: "INSERT_TEXT", text: "Type here — your edits sync to the other pane live." },
-  );
+  let editor = createEditor(config, { document: empty });
+  editor.dispatch({ type: "INSERT_TEXT", text: "Type here — your edits sync to the other pane live." });
   // Only the seed `Document` survives; release this throwaway editor's History so
   // its Y.UndoManager listener doesn't leak on the shared doc the panes will use.
   editor.history.destroy();

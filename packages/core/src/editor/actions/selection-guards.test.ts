@@ -25,8 +25,8 @@ import {
 } from "../../test-utils/document-builders";
 import { isCrossContextSelection } from "./helpers/is-cross-context-selection";
 import { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
-import { createEditorStateFromDocument } from "../editor-state";
-import { config, reduceEditor } from "./test-helpers";
+import { createEditor } from "../editor";
+import { config } from "./test-helpers";
 
 const BODY_P1 = "p" as BlockId;
 const BODY_P2 = "p2" as BlockId;
@@ -210,9 +210,10 @@ describe("INSERT_TEXT over a cross-parent span (across a section break)", () => 
   it("is refused: a no-op, not a throw", () => {
     const document = buildDocumentWithTwoSections();
     const span = createSpan(createPosition("a" as BlockId, 1), createPosition("b" as BlockId, 1));
-    const editor = createEditorStateFromDocument(document, span, config);
-    const next = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" });
-    expect(next.document).toBe(editor.document);
-    expect(next.selection).toEqual(span);
+    const editor = createEditor(config, { document, selection: span });
+    const before = editor.snapshot();
+    editor.dispatch({ type: "INSERT_TEXT", text: "X" });
+    expect(editor.document).toBe(before.document);
+    expect(editor.selection).toEqual(span);
   });
 });

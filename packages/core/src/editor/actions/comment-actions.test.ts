@@ -8,14 +8,14 @@
  * via the marker embeds in the affected blocks' inline content.
  */
 import { finalSectionOf } from "../../test-utils/document-builders";
+import { EDITOR_INTERNAL } from "../editor-internal";
 import { describe, it, expect } from "vitest";
 import {
   config,
-  reduceEditor,
-  createInitialEditorState,
   createPosition,
   createSpan,
-  type EditorState,
+  createEditor,
+  type Editor,
 } from "./test-helpers";
 import {
   getBlock,
@@ -35,7 +35,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 const CID = "c1" as CommentId;
 
 /** The first body paragraph id under the document root. */
-function bodyParaId(editor: EditorState): BlockId {
+function bodyParaId(editor: Editor): BlockId {
   const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
@@ -45,7 +45,7 @@ function bodyParaId(editor: EditorState): BlockId {
 }
 
 /** Count the comment marker embeds (start + end) for `id` in a block. */
-function markerCount(editor: EditorState, blockId: BlockId, id: CommentId): number {
+function markerCount(editor: Editor, blockId: BlockId, id: CommentId): number {
   const items = getBlock(editor.document, blockId)?.inlineContent?.items ?? [];
   let n = 0;
   for (const it of items) {
@@ -59,29 +59,27 @@ function markerCount(editor: EditorState, blockId: BlockId, id: CommentId): numb
 }
 
 /** Build an editor with a single paragraph of `text`. */
-function withText(text: string): { editor: EditorState; paraId: BlockId } {
-  const initial = createInitialEditorState(config);
-  const typed = reduceEditor(initial, { type: "INSERT_TEXT", text });
-  return { editor: typed, paraId: bodyParaId(typed) };
+function withText(text: string): { editor: Editor; paraId: BlockId } {
+  const initial = createEditor(config);
+  initial.dispatch({ type: "INSERT_TEXT", text });
+  return { editor: initial, paraId: bodyParaId(initial) };
 }
 
 /** Place a selection (anchor → focus offsets in `paraId`). */
 function selectRange(
-  editor: EditorState,
+  editor: Editor,
   paraId: BlockId,
   anchorOffset: number,
   focusOffset: number,
-): EditorState {
-  return reduceEditor(
-    editor,
-    {
+): Editor {
+  editor.dispatch({
       type: "SET_SELECTION",
       selection: createSpan(
         createPosition(paraId, anchorOffset),
         createPosition(paraId, focusOffset),
       ),
-    },
-  );
+    });
+    return editor;
 }
 
 const addCommentAction = (id: CommentId) =>
@@ -91,98 +89,97 @@ describe("handleAddComment — ADD_COMMENT", () => {
   it("adds a comment over an expanded main-body range; record live, markers present", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4); // select "bcd"
-    const next = reduceEditor(placed, addCommentAction(CID));
+    const before = placed.snapshot();
+    placed.dispatch(addCommentAction(CID));
 
-    expect(next.document).not.toBe(placed.document);
-    const comments = getComments(next.document);
+    expect(placed.document).not.toBe(before.document);
+    const comments = getComments(placed.document);
     expect(comments.length).toBe(1);
     const comment0 = nth(comments, 0, "comment");
     expect(comment0.id).toBe(CID);
     expect(comment0.resolved).toBe(false);
     expect(comment0.range.orphaned).toBe(false); // live (well-formed pair)
     // Both markers (start + end) present in the paragraph.
-    expect(markerCount(next, paraId, CID)).toBe(2);
+    expect(markerCount(placed, paraId, CID)).toBe(2);
   });
 
   it("no-ops on a COLLAPSED selection (returns the same editor reference; no comment)", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 2, 2); // collapsed caret
-    const next = reduceEditor(placed, addCommentAction(CID));
+    const before = placed.snapshot();
+    placed.dispatch(addCommentAction(CID));
 
-    expect(next).toBe(placed);
-    expect(getComments(next.document).length).toBe(0);
+    expect(placed.document).toBe(before.document);
+    expect(placed.selection).toBe(before.selection);
+    expect(getComments(placed.document).length).toBe(0);
   });
 
   it("no-ops when the selection is NOT in the main body (caret in a footnote body)", () => {
     const { editor } = withText("abc");
     // INSERT_FOOTNOTE leaves the caret inside the new footnote body (a non-root
     // context). A comment there is body-only-rejected even with an expanded sel.
-    const withFn = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
-    const fnPara = withFn.selection.focus.blockId;
+    editor.dispatch({ type: "INSERT_FOOTNOTE" });
+    const fnPara = editor.selection.focus.blockId;
     // Type into the footnote body, then select it.
-    const typed = reduceEditor(withFn, { type: "INSERT_TEXT", text: "note" });
-    const placed = reduceEditor(
-      typed,
-      {
+    editor.dispatch({ type: "INSERT_TEXT", text: "note" });
+    editor.dispatch({
         type: "SET_SELECTION",
         selection: createSpan(createPosition(fnPara, 0), createPosition(fnPara, 4)),
-      },
-    );
-    const next = reduceEditor(placed, addCommentAction(CID));
+      });
+    const before = editor.snapshot();
+    editor.dispatch(addCommentAction(CID));
 
-    expect(next).toBe(placed);
-    expect(getComments(next.document).length).toBe(0);
+    expect(editor.document).toBe(before.document);
+    expect(editor.selection).toBe(before.selection);
+    expect(getComments(editor.document).length).toBe(0);
   });
 
   it("preserves the visible selection across the +2 markers — SAME-BLOCK, forward", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4); // forward: anchor 1, focus 4
-    const next = reduceEditor(placed, addCommentAction(CID));
+    placed.dispatch(addCommentAction(CID));
 
     // Markers OUTSIDE: start-marker at 1, end-marker at original-5 (after the +1
     // shift from the start-marker). Visible selection wraps the same "bcd":
     // anchor 1+1=2, focus 4+1=5.
-    expect(next.selection.anchor).toEqual(createPosition(paraId, 2));
-    expect(next.selection.focus).toEqual(createPosition(paraId, 5));
+    expect(placed.selection.anchor).toEqual(createPosition(paraId, 2));
+    expect(placed.selection.focus).toEqual(createPosition(paraId, 5));
   });
 
   it("preserves direction across the +2 markers — SAME-BLOCK, backward", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 4, 1); // backward: anchor 4, focus 1
-    const next = reduceEditor(placed, addCommentAction(CID));
+    placed.dispatch(addCommentAction(CID));
 
     // start = offset 1, end = offset 4. anchor was at `end` → stays at the new
     // end (5); focus stays at the new start (2). Same chars, reversed.
-    expect(next.selection.anchor).toEqual(createPosition(paraId, 5));
-    expect(next.selection.focus).toEqual(createPosition(paraId, 2));
+    expect(placed.selection.anchor).toEqual(createPosition(paraId, 5));
+    expect(placed.selection.focus).toEqual(createPosition(paraId, 2));
   });
 
   it("preserves the visible selection across the +2 markers — CROSS-BLOCK", () => {
-    const initial = createInitialEditorState(config);
-    const p1 = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" });
-    const split = reduceEditor(p1, { type: "SPLIT_NODE" });
-    const firstId = bodyParaId(split); // the split's head (new id)
-    const withSecond = reduceEditor(split, { type: "INSERT_TEXT", text: "def" });
-    const secondId = withSecond.selection.focus.blockId;
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "abc" });
+    initial.dispatch({ type: "SPLIT_NODE" });
+    const firstId = bodyParaId(initial); // the split's head (new id)
+    initial.dispatch({ type: "INSERT_TEXT", text: "def" });
+    const secondId = initial.selection.focus.blockId;
     expect(secondId).not.toBe(firstId);
 
     // Select from para1 offset 1 → para2 offset 2 (forward, cross-block).
-    const placed = reduceEditor(
-      withSecond,
-      {
+    initial.dispatch({
         type: "SET_SELECTION",
         selection: createSpan(createPosition(firstId, 1), createPosition(secondId, 2)),
-      },
-    );
-    const next = reduceEditor(placed, addCommentAction(CID));
+      });
+    initial.dispatch(addCommentAction(CID));
 
     // start-marker in para1 at 1 → new start endpoint 1+1=2. end-marker in para2
     // at 2 → end endpoint UNSHIFTED (different block) = 2.
-    expect(next.selection.anchor).toEqual(createPosition(firstId, 2));
-    expect(next.selection.focus).toEqual(createPosition(secondId, 2));
+    expect(initial.selection.anchor).toEqual(createPosition(firstId, 2));
+    expect(initial.selection.focus).toEqual(createPosition(secondId, 2));
     // One marker in each block.
-    expect(markerCount(next, firstId, CID)).toBe(1);
-    expect(markerCount(next, secondId, CID)).toBe(1);
+    expect(markerCount(initial, firstId, CID)).toBe(1);
+    expect(markerCount(initial, secondId, CID)).toBe(1);
   });
 
   it("no-ops on a cross-context selection (body ↔ footnote-body span)", () => {
@@ -198,99 +195,103 @@ describe("handleAddComment — ADD_COMMENT", () => {
     // case for the body-only guard. Here we verify the cross-context predicate by
     // a span main↔footnote built directly on the editor object.
     const { editor } = withText("abc");
-    const withFn = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
-    const bodyId = bodyParaId(withFn);
-    const fnPara = withFn.selection.focus.blockId;
+    editor.dispatch({ type: "INSERT_FOOTNOTE" });
+    const bodyId = bodyParaId(editor);
+    const fnPara = editor.selection.focus.blockId;
     // Hand-build a cross-context selection on the editor (anchor in body, focus
     // in footnote). This bypasses the SET_SELECTION chokepoint deliberately to
     // exercise the handler's own isCrossContextSelection guard.
-    const crossEditor: EditorState = {
-      ...withFn,
-      selection: createSpan(createPosition(bodyId, 0), createPosition(fnPara, 0)),
-    };
-    const next = reduceEditor(crossEditor, addCommentAction(CID));
+    const crossEditor = editor;
+    crossEditor[EDITOR_INTERNAL].selection = createSpan(createPosition(bodyId, 0), createPosition(fnPara, 0));
+    const before = crossEditor.snapshot();
+    crossEditor.dispatch(addCommentAction(CID));
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(next.document).toBe(crossEditor.document);
-    expect(getComments(next.document).length).toBe(0);
+    expect(crossEditor.document).toBe(before.document);
+    expect(getComments(crossEditor.document).length).toBe(0);
   });
 
   it("UNDO of ADD_COMMENT removes BOTH markers AND the record", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4);
-    const added = reduceEditor(placed, addCommentAction(CID));
-    expect(getComments(added.document).length).toBe(1);
-    expect(markerCount(added, paraId, CID)).toBe(2);
+    placed.dispatch(addCommentAction(CID));
+    expect(getComments(placed.document).length).toBe(1);
+    expect(markerCount(placed, paraId, CID)).toBe(2);
 
-    const undone = reduceEditor(added, { type: "UNDO" });
-    expect(getComments(undone.document).length).toBe(0);
-    expect(markerCount(undone, paraId, CID)).toBe(0);
+    placed.dispatch({ type: "UNDO" });
+    expect(getComments(placed.document).length).toBe(0);
+    expect(markerCount(placed, paraId, CID)).toBe(0);
   });
 
   it("does not swallow a later text edit into the comment's undo unit (own undo entry)", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4);
-    const added = reduceEditor(placed, addCommentAction(CID));
+    placed.dispatch(addCommentAction(CID));
     // Caret to end, type a char (a SEPARATE undo unit — "command" never coalesces
     // with the following "insert").
-    const atEnd = selectRange(added, paraId, 8, 8); // 6 chars + 2 markers
-    const typed = reduceEditor(atEnd, { type: "INSERT_TEXT", text: "Z" });
-    expect(getComments(typed.document).length).toBe(1);
+    const atEnd = selectRange(placed, paraId, 8, 8); // 6 chars + 2 markers
+    atEnd.dispatch({ type: "INSERT_TEXT", text: "Z" });
+    expect(getComments(atEnd.document).length).toBe(1);
 
     // First UNDO removes the typed "Z" but KEEPS the comment.
-    const undo1 = reduceEditor(typed, { type: "UNDO" });
-    expect(getComments(undo1.document).length).toBe(1);
+    atEnd.dispatch({ type: "UNDO" });
+    expect(getComments(atEnd.document).length).toBe(1);
     // Second UNDO removes the comment.
-    const undo2 = reduceEditor(undo1, { type: "UNDO" });
-    expect(getComments(undo2.document).length).toBe(0);
+    atEnd.dispatch({ type: "UNDO" });
+    expect(getComments(atEnd.document).length).toBe(0);
   });
 });
 
 describe("handleResolveComment / handleReopenComment", () => {
-  function withComment(): EditorState {
+  function withComment(): Editor {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4);
-    return reduceEditor(placed, addCommentAction(CID));
+    placed.dispatch(addCommentAction(CID));
+    return placed;
   }
 
   it("RESOLVE flips resolved → true; REOPEN flips it back; both undoable", () => {
     const added = withComment();
     expect(nth(getComments(added.document), 0, "comment").resolved).toBe(false);
 
-    const resolved = reduceEditor(added, { type: "RESOLVE_COMMENT", id: CID });
-    expect(nth(getComments(resolved.document), 0, "comment").resolved).toBe(true);
+    added.dispatch({ type: "RESOLVE_COMMENT", id: CID });
+    expect(nth(getComments(added.document), 0, "comment").resolved).toBe(true);
 
-    const reopened = reduceEditor(resolved, { type: "REOPEN_COMMENT", id: CID });
-    expect(nth(getComments(reopened.document), 0, "comment").resolved).toBe(false);
+    added.dispatch({ type: "REOPEN_COMMENT", id: CID });
+    expect(nth(getComments(added.document), 0, "comment").resolved).toBe(false);
 
     // Undo the reopen → back to resolved.
-    const undoReopen = reduceEditor(reopened, { type: "UNDO" });
-    expect(nth(getComments(undoReopen.document), 0, "comment").resolved).toBe(true);
+    added.dispatch({ type: "UNDO" });
+    expect(nth(getComments(added.document), 0, "comment").resolved).toBe(true);
     // Undo the resolve → back to open.
-    const undoResolve = reduceEditor(undoReopen, { type: "UNDO" });
-    expect(nth(getComments(undoResolve.document), 0, "comment").resolved).toBe(false);
+    added.dispatch({ type: "UNDO" });
+    expect(nth(getComments(added.document), 0, "comment").resolved).toBe(false);
   });
 
   it("RESOLVE on an already-resolved comment is an identity no-op (same state ref)", () => {
     const added = withComment();
-    const resolved = reduceEditor(added, { type: "RESOLVE_COMMENT", id: CID });
-    const again = reduceEditor(resolved, { type: "RESOLVE_COMMENT", id: CID });
+    added.dispatch({ type: "RESOLVE_COMMENT", id: CID });
+    const before = added.snapshot();
+    added.dispatch({ type: "RESOLVE_COMMENT", id: CID });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(again.document).toBe(resolved.document);
+    expect(added.document).toBe(before.document);
   });
 
   it("RESOLVE on an absent comment is an identity no-op (same editor ref)", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4); // an editor with NO comment
-    const next = reduceEditor(placed, { type: "RESOLVE_COMMENT", id: "nope" as CommentId });
-    expect(next).toBe(placed);
+    const before = placed.snapshot();
+    placed.dispatch({ type: "RESOLVE_COMMENT", id: "nope" as CommentId });
+    expect(placed.document).toBe(before.document);
+    expect(placed.selection).toBe(before.selection);
   });
 
   it("REOPEN on an already-open comment is an identity no-op (same state ref)", () => {
     const added = withComment(); // open by default
-    const next = reduceEditor(added, { type: "REOPEN_COMMENT", id: CID });
+    const before = added.snapshot();
+    added.dispatch({ type: "REOPEN_COMMENT", id: CID });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(next.document).toBe(added.document);
+    expect(added.document).toBe(before.document);
   });
 });
 
@@ -298,69 +299,65 @@ describe("handleDeleteComment — DELETE_COMMENT", () => {
   it("removes the comment (record + markers) and is undoable (redo re-adds)", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4);
-    const added = reduceEditor(placed, addCommentAction(CID));
-    expect(getComments(added.document).length).toBe(1);
-    expect(markerCount(added, paraId, CID)).toBe(2);
+    placed.dispatch(addCommentAction(CID));
+    expect(getComments(placed.document).length).toBe(1);
+    expect(markerCount(placed, paraId, CID)).toBe(2);
 
-    const deleted = reduceEditor(added, { type: "DELETE_COMMENT", id: CID });
-    expect(getComments(deleted.document).length).toBe(0);
-    expect(markerCount(deleted, paraId, CID)).toBe(0);
+    placed.dispatch({ type: "DELETE_COMMENT", id: CID });
+    expect(getComments(placed.document).length).toBe(0);
+    expect(markerCount(placed, paraId, CID)).toBe(0);
 
     // Undo re-adds, redo re-deletes.
-    const undone = reduceEditor(deleted, { type: "UNDO" });
-    expect(getComments(undone.document).length).toBe(1);
-    expect(markerCount(undone, paraId, CID)).toBe(2);
+    placed.dispatch({ type: "UNDO" });
+    expect(getComments(placed.document).length).toBe(1);
+    expect(markerCount(placed, paraId, CID)).toBe(2);
 
-    const redone = reduceEditor(undone, { type: "REDO" });
-    expect(getComments(redone.document).length).toBe(0);
+    placed.dispatch({ type: "REDO" });
+    expect(getComments(placed.document).length).toBe(0);
   });
 
   it("no-ops when the id is absent (same editor reference)", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4);
-    const next = reduceEditor(placed, { type: "DELETE_COMMENT", id: "nope" as CommentId });
-    expect(next).toBe(placed);
+    const before = placed.snapshot();
+    placed.dispatch({ type: "DELETE_COMMENT", id: "nope" as CommentId });
+    expect(placed.document).toBe(before.document);
+    expect(placed.selection).toBe(before.selection);
   });
 
   it("leaves a VALID selection when the caret sits in an UNRELATED block (sidebar-driven)", () => {
     // Two paragraphs; comment on para1; caret in para2. Deleting the comment
     // strips markers from para1 only, so the para2 selection stays valid.
-    const initial = createInitialEditorState(config);
-    const p1 = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" });
-    const split = reduceEditor(p1, { type: "SPLIT_NODE" });
-    const firstId = bodyParaId(split); // the split's head (new id)
-    const withSecond = reduceEditor(split, { type: "INSERT_TEXT", text: "defgh" });
-    const secondId = withSecond.selection.focus.blockId;
+    const initial = createEditor(config);
+    initial.dispatch({ type: "INSERT_TEXT", text: "abc" });
+    initial.dispatch({ type: "SPLIT_NODE" });
+    const firstId = bodyParaId(initial); // the split's head (new id)
+    initial.dispatch({ type: "INSERT_TEXT", text: "defgh" });
+    const secondId = initial.selection.focus.blockId;
 
     // Comment over "bc" in para1.
-    const placed = reduceEditor(
-      withSecond,
-      {
+    initial.dispatch({
         type: "SET_SELECTION",
         selection: createSpan(createPosition(firstId, 1), createPosition(firstId, 3)),
-      },
-    );
-    const added = reduceEditor(placed, addCommentAction(CID));
+      });
+    initial.dispatch(addCommentAction(CID));
 
     // Caret in para2 at offset 3 (unrelated block).
-    const caretElsewhere = reduceEditor(
-      added,
-      {
+    initial.dispatch({
         type: "SET_SELECTION",
         selection: createSpan(createPosition(secondId, 3), createPosition(secondId, 3)),
-      },
-    );
-    const deleted = reduceEditor(caretElsewhere, { type: "DELETE_COMMENT", id: CID });
+      });
+    initial.dispatch({ type: "DELETE_COMMENT", id: CID });
 
-    expect(getComments(deleted.document).length).toBe(0);
+    expect(getComments(initial.document).length).toBe(0);
     // The para2 selection is unchanged and in range (para2 length is 5 ≥ 3).
-    expect(deleted.selection.focus).toEqual(createPosition(secondId, 3));
+    expect(initial.selection.focus).toEqual(createPosition(secondId, 3));
     const para2Len =
-      getBlock(deleted.document, secondId)?.inlineContent?.items.reduce(
+      getBlock(initial.document, secondId)?.inlineContent?.items.reduce(
         (n, it) => n + (it.kind === "text" ? it.text.length : 1),
         0,
       ) ?? 0;
-    expect(deleted.selection.focus.offset).toBeLessThanOrEqual(para2Len);
+    expect(initial.selection.focus.offset).toBeLessThanOrEqual(para2Len);
   });
 
   it("remaps the caret through the stripped markers when it sits IN the marked block (M-1)", () => {
@@ -374,31 +371,28 @@ describe("handleDeleteComment — DELETE_COMMENT", () => {
     // visual position.
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4); // "bcd"
-    const added = reduceEditor(placed, addCommentAction(CID));
-    expect(markerCount(added, paraId, CID)).toBe(2);
+    placed.dispatch(addCommentAction(CID));
+    expect(markerCount(placed, paraId, CID)).toBe(2);
 
     // Collapsed caret at the END of the marked block (offset 8 = past "f" + 2 markers).
-    const caretInBlock = reduceEditor(
-      added,
-      {
+    placed.dispatch({
         type: "SET_SELECTION",
         selection: createSpan(createPosition(paraId, 8), createPosition(paraId, 8)),
-      },
-    );
-    const deleted = reduceEditor(caretInBlock, { type: "DELETE_COMMENT", id: CID });
+      });
+    placed.dispatch({ type: "DELETE_COMMENT", id: CID });
 
-    expect(getComments(deleted.document).length).toBe(0);
-    expect(markerCount(deleted, paraId, CID)).toBe(0);
+    expect(getComments(placed.document).length).toBe(0);
+    expect(markerCount(placed, paraId, CID)).toBe(0);
     // The caret is remapped to offset 6 (end of "abcdef") — valid and visually correct.
     const paraLen =
-      getBlock(deleted.document, paraId)?.inlineContent?.items.reduce(
+      getBlock(placed.document, paraId)?.inlineContent?.items.reduce(
         (n, it) => n + (it.kind === "text" ? it.text.length : 1),
         0,
       ) ?? 0;
     expect(paraLen).toBe(6);
-    expect(deleted.selection.focus).toEqual(createPosition(paraId, 6));
-    expect(deleted.selection.anchor).toEqual(createPosition(paraId, 6));
-    expect(deleted.selection.focus.offset).toBeLessThanOrEqual(paraLen);
+    expect(placed.selection.focus).toEqual(createPosition(paraId, 6));
+    expect(placed.selection.anchor).toEqual(createPosition(paraId, 6));
+    expect(placed.selection.focus.offset).toBeLessThanOrEqual(paraLen);
   });
 });
 
@@ -406,21 +400,18 @@ describe("handleAddReply — ADD_REPLY", () => {
   it("appends a reply to the record's replies", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4);
-    const added = reduceEditor(placed, addCommentAction(CID));
-    expect(nth(getComments(added.document), 0, "comment").replies.length).toBe(0);
+    placed.dispatch(addCommentAction(CID));
+    expect(nth(getComments(placed.document), 0, "comment").replies.length).toBe(0);
 
-    const replied = reduceEditor(
-      added,
-      {
+    placed.dispatch({
         type: "ADD_REPLY",
         commentId: CID,
         replyId: "r1",
         author: "bob",
         body: "agreed",
         createdAt: 2000,
-      },
-    );
-    const replies = nth(getComments(replied.document), 0, "comment").replies;
+      });
+    const replies = nth(getComments(placed.document), 0, "comment").replies;
     expect(replies.length).toBe(1);
     const reply0 = nth(replies, 0, "reply");
     expect(reply0.id).toBe("r1");
@@ -432,41 +423,37 @@ describe("handleAddReply — ADD_REPLY", () => {
   it("no-ops when the comment is absent (same editor reference)", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4); // no comment exists
-    const next = reduceEditor(
-      placed,
-      {
+    const before = placed.snapshot();
+    placed.dispatch({
         type: "ADD_REPLY",
         commentId: "nope" as CommentId,
         replyId: "r1",
         author: "bob",
         body: "x",
         createdAt: 2000,
-      },
-    );
-    expect(next).toBe(placed);
+      });
+    expect(placed.document).toBe(before.document);
+    expect(placed.selection).toBe(before.selection);
   });
 
   it("is undoable — UNDO removes the reply, leaving the comment", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4);
-    const added = reduceEditor(placed, addCommentAction(CID));
-    const replied = reduceEditor(
-      added,
-      {
+    placed.dispatch(addCommentAction(CID));
+    placed.dispatch({
         type: "ADD_REPLY",
         commentId: CID,
         replyId: "r1",
         author: "bob",
         body: "agreed",
         createdAt: 2000,
-      },
-    );
-    expect(nth(getComments(replied.document), 0, "comment").replies.length).toBe(1);
+      });
+    expect(nth(getComments(placed.document), 0, "comment").replies.length).toBe(1);
 
-    const undone = reduceEditor(replied, { type: "UNDO" });
+    placed.dispatch({ type: "UNDO" });
     // The reply is its own "command" undo unit: one UNDO drops the reply but
     // the comment record + markers survive (a separate prior entry).
-    const comments = getComments(undone.document);
+    const comments = getComments(placed.document);
     expect(comments.length).toBe(1);
     expect(nth(comments, 0, "comment").replies.length).toBe(0);
   });

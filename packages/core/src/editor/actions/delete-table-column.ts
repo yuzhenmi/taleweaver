@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { resolveTableContext, deleteTableColumn, deleteTableColumnSpanAware, getBlock, createPosition, createSpan } from "../../state";
 import { deleteWholeTable } from "./helpers/delete-whole-table";
@@ -21,7 +21,7 @@ import { deleteWholeTable } from "./helpers/delete-whole-table";
  * rewrites `columnWidths` (when present) in the same transaction → one undo entry
  * (`"command"`).
  */
-export function handleDeleteTableColumn(editor: EditorState): Edit | null {
+export function handleDeleteTableColumn(editor: Editor): Edit | null {
   const ctx = resolveTableContext(editor.document, editor.selection.focus.blockId);
   if (ctx === null || ctx.ragged) return null;
 

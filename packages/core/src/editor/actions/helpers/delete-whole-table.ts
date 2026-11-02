@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import type { Edit } from "../../edit";
 import type { BlockId } from "../../../state";
 import { deleteTable, getBlock, createPosition, createSpan } from "../../../state";
@@ -11,7 +11,7 @@ import { deleteTable, getBlock, createPosition, createSpan } from "../../../stat
  * undo entry. No-op (same `editor` ref) only when the table block is missing.
  */
 export function deleteWholeTable(
-  editor: EditorState,
+  editor: Editor,
   tableId: BlockId,
 ): Edit | null {
   const table = getBlock(editor.document, tableId);

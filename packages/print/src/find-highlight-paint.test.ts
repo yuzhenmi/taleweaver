@@ -13,7 +13,7 @@
  *
  * Mirrors selection-composite-paint.test.ts's mock-canvas op-recording pattern.
  */
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { paintCanvas, paintPage, createEditorController } from "./index";
 import { findBand, type TestBand } from "./test-utils/highlight-bands";
 import { createPaintCache } from "./paint-cache";
@@ -326,14 +326,14 @@ describe("match-highlight overlay — incremental clear/erase (#433)", () => {
 
 const measurer: core.TextMeasurer = core.createMockMeasurer(8, 16);
 
-function seededEditorState(text: string): { editor: core.EditorState; blockId: core.BlockId } {
+function seededEditorState(text: string): { editor: core.Editor; blockId: core.BlockId } {
   const config: core.EditorConfig = {
     componentRegistry: core.createDefaultComponentRegistry(),
     attrRegistry: core.createDefaultAttrRegistry(),
     containerWidth: 600,
   };
-  let editor = core.createInitialEditorState(config);
-  editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text });
+  let editor = core.createEditor(config);
+  editor.dispatch({ type: "INSERT_TEXT", text });
   const block = finalSection(editor.document);
   const blockId = block?.firstChildId;
   if (blockId === null || blockId === undefined) throw new Error("no paragraph block");
@@ -391,8 +391,7 @@ describe("controller setFindHighlights / clearFindHighlights (#433)", () => {
   it("setFindHighlights([m0, m1], 1) → m1's rects active colour, m0's inactive", () => {
     const { editor, blockId } = seededEditorState("foo bar foo");
     const { container, lastCtx } = mount();
-    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
-    controller.update(editor);
+    const controller = createEditorController(container, { measurer, editor });
 
     // Two matches of "foo": at [0,3) and [8,11).
     const matches = core.findMatches(editor.document, "foo");
@@ -413,8 +412,7 @@ describe("controller setFindHighlights / clearFindHighlights (#433)", () => {
   it("activeIndex out of range → all rects inactive colour", () => {
     const { editor } = seededEditorState("foo bar foo");
     const { container, lastCtx } = mount();
-    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
-    controller.update(editor);
+    const controller = createEditorController(container, { measurer, editor });
 
     const matches = core.findMatches(editor.document, "foo");
     controller.setFindHighlights(matches, 99); // out of range
@@ -428,8 +426,7 @@ describe("controller setFindHighlights / clearFindHighlights (#433)", () => {
   it("clearFindHighlights() → no match-highlight fillRects painted afterwards", () => {
     const { editor } = seededEditorState("foo bar foo");
     const { container, lastCtx } = mount();
-    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
-    controller.update(editor);
+    const controller = createEditorController(container, { measurer, editor });
 
     const matches = core.findMatches(editor.document, "foo");
     controller.setFindHighlights(matches, 0);
@@ -449,8 +446,7 @@ describe("controller setFindHighlights / clearFindHighlights (#433)", () => {
   it("no setFindHighlights call → normal paint emits no match bands", () => {
     const { editor } = seededEditorState("foo bar foo");
     const { container, lastCtx } = mount();
-    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
-    controller.update(editor);
+    const controller = createEditorController(container, { measurer, editor });
     const { inactive, active } = matchOps(lastCtx());
     expect(inactive.length).toBe(0);
     expect(active.length).toBe(0);

@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import type { Edit } from "../../edit";
 import { insertPageField, resolveBlock, selectionContextOf, createPosition, createSpan, type BlockId, type PageFieldKind, type PageFieldNumberStyle } from "../../../state";
 import { prepareEmbedInsertPoint } from "./prepare-embed-insert-point";
@@ -26,7 +26,7 @@ import { prepareEmbedInsertPoint } from "./prepare-embed-insert-point";
  * cross-parent span is un-deletable → no-op.
  */
 export function insertPageFieldAtCaret(
-  editor: EditorState,
+  editor: Editor,
   fieldKind: PageFieldKind,
   numberStyle: PageFieldNumberStyle | undefined,
 ): Edit | null {

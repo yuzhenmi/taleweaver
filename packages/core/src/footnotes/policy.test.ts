@@ -6,14 +6,14 @@
  */
 import { describe, it, expect } from "vitest";
 import { documentFootnotePolicy } from "./policy";
-import { createInitialEditorState } from "../editor/actions/test-helpers";
+import { createEditor } from "../editor/actions/test-helpers";
 import { config } from "../editor/actions/test-helpers";
 import { mergeBlockAttrs } from "../state";
 import type { Document } from "../state";
 
 /** Build a base Document (empty document) for policy reads. */
 function baseDocument(): Document {
-  return createInitialEditorState(config).document;
+  return createEditor(config).document;
 }
 
 describe("documentFootnotePolicy", () => {

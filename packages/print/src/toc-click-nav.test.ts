@@ -13,7 +13,7 @@
  * Harness mirrors comment-highlights.test.ts: real controller + real renderer +
  * a spy canvas (so `update()` paints and the virtual tree materializes its
  * pages), driven over a seeded TOC doc built via the public
- * `buildDocumentFromTree` → `createEditorStateFromDocument` seam. The gesture's
+ * `buildDocumentFromTree` → `createEditor` seam. The gesture's
  * outcome is read off the controller's `dispatch` spy.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -72,12 +72,12 @@ function pageConfig(): core.PageConfig {
 }
 
 /**
- * Seed an EditorState with a TOC over two headings ("Introduction", "Details").
+ * Seed an Editor with a TOC over two headings ("Introduction", "Details").
  * Returns the editor plus the two heading block ids (read back from the built
  * Document — `buildDocumentFromTree` mints the ids).
  */
 function seededTocEditor(): {
-  editor: core.EditorState;
+  editor: core.Editor;
   h1Id: core.BlockId;
   h2Id: core.BlockId;
   config: core.EditorConfig;
@@ -116,11 +116,7 @@ function seededTocEditor(): {
     containerWidth: 600,
     pageConfig: pageConfig(),
   };
-  const editor = core.createEditorStateFromDocument(
-    document,
-    core.initialSelectionForDocument(document),
-    config,
-  );
+  const editor = core.createEditor(config, { document });
   return { editor, h1Id, h2Id, config };
 }
 
@@ -157,11 +153,11 @@ function tocEntryCenter(
 }
 
 /**
- * Phase 0b: core's `EditorState` is geometry-free — the layout tree lives in the
+ * Phase 0b: core's `Editor` is geometry-free — the layout tree lives in the
  * backend driver. Build it here via core's own render → cascade → layout pipeline
  * (exactly what the driver does) to read page 0's materialized TOC-entry boxes.
  */
-function getPage0(editor: core.EditorState, config: core.EditorConfig): printPkg.LayoutBox {
+function getPage0(editor: core.Editor, config: core.EditorConfig): printPkg.LayoutBox {
   const rendered = core.render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = core.cascadePass(rendered.root);
   const lt = printPkg.layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
@@ -240,7 +236,7 @@ describe("TOC click-to-navigate gesture", () => {
   }
 
   /** The most recent SET_SELECTION the controller dispatched, or null. */
-  function lastSetSelection(dispatch: ReturnType<typeof vi.fn>): core.Span | null {
+  function lastSetSelection(dispatch: { readonly mock: { readonly calls: readonly (readonly unknown[])[] } }): core.Span | null {
     for (let i = dispatch.mock.calls.length - 1; i >= 0; i--) {
       const call = dispatch.mock.calls[i];
       if (call === undefined) continue;
@@ -253,11 +249,11 @@ describe("TOC click-to-navigate gesture", () => {
   it("a plain click on a TOC entry jumps the caret to its heading", () => {
     const { editor, h2Id, config } = seededTocEditor();
     const container = mount();
-    const dispatch = vi.fn();
     const controller = createEditorController(container, {
-      measurer, dispatch, pageHeight: 800, pageGap: 24,
-    });
-    controller.update(editor);
+      editor,
+measurer, pageHeight: 800, pageGap: 24,
+});
+    const dispatch = vi.spyOn(editor, "dispatch");
     pinSlot0(container);
 
     // The second TOC entry navigates to the SECOND heading (h2) — distinct from
@@ -294,11 +290,11 @@ describe("TOC click-to-navigate gesture", () => {
   it("a DRAG starting on a TOC entry does NOT navigate (nav abandoned past the epsilon)", () => {
     const { editor, h2Id, config } = seededTocEditor();
     const container = mount();
-    const dispatch = vi.fn();
     const controller = createEditorController(container, {
-      measurer, dispatch, pageHeight: 800, pageGap: 24,
-    });
-    controller.update(editor);
+      editor,
+measurer, pageHeight: 800, pageGap: 24,
+});
+    const dispatch = vi.spyOn(editor, "dispatch");
     pinSlot0(container);
 
     const center = tocEntryCenter(getPage0(editor, config), h2Id);

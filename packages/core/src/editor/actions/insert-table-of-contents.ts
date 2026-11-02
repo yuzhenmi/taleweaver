@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { insertAtomicBlockAfterFocus } from "./helpers/insert-atomic-block-after-focus";
 import { DEFAULT_TOC_ATTRS } from "../../components/table-of-contents-attrs";
@@ -12,7 +12,7 @@ import { DEFAULT_TOC_ATTRS } from "../../components/table-of-contents-attrs";
  * paragraph; one undo entry. See `insertAtomicBlockAfterFocus` for the shared
  * insert + caret + no-op semantics.
  */
-export function handleInsertTableOfContents(editor: EditorState): Edit | null {
+export function handleInsertTableOfContents(editor: Editor): Edit | null {
   return insertAtomicBlockAfterFocus(editor, {
     type: "table-of-contents",
     attrs: { ...DEFAULT_TOC_ATTRS },

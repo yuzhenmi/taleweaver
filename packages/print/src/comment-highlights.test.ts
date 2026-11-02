@@ -15,7 +15,7 @@
  *  - a comment spanning a soft line-break → ≥2 rects (multi-rect emission).
  *  - comment highlight paints UNDER the find-match highlight when both present.
  */
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import {
   paintCanvas,
   paintPage,
@@ -74,14 +74,14 @@ const isMatch = (o: Op): boolean =>
 const isGlyph = (o: Op): boolean => o.kind === "fillText";
 
 /** Seed an editor with `text` in one paragraph and return it + that block's id. */
-function seededEditorState(text: string): { editor: core.EditorState; blockId: core.BlockId } {
+function seededEditorState(text: string): { editor: core.Editor; blockId: core.BlockId } {
   const config: core.EditorConfig = {
     componentRegistry: core.createDefaultComponentRegistry(),
     attrRegistry: core.createDefaultAttrRegistry(),
     containerWidth: 600,
   };
-  let editor = core.createInitialEditorState(config);
-  editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text });
+  let editor = core.createEditor(config);
+  editor.dispatch({ type: "INSERT_TEXT", text });
   const block = finalSection(editor.document);
   const blockId = block?.firstChildId;
   if (blockId === null || blockId === undefined) throw new Error("no paragraph block");
@@ -94,26 +94,21 @@ function seededEditorState(text: string): { editor: core.EditorState; blockId: c
  * resolves to a live (non-orphaned) range straddling the original selection.
  */
 function addComment(
-  editor: core.EditorState,
+  editor: core.Editor,
   blockId: core.BlockId,
   start: number,
   end: number,
   id: string,
-): core.EditorState {
-  let e = core.reduceEditor(
-    editor,
-    {
+): core.Editor {
+  editor.dispatch({
       type: "SET_SELECTION",
       selection: core.createSpan(
         core.createPosition(blockId, start),
         core.createPosition(blockId, end),
       ),
-    },
-  );
-  e = core.reduceEditor(
-    e,
-    { type: "ADD_COMMENT", id: id as core.CommentId, author: "tester", body: "note", createdAt: 1 },
-  );
+    });
+    let e = editor;
+  e.dispatch({ type: "ADD_COMMENT", id: id as core.CommentId, author: "tester", body: "note", createdAt: 1 });
   return e;
 }
 
@@ -171,8 +166,7 @@ describe("controller setCommentHighlights / clearCommentHighlights (comments sli
     expect(core.resolveCommentRange(withComment.document, "c1" as core.CommentId)?.orphaned).toBe(false);
 
     const { container, lastCtx } = mount();
-    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
-    controller.update(withComment);
+    const controller = createEditorController(container, { measurer, editor: withComment });
 
     controller.setCommentHighlights([{ commentId: "c1" as core.CommentId, active: false }]);
     const { inactive, active } = commentOps(lastCtx());
@@ -190,8 +184,7 @@ describe("controller setCommentHighlights / clearCommentHighlights (comments sli
     e = addComment(e, blockId, 9, 12, "c2");
 
     const { container, lastCtx } = mount();
-    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
-    controller.update(e);
+    const controller = createEditorController(container, { measurer, editor: e });
 
     controller.setCommentHighlights([
       { commentId: "c1" as core.CommentId, active: false },
@@ -214,22 +207,19 @@ describe("controller setCommentHighlights / clearCommentHighlights (comments sli
     const range = core.resolveCommentRange(withComment.document, "c1" as core.CommentId);
     expect(range).not.toBeNull();
     if (range === null) throw new Error("no range");
-    let e = core.reduceEditor(
-      withComment,
-      {
+    withComment.dispatch({
         type: "SET_SELECTION",
         selection: core.createSpan(
           core.createPosition(range.start.blockId, range.start.offset),
           core.createPosition(range.start.blockId, range.start.offset + 1),
         ),
-      },
-    );
-    e = core.reduceEditor(e, { type: "DELETE_FORWARD" });
+      });
+    let e = withComment;
+    e.dispatch({ type: "DELETE_FORWARD" });
     expect(core.resolveCommentRange(e.document, "c1" as core.CommentId)?.orphaned).toBe(true);
 
     const { container, lastCtx } = mount();
-    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
-    controller.update(e);
+    const controller = createEditorController(container, { measurer, editor: e });
 
     controller.setCommentHighlights([{ commentId: "c1" as core.CommentId, active: false }]);
     const { inactive, active } = commentOps(lastCtx());
@@ -244,8 +234,7 @@ describe("controller setCommentHighlights / clearCommentHighlights (comments sli
     const withComment = addComment(editor, blockId, 0, 5, "c1");
 
     const { container, lastCtx } = mount();
-    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
-    controller.update(withComment);
+    const controller = createEditorController(container, { measurer, editor: withComment });
 
     controller.setCommentHighlights([{ commentId: "c1" as core.CommentId, active: false }]);
     expect(commentOps(lastCtx()).inactive.length).toBeGreaterThan(0);
@@ -277,8 +266,7 @@ describe("controller setCommentHighlights / clearCommentHighlights (comments sli
     expect(core.resolveCommentRange(withComment.document, "c1" as core.CommentId)?.orphaned).toBe(false);
 
     const { container, lastCtx } = mount();
-    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
-    controller.update(withComment);
+    const controller = createEditorController(container, { measurer, editor: withComment });
 
     controller.setCommentHighlights([{ commentId: "c1" as core.CommentId, active: false }]);
     expect(commentOps(lastCtx()).inactive.length).toBeGreaterThanOrEqual(2);
@@ -294,8 +282,9 @@ describe("controller setCommentHighlights / clearCommentHighlights (comments sli
     // Caret sits at the end of "first paragraph" after INSERT_TEXT; Enter there
     // splits. The head ("first paragraph") gets a NEW id; the empty tail
     // keeps the original id, so typing lands in the original block.
-    let e = core.reduceEditor(editor, { type: "SPLIT_NODE" });
-    e = core.reduceEditor(e, { type: "INSERT_TEXT", text: "second paragraph" });
+    editor.dispatch({ type: "SPLIT_NODE" });
+    let e = editor;
+    e.dispatch({ type: "INSERT_TEXT", text: "second paragraph" });
 
     // The split head is the original block's previous sibling.
     const block1 = core.getBlock(e.document, block2)?.prevSiblingId;
@@ -303,27 +292,20 @@ describe("controller setCommentHighlights / clearCommentHighlights (comments sli
 
     // Select from inside paragraph 1 (offset 6) to inside paragraph 2 (offset 6),
     // a genuine cross-block range, then mint the comment over it.
-    e = core.reduceEditor(
-      e,
-      {
+    e.dispatch({
         type: "SET_SELECTION",
         selection: core.createSpan(
           core.createPosition(block1, 6),
           core.createPosition(block2, 6),
         ),
-      },
-    );
-    e = core.reduceEditor(
-      e,
-      { type: "ADD_COMMENT", id: "cx" as core.CommentId, author: "tester", body: "note", createdAt: 1 },
-    );
+      });
+    e.dispatch({ type: "ADD_COMMENT", id: "cx" as core.CommentId, author: "tester", body: "note", createdAt: 1 });
     const range = core.resolveCommentRange(e.document, "cx" as core.CommentId);
     expect(range?.orphaned).toBe(false);
     expect(range?.start.blockId).not.toBe(range?.end.blockId);
 
     const { container, lastCtx } = mount();
-    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
-    controller.update(e);
+    const controller = createEditorController(container, { measurer, editor: e });
 
     controller.setCommentHighlights([{ commentId: "cx" as core.CommentId, active: false }]);
     // One band per spanned block → at least two rects on the single page.

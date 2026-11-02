@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import type { Edit } from "../../edit";
 import type { BlockId } from "../../../state";
 import { objectMoveSelection } from "./object-move-selection";
@@ -14,7 +14,7 @@ import { objectMoveSelection } from "./object-move-selection";
  * on the object (returns `null`) rather than crashing.
  */
 export function moveOffObject(
-  editor: EditorState,
+  editor: Editor,
   objId: BlockId,
   direction: "forward" | "backward",
 ): Edit | null {

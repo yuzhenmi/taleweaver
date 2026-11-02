@@ -8,16 +8,12 @@ import {
   buildDocument,
   createDefaultAttrRegistry,
   createDefaultComponentRegistry,
-  createEditorStateFromDocument,
+  createEditor,
   createMockShaper,
   createPosition,
   createSpan,
   inlineContent,
-  paragraphComponent,
-  reduceEditor,
-  render,
-  text,
-} from "@taleweaver/core";
+  paragraphComponent, render, text } from "@taleweaver/core";
 import {
   computeUsedStyle,
   createBlockBox,
@@ -238,9 +234,10 @@ describe("emitPageContent — change-tracking ¶ and section-break label are art
     });
     // A suggested join p0|p1 (¶ at the end of p0) and a suggested section break before p2
     // (an empty ¶ ending the first section, drawn as the section-break label).
-    let e = createEditorStateFromDocument(s, at("p1", 0), alice);
-    e = reduceEditor(e, { type: "DELETE_BACKWARD" });
-    e = reduceEditor(reduceEditor(e, { type: "SET_SELECTION", selection: at("p2", 0) }), { type: "SECTION_BREAK" });
+    let e = createEditor(alice, { document: s, selection: at("p1", 0) });
+    e.dispatch({ type: "DELETE_BACKWARD" });
+    e.dispatch({ type: "SET_SELECTION", selection: at("p2", 0) });
+    e.dispatch({ type: "SECTION_BREAK" });
     return e.document;
   };
 

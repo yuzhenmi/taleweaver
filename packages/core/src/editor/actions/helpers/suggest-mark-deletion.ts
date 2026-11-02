@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import { createPosition, createSpan, markParagraphMarkDeletion } from "../../../state";
 import type { Block, Position, SuggestionMintInput } from "../../../state";
 import type { Edit } from "../../edit";
@@ -10,7 +10,7 @@ import { caretEdit } from "./caret-edit";
  * to the seam; nothing written (already deletion-keyed, or a ¶ accepting would keep) →
  * the caret moves to `across` (no history entry).
  */
-export function suggestMarkDeletion(editor: EditorState, owner: Block, input: SuggestionMintInput, across: Position): Edit {
+export function suggestMarkDeletion(editor: Editor, owner: Block, input: SuggestionMintInput, across: Position): Edit {
   const result = markParagraphMarkDeletion(editor.document, owner.id, input);
   if (result.document === editor.document) return { selection: createSpan(across, across) };
   const removed = result.removedBoundary;

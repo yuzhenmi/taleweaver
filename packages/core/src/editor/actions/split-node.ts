@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition, splitWithSuggestion, splitWithSuggestionOverSelection, markDeletion, spanStart, clipSpanToText, inlineContentLength } from "../../state";
 import type { BlockId } from "../../state";
@@ -12,7 +12,7 @@ import { unlistBlock } from "./helpers/unlist-block";
 import { suggestionInputForBlock } from "./helpers/suggestion-input-for-block";
 import { replaceSuggestionInputForBlock } from "./helpers/replace-suggestion-input-for-block";
 
-export function handleSplitNode(editor: EditorState): Edit | null {
+export function handleSplitNode(editor: Editor): Edit | null {
   const { config } = editor;
   // Object selection: Enter on a selected atomic-leaf (image) does
   // nothing — an atomic block has no text content to split. No-op (Google Docs).
@@ -20,7 +20,8 @@ export function handleSplitNode(editor: EditorState): Edit | null {
     return null;
   }
 
-  let current = editor;
+  // The document + selection the split runs on: the editor's, or after the range delete.
+  let current: Pick<Editor, "document" | "selection"> = editor;
   const { selection } = editor;
 
   // Accumulate dirtyIds across the optional delete + the required split.
@@ -115,7 +116,6 @@ export function handleSplitNode(editor: EditorState): Edit | null {
     for (const id of deleteResult.dirtyIds) accumulatedDirtyIds.add(id);
     const collapsedCursor = createPosition(start.blockId, start.offset);
     current = {
-      ...editor,
       document: deleteResult.document,
       selection: createSpan(collapsedCursor, collapsedCursor),
     };
@@ -171,9 +171,9 @@ export function handleSplitNode(editor: EditorState): Edit | null {
   // threaded through unchanged.
   // Gate on the split block's context: a split in ANY editing context (main body
   // OR a footnote/header/footer body) is TRACKED via `splitWithSuggestion`;
-  // `suggestionInputForBlock` returns null only when not suggesting or the block
-  // resolves to no context, → the direct `splitBlockAtPosition` path.
-  const suggestInput = suggestionInputForBlock(current, pos.blockId);
+  // the input is null only when not suggesting or the block resolves to no context,
+  // → the direct `splitBlockAtPosition` path.
+  const suggestInput = suggestionInputForBlock(editor, pos.blockId, current.document);
   const splitResult =
     suggestInput === null
       ? splitBlockAtPosition(current.document, pos, productionAllocator, newBlockInit)

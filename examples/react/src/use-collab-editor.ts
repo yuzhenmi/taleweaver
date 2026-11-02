@@ -5,28 +5,25 @@
  * with the other pane by exchanging Yjs updates (`Y.applyUpdate`) — exactly what a
  * network provider does. The engine handles the rest: the print controller sees a
  * peer's update land in its Y.Doc (a non-local transaction) and dispatches
- * `APPLY_FOREIGN_CHANGE`, whose reducer arm reconciles the state and REBASES this
- * pane's selection; decorations / anchors / the mapping log advance on the next
- * `update`. Undo stays per peer (each History only sees its own doc's local edits).
+ * `APPLY_FOREIGN_CHANGE` to this pane's editor, whose reducer arm reconciles it and
+ * REBASES this pane's selection; decorations / anchors / the mapping log advance in the
+ * controller's render that follows. Undo stays per peer (each History only sees its own
+ * doc's local edits).
  *
  * Example-app only — must not be promoted to packages/react (it duplicates
  * config/geometry creation deliberately, like use-perf-editor).
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
-  reduceEditor,
-  createEditorStateFromDocument,
-  initialSelectionForDocument,
   type EditorAction,
-  type EditorState,
+  type Editor,
   type EditorConfig,
   type PageConfig,
   type Document,
   type TextShaper,
-  type Hyphenator,
-} from "@taleweaver/core";
+  type Hyphenator, createEditor } from "@taleweaver/core";
 import { createCanvasShaper, createLiangHyphenator, browserHtmlParser } from "@taleweaver/print";
 import { EN_US_PATTERN_SET } from "@taleweaver/hyphenation-en-us";
 
@@ -60,7 +57,7 @@ function createGeometry(): { measurer: TextShaper; hyphenator: Hyphenator } {
 }
 
 export interface UseCollabEditorResult {
-  editorState: EditorState;
+  editor: Editor;
   dispatch: React.Dispatch<EditorAction>;
   containerRef: React.RefObject<HTMLDivElement | null>;
   measurer: TextShaper;
@@ -85,33 +82,15 @@ export function useCollabEditor(peerDoc: Document): UseCollabEditorResult {
   }
   const geometry = geometryRef.current;
 
-  const [editorState, setEditorState] = useState<EditorState>(() =>
-    // Build with this peer's origin so its History's UndoManager tracks ONLY its
-    // own edits (undo isolation) — no default-History-then-replace dance.
-    createEditorStateFromDocument(peerDoc, initialSelectionForDocument(peerDoc), config),
+  // This pane's ONE editor over its peer document. It changes in place — local edits
+  // and the peer changes the print controller dispatches the moment they land alike.
+  const [editor] = useState<Editor>(() =>
+    createEditor(config, { document: peerDoc }),
   );
-
-  // Always-current state ref so the dispatch closure reads the latest without
-  // re-creating itself, and so the foreign-change observer (installed once)
-  // reconciles against the live state.
-  const latestState = useRef(editorState);
-  latestState.current = editorState;
-
-  // Origin-tagged dispatch: stamp every edit's Y.Doc transaction with this
-  // pane's origin. Computed OUTSIDE a setState updater (in the event handler)
-  // so the synchronous foreign-change observer it triggers on the other pane
-  // runs as a normal event-time setState, not nested inside a React updater.
-  // Reduce synchronously against the LATEST state (not the last rendered one): the
-  // print controller dispatches a peer's change (APPLY_FOREIGN_CHANGE) the moment it
-  // lands, and a local keystroke may follow before React re-renders.
-  const dispatch = useCallback<React.Dispatch<EditorAction>>(
-    (action) => {
-      const next = reduceEditor(latestState.current, action);
-      latestState.current = next;
-      setEditorState(next);
-    },
-    [config],
-  );
+  // Re-render after every dispatch (the controller subscribes on its own).
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => editor.subscribe(rerender), [editor]);
+  const dispatch = useCallback<React.Dispatch<EditorAction>>((action) => editor.dispatch(action), [editor]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -136,7 +115,7 @@ export function useCollabEditor(peerDoc: Document): UseCollabEditorResult {
   }, []);
 
   return {
-    editorState,
+    editor,
     dispatch,
     containerRef,
     measurer: geometry.measurer,

@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../../state";
 import type { Document, BlockId } from "../../../state";
 import type { Edit } from "../../edit";
@@ -24,7 +24,7 @@ export const MAX_LIST_LEVEL = 8;
  * collapsed caret not in a list-item; a range covering no list-items; or every
  * target already at the clamp boundary.
  */
-export function shiftListLevel(editor: EditorState, delta: 1 | -1): Edit | null {
+export function shiftListLevel(editor: Editor, delta: 1 | -1): Edit | null {
   const targetIds = targetListItemIds(editor);
 
   let document: Document = editor.document;
@@ -56,7 +56,7 @@ export function shiftListLevel(editor: EditorState, delta: 1 | -1): Edit | null 
  *  - collapsed selection → the focus block (if it's a list-item);
  *  - range selection → every list-item the span covers.
  */
-function targetListItemIds(editor: EditorState): BlockId[] {
+function targetListItemIds(editor: Editor): BlockId[] {
   const { document, selection } = editor;
 
   if (positionsEqual(selection.anchor, selection.focus)) {

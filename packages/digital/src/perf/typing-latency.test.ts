@@ -1,3 +1,5 @@
+import { createEditor } from "@taleweaver/core";
+import { browserHtmlParser } from "../editor-digital/html-parser";
 import { describe, it, expect } from "vitest";
 import {
   buildDocumentFromTree,
@@ -74,7 +76,7 @@ function chapter(paragraphs = 400): ContainerBlockNode {
 }
 
 function paragraphIds(controller: DigitalController): BlockId[] {
-  const document = controller.editorState.document;
+  const document = controller.editor.document;
   const out: BlockId[] = [];
   // The root's children are sections: a break-less document's body is its final section.
   const body = getBlock(document, getBlock(document, document.rootId)?.lastChildId ?? document.rootId);
@@ -93,10 +95,8 @@ describe("digital typing latency (20k words, 1,000 decorations)", () => {
     document.body.replaceChildren(container);
     const controller = createDigitalController({
       container,
-      componentRegistry: createDefaultComponentRegistry(),
-      attrRegistry: createDefaultAttrRegistry(),
-      initialDocument: buildDocumentFromTree(chapter(), {}, createTestAllocator(), TEST_RESOLVER),
       doc: document,
+      editor: createEditor({ componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, htmlParser: browserHtmlParser }, { document: buildDocumentFromTree(chapter(), {}, createTestAllocator(), TEST_RESOLVER) }),
     });
     const ids = paragraphIds(controller);
     const decorations: Decoration[] = [];
@@ -141,10 +141,8 @@ describe("digital typing latency (20k words, 1,000 decorations)", () => {
     document.body.replaceChildren(container);
     const controller = createDigitalController({
       container,
-      componentRegistry: createDefaultComponentRegistry(),
-      attrRegistry: createDefaultAttrRegistry(),
-      initialDocument: buildDocumentFromTree(chapter(1000), {}, createTestAllocator(), TEST_RESOLVER),
       doc: document,
+      editor: createEditor({ componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, htmlParser: browserHtmlParser }, { document: buildDocumentFromTree(chapter(1000), {}, createTestAllocator(), TEST_RESOLVER) }),
     });
     const ids = paragraphIds(controller);
     const first = ids[0];

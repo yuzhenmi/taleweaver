@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import type { Edit } from "../../edit";
 import { getBlock, createPosition, createSpan, deleteTable } from "../../../state";
 import type { BlockId, Position } from "../../../state";
@@ -16,7 +16,7 @@ import { contentLengthForDocument } from "./content-length-for-document";
  * edit) when the block is missing.
  */
 export function deleteObjectSelection(
-  editor: EditorState,
+  editor: Editor,
   objId: BlockId,
 ): Edit | null {
   const obj = getBlock(editor.document, objId);
@@ -46,7 +46,7 @@ export function deleteObjectSelection(
  * preceding block's `inlineContent`, so its length is identical pre/post-delete.
  */
 function caretAfterObjectDelete(
-  editor: EditorState,
+  editor: Editor,
   nextSiblingId: BlockId | null,
   prevSiblingId: BlockId | null,
 ): Position | null {

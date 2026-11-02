@@ -4,7 +4,7 @@ import { render, act } from "@testing-library/react";
 import { EditorView, type EditorViewHandle } from "./editor-view";
 import { useEditor } from "./use-editor";
 import { createEditorController } from "@taleweaver/print";
-import { asBlockId, createDefaultAttrRegistry, type Decoration, type EditorState, type PageConfig } from "@taleweaver/core";
+import { asBlockId, createDefaultAttrRegistry, createDefaultComponentRegistry, createEmptyDocument, type Decoration, type Editor, type PageConfig } from "@taleweaver/core";
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -18,7 +18,7 @@ Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
   configurable: true,
 });
 
-const mockUpdate = vi.fn();
+const mockSetEditor = vi.fn();
 const mockDestroy = vi.fn();
 const mockFindStart = vi.fn(() => ({ total: 3, activeIndex: 0 }));
 const mockFindNext = vi.fn(() => ({ total: 3, activeIndex: 1 }));
@@ -37,7 +37,7 @@ vi.mock("@taleweaver/print", async () => {
   return {
     ...actual,
     createEditorController: vi.fn(() => ({
-      update: mockUpdate,
+      setEditor: mockSetEditor,
       destroy: mockDestroy,
       findStart: mockFindStart,
       findNext: mockFindNext,
@@ -55,7 +55,7 @@ vi.mock("@taleweaver/print", async () => {
 let originalResizeObserver: typeof ResizeObserver | undefined;
 
 beforeEach(() => {
-  mockUpdate.mockClear();
+  mockSetEditor.mockClear();
   mockDestroy.mockClear();
   mockFindStart.mockClear();
   mockFindNext.mockClear();
@@ -126,29 +126,42 @@ describe("EditorView", () => {
       return <EditorView {...editor} measurer={editor.shaper} />;
     }
     render(<RegistryHarness />);
-    const rendered = mockUpdate.mock.calls.at(-1)?.[0] as EditorState | undefined;
+    const rendered: Editor | undefined = vi.mocked(createEditorController).mock.calls.at(-1)?.[1].editor;
     expect(rendered?.config.attrRegistry).toBe(attrRegistry);
     expect(rendered?.config.extensions).toBe(extensions); // host keymap reaches the print controller
     expect(rendered?.config.pageConfig).toBe(pageConfig); // the reducer's page setup is the one the view paginates with
   });
 
-  it("calls controller.update() with initial editorState", () => {
-    render(<EditorHarness />);
-    // mount-only effect calls update, then editorState effect calls update
-    expect(mockUpdate).toHaveBeenCalled();
+  it("creates the controller over the hook's editor", () => {
+    let hookEditor: Editor | null = null;
+    function Harness() {
+      const editor = useEditor();
+      hookEditor = editor.editor;
+      return <EditorView {...editor} measurer={editor.shaper} />;
+    }
+    render(<Harness />);
+    expect(vi.mocked(createEditorController).mock.calls.at(-1)?.[1].editor).toBe(hookEditor);
   });
 
-  it("calls controller.update() when editorState changes", () => {
-    const { rerender } = render(<EditorHarness />);
-    const callsBefore = mockUpdate.mock.calls.length;
-
-    // Force a re-render (useEditor state change)
-    act(() => {
-      rerender(<EditorHarness />);
-    });
-
-    // At minimum the initial update calls happened
-    expect(mockUpdate.mock.calls.length).toBeGreaterThanOrEqual(callsBefore);
+  it("hands a replaced document's new editor to controller.setEditor; edits are not re-sent through React", () => {
+    let api: ReturnType<typeof useEditor> | null = null;
+    function Harness() {
+      const editor = useEditor();
+      api = editor;
+      return <EditorView {...editor} measurer={editor.shaper} />;
+    }
+    render(<Harness />);
+    const hook = (): ReturnType<typeof useEditor> => {
+      if (api === null) throw new Error("not rendered");
+      return api;
+    };
+    const first = hook().editor;
+    mockSetEditor.mockClear();
+    act(() => hook().dispatch({ type: "INSERT_TEXT", text: "a" }));
+    expect(mockSetEditor).not.toHaveBeenCalled(); // the controller hears edits from its subscription
+    act(() => hook().replaceDocument(createEmptyDocument({ resolver: createDefaultComponentRegistry() })));
+    expect(hook().editor).not.toBe(first);
+    expect(mockSetEditor).toHaveBeenLastCalledWith(hook().editor);
   });
 
   it("calls controller.destroy() on unmount", () => {
@@ -171,7 +184,7 @@ describe("EditorView", () => {
     render(<DecoratedHarness />);
     expect(mockSetDecorations).toHaveBeenLastCalledWith(decorations, undefined);
     expect(mockSetSuggestionStyles).toHaveBeenLastCalledWith(styleOf);
-    const updateOrder = mockUpdate.mock.invocationCallOrder.at(-1) ?? 0;
+    const updateOrder = mockSetEditor.mock.invocationCallOrder.at(-1) ?? 0;
     const decoOrder = mockSetDecorations.mock.invocationCallOrder.at(-1) ?? 0;
     expect(decoOrder).toBeGreaterThan(updateOrder);
   });
@@ -180,7 +193,7 @@ describe("EditorView", () => {
     const { container } = render(<PaginatedEditorHarness />);
     const div = container.firstElementChild;
     expect(div).toBeDefined();
-    expect(mockUpdate).toHaveBeenCalled();
+    expect(mockSetEditor).toHaveBeenCalled();
   });
 
   // ── Imperative handle (#433 sub-slice A) ───────────────────────────────────

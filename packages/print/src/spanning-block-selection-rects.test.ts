@@ -24,7 +24,7 @@
 // Spec: docs/superpowers/specs/2026-06-09-vl-bridge-removal-design.md §Bucket A.
 
 import { describe, it, expect } from "vitest";
-import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockMeasurer, createSpan, createPosition, INITIAL_COMPUTED_STYLE, getBlock, inlineContentLength, render, cascadePass, type EditorState, type EditorConfig, type Document, type TextShaper, type TextMeasurer, type BlockId, type PageConfig } from "@taleweaver/core";
+import { createEditor, type Editor, type EditorConfig, type Document, type TextShaper, type TextMeasurer, type BlockId, type PageConfig, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockMeasurer, createSpan, createPosition, INITIAL_COMPUTED_STYLE, getBlock, inlineContentLength, render, cascadePass } from "@taleweaver/core";
 import { computeSelectionRects, computeSelectionRectsAcrossPages, createBlockBox, computeUsedStyle, layoutTree, type LayoutBox, type VirtualLayoutTree, type SelectionRect } from "./index";
 import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
 
@@ -77,7 +77,7 @@ function makeConfig(): EditorConfig {
   };
 }
 
-// Phase 0b: core's `EditorState` is geometry-free — the layout tree lives in the
+// Phase 0b: core's `Editor` is geometry-free — the layout tree lives in the
 // backend driver. Build it via core's render → cascade → layout pipeline (exactly
 // what the driver does) so this test exercises the migrated per-page union path
 // against a real `VirtualLayoutTree`. The measurer is a print-mechanics input the
@@ -101,16 +101,16 @@ function buildVirtualTree(
  * id, and the measurer.
  */
 function buildSpanningEditor(): {
-  editor: EditorState;
+  editor: Editor;
   tree: LayoutBox | VirtualLayoutTree;
   measurer: TextShaper | TextMeasurer;
   blockId: BlockId;
 } {
   const config = makeConfig();
-  let editor = createInitialEditorState(config);
+  let editor = createEditor(config);
   // ~120 words * 5 chars ≈ 600 chars; 40 chars/line ÷ 6 lines/page → ~2.5 pages.
   const words = Array.from({ length: 120 }, () => "xxxx");
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: words.join(" ") });
+  editor.dispatch({ type: "INSERT_TEXT", text: words.join(" ") });
 
   // The seeded body paragraph is the document root's first child.
   const root = finalSection(editor.document);

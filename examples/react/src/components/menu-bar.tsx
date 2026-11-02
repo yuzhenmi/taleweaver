@@ -12,7 +12,7 @@ import {
   MenubarSubTrigger,
   MenubarTrigger,
 } from "@/components/ui/menubar";
-import type { EditorAction, EditorState } from "@taleweaver/print";
+import type { EditorAction, Editor } from "@taleweaver/print";
 import type { BlockInit, TextTransform } from "@taleweaver/core";
 import { getActiveFormatting } from "@taleweaver/core";
 
@@ -37,13 +37,13 @@ function createParagraph(): BlockInit {
 
 interface DocMenuBarProps {
   dispatch: React.Dispatch<EditorAction>;
-  editorState: EditorState;
+  editor: Editor;
   focus?: () => void;
 }
 
 // Not offered here: image, table and horizontal-line insertion.
 
-export function DocMenuBar({ dispatch, editorState, focus }: DocMenuBarProps) {
+export function DocMenuBar({ dispatch, editor, focus }: DocMenuBarProps) {
   // Active capitalization at the selection. `getActiveFormatting().textTransform`
   // returns the inline `textTransform` value, `null` when unset (which IS the
   // default — "none"), or `"mixed"` across a multi-value selection. The radio
@@ -51,9 +51,9 @@ export function DocMenuBar({ dispatch, editorState, focus }: DocMenuBarProps) {
   // is active when nothing overrides it), and `"mixed"` → "" so NO item shows
   // active.
   const activeTextTransform = getActiveFormatting(
-    editorState.document,
-    editorState.selection,
-    editorState.storedAttrs,
+    editor.document,
+    editor.selection,
+    editor.storedAttrs,
   ).textTransform;
   const textTransformValue =
     activeTextTransform === "mixed"

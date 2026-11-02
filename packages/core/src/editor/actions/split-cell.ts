@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { resolveTableContext, splitCell, productionAllocator } from "../../state";
 
@@ -17,7 +17,7 @@ import { resolveTableContext, splitCell, productionAllocator } from "../../state
  * cell, whose paragraph still exists after the unmerge). One undo entry (the op
  * is a single transaction; classified `"command"`).
  */
-export function handleSplitCell(editor: EditorState): Edit | null {
+export function handleSplitCell(editor: Editor): Edit | null {
   const ctx = resolveTableContext(editor.document, editor.selection.focus.blockId);
   if (ctx === null || ctx.ragged) return null;
 

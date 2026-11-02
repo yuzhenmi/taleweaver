@@ -15,7 +15,7 @@ import {
   stepOffObject,
   isTextShaper,
   adaptShaperToMeasurer,
-  type EditorState,
+  type Editor,
   type EditorAction,
   type Position,
   type CaretAffinity,
@@ -61,12 +61,12 @@ export type NavIntent =
  * This is a relocation of the seven core nav handlers' bodies, reading the
  * driver-built `layoutTree` + `measurer` instead of `editor.layoutTree` /
  * `config.measurer`, and RETURNING a `SET_SELECTION` / `DELETE_RANGE` (threading
- * both affinities + `targetX`) rather than mutating `EditorState`. Behavior is
+ * both affinities + `targetX`) rather than mutating `Editor`. Behavior is
  * byte-for-byte identical to the lifted handlers.
  */
 export function resolveNavIntent(
   intent: NavIntent,
-  editor: EditorState,
+  editor: Editor,
   layoutTree: LayoutBox | VirtualLayoutTree,
   measurer: TextShaper | TextMeasurer,
   componentRegistry: ComponentRegistry,
@@ -114,7 +114,7 @@ function setCaret(
  * (core `stepOffObject`); `null` at the document edge. `undefined` for a text focus.
  */
 function extendOffObject(
-  editor: EditorState,
+  editor: Editor,
   direction: "forward" | "backward",
   anchorAffinity: CaretAffinity | undefined,
 ): EditorAction | null | undefined {
@@ -131,7 +131,7 @@ function extendOffObject(
 }
 
 /** Arrow on a range: its edge in `direction`, or past it when that edge is an object (core `stepOffObject`). */
-function collapseOffObject(editor: EditorState, direction: "forward" | "backward"): Position | null {
+function collapseOffObject(editor: Editor, direction: "forward" | "backward"): Position | null {
   const edge = direction === "forward" ? spanEnd(editor.document, editor.selection) : spanStart(editor.document, editor.selection);
   const off = stepOffObject(editor.document, edge, direction);
   return off === undefined ? edge : off;
@@ -144,7 +144,7 @@ function toMeasurer(measurer: TextShaper | TextMeasurer): TextMeasurer {
 // ── MOVE_CURSOR (was move-cursor.ts) ───────────────────────────────────────
 
 function resolveMoveCursor(
-  editor: EditorState,
+  editor: Editor,
   direction: "forward" | "backward",
   layoutTree: LayoutBox | VirtualLayoutTree,
   measurer: TextShaper | TextMeasurer,
@@ -199,7 +199,7 @@ function resolveMoveCursor(
  * one character. Block-local; each offset is visited at most once.
  */
 function stepPastMarkers(
-  editor: EditorState,
+  editor: Editor,
   view: LineBidiView,
   visualDir: "left" | "right",
   step: GraphemeStepper,
@@ -220,7 +220,7 @@ function stepPastMarkers(
 // ── EXPAND_SELECTION (was expand-selection.ts) ─────────────────────────────
 
 function resolveExpandSelection(
-  editor: EditorState,
+  editor: Editor,
   direction: "forward" | "backward",
   layoutTree: LayoutBox | VirtualLayoutTree,
   measurer: TextShaper | TextMeasurer,
@@ -262,7 +262,7 @@ function resolveExpandSelection(
 }
 
 function logicalExtend(
-  editor: EditorState,
+  editor: Editor,
   direction: "forward" | "backward",
   newAnchorAffinity: CaretAffinity | undefined,
 ): EditorAction {
@@ -279,7 +279,7 @@ function logicalExtend(
 // ── MOVE_LINE (was move-line.ts) ───────────────────────────────────────────
 
 function resolveMoveLine(
-  editor: EditorState,
+  editor: Editor,
   direction: "up" | "down",
   layoutTree: LayoutBox | VirtualLayoutTree,
   measurer: TextShaper | TextMeasurer,
@@ -318,7 +318,7 @@ function resolveMoveLine(
 // ── EXPAND_LINE (was expand-line.ts) ───────────────────────────────────────
 
 function resolveExpandLine(
-  editor: EditorState,
+  editor: Editor,
   direction: "up" | "down",
   layoutTree: LayoutBox | VirtualLayoutTree,
   measurer: TextShaper | TextMeasurer,
@@ -348,7 +348,7 @@ function resolveExpandLine(
 // ── MOVE_LINE_BOUNDARY (was move-line-boundary.ts) ─────────────────────────
 
 function resolveMoveLineBoundary(
-  editor: EditorState,
+  editor: Editor,
   boundary: "start" | "end",
   layoutTree: LayoutBox | VirtualLayoutTree,
   measurer: TextShaper | TextMeasurer,
@@ -369,7 +369,7 @@ function resolveMoveLineBoundary(
 // ── EXPAND_LINE_BOUNDARY (was expand-line-boundary.ts) ─────────────────────
 
 function resolveExpandLineBoundary(
-  editor: EditorState,
+  editor: Editor,
   boundary: "start" | "end",
   layoutTree: LayoutBox | VirtualLayoutTree,
   measurer: TextShaper | TextMeasurer,
@@ -399,7 +399,7 @@ function resolveExpandLineBoundary(
 // ── DELETE_LINE (was delete-line.ts collapsed branch) ──────────────────────
 
 function resolveDeleteLine(
-  editor: EditorState,
+  editor: Editor,
   layoutTree: LayoutBox | VirtualLayoutTree,
   measurer: TextShaper | TextMeasurer,
   componentRegistry: ComponentRegistry,

@@ -17,12 +17,7 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  config,
-  reduceEditor,
-  createInitialEditorState,
-  componentRegistry,
-  attrRegistry,
-} from "./actions/test-helpers";
+  config, componentRegistry, attrRegistry, createEditor } from "./actions/test-helpers";
 import { render, type RenderOutput } from "../render/render";
 import type { Document, BlockId } from "../state";
 
@@ -53,49 +48,46 @@ describe("FN-8 — editor rebuild skips the anchor walk for footnote-free docs",
     // A footnote-free doc: a plain text edit cannot change the (empty) anchor
     // list, so the walk must be skipped → the prev cycle's cached anchor array
     // is reused BY REFERENCE.
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "abc" });
     const prevDocument = editor.document;
     const prev = renderFull(prevDocument);
 
-    const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "d" });
+    editor.dispatch({ type: "INSERT_TEXT", text: "d" });
     const rendered = renderIncrementalCycle(
-      after.document,
+      editor.document,
       prev,
       prevDocument,
-      after.lastDirtyIds ?? new Set<BlockId>(),
+      editor.lastDirtyIds ?? new Set<BlockId>(),
     );
     expect(rendered.footnoteAnchors).toBe(prev.footnoteAnchors);
   });
 
   it("RE-WALKS (fresh anchor array) when an edit changes the anchor set", () => {
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "abc" });
     const hostId = editor.selection.focus.blockId;
-    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
+    editor.dispatch({ type: "INSERT_FOOTNOTE" });
     // INSERT_FOOTNOTE drops the caret into the footnote body; move it back into
     // the main host paragraph (after "abc" + anchor → offset 4) so the next
     // INSERT_FOOTNOTE lands in body text and genuinely ADDS a second anchor —
     // the edit that must re-walk (adding an anchor invalidates the cache).
-    editor = reduceEditor(
-      editor,
-      {
+    editor.dispatch({
         type: "SET_SELECTION",
         selection: {
           anchor: { blockId: hostId, offset: 4 },
           focus: { blockId: hostId, offset: 4 },
         },
-      },
-    );
+      });
     const prevDocument = editor.document;
     const prev = renderFull(prevDocument);
 
-    const after = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
+    editor.dispatch({ type: "INSERT_FOOTNOTE" });
     const rendered = renderIncrementalCycle(
-      after.document,
+      editor.document,
       prev,
       prevDocument,
-      after.lastDirtyIds ?? new Set<BlockId>(),
+      editor.lastDirtyIds ?? new Set<BlockId>(),
     );
     expect(rendered.footnoteAnchors).not.toBe(prev.footnoteAnchors);
   });
@@ -105,19 +97,19 @@ describe("FN-8 — editor rebuild skips the anchor walk for footnote-free docs",
     // changes (typing into the footnote body), must REUSE the cached anchors —
     // the per-cycle O(N_blocks) walk is skipped even though the doc has
     // footnotes.
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" });
-    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "abc" });
+    editor.dispatch({ type: "INSERT_FOOTNOTE" });
     // Caret is inside the footnote body after INSERT_FOOTNOTE.
     const prevDocument = editor.document;
     const prev = renderFull(prevDocument);
 
-    const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "d" });
+    editor.dispatch({ type: "INSERT_TEXT", text: "d" });
     const rendered = renderIncrementalCycle(
-      after.document,
+      editor.document,
       prev,
       prevDocument,
-      after.lastDirtyIds ?? new Set<BlockId>(),
+      editor.lastDirtyIds ?? new Set<BlockId>(),
     );
     expect(rendered.footnoteAnchors).toBe(prev.footnoteAnchors);
   });

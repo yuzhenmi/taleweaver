@@ -10,8 +10,7 @@ import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "@taleweaver/core";
 import { cascadePass } from "@taleweaver/core";
 import {
-  createInitialEditorState,
-  reduceEditor,
+  createEditor,
   type EditorConfig,
 } from "@taleweaver/core";
 import { createDefaultComponentRegistry } from "@taleweaver/core";
@@ -19,7 +18,7 @@ import { createDefaultAttrRegistry } from "@taleweaver/core";
 import { createPosition, createSpan } from "@taleweaver/core";
 import { render } from "@taleweaver/core";
 import { layoutTree } from "../layout/dispatch";
-import type { EditorState } from "@taleweaver/core";
+import type { Editor } from "@taleweaver/core";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import { finalSection } from "../test-utils/final-section"; // body blocks live in the final section
 
@@ -29,7 +28,7 @@ import { finalSection } from "../test-utils/final-section"; // body blocks live 
 const layoutMeasurer = createMockShaper(8, 16);
 
 /** Build the layout tree the backend driver would (render → cascade → layout). */
-function layoutOf(editor: EditorState, config: EditorConfig): VirtualLayoutTree | LayoutBox {
+function layoutOf(editor: Editor, config: EditorConfig): VirtualLayoutTree | LayoutBox {
   const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   return layoutTree(cascaded, config.containerWidth, layoutMeasurer, config.pageConfig);
@@ -228,7 +227,7 @@ describe("pagination integration — layoutTreeIncremental + pageConfig", () => 
   });
 });
 
-describe("virtualized layout — EditorState.layoutTree is virtual-root after a paginated edit", () => {
+describe("virtualized layout — Editor.layoutTree is virtual-root after a paginated edit", () => {
   // The reducer's paginated layout path produces a VirtualLayoutTree
   // (discriminated by `type: "virtual-root"`), not a positioned BlockBox.
   // Production consumers read it per-page via `getPage`; this test assembles
@@ -247,22 +246,19 @@ describe("virtualized layout — EditorState.layoutTree is virtual-root after a 
     };
   }
 
-  it("createInitialEditorState + a paginated INSERT_TEXT yield a virtual-root layoutTree", () => {
+  it("createEditor + a paginated INSERT_TEXT yield a virtual-root layoutTree", () => {
     const config = makePaginatedConfig();
-    const editor0 = createInitialEditorState(config);
+    const editor0 = createEditor(config);
     // Initial paginated layout is already virtual.
     expect(layoutOf(editor0, config).type).toBe("virtual-root");
 
     const root = finalSection(editor0.document);
     if (root === null || root.firstChildId === null) throw new Error("no first child");
     const firstId = root.firstChildId;
-    const editor1 = reduceEditor(
-      editor0,
-      { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
-    );
-    const editor2 = reduceEditor(editor1, { type: "INSERT_TEXT", text: "hello" });
+    editor0.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) });
+    editor0.dispatch({ type: "INSERT_TEXT", text: "hello" });
     // A paginated edit (incremental path) still yields a virtual-root tree.
-    const tree2 = layoutOf(editor2, config);
+    const tree2 = layoutOf(editor0, config);
     expect(tree2.type).toBe("virtual-root");
     // And it materializes to the same shape a positioned tree would (the bridge).
     const positioned = positionTreeForTest(tree2);

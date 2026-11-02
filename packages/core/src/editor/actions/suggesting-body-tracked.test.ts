@@ -24,13 +24,12 @@ import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,
-  reduceEditor,
-  createInitialEditorState,
   createPosition,
   createSpan,
   getTextOf,
+  createEditor,
   type EditorConfig,
-  type EditorState,
+  type Editor,
 } from "./test-helpers";
 
 /** Throwing indexed access for tests: stronger than the old undefined-deref TypeError. */
@@ -53,7 +52,7 @@ import {
 const suggestingConfig: EditorConfig = { ...directConfig, suggestingAuthor: "alice" };
 
 /** The first body paragraph id under the document root (MAIN tree). */
-function bodyParaId(editor: EditorState): BlockId {
+function bodyParaId(editor: Editor): BlockId {
   const root = getBlock(editor.document, finalSectionOf(editor.document));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
@@ -63,7 +62,7 @@ function bodyParaId(editor: EditorState): BlockId {
 }
 
 /** The text of a block resolved via `resolveBlock` (works for any tree). */
-function textOfResolved(editor: EditorState, blockId: BlockId): string {
+function textOfResolved(editor: Editor, blockId: BlockId): string {
   const block = resolveBlock(editor.document, blockId)?.block ?? null;
   return (block?.inlineContent?.items ?? [])
     .map((it) => (it.kind === "text" ? it.text : ""))
@@ -72,7 +71,7 @@ function textOfResolved(editor: EditorState, blockId: BlockId): string {
 
 /** Whether ANY text run in `blockId` carries the named suggestion provenance (formatting: any per-id tag). */
 function anyRunHasAttr(
-  editor: EditorState,
+  editor: Editor,
   blockId: BlockId,
   attr: "insertionSuggestionId" | "deletionSuggestionId" | "formattingSuggestionId",
 ): boolean {
@@ -89,7 +88,7 @@ function anyRunHasAttr(
 /** True iff the boundary ¶ drawn at the END of `blockId` is a suggested split
  *  (the suggesting-mode split marker). `endMarkOf` resolves any tree, so it
  *  works for a non-main-body block. */
-function endsWithSplitMark(editor: EditorState, blockId: BlockId): boolean {
+function endsWithSplitMark(editor: Editor, blockId: BlockId): boolean {
   return endMarkOf(editor.document, blockId)?.kind === "split";
 }
 
@@ -98,120 +97,118 @@ function endsWithSplitMark(editor: EditorState, blockId: BlockId): boolean {
  * contains "abc" (typed DIRECTLY so no suggestions exist yet). Returns the editor
  * and the body paragraph id.
  */
-function footnoteBodyFixture(): { editor: EditorState; bodyParaId: BlockId } {
-  const initial = createInitialEditorState(directConfig);
-  const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "x" });
-  const withFn = reduceEditor(typed, { type: "INSERT_FOOTNOTE" });
-  const bodyPara = withFn.selection.focus.blockId;
-  const seeded = reduceEditor(withFn, { type: "INSERT_TEXT", text: "abc" });
-  expect(getSuggestions(seeded.document)).toHaveLength(0);
-  expect(textOfResolved(seeded, bodyPara)).toBe("abc");
+function footnoteBodyFixture(): { editor: Editor; bodyParaId: BlockId } {
+  const initial = createEditor(directConfig);
+  initial.dispatch({ type: "INSERT_TEXT", text: "x" });
+  initial.dispatch({ type: "INSERT_FOOTNOTE" });
+  const bodyPara = initial.selection.focus.blockId;
+  initial.dispatch({ type: "INSERT_TEXT", text: "abc" });
+  expect(getSuggestions(initial.document)).toHaveLength(0);
+  expect(textOfResolved(initial, bodyPara)).toBe("abc");
   // Self-guard: the body paragraph must be OUTSIDE the main body (a real
   // footnote-body block in embedContents), else these tests would silently
   // exercise the main-body path and prove nothing about the relaxed gate.
-  expect(selectionContextOf(seeded.document, bodyPara)).not.toBe(seeded.document.rootId);
-  expect(selectionContextOf(seeded.document, bodyPara)).not.toBeNull();
-  return { editor: seeded, bodyParaId: bodyPara };
+  expect(selectionContextOf(initial.document, bodyPara)).not.toBe(initial.document.rootId);
+  expect(selectionContextOf(initial.document, bodyPara)).not.toBeNull();
+  return { editor: initial, bodyParaId: bodyPara };
 }
 
 /** Place a collapsed caret at `offset` of `blockId` (suggesting config). */
-function caretAt(editor: EditorState, blockId: BlockId, offset: number): EditorState {
-  return reduceEditor(
-    { ...editor, config: suggestingConfig },
-    {
-      type: "SET_SELECTION",
-      selection: createSpan(createPosition(blockId, offset), createPosition(blockId, offset)),
-    },
-  );
+function caretAt(editor: Editor, blockId: BlockId, offset: number): Editor {
+  editor.setConfig(suggestingConfig);
+  editor.dispatch({
+    type: "SET_SELECTION",
+    selection: createSpan(createPosition(blockId, offset), createPosition(blockId, offset)),
+  });
+  return editor;
 }
 
 /** Select `[start, end)` of `blockId` (suggesting config). */
-function selectIn(editor: EditorState, blockId: BlockId, start: number, end: number): EditorState {
-  return reduceEditor(
-    { ...editor, config: suggestingConfig },
-    {
-      type: "SET_SELECTION",
-      selection: createSpan(createPosition(blockId, start), createPosition(blockId, end)),
-    },
-  );
+function selectIn(editor: Editor, blockId: BlockId, start: number, end: number): Editor {
+  editor.setConfig(suggestingConfig);
+  editor.dispatch({
+    type: "SET_SELECTION",
+    selection: createSpan(createPosition(blockId, start), createPosition(blockId, end)),
+  });
+  return editor;
 }
 
 describe("suggesting mode in a footnote BODY now TRACKS (MT-4)", () => {
   it("INSERT_TEXT (collapsed) mints an insertion suggestion + stamps the body run", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 3); // end of "abc"
-    const next = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" });
+    placed.dispatch({ type: "INSERT_TEXT", text: "Z" });
 
-    expect(textOfResolved(next, bodyParaId)).toBe("abcZ");
-    const suggestions = getSuggestions(next.document);
+    expect(textOfResolved(placed, bodyParaId)).toBe("abcZ");
+    const suggestions = getSuggestions(placed.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
-    expect(anyRunHasAttr(next, bodyParaId, "insertionSuggestionId")).toBe(true);
+    expect(anyRunHasAttr(placed, bodyParaId, "insertionSuggestionId")).toBe(true);
   });
 
   it("DELETE_BACKWARD (mid-block char) SOFT-deletes: deletion suggestion, text KEPT", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 3); // caret after "abc"
-    const next = reduceEditor(placed, { type: "DELETE_BACKWARD" });
+    placed.dispatch({ type: "DELETE_BACKWARD" });
 
     // Soft delete: "c" is kept (struck), not removed.
-    expect(textOfResolved(next, bodyParaId)).toBe("abc");
-    const suggestions = getSuggestions(next.document);
+    expect(textOfResolved(placed, bodyParaId)).toBe("abc");
+    const suggestions = getSuggestions(placed.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
-    expect(anyRunHasAttr(next, bodyParaId, "deletionSuggestionId")).toBe(true);
+    expect(anyRunHasAttr(placed, bodyParaId, "deletionSuggestionId")).toBe(true);
   });
 
   it("TOGGLE_STYLE (bold) over a body selection mints a formatting suggestion, live attr UNCHANGED", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const selected = selectIn(editor, bodyParaId, 0, 3); // select "abc"
-    const next = reduceEditor(selected, { type: "TOGGLE_STYLE", style: "bold" });
+    selected.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
 
     // The live bold attr is NOT applied (it lands only on accept); only the
     // formatting-provenance attr is stamped.
-    const block = resolveBlock(next.document, bodyParaId)?.block ?? null;
+    const block = resolveBlock(selected.document, bodyParaId)?.block ?? null;
     const firstText = (block?.inlineContent?.items ?? []).find((it) => it.kind === "text");
     if (firstText?.kind === "text") {
       expect(firstText.attrs.bold).toBeUndefined();
     }
-    const suggestions = getSuggestions(next.document);
+    const suggestions = getSuggestions(selected.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("formatting");
-    expect(anyRunHasAttr(next, bodyParaId, "formattingSuggestionId")).toBe(true);
+    expect(anyRunHasAttr(selected, bodyParaId, "formattingSuggestionId")).toBe(true);
   });
 
   it("SPLIT_NODE (Enter) does a real split PLUS a keyed ¶ on the new body head", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 1); // caret after "a" → split "a" | "bc"
-    const next = reduceEditor(placed, { type: "SPLIT_NODE" });
+    placed.dispatch({ type: "SPLIT_NODE" });
     // Real structural split: a NEW head holds "a" and its ¶ is the
     // inserted one; the body block keeps "bc" and the caret (B, 0).
-    const head = resolveBlock(next.document, bodyParaId)?.block.prevSiblingId ?? null;
+    const head = resolveBlock(placed.document, bodyParaId)?.block.prevSiblingId ?? null;
     if (head === null) throw new Error("expected a new head");
-    expect(textOfResolved(next, head)).toBe("a");
-    expect(next.selection.focus).toEqual(createPosition(bodyParaId, 0));
-    expect(textOfResolved(next, bodyParaId)).toBe("bc");
-    const suggestions = getSuggestions(next.document);
+    expect(textOfResolved(placed, head)).toBe("a");
+    expect(placed.selection.focus).toEqual(createPosition(bodyParaId, 0));
+    expect(textOfResolved(placed, bodyParaId)).toBe("bc");
+    const suggestions = getSuggestions(placed.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
-    expect(endsWithSplitMark(next, head)).toBe(true);
-    expect(resolveBlock(next.document, head)?.block.breakSuggestion?.insertionId).toBe(nth(suggestions, 0, "suggestion").id);
+    expect(endsWithSplitMark(placed, head)).toBe(true);
+    expect(resolveBlock(placed.document, head)?.block.breakSuggestion?.insertionId).toBe(nth(suggestions, 0, "suggestion").id);
   });
 
   it("DELETE_FORWARD (collapsed mid-char) SOFT-deletes; caret ADVANCES to span end (soft-delete rule)", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 1); // caret between "a" and "b"
-    const next = reduceEditor(placed, { type: "DELETE_FORWARD" });
+    placed.dispatch({ type: "DELETE_FORWARD" });
 
     // Soft delete: "b" is kept (struck); body text length unchanged.
-    expect(textOfResolved(next, bodyParaId)).toBe("abc");
-    expect(getSuggestions(next.document)).toHaveLength(1);
-    expect(anyRunHasAttr(next, bodyParaId, "deletionSuggestionId")).toBe(true);
+    expect(textOfResolved(placed, bodyParaId)).toBe("abc");
+    expect(getSuggestions(placed.document)).toHaveLength(1);
+    expect(anyRunHasAttr(placed, bodyParaId, "deletionSuggestionId")).toBe(true);
     // The forward soft-delete caret rule advances to the span END (offset 2),
     // so a repeated Delete strikes the next char — NOT staying at offset 1 as a
     // direct delete would. This is the inversion of the old body-fallback rule.
-    expect(next.selection.focus.blockId).toBe(bodyParaId);
-    expect(next.selection.focus.offset).toBe(2);
+    expect(placed.selection.focus.blockId).toBe(bodyParaId);
+    expect(placed.selection.focus.offset).toBe(2);
   });
 });
 
@@ -219,116 +216,112 @@ describe("body suggestions RESOLVE cleanly via accept/reject-all — the MT payo
   it("body INSERT_TEXT → ACCEPT_ALL keeps the text, zero suggestions, no provenance attr", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 3);
-    const typed = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" });
-    const resolved = reduceEditor(typed, { type: "ACCEPT_ALL_SUGGESTIONS" });
+    placed.dispatch({ type: "INSERT_TEXT", text: "Z" });
+    placed.dispatch({ type: "ACCEPT_ALL_SUGGESTIONS" });
 
-    expect(textOfResolved(resolved, bodyParaId)).toBe("abcZ");
-    expect(getSuggestions(resolved.document)).toHaveLength(0);
-    expect(anyRunHasAttr(resolved, bodyParaId, "insertionSuggestionId")).toBe(false);
+    expect(textOfResolved(placed, bodyParaId)).toBe("abcZ");
+    expect(getSuggestions(placed.document)).toHaveLength(0);
+    expect(anyRunHasAttr(placed, bodyParaId, "insertionSuggestionId")).toBe(false);
   });
 
   it("body INSERT_TEXT → REJECT_ALL removes the inserted text, zero suggestions", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 3);
-    const typed = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" });
-    const resolved = reduceEditor(typed, { type: "REJECT_ALL_SUGGESTIONS" });
+    placed.dispatch({ type: "INSERT_TEXT", text: "Z" });
+    placed.dispatch({ type: "REJECT_ALL_SUGGESTIONS" });
 
-    expect(textOfResolved(resolved, bodyParaId)).toBe("abc");
-    expect(getSuggestions(resolved.document)).toHaveLength(0);
-    expect(anyRunHasAttr(resolved, bodyParaId, "insertionSuggestionId")).toBe(false);
+    expect(textOfResolved(placed, bodyParaId)).toBe("abc");
+    expect(getSuggestions(placed.document)).toHaveLength(0);
+    expect(anyRunHasAttr(placed, bodyParaId, "insertionSuggestionId")).toBe(false);
   });
 
   it("body DELETE_BACKWARD → ACCEPT_ALL really removes the text, zero suggestions", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 3);
-    const soft = reduceEditor(placed, { type: "DELETE_BACKWARD" });
-    const resolved = reduceEditor(soft, { type: "ACCEPT_ALL_SUGGESTIONS" });
+    placed.dispatch({ type: "DELETE_BACKWARD" });
+    placed.dispatch({ type: "ACCEPT_ALL_SUGGESTIONS" });
 
-    expect(textOfResolved(resolved, bodyParaId)).toBe("ab");
-    expect(getSuggestions(resolved.document)).toHaveLength(0);
-    expect(anyRunHasAttr(resolved, bodyParaId, "deletionSuggestionId")).toBe(false);
+    expect(textOfResolved(placed, bodyParaId)).toBe("ab");
+    expect(getSuggestions(placed.document)).toHaveLength(0);
+    expect(anyRunHasAttr(placed, bodyParaId, "deletionSuggestionId")).toBe(false);
   });
 
   it("body DELETE_BACKWARD → REJECT_ALL restores the text, zero suggestions", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 3);
-    const soft = reduceEditor(placed, { type: "DELETE_BACKWARD" });
-    const resolved = reduceEditor(soft, { type: "REJECT_ALL_SUGGESTIONS" });
+    placed.dispatch({ type: "DELETE_BACKWARD" });
+    placed.dispatch({ type: "REJECT_ALL_SUGGESTIONS" });
 
-    expect(textOfResolved(resolved, bodyParaId)).toBe("abc");
-    expect(getSuggestions(resolved.document)).toHaveLength(0);
-    expect(anyRunHasAttr(resolved, bodyParaId, "deletionSuggestionId")).toBe(false);
+    expect(textOfResolved(placed, bodyParaId)).toBe("abc");
+    expect(getSuggestions(placed.document)).toHaveLength(0);
+    expect(anyRunHasAttr(placed, bodyParaId, "deletionSuggestionId")).toBe(false);
   });
 
   it("body SPLIT_NODE → ACCEPT_ALL keeps the split (two blocks), drops the tag, zero suggestions", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 1);
-    const split = reduceEditor(placed, { type: "SPLIT_NODE" });
-    const head = resolveBlock(split.document, bodyParaId)?.block.prevSiblingId ?? null;
+    placed.dispatch({ type: "SPLIT_NODE" });
+    const head = resolveBlock(placed.document, bodyParaId)?.block.prevSiblingId ?? null;
     if (head === null) throw new Error("expected a new head");
-    const resolved = reduceEditor(split, { type: "ACCEPT_ALL_SUGGESTIONS" });
+    placed.dispatch({ type: "ACCEPT_ALL_SUGGESTIONS" });
     // Split kept: "a" | "bc" in two body blocks; the key is gone.
-    expect(textOfResolved(resolved, head)).toBe("a");
-    expect(textOfResolved(resolved, bodyParaId)).toBe("bc");
-    expect(endsWithSplitMark(resolved, head)).toBe(false);
-    expect(resolveBlock(resolved.document, head)?.block.breakSuggestion).toBeUndefined();
-    expect(getSuggestions(resolved.document)).toHaveLength(0);
+    expect(textOfResolved(placed, head)).toBe("a");
+    expect(textOfResolved(placed, bodyParaId)).toBe("bc");
+    expect(endsWithSplitMark(placed, head)).toBe(false);
+    expect(resolveBlock(placed.document, head)?.block.breakSuggestion).toBeUndefined();
+    expect(getSuggestions(placed.document)).toHaveLength(0);
   });
 
   it("body SPLIT_NODE → REJECT_ALL undoes the split (one block), zero suggestions", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 1);
-    const split = reduceEditor(placed, { type: "SPLIT_NODE" });
-    const resolved = reduceEditor(split, { type: "REJECT_ALL_SUGGESTIONS" });
+    placed.dispatch({ type: "SPLIT_NODE" });
+    placed.dispatch({ type: "REJECT_ALL_SUGGESTIONS" });
 
     // Split undone: the body block is back to a single "abc" with no tag.
-    expect(textOfResolved(resolved, bodyParaId)).toBe("abc");
-    expect(endsWithSplitMark(resolved, bodyParaId)).toBe(false);
-    expect(getSuggestions(resolved.document)).toHaveLength(0);
+    expect(textOfResolved(placed, bodyParaId)).toBe("abc");
+    expect(endsWithSplitMark(placed, bodyParaId)).toBe(false);
+    expect(getSuggestions(placed.document)).toHaveLength(0);
   });
 });
 
 describe("regression: the SAME actions in the MAIN body still create suggestions", () => {
   it("INSERT_TEXT (collapsed) in the main body mints an insertion suggestion + stamps the run", () => {
-    const initial = createInitialEditorState(directConfig);
+    const initial = createEditor(directConfig);
     const para = bodyParaId(initial);
     const placed = caretAt(initial, para, 0);
-    const next = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" });
+    placed.dispatch({ type: "INSERT_TEXT", text: "Z" });
 
-    expect(getTextOf(next.document, para)).toBe("Z");
-    const suggestions = getSuggestions(next.document);
+    expect(getTextOf(placed.document, para)).toBe("Z");
+    const suggestions = getSuggestions(placed.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
-    expect(anyRunHasAttr(next, para, "insertionSuggestionId")).toBe(true);
+    expect(anyRunHasAttr(placed, para, "insertionSuggestionId")).toBe(true);
   });
 
   it("DELETE_BACKWARD in the main body soft-deletes (deletion suggestion + run stamped)", () => {
-    const seeded = reduceEditor(
-      createInitialEditorState(directConfig),
-      { type: "INSERT_TEXT", text: "abc" },
-    );
+    const seeded = createEditor(directConfig);
+    seeded.dispatch({ type: "INSERT_TEXT", text: "abc" });
     const para = bodyParaId(seeded);
     const placed = caretAt(seeded, para, 3);
-    const next = reduceEditor(placed, { type: "DELETE_BACKWARD" });
+    placed.dispatch({ type: "DELETE_BACKWARD" });
 
-    const suggestions = getSuggestions(next.document);
+    const suggestions = getSuggestions(placed.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
-    expect(anyRunHasAttr(next, para, "deletionSuggestionId")).toBe(true);
+    expect(anyRunHasAttr(placed, para, "deletionSuggestionId")).toBe(true);
   });
 
   it("TOGGLE_STYLE in the main body mints a formatting suggestion + stamps the run", () => {
-    const seeded = reduceEditor(
-      createInitialEditorState(directConfig),
-      { type: "INSERT_TEXT", text: "abc" },
-    );
+    const seeded = createEditor(directConfig);
+    seeded.dispatch({ type: "INSERT_TEXT", text: "abc" });
     const para = bodyParaId(seeded);
     const selected = selectIn(seeded, para, 0, 3);
-    const next = reduceEditor(selected, { type: "TOGGLE_STYLE", style: "bold" });
+    selected.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
 
-    const suggestions = getSuggestions(next.document);
+    const suggestions = getSuggestions(selected.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("formatting");
-    expect(anyRunHasAttr(next, para, "formattingSuggestionId")).toBe(true);
+    expect(anyRunHasAttr(selected, para, "formattingSuggestionId")).toBe(true);
   });
 });

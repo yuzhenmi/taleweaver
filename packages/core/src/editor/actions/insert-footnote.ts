@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import {
   insertFootnote,
@@ -41,7 +41,7 @@ import type { BlockId } from "../../state";
  * anchor is spliced — matching INSERT_TEXT / PASTE / Google Docs. A
  * cross-context / cross-parent span is un-deletable → no-op.
  */
-export function handleInsertFootnote(editor: EditorState): Edit | null {
+export function handleInsertFootnote(editor: Editor): Edit | null {
   const focus = editor.selection.focus;
 
   // Refuse a footnote inside a footnote / header / footer body — only main

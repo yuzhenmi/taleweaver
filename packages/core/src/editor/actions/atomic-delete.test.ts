@@ -9,12 +9,7 @@
 import { describe, it, expect } from "vitest";
 import {
   config,
-  createInitialEditorState,
-  reduceEditor,
-  firstChildId,
-  createPosition,
-  createSpan,
-} from "./test-helpers";
+  createEditor, firstChildId, createPosition, createSpan } from "./test-helpers";
 import { getBlock } from "../../state";
 import type { BlockId } from "../../state";
 
@@ -22,10 +17,10 @@ import type { BlockId } from "../../state";
 function docWithAtomicAfter(
   insert: { type: "INSERT_IMAGE"; src: string } | { type: "INSERT_HORIZONTAL_LINE" },
 ) {
-  let editor = createInitialEditorState(config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "above" });
+  let editor = createEditor(config);
+  editor.dispatch({ type: "INSERT_TEXT", text: "above" });
   const paraId = firstChildId(editor.document) as BlockId;
-  editor = reduceEditor(editor, insert);
+  editor.dispatch(insert);
   const atomicId = getBlock(editor.document, paraId)?.nextSiblingId as BlockId;
   const trailingId = getBlock(editor.document, atomicId)?.nextSiblingId as BlockId;
   return { editor, paraId, atomicId, trailingId };
@@ -42,16 +37,16 @@ describe("atomic-leaf delete behavior (#P11.3)", () => {
     expect(editor.selection.focus.blockId).toBe(trailingId);
     expect(editor.selection.focus.offset).toBe(0);
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
+    editor.dispatch({ type: "DELETE_BACKWARD" });
 
     // Image removed; the paragraph chain closes up around it.
-    expect(getBlock(next.document, atomicId)).toBeNull();
-    expect(getBlock(next.document, paraId)?.nextSiblingId).toBe(trailingId);
-    expect(getBlock(next.document, trailingId)?.prevSiblingId).toBe(paraId);
+    expect(getBlock(editor.document, atomicId)).toBeNull();
+    expect(getBlock(editor.document, paraId)?.nextSiblingId).toBe(trailingId);
+    expect(getBlock(editor.document, trailingId)?.prevSiblingId).toBe(paraId);
     // Caret stays at the start of the trailing paragraph.
-    expect(next.selection.focus.blockId).toBe(trailingId);
-    expect(next.selection.focus.offset).toBe(0);
-    expect(next.selection.anchor).toEqual(next.selection.focus);
+    expect(editor.selection.focus.blockId).toBe(trailingId);
+    expect(editor.selection.focus.offset).toBe(0);
+    expect(editor.selection.anchor).toEqual(editor.selection.focus);
   });
 
   it("Backspace at the start of the paragraph after a HORIZONTAL-LINE deletes the rule", () => {
@@ -60,12 +55,12 @@ describe("atomic-leaf delete behavior (#P11.3)", () => {
     });
     expect(getBlock(editor.document, atomicId)?.type).toBe("horizontal-line");
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
+    editor.dispatch({ type: "DELETE_BACKWARD" });
 
-    expect(getBlock(next.document, atomicId)).toBeNull();
-    expect(getBlock(next.document, paraId)?.nextSiblingId).toBe(trailingId);
-    expect(next.selection.focus.blockId).toBe(trailingId);
-    expect(next.selection.focus.offset).toBe(0);
+    expect(getBlock(editor.document, atomicId)).toBeNull();
+    expect(getBlock(editor.document, paraId)?.nextSiblingId).toBe(trailingId);
+    expect(editor.selection.focus.blockId).toBe(trailingId);
+    expect(editor.selection.focus.offset).toBe(0);
   });
 
   it("Delete-forward at the end of the paragraph before an IMAGE deletes the image", () => {
@@ -75,17 +70,14 @@ describe("atomic-leaf delete behavior (#P11.3)", () => {
     });
     // Caret to the end of "above".
     const caret = createPosition(paraId, "above".length);
-    const placed = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: createSpan(caret, caret) },
-    );
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(caret, caret) });
 
-    const next = reduceEditor(placed, { type: "DELETE_FORWARD" });
+    editor.dispatch({ type: "DELETE_FORWARD" });
 
-    expect(getBlock(next.document, atomicId)).toBeNull();
+    expect(getBlock(editor.document, atomicId)).toBeNull();
     // Caret stays at the end of "above".
-    expect(next.selection.focus.blockId).toBe(paraId);
-    expect(next.selection.focus.offset).toBe("above".length);
+    expect(editor.selection.focus.blockId).toBe(paraId);
+    expect(editor.selection.focus.offset).toBe("above".length);
   });
 
   it("undo restores the deleted atomic block in one step", () => {
@@ -93,12 +85,12 @@ describe("atomic-leaf delete behavior (#P11.3)", () => {
       type: "INSERT_IMAGE",
       src: "img.png",
     });
-    const deleted = reduceEditor(editor, { type: "DELETE_BACKWARD" });
-    expect(getBlock(deleted.document, atomicId)).toBeNull();
+    editor.dispatch({ type: "DELETE_BACKWARD" });
+    expect(getBlock(editor.document, atomicId)).toBeNull();
 
-    const undone = reduceEditor(deleted, { type: "UNDO" });
-    const restoredId = getBlock(undone.document, paraId)?.nextSiblingId as BlockId;
-    expect(getBlock(undone.document, restoredId)?.type).toBe("image");
+    editor.dispatch({ type: "UNDO" });
+    const restoredId = getBlock(editor.document, paraId)?.nextSiblingId as BlockId;
+    expect(getBlock(editor.document, restoredId)?.type).toBe("image");
   });
 
   it("undo restores the deleted atomic block after Delete-forward in one step", () => {
@@ -107,16 +99,13 @@ describe("atomic-leaf delete behavior (#P11.3)", () => {
       src: "img.png",
     });
     const caret = createPosition(paraId, "above".length);
-    const placed = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: createSpan(caret, caret) },
-    );
-    const deleted = reduceEditor(placed, { type: "DELETE_FORWARD" });
-    expect(getBlock(deleted.document, atomicId)).toBeNull();
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(caret, caret) });
+    editor.dispatch({ type: "DELETE_FORWARD" });
+    expect(getBlock(editor.document, atomicId)).toBeNull();
 
-    const undone = reduceEditor(deleted, { type: "UNDO" });
-    const restoredId = getBlock(undone.document, paraId)?.nextSiblingId as BlockId;
-    expect(getBlock(undone.document, restoredId)?.type).toBe("image");
+    editor.dispatch({ type: "UNDO" });
+    const restoredId = getBlock(editor.document, paraId)?.nextSiblingId as BlockId;
+    expect(getBlock(editor.document, restoredId)?.type).toBe("image");
   });
 
   it("Backspace removes ONLY the immediate-predecessor atomic, leaving an earlier atomic intact", () => {
@@ -126,51 +115,45 @@ describe("atomic-leaf delete behavior (#P11.3)", () => {
     // Backspace with the caret at the start of trailingA must remove exactly
     // image A (its immediate predecessor) and leave image B untouched — proving
     // the helper deletes one block per invocation, not everything preceding.
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "above" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "above" });
     const paraId = firstChildId(editor.document) as BlockId;
     // Insert B first (after "above"), then A (after "above") so doc order is A, B.
-    editor = reduceEditor(editor, { type: "INSERT_IMAGE", src: "B.png" });
+    editor.dispatch({ type: "INSERT_IMAGE", src: "B.png" });
     const imageBId = getBlock(editor.document, paraId)?.nextSiblingId as BlockId;
     const atParaEnd = createPosition(paraId, "above".length);
-    editor = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: createSpan(atParaEnd, atParaEnd) },
-    );
-    editor = reduceEditor(editor, { type: "INSERT_IMAGE", src: "A.png" });
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(atParaEnd, atParaEnd) });
+    editor.dispatch({ type: "INSERT_IMAGE", src: "A.png" });
     const imageAId = getBlock(editor.document, paraId)?.nextSiblingId as BlockId;
     const trailingAId = getBlock(editor.document, imageAId)?.nextSiblingId as BlockId;
     expect(getBlock(editor.document, imageAId)?.attrs.src).toBe("A.png");
     expect(getBlock(editor.document, imageBId)?.attrs.src).toBe("B.png");
     expect(editor.selection.focus.blockId).toBe(trailingAId);
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
+    editor.dispatch({ type: "DELETE_BACKWARD" });
 
-    expect(getBlock(next.document, imageAId)).toBeNull();
-    expect(getBlock(next.document, imageBId)?.attrs.src).toBe("B.png");
-    expect(getBlock(next.document, paraId)?.nextSiblingId).toBe(trailingAId);
+    expect(getBlock(editor.document, imageAId)).toBeNull();
+    expect(getBlock(editor.document, imageBId)?.attrs.src).toBe("B.png");
+    expect(getBlock(editor.document, paraId)?.nextSiblingId).toBe(trailingAId);
   });
 
   it("regression: Backspace at the start of a normal paragraph still MERGES (no atomic neighbour)", () => {
-    let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
+    let editor = createEditor(config);
+    editor.dispatch({ type: "INSERT_TEXT", text: "a" });
+    editor.dispatch({ type: "SPLIT_NODE" });
+    editor.dispatch({ type: "INSERT_TEXT", text: "b" });
     const para1Id = firstChildId(editor.document) as BlockId;
     const para2Id = getBlock(editor.document, para1Id)?.nextSiblingId as BlockId;
     // Caret at start of para2.
     const caret = createPosition(para2Id, 0);
-    editor = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: createSpan(caret, caret) },
-    );
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(caret, caret) });
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
+    editor.dispatch({ type: "DELETE_BACKWARD" });
 
     // Merged into one paragraph "ab": ¶para1 goes and para2 survives.
-    expect(getBlock(next.document, para1Id)).toBeNull();
-    expect(getBlock(next.document, para2Id)?.prevSiblingId).toBeNull();
-    expect(next.selection.focus.blockId).toBe(para2Id);
-    expect(next.selection.focus.offset).toBe(1);
+    expect(getBlock(editor.document, para1Id)).toBeNull();
+    expect(getBlock(editor.document, para2Id)?.prevSiblingId).toBeNull();
+    expect(editor.selection.focus.blockId).toBe(para2Id);
+    expect(editor.selection.focus.offset).toBe(1);
   });
 });

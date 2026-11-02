@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import type { EditorAction, ActionOf } from "../editor-action";
 import {
@@ -170,7 +170,7 @@ function linearizeFragmentForSuggesting(
  *   3. Otherwise → null (caller uses the plain-text path)
  */
 function resolveFragment(
-  { config }: EditorState,
+  { config }: Editor,
   action: Extract<EditorAction, { type: "PASTE" }>,
 ): Document | null {
   const { clip, html } = action;
@@ -191,7 +191,7 @@ function resolveFragment(
   return null;
 }
 
-export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edit | null {
+export function handlePaste(editor: Editor, action: ActionOf<"PASTE">): Edit | null {
   const { selection } = editor;
 
   // A cross-CONTEXT span (anchor/focus in different trees) has no single-tree op, so

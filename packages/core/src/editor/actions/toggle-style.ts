@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import { iterateSpan, findItemAtOffset } from "../../state";
 import type { Document, Span } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
@@ -58,7 +58,7 @@ function selectionAllHaveAttr(
   return sawText;
 }
 
-export function handleToggleStyle(editor: EditorState, { style }: ActionOf<"TOGGLE_STYLE">): Edit | null {
+export function handleToggleStyle(editor: Editor, { style }: ActionOf<"TOGGLE_STYLE">): Edit | null {
   const { selection } = editor;
   const attrKey = STYLE_KEYS[style];
   // Collapsed caret: toggle the style for the next typed text (typing attrs),

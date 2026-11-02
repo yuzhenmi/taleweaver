@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import { resolveBlock, getBlock, removeBlock, firstLeafBlock, createPosition, createSpan, spanStart, clipSpanToText, mergeAdjacentBlocks, deleteSectionBreak, inlineContentLength } from "../../state";
@@ -16,7 +16,7 @@ import { deleteRangeOrSuggest } from "./helpers/delete-range-or-suggest";
 import { suggestionInputForBlock } from "./helpers/suggestion-input-for-block";
 import { isSuggestingInBlock } from "./helpers/is-suggesting-in-block";
 
-export function handleDeleteForward(editor: EditorState): Edit | null {
+export function handleDeleteForward(editor: Editor): Edit | null {
   const { config } = editor;
   const { selection } = editor;
 

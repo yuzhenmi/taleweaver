@@ -5,7 +5,7 @@ import {
   type Command,
   type EditorAction,
   type EditorExtensions,
-  type EditorState,
+  type Editor,
   type Position,
 } from "@taleweaver/core";
 import { MENTION, mentionAction } from "./mentions";
@@ -55,7 +55,7 @@ export function pickAction(trigger: ActiveTrigger, name: string): EditorAction {
 
 /** The demo's host extensions, driving `bridge` (one per editor surface). */
 export function createDemoExtensions(bridge: PickerBridge): EditorExtensions {
-  const open = (editor: EditorState): ActiveTrigger | null =>
+  const open = (editor: Editor): ActiveTrigger | null =>
     editor.activeTrigger?.id === MENTION && bridge.matches.length > 0 ? editor.activeTrigger : null;
   const move = (delta: number): Command => (editor, dispatch) => {
     if (open(editor) === null) return false;
@@ -96,17 +96,17 @@ export function createDemoExtensions(bridge: PickerBridge): EditorExtensions {
  * position on screen (each backend has its own way).
  */
 export function MentionPicker({
-  editorState,
+  editor,
   dispatch,
   bridge,
   caretRect,
 }: {
-  editorState: EditorState;
+  editor: Editor;
   dispatch: (action: EditorAction) => void;
   bridge: PickerBridge;
   caretRect: (position: Position) => { left: number; top: number; height: number } | null;
 }) {
-  const trigger = editorState.activeTrigger?.id === MENTION ? editorState.activeTrigger : undefined;
+  const trigger = editor.activeTrigger?.id === MENTION ? editor.activeTrigger : undefined;
   const [, rerender] = useState(0);
   const query = trigger?.query;
   useEffect(() => {

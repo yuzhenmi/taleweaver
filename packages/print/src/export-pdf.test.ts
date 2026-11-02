@@ -96,7 +96,7 @@ function createMockCanvasCtx(): CanvasRenderingContext2D {
 
 let originalGetContext: PropertyDescriptor | undefined;
 
-// ── Real paginated EditorState builder (barrel-only) ─────────────────────────
+// ── Real paginated Editor builder (barrel-only) ─────────────────────────
 
 const CONTAINER_WIDTH = 320;
 
@@ -112,7 +112,7 @@ function pageConfig(): core.PageConfig {
 
 // Phase 0b: `measurer` left core's `EditorConfig` for the backend layout driver.
 // The controller carries it via `makeOptions()` below; the paginated-shape check
-// in `buildRealPaginatedEditorState` runs core's own pipeline with this measurer.
+// in `buildRealPaginatedEditor` runs core's own pipeline with this measurer.
 const layoutMeasurer = core.createMockMeasurer(8, 16);
 
 function editorConfig(): core.EditorConfig {
@@ -148,7 +148,7 @@ function crossRefItem(targetId: string): core.EmbedItem {
 }
 
 /**
- * Build a real, paginated `EditorState` whose document has:
+ * Build a real, paginated `Editor` whose document has:
  *  - many single-line headings/paragraphs across ≥2 pages,
  *  - two `heading` blocks (→ a non-empty outline),
  *  - a `cross-reference` embed pointing at a heading on a LATER page (→ a
@@ -160,8 +160,8 @@ function crossRefItem(targetId: string): core.EmbedItem {
  * minted id of the LAST heading, and rebuild the host paragraph's cross-ref to
  * point at it — the two-pass approach keeps the construction barrel-only.
  */
-function buildRealPaginatedEditorState(): {
-  editorState: core.EditorState;
+function buildRealPaginatedEditor(): {
+  editor: core.Editor;
   targetHeadingId: core.BlockId;
 } {
   const config = editorConfig();
@@ -230,7 +230,7 @@ function buildRealPaginatedEditorState(): {
     cursor = core.nextBlockInDocOrder(probe, cursor);
   }
   if (conclusionId === null) {
-    throw new Error("buildRealPaginatedEditorState: could not find Conclusion heading");
+    throw new Error("buildRealPaginatedEditor: could not find Conclusion heading");
   }
 
   // Pass 2: rebuild with the cross-ref pointing at the (deterministic) minted id.
@@ -240,28 +240,28 @@ function buildRealPaginatedEditorState(): {
     core.createTestAllocator("probe"), TEST_RESOLVER
   );
   const selection = core.initialSelectionForDocument(document);
-  const editorState = core.createEditorStateFromDocument(document, selection, config);
-  // Phase 0b: the layout tree lives in the driver, not on EditorState. Build it
+  const editor = core.createEditor(config, { document, selection: selection });
+  // Phase 0b: the layout tree lives in the driver, not on Editor. Build it
   // here via core's pipeline (what the driver does) to assert the doc paginates.
   const rendered = core.render(document, config.componentRegistry, config.attrRegistry);
   const cascaded = core.cascadePass(rendered.root);
   const layout = printPkg.layoutTree(cascaded, config.containerWidth, layoutMeasurer, config.pageConfig);
   if (layout.type !== "virtual-root") {
     throw new Error(
-      "buildRealPaginatedEditorState: expected a paginated VirtualLayoutTree",
+      "buildRealPaginatedEditor: expected a paginated VirtualLayoutTree",
     );
   }
-  return { editorState, targetHeadingId: conclusionId };
+  return { editor, targetHeadingId: conclusionId };
 }
 
 // The controller enters paginated mode (and assigns its closure-local
 // `virtualTree`) only when `pageHeight` is set — it matches the fixture's
 // `pageConfig().pageBlockSize`. The layout-driver paginates the doc to a
 // VirtualLayoutTree with the `pageConfig` on the editor state's config.
-function makeOptions(): Parameters<typeof createEditorController>[1] {
+function makeOptions(editor: core.Editor): Parameters<typeof createEditorController>[1] {
   return {
     measurer: core.createMockMeasurer(8, 16),
-    dispatch: vi.fn(),
+    editor,
     pageHeight: pageConfig().pageBlockSize,
     pageGap: pageConfig().pageGap,
   };
@@ -328,9 +328,8 @@ afterEach(() => {
 describe("controller.exportToPdf", () => {
   it("builds a PDF-type-free PrintPdfEmitInput from a real doc and returns the emitter's bytes", () => {
     const container = document.createElement("div");
-    const ctrl = createEditorController(container, makeOptions());
-    const { editorState, targetHeadingId } = buildRealPaginatedEditorState();
-    ctrl.update(editorState);
+    const { editor, targetHeadingId } = buildRealPaginatedEditor();
+    const ctrl = createEditorController(container, makeOptions(editor));
 
     const { emit, captured } = makeCapturingEmitter();
     const bytes = ctrl.exportToPdf(emit);
@@ -367,11 +366,12 @@ describe("controller.exportToPdf", () => {
     expect(tree.children.length).toBeGreaterThan(0);
   });
 
-  it("throws when no document is loaded", () => {
+  it("throws when nothing is rendered (started halted)", () => {
     const container = document.createElement("div");
-    const ctrl = createEditorController(container, makeOptions());
+    const { editor } = buildRealPaginatedEditor();
+    const ctrl = createEditorController(container, { ...makeOptions(editor), startHalted: true });
     const { emit } = makeCapturingEmitter();
-    expect(() => ctrl.exportToPdf(emit)).toThrow(/no document/i);
+    expect(() => ctrl.exportToPdf(emit)).toThrow(/halted/i);
     ctrl.destroy();
   });
 
@@ -379,14 +379,13 @@ describe("controller.exportToPdf", () => {
     const container = document.createElement("div");
     // No pageHeight/pageGap → the controller stays in non-paginated mode, so its
     // `virtualTree` is never assigned even after `update()` with a real (virtual-
-    // root) EditorState. `exportToPdf` must therefore hit the paginated-required
+    // root) Editor. `exportToPdf` must therefore hit the paginated-required
     // guard. The measurer matches `makeOptions()` so cursor resolution succeeds.
+    const { editor } = buildRealPaginatedEditor();
     const ctrl = createEditorController(container, {
       measurer: core.createMockMeasurer(8, 16),
-      dispatch: vi.fn(),
+      editor,
     });
-    const { editorState } = buildRealPaginatedEditorState();
-    ctrl.update(editorState);
     const { emit } = makeCapturingEmitter();
     expect(() => ctrl.exportToPdf(emit)).toThrow(/paginated layout required/i);
     ctrl.destroy();
@@ -399,9 +398,8 @@ describe("controller.exportToPdf", () => {
     // attr on any block, so `computedStyle.language` stays the initial `""` and
     // the controller must OMIT `lang` entirely rather than pass `""`.
     const container = document.createElement("div");
-    const ctrl = createEditorController(container, makeOptions());
-    const { editorState } = buildRealPaginatedEditorState();
-    ctrl.update(editorState);
+    const { editor } = buildRealPaginatedEditor();
+    const ctrl = createEditorController(container, makeOptions(editor));
 
     const { emit, captured } = makeCapturingEmitter();
     ctrl.exportToPdf(emit);
@@ -428,11 +426,10 @@ describe("controller.exportToPdf", () => {
     };
     const document = core.buildDocumentFromTree(tree, {}, core.createTestAllocator("lang"), TEST_RESOLVER);
     const selection = core.initialSelectionForDocument(document);
-    const editorState = core.createEditorStateFromDocument(document, selection, config);
+    const editor = core.createEditor(config, { document, selection: selection });
 
     const container = globalThis.document.createElement("div");
-    const ctrl = createEditorController(container, makeOptions());
-    ctrl.update(editorState);
+    const ctrl = createEditorController(container, makeOptions(editor));
 
     const { emit, captured } = makeCapturingEmitter();
     ctrl.exportToPdf(emit);

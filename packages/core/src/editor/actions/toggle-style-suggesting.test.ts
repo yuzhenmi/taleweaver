@@ -15,10 +15,9 @@ import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect, vi } from "vitest";
 import {
   config as directConfig,
-  reduceEditor,
-  createInitialEditorState,
+  createEditor,
   type EditorConfig,
-  type EditorState,
+  type Editor,
 } from "./test-helpers";
 
 /** Throwing indexed access for tests: stronger than the old undefined-deref TypeError. */
@@ -39,7 +38,7 @@ import {
 import { formattingSuggestionIds } from "../../state";
 
 /** The first body paragraph id under the document root. */
-function bodyParaId(editor: EditorState): BlockId {
+function bodyParaId(editor: Editor): BlockId {
   const root = getBlock(editor.document, finalSectionOf(editor.document));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
@@ -57,33 +56,30 @@ const suggestingConfig: EditorConfig = {
 
 /** Select `[start, end)` of `paraId` (under `config`). */
 function selectIn(
-  editor: EditorState,
+  editor: Editor,
   paraId: BlockId,
   start: number,
   end: number,
   config: EditorConfig,
-): EditorState {
-  return reduceEditor(
-    { ...editor, config: config },
-    {
-      type: "SET_SELECTION",
-      selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
-    },
-  );
+): Editor {
+  editor.setConfig(config);
+  editor.dispatch({
+    type: "SET_SELECTION",
+    selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
+  });
+  return editor;
 }
 
 /** Build "abcdef" (direct), then select [0,6) under `config`. */
-function seededSelection(config: EditorConfig): { editor: EditorState; paraId: BlockId } {
-  const seeded = reduceEditor(
-    createInitialEditorState(directConfig),
-    { type: "INSERT_TEXT", text: "abcdef" },
-  );
+function seededSelection(config: EditorConfig): { editor: Editor; paraId: BlockId } {
+  const seeded = createEditor(directConfig);
+  seeded.dispatch({ type: "INSERT_TEXT", text: "abcdef" });
   const paraId = bodyParaId(seeded);
   return { editor: selectIn(seeded, paraId, 0, 6, config), paraId };
 }
 
 /** Every text item of `paraId`. */
-function textItems(editor: EditorState, paraId: BlockId) {
+function textItems(editor: Editor, paraId: BlockId) {
   return (getBlock(editor.document, paraId)?.inlineContent?.items ?? []).filter(
     (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",
   );
@@ -97,9 +93,9 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     // DIRECTION — not merely the endpoint set. An attr-only edit shifts no
     // offsets, so the selection is returned UNCHANGED (direction included).
     const backward = selectIn(editor, paraId, 6, 0, suggestingConfig);
-    const next = reduceEditor(backward, { type: "TOGGLE_STYLE", style: "bold" });
+    backward.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
 
-    const runs = textItems(next, paraId);
+    const runs = textItems(backward, paraId);
     expect(runs.length).toBeGreaterThan(0);
     // Every selected run gains the provenance id; NONE gain live bold.
     for (const run of runs) {
@@ -108,7 +104,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     }
 
     // Exactly one formatting record, by "alice", proposing bold:true.
-    const suggestions = getSuggestions(next.document);
+    const suggestions = getSuggestions(backward.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("formatting");
     expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
@@ -119,18 +115,18 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     // Attr-only change → selection preserved UNCHANGED, backward DIRECTION
     // included (anchor stays at 6, focus at 0). The old code normalized to a
     // forward span (anchor 0, focus 6), so this pins the direction-preserving fix.
-    expect(next.selection.anchor.blockId).toBe(paraId);
-    expect(next.selection.focus.blockId).toBe(paraId);
-    expect(next.selection.anchor.offset).toBe(6);
-    expect(next.selection.focus.offset).toBe(0);
+    expect(backward.selection.anchor.blockId).toBe(paraId);
+    expect(backward.selection.focus.blockId).toBe(paraId);
+    expect(backward.selection.anchor.offset).toBe(6);
+    expect(backward.selection.focus.offset).toBe(0);
   });
 
   it("accept: the proposal lands as live bold AND the formattingSuggestionId is stripped; the record is gone", () => {
     const { editor, paraId } = seededSelection(suggestingConfig);
-    const suggested = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
-    const id = nth(getSuggestions(suggested.document), 0, "suggestion").id;
+    editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
+    const id = nth(getSuggestions(editor.document), 0, "suggestion").id;
 
-    const accepted = acceptSuggestion(suggested.document, id);
+    const accepted = acceptSuggestion(editor.document, id);
 
     const runs = (getBlock(accepted.document, paraId)?.inlineContent?.items ?? []).filter(
       (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",
@@ -145,10 +141,10 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
 
   it("reject: the formattingSuggestionId is stripped, NO live bold lands; the record is gone", () => {
     const { editor, paraId } = seededSelection(suggestingConfig);
-    const suggested = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
-    const id = nth(getSuggestions(suggested.document), 0, "suggestion").id;
+    editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
+    const id = nth(getSuggestions(editor.document), 0, "suggestion").id;
 
-    const rejected = rejectSuggestion(suggested.document, id);
+    const rejected = rejectSuggestion(editor.document, id);
 
     const runs = (getBlock(rejected.document, paraId)?.inlineContent?.items ?? []).filter(
       (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",
@@ -164,25 +160,21 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
   it("toggle-OFF: an already-bold selection suggests REMOVING bold (proposedAttrs { bold: undefined }); live bold stays until accept", () => {
     // Seed "abcdef" + apply live bold directly, then turn on suggesting mode.
     const bolded = (() => {
-      const seeded = reduceEditor(
-        createInitialEditorState(directConfig),
-        { type: "INSERT_TEXT", text: "abcdef" },
-      );
+      const seeded = createEditor(directConfig);
+      seeded.dispatch({ type: "INSERT_TEXT", text: "abcdef" });
       const paraId = bodyParaId(seeded);
       const selected = selectIn(seeded, paraId, 0, 6, directConfig);
-      return {
-        editor: reduceEditor(selected, { type: "TOGGLE_STYLE", style: "bold" }),
-        paraId,
-      };
+      selected.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
+      return { editor: selected, paraId };
     })();
 
     // Sanity: live bold present (direct mode).
     expect(nth(textItems(bolded.editor, bolded.paraId), 0, "run").attrs.bold).toBe(true);
 
     const selected = selectIn(bolded.editor, bolded.paraId, 0, 6, suggestingConfig);
-    const next = reduceEditor(selected, { type: "TOGGLE_STYLE", style: "bold" });
+    selected.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
 
-    const suggestions = getSuggestions(next.document);
+    const suggestions = getSuggestions(selected.document);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("formatting");
     // The proposal is to REMOVE bold — `{ bold: undefined }` is a valid delta.
@@ -193,7 +185,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     expect(proposed.bold).toBeUndefined();
 
     // Live bold still present (the removal lands only on accept).
-    for (const run of textItems(next, bolded.paraId)) {
+    for (const run of textItems(selected, bolded.paraId)) {
       expect(run.attrs.bold).toBe(true);
       expect(formattingSuggestionIds(run.attrs)[0]).toBeDefined();
     }
@@ -201,7 +193,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     // Accept the removal proposal → live bold is actually REMOVED. This locks the
     // full removal round-trip: the undefined-valued `proposedAttrs` survives Yjs
     // AND `acceptSuggestion` applies it (strips the live attr), not just records it.
-    const accepted = acceptSuggestion(next.document, nth(suggestions, 0, "suggestion").id);
+    const accepted = acceptSuggestion(selected.document, nth(suggestions, 0, "suggestion").id);
     const acceptedRuns = (getBlock(accepted.document, bolded.paraId)?.inlineContent?.items ?? []).filter(
       (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",
     );
@@ -215,13 +207,13 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
 
   it("is undoable: UNDO reverts the mark + record (zero suggestions, no formattingSuggestionId)", () => {
     const { editor, paraId } = seededSelection(suggestingConfig);
-    const suggested = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
-    expect(getSuggestions(suggested.document)).toHaveLength(1);
-    expect(suggested.history.canUndo()).toBe(true);
+    editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
+    expect(getSuggestions(editor.document)).toHaveLength(1);
+    expect(editor.history.canUndo()).toBe(true);
 
-    const undone = reduceEditor(suggested, { type: "UNDO" });
-    expect(getSuggestions(undone.document)).toHaveLength(0);
-    for (const run of textItems(undone, paraId)) {
+    editor.dispatch({ type: "UNDO" });
+    expect(getSuggestions(editor.document)).toHaveLength(0);
+    for (const run of textItems(editor, paraId)) {
       expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
       expect(run.attrs.bold).toBeUndefined();
     }
@@ -229,13 +221,13 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
 
   it("direct mode (regression): live bold toggles on the runs, NO suggestion record", () => {
     const { editor, paraId } = seededSelection(directConfig);
-    const next = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
+    editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
 
-    for (const run of textItems(next, paraId)) {
+    for (const run of textItems(editor, paraId)) {
       expect(run.attrs.bold).toBe(true);
       expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
     }
-    expect(getSuggestions(next.document)).toHaveLength(0);
+    expect(getSuggestions(editor.document)).toHaveLength(0);
   });
 });
 
@@ -243,10 +235,12 @@ describe("handleToggleStyle — suggesting over another formatting suggestion", 
   it("a second user's suggestion over the first's text does NOT shrink it; both stay independently resolvable", () => {
     const { editor, paraId } = seededSelection(suggestingConfig);
     const bob: EditorConfig = { ...directConfig, suggestingAuthor: "bob", now: () => 2000 };
-    const bold = reduceEditor(selectIn(editor, paraId, 0, 4, suggestingConfig), { type: "TOGGLE_STYLE", style: "bold" });
-    const both = reduceEditor(selectIn(bold, paraId, 2, 6, bob), { type: "TOGGLE_STYLE", style: "italic" });
-    const byAuthor = (e: EditorState, author: string) => getSuggestions(e.document).find((s) => s.author === author);
-    const range = (e: EditorState, author: string) => {
+    const bold = selectIn(editor, paraId, 0, 4, suggestingConfig);
+    bold.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
+    const both = selectIn(bold, paraId, 2, 6, bob);
+    both.dispatch({ type: "TOGGLE_STYLE", style: "italic" });
+    const byAuthor = (e: Editor, author: string) => getSuggestions(e.document).find((s) => s.author === author);
+    const range = (e: Editor, author: string) => {
       const r = byAuthor(e, author)?.range;
       return r === undefined || r === null ? null : [r.start.offset, r.end.offset];
     };
@@ -257,10 +251,11 @@ describe("handleToggleStyle — suggesting over another formatting suggestion", 
     const bobId = byAuthor(both, "bob")?.id;
     if (aliceId === undefined || bobId === undefined) throw new Error("expected both suggestions");
     // Reject alice's, accept bob's: only bob's italic lands, only on [2,6).
-    const rejected = reduceEditor({ ...both, config: directConfig }, { type: "REJECT_SUGGESTION", id: aliceId });
-    expect(range(rejected, "bob")).toEqual([2, 6]);
-    const accepted = reduceEditor(rejected, { type: "ACCEPT_SUGGESTION", id: bobId });
-    expect(textItems(accepted, paraId).map((r) => [r.text, r.attrs])).toEqual([
+    both.setConfig(directConfig);
+    both.dispatch({ type: "REJECT_SUGGESTION", id: aliceId });
+    expect(range(both, "bob")).toEqual([2, 6]);
+    both.dispatch({ type: "ACCEPT_SUGGESTION", id: bobId });
+    expect(textItems(both, paraId).map((r) => [r.text, r.attrs])).toEqual([
       ["ab", {}],
       ["cdef", { italic: true }],
     ]);
@@ -278,11 +273,14 @@ describe("handleToggleStyle — suggesting over another formatting suggestion", 
       });
       try {
         const bob: EditorConfig = { ...directConfig, suggestingAuthor: "bob", now: () => 1000 };
-        const red = reduceEditor(selectIn(editor, paraId, 0, 6, suggestingConfig), { type: "SET_TEXT_COLOR", color: "red" });
-        const blue = reduceEditor(selectIn(red, paraId, 2, 4, bob), { type: "SET_TEXT_COLOR", color: "blue" });
+        const red = selectIn(editor, paraId, 0, 6, suggestingConfig);
+        red.dispatch({ type: "SET_TEXT_COLOR", color: "red" });
+        const blue = selectIn(red, paraId, 2, 4, bob);
+        blue.dispatch({ type: "SET_TEXT_COLOR", color: "blue" });
         expect(getSuggestions(blue.document).map((x) => x.id).sort()).toEqual([...ids].sort());
-        const accepted = reduceEditor({ ...blue, config: directConfig }, { type: "ACCEPT_ALL_SUGGESTIONS" });
-        expect(textItems(accepted, paraId).find((r) => r.text.includes("c"))?.attrs.color).toBe("blue");
+        blue.setConfig(directConfig);
+        blue.dispatch({ type: "ACCEPT_ALL_SUGGESTIONS" });
+        expect(textItems(blue, paraId).find((r) => r.text.includes("c"))?.attrs.color).toBe("blue");
       } finally {
         spy.mockRestore();
       }

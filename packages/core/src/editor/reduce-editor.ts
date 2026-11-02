@@ -1,10 +1,13 @@
 import { positionsEqual, resolveBlock, createSpan } from "../state";
 import { caretAfterMarkers } from "../cursor/cursor-ops";
 import { getTypingAttrs } from "./typing-attrs";
+import { isCrossContextSelection } from "./actions/helpers/is-cross-context-selection";
 import { normalizeSelectionForAtomicMarks } from "./atomic-marks";
 import { normalizeSelectionForObjects } from "../cursor/object-range";
 import { runTransaction, applyInputRules, updateActiveTrigger } from "./extensions";
-import { clearTransientViewState, type EditorState } from "./editor-state";
+import { clearTransientViewState, type Editor, type EditorSnapshot } from "./editor";
+import { EDITOR_INTERNAL } from "./editor-internal";
+import type { ReadonlyAttrs } from "../state";
 import type { EditorAction, ActionOf } from "./editor-action";
 import { applyEdit, type Edit } from "./edit";
 import {
@@ -130,7 +133,7 @@ type HandledActionType = Exclude<ActionType, "TRANSACTION">;
  * and its traits.
  */
 interface ActionSpec<K extends HandledActionType> extends ActionTraits {
-  readonly edit: (editor: EditorState, action: ActionOf<K>) => Edit | null;
+  readonly edit: (editor: Editor, action: ActionOf<K>) => Edit | null;
 }
 
 const TRANSACTION_TRAITS: ActionTraits = { coalesce: "command" };
@@ -240,34 +243,60 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
 }
 
 /** What `action` did (`type` correlates the table entry with the action). */
-function editOf<K extends HandledActionType>(editor: EditorState, type: K, action: ActionOf<K>): Edit | null {
+function editOf<K extends HandledActionType>(editor: Editor, type: K, action: ActionOf<K>): Edit | null {
   const spec: ActionSpec<K> = ACTIONS[type];
   return spec.edit(editor, action);
 }
 
-/** `editor` with a collapsed caret moved past the markers adjacent on its right. */
-function withCaretAfterMarkers(editor: EditorState): EditorState {
+/** Move a collapsed caret past the markers adjacent on its right. */
+function placeCaretAfterMarkers(editor: Editor): void {
   const { anchor, focus } = editor.selection;
-  if (!positionsEqual(anchor, focus)) return editor;
+  if (!positionsEqual(anchor, focus)) return;
   const caret = caretAfterMarkers(editor.document, focus);
-  return caret === focus ? editor : { ...editor, selection: createSpan(caret, caret) };
+  if (caret !== focus) editor[EDITOR_INTERNAL].selection = createSpan(caret, caret);
 }
 
-/** Pure reducer: applies an action to EditorState and returns new state. */
-export function reduceEditor(rawEditor: EditorState, action: EditorAction): EditorState {
+/**
+ * Apply `action` to `editor`, in place (`Editor.dispatch` calls this, then tells the
+ * subscribers). An action that throws leaves the editor as it was.
+ */
+export function reduceEditor(editor: Editor, action: EditorAction): void {
+  // The fields to restore on a throw (an internal copy — not a snapshot to read old content from).
+  const saved = { ...editor[EDITOR_INTERNAL] };
+  try {
+    reduceInPlace(editor, action);
+  } catch (error) {
+    // Exactly the saved fields: one first set by the failed action is removed again.
+    const fields = editor[EDITOR_INTERNAL];
+    for (const key of Object.keys(fields)) if (!(key in saved)) Reflect.deleteProperty(fields, key);
+    Object.assign(fields, saved);
+    throw error;
+  }
+}
+
+function reduceInPlace(editor: Editor, action: EditorAction): void {
   const traits = traitsOf(action.type);
+  const fields = editor[EDITOR_INTERNAL];
   // ENTRY-CLEAR: `lastDirtyIds` is the layout-driver's per-dispatch
   // incremental hint, written ONLY by `applyEdit` for a changing action. Clear
   // it at the entry of every dispatch so a prior mutating action's dirty ids
   // never leak forward onto a later selection-only / inert action (which would
   // make the driver wrongly rebuild only those blocks). A changing action's
   // `applyEdit` re-sets a fresh non-null set; everything else leaves it null.
-  const cleared =
-    rawEditor.lastDirtyIds === null ? rawEditor : { ...rawEditor, lastDirtyIds: null };
+  fields.lastDirtyIds = null;
   // Markers are not caret stops: every insertion at a collapsed caret goes after the
   // markers adjacent on its right — inside a bookmark / comment at its start, outside
   // at its end. Normalized once here, so no insertion handler repeats it (block-local).
-  const editor = traits.insertsAtCaret === true ? withCaretAfterMarkers(cleared) : cleared;
+  if (traits.insertsAtCaret === true) placeCaretAfterMarkers(editor);
+  const before = editor.snapshot();
+  const storedBefore = editor.storedAttrs;
+  const anchorBeforeLift = fields.anchorBeforeLift;
+  // The typing attrs `updateStoredAttrs` may carry, read now: after the edit `before.document`
+  // is superseded. Every carrying action refuses a cross-context selection, so it needs none.
+  const typingBefore =
+    traits.carriesTypingAttrs === true && !isCrossContextSelection(editor.document, editor.selection)
+      ? getTypingAttrs(editor)
+      : undefined;
 
   // Undo-group coalescing. Decide the undo boundary BEFORE the operation
   // runs (with `captureTimeout: MAX`, a transaction merges into the open group
@@ -294,13 +323,11 @@ export function reduceEditor(rawEditor: EditorState, action: EditorAction): Edit
     }
   }
 
-  let result =
-    action.type === "TRANSACTION"
-      ? runTransaction(editor, action.run, reduceEditor)
-      : applyEdit(editor, editOf(editor, action.type, action));
+  if (action.type === "TRANSACTION") runTransaction(editor, action.run, reduceEditor);
+  else applyEdit(editor, editOf(editor, action.type, action));
   // User-typed text may complete a host input rule (its own undo entry).
-  if (action.type === "INSERT_TEXT" && action.userInput === true && result.document !== editor.document) {
-    result = applyInputRules(result, reduceEditor);
+  if (action.type === "INSERT_TEXT" && action.userInput === true && editor.document !== before.document) {
+    applyInputRules(editor, reduceEditor);
   }
 
   // Central transient-view-state clear: `targetX` (line-nav sticky goal column)
@@ -310,79 +337,74 @@ export function reduceEditor(rawEditor: EditorState, action: EditorAction): Edit
   // `SET_SELECTION` alone — the print backend's NavIntent resolver originates a
   // line-move's `targetX` + caret/anchor affinity and threads ALL THREE through
   // the `SET_SELECTION` it dispatches (a programmatic / body `SET_SELECTION`
-  // passes `null`/`undefined`, deliberately clearing them). The six lifted
-  // geometric-nav handlers that used to manage these no longer run in core. So
-  // every other action (the `placesSelection` trait) routes through `clearTransientViewState`
-  // (the single home for "what's stale-on-mutation", also used by
-  // `reconcileForeignChange`); the helper is allocation-guarded.
-  if (traits.placesSelection !== true) {
-    result = clearTransientViewState(result);
-  }
+  // passes `null`/`undefined`, deliberately clearing them). So every other action
+  // (the `placesSelection` trait) routes through `clearTransientViewState` (the
+  // single home for "what's stale-on-mutation", also used by `reconcileForeignChange`).
+  if (traits.placesSelection !== true) clearTransientViewState(editor);
 
   // Atomic marks: the caret never rests inside one (whatever moved it — a click,
   // an arrow step, undo, a programmatic selection), and a range selection covers
   // one whole or not at all. Likewise a range covers a table whole or not at all;
   // extending from a lifted anchor restarts from the user's own (`anchorBeforeLift`).
-  if (result !== editor) {
-    let marked = normalizeSelectionForAtomicMarks(result.document, result.selection, editor.selection);
-    const raw = result.document === editor.document ? editor.anchorBeforeLift : undefined;
-    if (raw !== undefined && positionsEqual(marked.anchor, editor.selection.anchor)) marked = createSpan(raw, marked.focus);
-    const selection = normalizeSelectionForObjects(result.document, marked);
+  if (editor.document !== before.document || editor.selection !== before.selection) {
+    let marked = normalizeSelectionForAtomicMarks(editor.document, editor.selection, before.selection);
+    const raw = editor.document === before.document ? anchorBeforeLift : undefined;
+    if (raw !== undefined && positionsEqual(marked.anchor, before.selection.anchor)) marked = createSpan(raw, marked.focus);
+    const selection = normalizeSelectionForObjects(editor.document, marked);
     const lifted = !positionsEqual(selection.anchor, marked.anchor) && !positionsEqual(selection.anchor, selection.focus);
-    const anchorBeforeLift = lifted ? marked.anchor : undefined;
-    if (selection !== result.selection) result = { ...result, selection };
-    if (anchorBeforeLift !== result.anchorBeforeLift) result = { ...result, anchorBeforeLift };
+    fields.selection = selection;
+    fields.anchorBeforeLift = lifted ? marked.anchor : undefined;
   }
 
-  result = updateStoredAttrs(editor, result, traits);
-  result = updateActiveTrigger(editor, result, action);
-  // Keep the selection's blocks snapshotted in the current state: a later foreign
+  updateStoredAttrs(before, storedBefore, typingBefore, editor, traits);
+  updateActiveTrigger(before, editor, action);
+  // Keep the selection's blocks snapshotted in the current document: a later foreign
   // change maps the caret from that snapshot (the Y.Doc has changed by then). O(1).
-  if (result.document !== editor.document || result.selection !== editor.selection) {
-    resolveBlock(result.document, result.selection.focus.blockId);
-    resolveBlock(result.document, result.selection.anchor.blockId);
+  if (editor.document !== before.document || editor.selection !== before.selection) {
+    resolveBlock(editor.document, editor.selection.focus.blockId);
+    resolveBlock(editor.document, editor.selection.anchor.blockId);
   }
-  return result;
 }
 
 /**
- * The `storedAttrs` lifecycle (see `EditorState.storedAttrs`): drop pending typing
+ * The `storedAttrs` lifecycle (see `Editor.storedAttrs`): drop pending typing
  * attrs the action did not set itself (unless it is inert or re-sets the same
  * selection); and when a delete / paragraph split leaves the caret in an EMPTY
  * block, carry the INCLUSIVE typing attrs from before the edit so typing there
  * continues in the same formatting (Google Docs / Word) — never a link or mark.
  */
 function updateStoredAttrs(
-  before: EditorState,
-  result: EditorState,
+  before: EditorSnapshot,
+  storedBefore: ReadonlyAttrs | undefined,
+  typingBefore: ReadonlyAttrs | undefined,
+  editor: Editor,
   traits: ActionTraits,
-): EditorState {
-  let out = result;
-  if (out.storedAttrs !== undefined && out.storedAttrs === before.storedAttrs) {
+): void {
+  const fields = editor[EDITOR_INTERNAL];
+  if (editor.storedAttrs !== undefined && editor.storedAttrs === storedBefore) {
     const keep =
       traits.coalesce === "inert" ||
       (traits.placesSelection === true &&
-        positionsEqual(out.selection.anchor, before.selection.anchor) &&
-        positionsEqual(out.selection.focus, before.selection.focus));
-    if (!keep) out = { ...out, storedAttrs: undefined };
+        positionsEqual(editor.selection.anchor, before.selection.anchor) &&
+        positionsEqual(editor.selection.focus, before.selection.focus));
+    if (!keep) fields.storedAttrs = undefined;
   }
   if (
-    out.storedAttrs === undefined &&
-    out.document !== before.document &&
-    traits.carriesTypingAttrs === true &&
-    positionsEqual(out.selection.anchor, out.selection.focus)
+    editor.storedAttrs === undefined &&
+    editor.document !== before.document &&
+    typingBefore !== undefined &&
+    positionsEqual(editor.selection.anchor, editor.selection.focus)
   ) {
-    const content = resolveBlock(out.document, out.selection.focus.blockId)?.block.inlineContent ?? null;
+    const content = resolveBlock(editor.document, editor.selection.focus.blockId)?.block.inlineContent ?? null;
     if (content !== null && content.items.length === 0) {
       // Only INCLUSIVE keys (formatting) carry: a deleted link / mention / other
       // non-inclusive or atomic mark — and change-tracking ids — must not
       // resurrect on the next keystroke.
       const carried: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(getTypingAttrs(before))) {
-        if (before.config.attrRegistry.isInclusive(key)) carried[key] = value;
+      for (const [key, value] of Object.entries(typingBefore)) {
+        if (editor.config.attrRegistry.isInclusive(key)) carried[key] = value;
       }
-      if (Object.keys(carried).length > 0) out = { ...out, storedAttrs: Object.freeze(carried) };
+      if (Object.keys(carried).length > 0) fields.storedAttrs = Object.freeze(carried);
     }
   }
-  return out;
 }

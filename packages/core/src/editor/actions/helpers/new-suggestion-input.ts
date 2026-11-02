@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import { newSuggestionId, nextSuggestionOrder, type SuggestionMintInput } from "../../../state";
 
 /** The create-op `input` for a new suggestion in suggesting mode, or `null` when not
@@ -6,7 +6,7 @@ import { newSuggestionId, nextSuggestionOrder, type SuggestionMintInput } from "
  *  input via this helper: a fresh `newSuggestionId()`, the configured author, and the
  *  injected timestamp. */
 export function newSuggestionInput(
-  { config }: EditorState,
+  { config }: Editor,
 ): SuggestionMintInput | null {
   const author = config.suggestingAuthor ?? null;
   if (author === null) return null;

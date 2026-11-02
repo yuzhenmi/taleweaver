@@ -3,7 +3,8 @@ import type { Position, Document, BlockId } from "../state";
 import { isCollapsed } from "../cursor/selection";
 import { transitionMapping } from "../decorations/decoration-layers";
 import type { EditorAction } from "./editor-action";
-import type { EditorState } from "./editor-state";
+import type { Editor, EditorSnapshot } from "./editor";
+import { EDITOR_INTERNAL } from "./editor-internal";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import type { ComponentRegistry } from "../components/component-registry";
 import { isObjectSelection } from "../cursor/object-selection";
@@ -18,8 +19,8 @@ import { isObjectSelection } from "../cursor/object-selection";
 
 /** The live view a `TRANSACTION`'s `run` works against. */
 export interface Transaction {
-  /** The editor after every step dispatched so far. */
-  readonly editor: EditorState;
+  /** The editor (changed in place by every step dispatched so far). */
+  readonly editor: Editor;
   /**
    * Apply one action through the reducer, inside the transaction's single undo entry.
    * Throws (before applying) for an action that cannot be a step — UNDO / REDO, a peer's
@@ -35,7 +36,7 @@ export interface Transaction {
  * dispatches ONE `TRANSACTION` so they are one undo step. Commands run in the
  * controller (not the reducer), so they may also drive host UI.
  */
-export type Command = (editor: EditorState, dispatch?: (action: EditorAction) => void) => boolean;
+export type Command = (editor: Editor, dispatch?: (action: EditorAction) => void) => boolean;
 
 /** A key binding's target: a command, a command NAME (see `commands`), or `null` = unbound. */
 export type KeyBinding = Command | string | null;
@@ -96,7 +97,7 @@ export interface EditorExtensions {
 // ─── Transactions ─────────────────────────────────────────────────────────
 
 /** The editor reducer, handed to the actions that run other actions (transactions, input rules). */
-export type Reduce = (editor: EditorState, action: EditorAction) => EditorState;
+export type Reduce = (editor: Editor, action: EditorAction) => void;
 
 /**
  * Run a `TRANSACTION`: every step goes through `reduce` inside ONE history batch (one
@@ -104,20 +105,18 @@ export type Reduce = (editor: EditorState, action: EditorAction) => EditorState;
  * step's extent is unknown); `lastChange` chains the steps.
  */
 export function runTransaction(
-  editor: EditorState,
+  editor: Editor,
   run: (tx: Transaction) => void,
   reduce: Reduce,
-): EditorState {
-  let current = editor;
+): void {
+  const start = editor.document;
   const dirty = new Set<BlockId>();
   let unknown = false;
   editor.history.beginBatch(editor.selection);
   let ok = false;
   try {
     run({
-      get editor() {
-        return current;
-      },
+      editor,
       dispatch(action) {
         // Only undoable steps: a step that bypasses this History (UNDO / REDO, a peer's
         // change, another author's proposal) could not be rolled back with the rest, so it is refused
@@ -133,23 +132,23 @@ export function runTransaction(
             `TRANSACTION: "${action.type}" is not undoable here and cannot be a transaction step`,
           );
         }
-        const next = reduce(current, action);
-        if (next.document !== current.document) {
-          if (next.lastDirtyIds === null) unknown = true;
-          else for (const id of next.lastDirtyIds) dirty.add(id);
+        const document = editor.document;
+        reduce(editor, action);
+        if (editor.document !== document) {
+          if (editor.lastDirtyIds === null) unknown = true;
+          else for (const id of editor.lastDirtyIds) dirty.add(id);
         }
-        current = next;
       },
     });
     ok = true;
   } finally {
-    // A throwing step must not leave the document half-edited while the caller keeps
-    // the old EditorState: roll the whole transaction back, then let the error escape.
+    // A throwing step must not leave the document half-edited: roll the whole
+    // transaction back (the reducer restores the editor's other fields), then let the
+    // error escape.
     if (ok) editor.history.endBatch();
     else editor.history.abortBatch();
   }
-  if (current.document === editor.document) return { ...current, lastDirtyIds: null };
-  return { ...current, lastDirtyIds: unknown ? null : dirty };
+  editor[EDITOR_INTERNAL].lastDirtyIds = editor.document === start || unknown ? null : dirty;
 }
 
 /** Union of two dirty sets (`null` = unknown wins). */
@@ -185,11 +184,11 @@ const INPUT_RULE_WINDOW = 500;
 /**
  * After user-typed text: run the first input rule whose pattern matches up to the caret,
  * as its OWN undo entry (typing coalescing is broken first), so one Undo reverts just the
- * transform back to the typed text. Returns `editor` when no rule fires.
+ * transform back to the typed text. Leaves `editor` as it is when no rule fires.
  */
-export function applyInputRules(editor: EditorState, reduce: Reduce): EditorState {
+export function applyInputRules(editor: Editor, reduce: Reduce): void {
   const rules = editor.config.extensions?.inputRules;
-  if (rules === undefined || rules.length === 0 || !isCollapsed(editor.selection)) return editor;
+  if (rules === undefined || rules.length === 0 || !isCollapsed(editor.selection)) return;
   const caret = editor.selection.focus;
   const start = Math.max(0, caret.offset - INPUT_RULE_WINDOW);
   const before = blockText(editor.document, caret.blockId, start, caret.offset);
@@ -210,11 +209,12 @@ export function applyInputRules(editor: EditorState, reduce: Reduce): EditorStat
         : rule.replace(match, range);
     if (actions.length === 0) continue;
     editor.history.breakCoalescing();
-    const next = reduce(editor, { type: "TRANSACTION", run: (tx) => actions.forEach((a) => tx.dispatch(a)) });
-    if (next.document === editor.document && next.selection === editor.selection) continue;
-    return { ...next, lastDirtyIds: unionDirty(editor.lastDirtyIds, next.lastDirtyIds) };
+    const { document, selection, lastDirtyIds } = editor;
+    reduce(editor, { type: "TRANSACTION", run: (tx) => actions.forEach((a) => tx.dispatch(a)) });
+    if (editor.document === document && editor.selection === selection) continue;
+    editor[EDITOR_INTERNAL].lastDirtyIds = unionDirty(lastDirtyIds, editor.lastDirtyIds);
+    return;
   }
-  return editor;
 }
 
 // ─── Triggers ─────────────────────────────────────────────────────────────
@@ -238,7 +238,7 @@ function hasAtomicMark(document: Document, blockId: BlockId, from: number, to: n
   return false;
 }
 
-function validTrigger(spec: TriggerSpec, editor: EditorState, from: Position, registry: AttrRegistry): ActiveTrigger | undefined {
+function validTrigger(spec: TriggerSpec, editor: Editor, from: Position, registry: AttrRegistry): ActiveTrigger | undefined {
   const { selection, document } = editor;
   if (!isCollapsed(selection)) return undefined;
   const caret = selection.focus;
@@ -267,23 +267,24 @@ function stable(prev: ActiveTrigger | undefined, next: ActiveTrigger | undefined
 }
 
 /**
- * Maintain `EditorState.activeTrigger` across one action: map the active trigger's start
+ * Maintain `Editor.activeTrigger` across one action: map the active trigger's start
  * through the edit and re-validate it (it ends when the caret leaves it, the trigger text
  * is deleted, the query breaks the spec's rules, or on ESCAPE); a USER-typed insertion
  * that completes a trigger text at the caret starts one.
  */
 export function updateActiveTrigger(
-  before: EditorState,
-  result: EditorState,
+  before: EditorSnapshot,
+  result: Editor,
   action: EditorAction,
-): EditorState {
+): void {
   const { config } = result;
   // A transaction's steps are not separate edits: its intermediate selections (a step
   // moving the caret elsewhere) must not end the trigger — it is mapped and checked
   // once, across the whole transaction, when the outer action finishes.
   // ESCAPE inside a transaction (e.g. the last step of a pick) still ends it at once.
   if (result.history.batching) {
-    return action.type === "ESCAPE" && result.activeTrigger !== undefined ? { ...result, activeTrigger: undefined } : result;
+    if (action.type === "ESCAPE") result[EDITOR_INTERNAL].activeTrigger = undefined;
+    return;
   }
   const specs = config.extensions?.triggers ?? [];
   const prev = result.activeTrigger;
@@ -317,18 +318,16 @@ export function updateActiveTrigger(
     }
   }
   next = stable(prev, next);
-  return next === prev ? result : { ...result, activeTrigger: next };
+  if (next !== prev) result[EDITOR_INTERNAL].activeTrigger = next;
 }
 
-/** How the active trigger changed between two editor states (for host pickers). */
+/** How the active trigger changed from `prev` to `next` (`Editor.activeTrigger`, for host pickers). */
 export type TriggerChange =
   | { readonly type: "start"; readonly trigger: ActiveTrigger }
   | { readonly type: "update"; readonly trigger: ActiveTrigger }
   | { readonly type: "exit"; readonly trigger: ActiveTrigger };
 
-export function triggerChange(prev: EditorState, next: EditorState): TriggerChange | null {
-  const a = prev.activeTrigger;
-  const b = next.activeTrigger;
+export function triggerChange(a: ActiveTrigger | undefined, b: ActiveTrigger | undefined): TriggerChange | null {
   if (a === b) return null;
   if (b === undefined) return a === undefined ? null : { type: "exit", trigger: a };
   if (a === undefined || a.id !== b.id) return { type: "start", trigger: b };
@@ -470,7 +469,7 @@ const parsedKeymaps = new WeakMap<Keymap, ReadonlyArray<{ name: string; parsed: 
 
 /**
  * Parse (and cache) every binding of `keymap`, throwing on a malformed name.
- * `createEditorStateFromDocument` calls this, so a bad binding fails at configuration time.
+ * `createEditor` calls this, so a bad binding fails at configuration time.
  */
 export function compileKeymap(keymap: Keymap): ReadonlyArray<{ name: string; parsed: ParsedBinding }> {
   let compiled = parsedKeymaps.get(keymap);
@@ -513,7 +512,7 @@ export function runKeyBinding(
   extensions: EditorExtensions | undefined,
   event: KeyEventLike,
   mod: ModConvention,
-  editor: EditorState,
+  editor: Editor,
   dispatch: (action: EditorAction) => void,
 ): "handled" | "blocked" | "default" {
   const hit = matchKeyBinding(extensions?.keymap, event, mod);
@@ -529,6 +528,6 @@ export function runKeyBinding(
  * trigger to end. Backends claim the Escape key (preventDefault) only then, so an Escape
  * with nothing to dismiss still reaches the page (e.g. closes a containing dialog).
  */
-export function escapeWouldChange(editor: EditorState, componentRegistry: ComponentRegistry): boolean {
+export function escapeWouldChange(editor: Editor, componentRegistry: ComponentRegistry): boolean {
   return editor.activeTrigger !== undefined || isObjectSelection(editor.document, editor.selection, componentRegistry) !== null;
 }

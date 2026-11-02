@@ -44,14 +44,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { EditorAction, EditorState, FootnoteNumberingPolicy } from "@taleweaver/print";
+import type { EditorAction, Editor, FootnoteNumberingPolicy } from "@taleweaver/print";
 import { documentFootnotePolicy } from "@taleweaver/print";
 import { getFormatState } from "./toolbar-utils";
 import { mentionAction } from "./mentions";
 
 interface ToolbarProps {
   dispatch: React.Dispatch<EditorAction>;
-  editorState: EditorState;
+  editor: Editor;
 }
 
 const BLOCK_TYPE_LABELS: Record<string, string> = {
@@ -213,14 +213,15 @@ function ToolbarDropdown({
   );
 }
 
-export function Toolbar({ dispatch, editorState }: ToolbarProps) {
-  const fmt = useMemo(() => getFormatState(editorState), [editorState]);
+export function Toolbar({ dispatch, editor }: ToolbarProps) {
+  // The editor changes in place: read it every render (each dispatch re-renders the host).
+  const fmt = getFormatState(editor);
   const blockLabel = getBlockTypeLabel(fmt.blockType, fmt.headingLevel);
   // Current document-wide footnote numbering reset policy (drives the footnote
   // dropdown's displayed label below). Read straight from the root block's attrs.
   const footnoteReset = useMemo(
-    () => documentFootnotePolicy(editorState.document).reset,
-    [editorState],
+    () => documentFootnotePolicy(editor.document).reset,
+    [editor.document],
   );
 
   return (
@@ -391,9 +392,9 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
       <ToolbarButton
         label="Mention (turn the selected name into a mention)"
         icon={AtSign}
-        disabled={mentionAction(editorState) === null}
+        disabled={mentionAction(editor) === null}
         onAction={() => {
-          const action = mentionAction(editorState);
+          const action = mentionAction(editor);
           if (action !== null) dispatch(action);
         }}
       />

@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { productionAllocator, insertBlock, getBlock } from "../../state";
 import type { BlockInit, Document, BlockId, IdAllocator, InlineContent, BlockKindResolver } from "../../state";
@@ -104,7 +104,7 @@ function insertBlockInitAt(
   return { document: cur, dirtyIds: accumulatedDirtyIds };
 }
 
-export function handleInsertNode(editor: EditorState, { node: init }: ActionOf<"INSERT_NODE">): Edit | null {
+export function handleInsertNode(editor: Editor, { node: init }: ActionOf<"INSERT_NODE">): Edit | null {
   const { config } = editor;
   // insertBlockInitAt always calls insertBlock at least once for the
   // root init (line 82), and insertBlock always mutates the Y.Doc

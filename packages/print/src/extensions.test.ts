@@ -58,30 +58,25 @@ const extensions: core.EditorExtensions = {
 function mount(text = "", ext: core.EditorExtensions = extensions): {
   textarea: HTMLTextAreaElement;
   controller: EditorController;
-  get: () => core.EditorState;
+  get: () => core.Editor;
 } {
   const attrRegistry = core.createDefaultAttrRegistry();
   core.registerMark(attrRegistry, "mention", { atomic: true });
   const cfg: core.EditorConfig = { componentRegistry: core.createDefaultComponentRegistry(), attrRegistry, containerWidth: 600, extensions: ext };
-  let editor = core.createInitialEditorState(cfg);
-  if (text !== "") editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text });
+  const editor = core.createEditor(cfg);
+  if (text !== "") editor.dispatch({ type: "INSERT_TEXT", text });
   const container = document.createElement("div");
   document.body.appendChild(container);
-  let controller: EditorController | null = null;
-  controller = createEditorController(container, {
+  const controller = createEditorController(container, {
     measurer: core.createMockMeasurer(8, 16),
-    dispatch: (a) => {
-      editor = core.reduceEditor(editor, a);
-      controller?.update(editor);
-    },
+    editor,
   });
-  controller.update(editor);
   const textarea = container.querySelector("textarea");
   if (!(textarea instanceof HTMLTextAreaElement)) throw new Error("no textarea");
   return { textarea, controller, get: () => editor };
 }
 
-const textOf = (e: core.EditorState): string =>
+const textOf = (e: core.Editor): string =>
   (core.getBlock(e.document, e.selection.focus.blockId)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
 
 function type(textarea: HTMLTextAreaElement, text: string): void {

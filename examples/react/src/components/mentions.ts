@@ -7,7 +7,7 @@ import {
   type MarkDom,
   type Decoration,
   type EditorAction,
-  type EditorState,
+  type Editor,
   type Document,
 } from "@taleweaver/core";
 
@@ -53,7 +53,7 @@ export function createDemoAttrRegistry(): AttrRegistry {
 }
 
 /** The SET_MARK turning the selection into a mention of the selected text, or null. */
-export function mentionAction(editor: EditorState): EditorAction | null {
+export function mentionAction(editor: Editor): EditorAction | null {
   const { anchor, focus } = editor.selection;
   if (anchor.blockId === focus.blockId && anchor.offset === focus.offset) return null;
   const label = extractText(editor.document, editor.selection).trim();

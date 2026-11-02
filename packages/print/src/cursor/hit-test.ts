@@ -90,7 +90,7 @@ function mapClickForLine(
  *      `caretInlineCoordInLeaf`, so click↔render round-trips on bidi lines.
  *
  * Returns `{ position, caretAffinity }` — the resolved
- * `Position` plus the caret ASSOCIATION seed for `EditorState.caretAffinity`.
+ * `Position` plus the caret ASSOCIATION seed for `Editor.caretAffinity`.
  * The hit LEAF (the leaf whose X range the click landed in) is the authoritative
  * owner of the offset: when the resolved offset is that leaf's TRAILING edge
  * (`logEnd`, and the leaf is non-degenerate so `logEnd !== logStart`) the caret

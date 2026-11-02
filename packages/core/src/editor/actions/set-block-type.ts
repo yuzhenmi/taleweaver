@@ -1,11 +1,11 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { getBlock, setBlockType, setBlockAttrs } from "../../state";
 import type { BlockId } from "../../state";
 import type { ActionOf } from "../editor-action";
 
 export function handleSetBlockType(
-  editor: EditorState,
+  editor: Editor,
   { blockType, properties = {} }: ActionOf<"SET_BLOCK_TYPE">,
 ): Edit | null {
   const { config } = editor;

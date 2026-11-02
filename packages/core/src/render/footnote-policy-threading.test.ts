@@ -19,8 +19,7 @@ import {
   config,
   componentRegistry,
   attrRegistry,
-  createInitialEditorState,
-  reduceEditor,
+  createEditor
 } from "../editor/actions/test-helpers";
 import { mergeBlockAttrs } from "../state";
 import type { Document, BlockId } from "../state";
@@ -46,28 +45,25 @@ function setRootPolicy(
  * (contentBlock) ids in document order.
  */
 function twoSectionDocWithFootnotes() {
-  let editor = createInitialEditorState(config);
+  let editor = createEditor(config);
   // Section 1: a paragraph with a footnote.
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
+  editor.dispatch({ type: "INSERT_TEXT", text: "a" });
   const firstHost = editor.selection.focus.blockId;
-  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
+  editor.dispatch({ type: "INSERT_FOOTNOTE" });
   // Back into the host paragraph (after "a" + anchor → offset 2).
-  editor = reduceEditor(
-    editor,
-    {
+  editor.dispatch({
       type: "SET_SELECTION",
       selection: {
         anchor: { blockId: firstHost, offset: 2 },
         focus: { blockId: firstHost, offset: 2 },
       },
-    },
-  );
+    });
   // New paragraph, then a SECTION break so the next paragraph is in section 2.
-  editor = reduceEditor(editor, { type: "SPLIT_NODE" });
-  editor = reduceEditor(editor, { type: "SECTION_BREAK" });
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
+  editor.dispatch({ type: "SPLIT_NODE" });
+  editor.dispatch({ type: "SECTION_BREAK" });
+  editor.dispatch({ type: "INSERT_TEXT", text: "b" });
   const secondHost = editor.selection.focus.blockId;
-  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
+  editor.dispatch({ type: "INSERT_FOOTNOTE" });
   return { editor, firstHost, secondHost };
 }
 

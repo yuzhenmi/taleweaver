@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { addReply } from "../../state";
 import type { ActionOf } from "../editor-action";
@@ -9,7 +9,7 @@ import type { ActionOf } from "../editor-action";
  * UNCHANGED) when the comment is absent. The selection is unaffected.
  */
 export function handleAddReply(
-  editor: EditorState,
+  editor: Editor,
   { commentId, replyId, author, body, createdAt }: ActionOf<"ADD_REPLY">,
 ): Edit | null {
   return {

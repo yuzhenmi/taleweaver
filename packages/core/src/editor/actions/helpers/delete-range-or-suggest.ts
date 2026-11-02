@@ -1,4 +1,4 @@
-import type { EditorState } from "../../editor-state";
+import type { Editor } from "../../editor";
 import { deleteRange, markDeletion, spanStart, type Span, type OperationResult } from "../../../state";
 import { suggestionInputForBlock } from "./suggestion-input-for-block";
 
@@ -14,7 +14,7 @@ import { suggestionInputForBlock } from "./suggestion-input-for-block";
  * block resolves to no editing context (see `suggestionInputForBlock`).
  */
 export function deleteRangeOrSuggest(
-  editor: EditorState,
+  editor: Editor,
   span: Span,
 ): OperationResult {
   const { document } = editor;

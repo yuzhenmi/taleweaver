@@ -14,9 +14,9 @@ import { getBlock, getChildIds, createPosition, createSpan, asBlockId, encodeFra
 import type { BlockId, Selection, Document } from "../../state";
 import type { EditorAction } from "../editor-action";
 import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
-import { createEditorStateFromDocument } from "../editor-state";
-import type { EditorState } from "../editor-state";
-import { config, reduceEditor, bodyBlockIds } from "./test-helpers";
+import { createEditor } from "../editor";
+import type { Editor } from "../editor";
+import { config, bodyBlockIds } from "./test-helpers";
 
 type Kind = "hr" | "table";
 const id = (s: string): BlockId => asBlockId(s);
@@ -81,7 +81,7 @@ function show(document: Document): string {
 }
 
 /** The caret as `"<its block's text>"@offset` — it must be collapsed, on a live text block. */
-function caret(editor: EditorState): string {
+function caret(editor: Editor): string {
   const { anchor, focus } = editor.selection;
   if (anchor.blockId !== focus.blockId || anchor.offset !== focus.offset) return `range ${anchor.blockId}:${anchor.offset}→${focus.blockId}:${focus.offset}`;
   const block = getBlock(editor.document, focus.blockId);
@@ -120,12 +120,12 @@ const ACTIONS: Record<string, EditorAction> = {
 /** `action` over `selection` (set through SET_SELECTION) in `document`: the resulting body + caret. */
 function run(document: Document, selection: Selection, mode: "direct" | "suggest", action: string): string {
   const cfg = mode === "direct" ? config : { ...config, suggestingAuthor: "alice" };
-  const start = createEditorStateFromDocument(document, createSpan(at("p0", 0), at("p0", 0)), cfg);
-  const selected = reduceEditor(start, { type: "SET_SELECTION", selection });
+  const start = createEditor(cfg, { document, selection: createSpan(at("p0", 0), at("p0", 0)) });
+  start.dispatch({ type: "SET_SELECTION", selection });
   const act = ACTIONS[action];
   if (act === undefined) throw new Error(action);
-  const next = reduceEditor(selected, act);
-  return `${show(next.document)}  ${caret(next)}`;
+  start.dispatch(act);
+  return `${show(start.document)}  ${caret(start)}`;
 }
 
 // prettier-ignore
@@ -229,15 +229,15 @@ describe("range edits touching an object (horizontal line / table)", () => {
   });
 
   it("extending from a lifted anchor restarts from the user's own: back in the table selects from the original caret", () => {
-    const set = (e: EditorState, sel: Selection) => reduceEditor(e, { type: "SET_SELECTION", selection: sel });
-    let e = createEditorStateFromDocument(doc("table"), createSpan(at("cp", 1), at("cp", 1)), config);
+    const set = (e: Editor, sel: Selection) => { e.dispatch({ type: "SET_SELECTION", selection: sel }); return e; };
+    let e = createEditor(config, { document: doc("table"), selection: createSpan(at("cp", 1), at("cp", 1)) });
     e = set(e, createSpan(e.selection.anchor, at("p1", 2)));
     expect(e.selection).toEqual(createSpan(at("obj", 0), at("p1", 2)));
     e = set(e, createSpan(e.selection.anchor, at("cp", 2)));
     expect(e.selection).toEqual(createSpan(at("cp", 1), at("cp", 2)));
     // A document change forgets the user's anchor; a table endpoint holding the other collapses to it.
     e = set(e, createSpan(e.selection.anchor, at("p1", 2)));
-    e = reduceEditor(e, { type: "TOGGLE_STYLE", style: "bold" });
+    e.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
     e = set(e, createSpan(e.selection.anchor, at("cp", 2)));
     expect(e.selection).toEqual(createSpan(at("cp", 2), at("cp", 2)));
   });

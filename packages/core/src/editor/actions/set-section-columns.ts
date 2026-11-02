@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs } from "../../state";
 import { resolveActiveSection } from "./helpers/resolve-active-section";
@@ -35,7 +35,7 @@ import type { ActionOf } from "../editor-action";
  *
  * Selection is UNCHANGED: a column change does not move the cursor logically.
  */
-export function handleSetSectionColumns(editor: EditorState, action: ActionOf<"SET_SECTION_COLUMNS">): Edit | null {
+export function handleSetSectionColumns(editor: Editor, action: ActionOf<"SET_SECTION_COLUMNS">): Edit | null {
   // Target the active SECTION at the cursor (main-body content always
   // sits in a section — the final one when there is no break). A caret outside the
   // main body has none: no-op.

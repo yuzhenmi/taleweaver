@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { resolveComment } from "../../state";
 import type { ActionOf } from "../editor-action";
@@ -14,6 +14,6 @@ import type { ActionOf } from "../editor-action";
  * surfaces `rootId` as its dirtyId — never inline content), so the `after`
  * selection equals the `before` selection.
  */
-export function handleResolveComment(editor: EditorState, { id }: ActionOf<"RESOLVE_COMMENT">): Edit | null {
+export function handleResolveComment(editor: Editor, { id }: ActionOf<"RESOLVE_COMMENT">): Edit | null {
   return { change: resolveComment(editor.document, id) };
 }

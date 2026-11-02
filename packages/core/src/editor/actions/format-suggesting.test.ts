@@ -19,10 +19,9 @@ import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,
-  reduceEditor,
-  createInitialEditorState,
+  createEditor,
   type EditorConfig,
-  type EditorState,
+  type Editor,
 } from "./test-helpers";
 
 /** Throwing indexed access for tests: stronger than the old undefined-deref TypeError. */
@@ -44,7 +43,7 @@ import { INLINE_FORMAT_ATTR_KEYS } from "../inline-format-keys";
 import { formattingSuggestionIds } from "../../state";
 
 /** The first body paragraph id under the document root. */
-function bodyParaId(editor: EditorState): BlockId {
+function bodyParaId(editor: Editor): BlockId {
   const root = getBlock(editor.document, finalSectionOf(editor.document));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
@@ -62,33 +61,30 @@ const suggestingConfig: EditorConfig = {
 
 /** Select `[start, end)` of `paraId` (under `config`). */
 function selectIn(
-  editor: EditorState,
+  editor: Editor,
   paraId: BlockId,
   start: number,
   end: number,
   config: EditorConfig,
-): EditorState {
-  return reduceEditor(
-    { ...editor, config: config },
-    {
-      type: "SET_SELECTION",
-      selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
-    },
-  );
+): Editor {
+  editor.setConfig(config);
+  editor.dispatch({
+    type: "SET_SELECTION",
+    selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
+  });
+  return editor;
 }
 
 /** Build "abcdef" (direct), then select [0,6) under `config`. */
-function seededSelection(config: EditorConfig): { editor: EditorState; paraId: BlockId } {
-  const seeded = reduceEditor(
-    createInitialEditorState(directConfig),
-    { type: "INSERT_TEXT", text: "abcdef" },
-  );
+function seededSelection(config: EditorConfig): { editor: Editor; paraId: BlockId } {
+  const seeded = createEditor(directConfig);
+  seeded.dispatch({ type: "INSERT_TEXT", text: "abcdef" });
   const paraId = bodyParaId(seeded);
   return { editor: selectIn(seeded, paraId, 0, 6, config), paraId };
 }
 
 /** Every text item of `paraId`. */
-function textItems(editor: EditorState, paraId: BlockId) {
+function textItems(editor: Editor, paraId: BlockId) {
   return (getBlock(editor.document, paraId)?.inlineContent?.items ?? []).filter(
     (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",
   );
@@ -157,9 +153,9 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
   for (const c of CASES) {
     it(`${c.name}: suggesting mode stamps a formatting record with the action's delta; LIVE attr unchanged`, () => {
       const { editor, paraId } = seededSelection(suggestingConfig);
-      const next = reduceEditor(editor, c.action);
+      editor.dispatch(c.action);
 
-      const runs = textItems(next, paraId);
+      const runs = textItems(editor, paraId);
       expect(runs.length).toBeGreaterThan(0);
       // (a) every selected run carries the provenance id; (c) live attr unchanged.
       for (const run of runs) {
@@ -168,7 +164,7 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
       }
 
       // (b) one formatting record, by "alice", proposing the action's delta.
-      const suggestions = getSuggestions(next.document);
+      const suggestions = getSuggestions(editor.document);
       expect(suggestions).toHaveLength(1);
       expect(nth(suggestions, 0, "suggestion").kind).toBe("formatting");
       expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
@@ -184,16 +180,16 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
 
     it(`${c.name}: direct mode applies the delta live with NO suggestion`, () => {
       const { editor, paraId } = seededSelection(directConfig);
-      const next = reduceEditor(editor, c.action);
+      editor.dispatch(c.action);
 
-      expect(getSuggestions(next.document)).toHaveLength(0);
+      expect(getSuggestions(editor.document)).toHaveLength(0);
       // The single non-CLEAR cases set their key live; assert that key landed.
       // CLEAR_FORMATTING on already-clean text is a state no-op (nothing to
       // clear), so we only check it produced no suggestion above.
       if (c.name !== "CLEAR_FORMATTING") {
         const proposedEntry = Object.entries(c.proposed)[0];
         if (proposedEntry === undefined) throw new Error("expected a proposed attr entry");
-        for (const run of textItems(next, paraId)) {
+        for (const run of textItems(editor, paraId)) {
           expect(run.attrs[proposedEntry[0]]).toEqual(proposedEntry[1]);
           expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
         }
@@ -206,14 +202,12 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
     // toggle first (stamps the id without changing live attrs), then dispatch a
     // direct-mode CLEAR_FORMATTING over the same selection.
     const { editor, paraId } = seededSelection(suggestingConfig);
-    const suggested = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
-    const provenanceId = formattingSuggestionIds(nth(textItems(suggested, paraId), 0, "run").attrs)[0];
+    editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
+    const provenanceId = formattingSuggestionIds(nth(textItems(editor, paraId), 0, "run").attrs)[0];
     expect(provenanceId).toBeDefined();
 
-    const cleared = reduceEditor(
-      selectIn(suggested, paraId, 0, 6, directConfig),
-      { type: "CLEAR_FORMATTING" },
-    );
+    const cleared = selectIn(editor, paraId, 0, 6, directConfig);
+    cleared.dispatch({ type: "CLEAR_FORMATTING" });
 
     // The provenance id SURVIVES the clear — it is not an inline-format key.
     for (const run of textItems(cleared, paraId)) {
@@ -225,11 +219,9 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
     // The id survived the clear (previous test) — prove it is still a LIVE,
     // resolvable suggestion, not a dangling attr.
     const { editor, paraId } = seededSelection(suggestingConfig);
-    const suggested = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
-    const cleared = reduceEditor(
-      selectIn(suggested, paraId, 0, 6, directConfig),
-      { type: "CLEAR_FORMATTING" },
-    );
+    editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
+    const cleared = selectIn(editor, paraId, 0, 6, directConfig);
+    cleared.dispatch({ type: "CLEAR_FORMATTING" });
 
     const id = nth(getSuggestions(cleared.document), 0, "suggestion").id;
     const accepted = acceptSuggestion(cleared.document, id);

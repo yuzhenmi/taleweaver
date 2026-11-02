@@ -5,7 +5,7 @@ import {
   recordSample,
   selectionContextOf,
   type BlockId,
-  type EditorState,
+  type Editor,
   type Document,
 } from "@taleweaver/core";
 import { endAnchor } from "../dom-view/render-to-dom";
@@ -22,7 +22,7 @@ import type { BlockElementLookup } from "./digital-selection-bridge";
  * on". So a selection change toggles exactly the blocks between the old and new anchor and
  * between the old and new focus (each walked once; a block in both toggles twice = stays):
  * O(changed blocks) per selection change, never a document walk. A document change of
- * known extent (`EditorState.lastChange` made from the last synced Document: a local edit or
+ * known extent (`Editor.lastChange` made from the last synced Document: a local edit or
  * a peer's) does the same endpoint walks and re-judges only its changed blocks against
  * the nearest unchanged one: O(changed blocks), never the selection. An old endpoint
  * whose block the change removed is not walked from; the new endpoint's block is
@@ -31,7 +31,7 @@ import type { BlockElementLookup } from "./digital-selection-bridge";
  */
 export interface SelectedParagraphs {
   /** Bring the drawn indicators in line with the editor's selection over its state. */
-  sync(editor: EditorState): void;
+  sync(editor: Pick<Editor, "document" | "selection" | "lastChange">): void;
   /** A block element was (re)mounted: draw its indicator again if its ¶ is selected. */
   mounted(id: BlockId, el: HTMLElement): void;
 }
@@ -76,7 +76,7 @@ export function createSelectedParagraphs(
     if (el !== null) paint(el, on);
   }
 
-  function sync(editor: EditorState): void {
+  function sync(editor: Pick<Editor, "document" | "selection" | "lastChange">): void {
     const { document, selection } = editor;
     const anchor = selection.anchor.blockId;
     const focus = selection.focus.blockId;

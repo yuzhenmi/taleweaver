@@ -143,7 +143,7 @@ function config(pageConfig?: core.PageConfig): core.EditorConfig {
   };
 }
 
-function seeded(texts: readonly string[], cfg: core.EditorConfig): { editor: core.EditorState; ids: core.BlockId[] } {
+function seeded(texts: readonly string[], cfg: core.EditorConfig): { editor: core.Editor; ids: core.BlockId[] } {
   const root: core.ContainerBlockNode = {
     type: "document",
     children: texts.map((text) => ({ type: "paragraph", inlineContent: { items: [{ kind: "text" as const, text, attrs: {} }] } })),
@@ -153,20 +153,29 @@ function seeded(texts: readonly string[], cfg: core.EditorConfig): { editor: cor
   // the root holds sections only; a break-less doc's paragraphs live in its final section.
   const section = core.getBlock(document, document.rootId)?.lastChildId ?? null;
   for (let id = section === null ? null : (core.getBlock(document, section)?.firstChildId ?? null); id !== null; id = core.getBlock(document, id)?.nextSiblingId ?? null) ids.push(id);
-  return { editor: core.createEditorStateFromDocument(document, core.initialSelectionForDocument(document), cfg), ids };
+  return { editor: core.createEditor(cfg, { document }), ids };
 }
 
+/** Mount a controller over `editor`; `dispatch` (if any) sees every action the editor receives. */
 function mount(
+  editor: core.Editor,
   onDecorationPointer?: (e: PrintDecorationPointerEvent) => void,
   pageConfig?: core.PageConfig,
-  dispatch: (a: core.EditorAction) => void = vi.fn(),
+  dispatch?: (a: core.EditorAction) => void,
 ): { container: HTMLElement; controller: EditorController } {
   const container = document.createElement("div");
   document.body.appendChild(container);
   containers.push(container);
+  if (dispatch !== undefined) {
+    const apply = editor.dispatch.bind(editor);
+    editor.dispatch = (a) => {
+      dispatch(a);
+      apply(a);
+    };
+  }
   const controller = createEditorController(container, {
     measurer,
-    dispatch,
+    editor,
     ...(pageConfig !== undefined ? { pageConfig, pageHeight: pageConfig.pageBlockSize, pageGap: pageConfig.pageGap } : {}),
     ...(onDecorationPointer !== undefined ? { onDecorationPointer } : {}),
   });
@@ -200,8 +209,7 @@ describe("print decorations — paint", () => {
     const { editor, ids } = seeded(["hello world foo"], cfg);
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
-    const { container, controller } = mount();
-    controller.update(editor);
+    const { container, controller } = mount(editor);
     ctxOf(container)._ops.length = 0;
     controller.setDecorations([inline("e1", p, 6, 11, { backgroundColor: BAND })]);
 
@@ -223,8 +231,7 @@ describe("print decorations — paint", () => {
     const { editor, ids } = seeded(["hello world foo"], cfg);
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
-    const { container, controller } = mount();
-    controller.update(editor);
+    const { container, controller } = mount(editor);
     const draw = (style: "solid" | "dotted" | "dashed" | "wavy", color: string) => {
       ctxOf(container)._ops.length = 0;
       controller.setDecorations([inline("u", p, 6, 11, { underline: { color, style } })]);
@@ -258,8 +265,7 @@ describe("print decorations — paint", () => {
     const { editor, ids } = seeded(["first", "second"], cfg);
     const [a, b] = ids;
     if (a === undefined || b === undefined) throw new Error("setup");
-    const { container, controller } = mount();
-    controller.update(editor);
+    const { container, controller } = mount(editor);
     ctxOf(container)._ops.length = 0;
     controller.setDecorations([
       inline("i", b, 0, 3, { backgroundColor: BAND }),
@@ -284,8 +290,7 @@ describe("print decorations — paint", () => {
     const { editor, ids } = seeded(["foo bar foo"], cfg);
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
-    const { container, controller } = mount();
-    controller.update(editor);
+    const { container, controller } = mount(editor);
     controller.setDecorations([inline("h", p, 0, 3, { backgroundColor: BAND })]);
     ctxOf(container)._ops.length = 0;
     controller.setFindHighlights(core.findMatches(editor.document, "foo"), 0);
@@ -305,27 +310,22 @@ describe("print decorations — mapping through edits", () => {
     const { editor, ids } = seeded(["hello world foo"], cfg);
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
-    const { container, controller } = mount();
-    controller.update(editor);
+    const { container, controller } = mount(editor);
     controller.setDecorations([inline("e1", p, 6, 11, { backgroundColor: BAND })]);
     const before = fills(ctxOf(container), BAND)[0]?.x ?? NaN;
 
-    const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) });
-    controller.update(at0);
-    const typed = core.reduceEditor(at0, { type: "INSERT_TEXT", text: "XX" });
+    editor.dispatch({ type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) });
     ctxOf(container)._ops.length = 0;
-    controller.update(typed);
+    editor.dispatch({ type: "INSERT_TEXT", text: "XX" });
     const d = controller.decorations.decorations[0];
     expect(d?.kind === "inline" ? [d.from.offset, d.to.offset] : null).toEqual([8, 13]);
     const shifted = fills(ctxOf(container), BAND)[0];
     expect(shifted?.x).toBe(before + 16);
     expect(shifted?.w).toBe(40);
 
-    const sel = core.reduceEditor(typed, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 7), core.createPosition(p, 14)) });
-    controller.update(sel);
-    const deleted = core.reduceEditor(sel, { type: "DELETE_BACKWARD" });
+    editor.dispatch({ type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 7), core.createPosition(p, 14)) });
     ctxOf(container)._ops.length = 0;
-    controller.update(deleted);
+    editor.dispatch({ type: "DELETE_BACKWARD" });
     expect(controller.decorations.decorations).toHaveLength(0);
     expect(fills(ctxOf(container), BAND)).toHaveLength(0);
     controller.destroy();
@@ -346,8 +346,7 @@ describe("print decorations — paginated", () => {
     const { editor, ids } = seeded(["alpha", "bravo"], cfg);
     const [a, b] = ids;
     if (a === undefined || b === undefined) throw new Error("setup");
-    const { container, controller } = mount(undefined, TWO_PAGES);
-    controller.update(editor);
+    const { container, controller } = mount(editor, undefined, TWO_PAGES);
     const decos = [inline("a", a, 0, 5, { backgroundColor: BAND }), inline("b", b, 0, 5, { backgroundColor: BAND })];
     controller.setDecorations(decos);
     expect(fills(ctxOf(container, 0), BAND)).toHaveLength(1);
@@ -367,8 +366,7 @@ describe("print decorations — paginated", () => {
     const b = ids[1];
     if (b === undefined) throw new Error("setup");
     const events: PrintDecorationPointerEvent[] = [];
-    const { container, controller } = mount((e) => events.push(e), TWO_PAGES);
-    controller.update(editor);
+    const { container, controller } = mount(editor, (e) => events.push(e), TWO_PAGES);
     controller.setDecorations([inline("m1", b, 1, 4, { backgroundColor: BAND })]);
     const page1 = container.querySelector('canvas[data-page-index="1"]');
     if (!(page1 instanceof HTMLCanvasElement)) throw new Error("no page-1 canvas");
@@ -403,8 +401,7 @@ describe("print decorations — paginated", () => {
     const cfg = config(TWO_PAGES);
     const { editor } = seeded(["alpha", "bravo"], cfg);
     const events: PrintDecorationPointerEvent[] = [];
-    const { container, controller } = mount((e) => events.push(e), TWO_PAGES);
-    controller.update(editor);
+    const { container, controller } = mount(editor, (e) => events.push(e), TWO_PAGES);
     controller.setFindHighlights(core.findMatches(editor.document, "alpha"), 0);
     const band = fills(ctxOf(container, 0), core.ACTIVE_FIND_HIGHLIGHT_FILL)[0];
     const page0 = container.querySelector('canvas[data-page-index="0"]');
@@ -423,8 +420,7 @@ describe("print decorations — widgets", () => {
     const b = ids[1];
     if (b === undefined) throw new Error("setup");
     const events: PrintDecorationPointerEvent[] = [];
-    const { container, controller } = mount((e) => events.push(e), TWO_PAGES);
-    controller.update(editor);
+    const { container, controller } = mount(editor, (e) => events.push(e), TWO_PAGES);
     const at = core.createPosition(b, 2);
     controller.setDecorations([
       {
@@ -451,10 +447,8 @@ describe("print decorations — widgets", () => {
     expect(el.style.display).toBe("");
 
     // Typing before the anchor moves the overlay with the text.
-    const before = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(b, 0), core.createPosition(b, 0)) });
-    controller.update(before);
-    const typed = core.reduceEditor(before, { type: "INSERT_TEXT", text: "Z" });
-    controller.update(typed);
+    editor.dispatch({ type: "SET_SELECTION", selection: core.createSpan(core.createPosition(b, 0), core.createPosition(b, 0)) });
+    editor.dispatch({ type: "INSERT_TEXT", text: "Z" });
     expect(el.isConnected).toBe(true); // same look → element reused
     expect(el.style.left).toBe(`${(controller.getCaretRect(core.createPosition(b, 3))?.left ?? NaN)}px`);
 
@@ -463,8 +457,7 @@ describe("print decorations — widgets", () => {
     expect(events.map((e) => [e.type, e.decoration.id])).toEqual([["enter", "ghost"]]);
 
     // Copy over the anchor never includes widget text.
-    const all = core.reduceEditor(typed, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(b, 0), core.createPosition(b, 6)) });
-    controller.update(all);
+    editor.dispatch({ type: "SET_SELECTION", selection: core.createSpan(core.createPosition(b, 0), core.createPosition(b, 6)) });
     const setData = vi.fn();
     const copy = new Event("copy", { bubbles: true, cancelable: true });
     Object.defineProperty(copy, "clipboardData", { value: { setData } });
@@ -570,9 +563,8 @@ describe("print decorations — colours", () => {
     const { editor, ids } = seeded(["hello world foo"], cfg);
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
-    const { container, controller } = mount();
+    const { container, controller } = mount(editor);
     container.style.setProperty("--mark", "rgb(4, 5, 6)");
-    controller.update(editor);
     ctxOf(container)._ops.length = 0;
     controller.setDecorations([
       inline("ok", p, 0, 5, { backgroundColor: BAND }),
@@ -626,8 +618,7 @@ describe("print decorations — colours", () => {
       });
     });
     try {
-      const { container, controller } = mount();
-      controller.update(editor);
+      const { container, controller } = mount(editor);
       ctxOf(container)._ops.length = 0;
       controller.setDecorations([
         inline("bg", p, 0, 5, { backgroundColor: "var(--missing)" }),
@@ -651,8 +642,7 @@ describe("print decorations — colours", () => {
     const { editor, ids } = seeded(["hello world foo"], cfg);
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
-    const { container, controller } = mount();
-    controller.update(editor);
+    const { container, controller } = mount(editor);
     ctxOf(container)._ops.length = 0;
     controller.setDecorations([inline("u", p, 0, 5, { underline: { style: "solid" } })]);
     const ctx = ctxOf(container);
@@ -669,8 +659,7 @@ describe("print decorations — colours", () => {
     const { editor, ids } = seeded(["hello world foo"], cfg);
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
-    const { container, controller } = mount();
-    controller.update(editor);
+    const { container, controller } = mount(editor);
     ctxOf(container)._ops.length = 0;
     controller.setDecorations([inline("w", p, 6, 11, { underline: { style: "wavy", color: "purple" } })]);
     const ctx = ctxOf(container);
@@ -703,8 +692,7 @@ describe("print decorations — pointer sync", () => {
     const b = ids[1];
     if (b === undefined) throw new Error("setup");
     const events: PrintDecorationPointerEvent[] = [];
-    const { container, controller } = mount((e) => events.push(e), TWO_PAGES);
-    controller.update(editor);
+    const { container, controller } = mount(editor, (e) => events.push(e), TWO_PAGES);
     const deco = inline("m1", b, 0, 2, { backgroundColor: BAND });
     controller.setDecorations([deco]);
     const page1 = container.querySelector('canvas[data-page-index="1"]');
@@ -723,9 +711,8 @@ describe("print decorations — pointer sync", () => {
     controller.setDecorations([deco]);
     page1.dispatchEvent(new MouseEvent("mousemove", at));
     expect(events.map((e) => e.type)).toEqual(["enter"]);
-    const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(b, 0), core.createPosition(b, 0)) });
-    controller.update(at0);
-    controller.update(core.reduceEditor(at0, { type: "INSERT_TEXT", text: "zzzz" }));
+    editor.dispatch({ type: "SET_SELECTION", selection: core.createSpan(core.createPosition(b, 0), core.createPosition(b, 0)) });
+    editor.dispatch({ type: "INSERT_TEXT", text: "zzzz" });
     expect(events.map((e) => e.type)).toEqual(["enter", "leave"]);
     controller.destroy();
   });
@@ -739,14 +726,12 @@ describe("print decorations — find highlights through edits", () => {
     const { editor, ids } = seeded(["foo bar foo"], cfg);
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
-    const { container, controller } = mount();
-    controller.update(editor);
+    const { container, controller } = mount(editor);
     controller.setFindHighlights(core.findMatches(editor.document, "foo"), 0);
     const before = fills(ctxOf(container), core.FIND_HIGHLIGHT_FILL).at(-1)?.x ?? NaN;
-    const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) });
-    controller.update(at0);
+    editor.dispatch({ type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) });
     ctxOf(container)._ops.length = 0;
-    controller.update(core.reduceEditor(at0, { type: "INSERT_TEXT", text: "XY" }));
+    editor.dispatch({ type: "INSERT_TEXT", text: "XY" });
     expect(fills(ctxOf(container), core.FIND_HIGHLIGHT_FILL).at(-1)?.x).toBe(before + 16);
     // No session: navigation has nothing to act on.
     expect(controller.findStatus()).toEqual({ total: 0, activeIndex: -1 });
@@ -759,11 +744,10 @@ describe("print decorations — find highlights through edits", () => {
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
     const dispatch = vi.fn();
-    const { controller } = mount(undefined, undefined, dispatch);
-    const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) });
-    controller.update(at0);
+    const { controller } = mount(editor, undefined, undefined, dispatch);
+    editor.dispatch({ type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) });
     expect(controller.findStart("foo")).toEqual({ total: 2, activeIndex: 0 });
-    controller.update(core.reduceEditor(at0, { type: "INSERT_TEXT", text: "XY" }));
+    editor.dispatch({ type: "INSERT_TEXT", text: "XY" });
     expect(controller.findNext()).toEqual({ total: 2, activeIndex: 1 });
     controller.replaceActive("baz");
     const action = dispatch.mock.calls.at(-1)?.[0] as core.EditorAction | undefined;
@@ -788,8 +772,7 @@ describe("print decorations — geometry across pages and regions", () => {
     const { editor, ids } = seeded(["aaaa bbbb cccc dddd eeee ffff gggg hhhh"], cfg);
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
-    const { container, controller } = mount(undefined, NARROW);
-    controller.update(editor);
+    const { container, controller } = mount(editor, undefined, NARROW);
     // "cccc dddd" is line 2 (page 0); "eeee ffff" line 3 (page 1).
     controller.setDecorations([inline("all", p, 12, 27, { backgroundColor: BAND }), inline("tail", p, 30, 34, { backgroundColor: "rgb(5, 5, 5)" })]);
     expect(fills(ctxOf(container, 0), BAND).length).toBeGreaterThan(0);
@@ -810,19 +793,18 @@ describe("print decorations — geometry across pages and regions", () => {
   const TALL: core.PageConfig = { ...SLOTTED, pageBlockSize: 400 };
 
   /** Insert a header (or footnote) with `text`; returns the editor + its body block. */
-  function withRegion(kind: "INSERT_HEADER" | "INSERT_FOOTER" | "INSERT_FOOTNOTE", body: readonly string[], text: string): { editor: core.EditorState; region: core.BlockId; cfg: core.EditorConfig } {
+  function withRegion(kind: "INSERT_HEADER" | "INSERT_FOOTER" | "INSERT_FOOTNOTE", body: readonly string[], text: string): { editor: core.Editor; region: core.BlockId; cfg: core.EditorConfig } {
     const cfg = { ...config(kind === "INSERT_FOOTNOTE" ? TALL : SLOTTED), containerWidth: 320 };
     let { editor } = seeded(body, cfg);
-    editor = core.reduceEditor(editor, { type: kind });
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text });
+    editor.dispatch({ type: kind });
+    editor.dispatch({ type: "INSERT_TEXT", text });
     return { editor, region: editor.selection.focus.blockId, cfg };
   }
 
   for (const kind of ["INSERT_HEADER", "INSERT_FOOTER", "INSERT_FOOTNOTE"] as const) {
     it(`inline + block decorations paint inside a ${kind.slice(7).toLowerCase()} body`, () => {
       const { editor, region } = withRegion(kind, ["body text"], "REGION");
-      const { container, controller } = mount(undefined, kind === "INSERT_FOOTNOTE" ? TALL : SLOTTED);
-      controller.update(editor);
+      const { container, controller } = mount(editor, undefined, kind === "INSERT_FOOTNOTE" ? TALL : SLOTTED);
       controller.setDecorations([
         inline("r", region, 0, 3, { backgroundColor: BAND }),
         { kind: "block", id: "rb", blockId: region, style: { backgroundColor: "rgb(6, 6, 6)" } },
@@ -840,8 +822,7 @@ describe("print decorations — geometry across pages and regions", () => {
 
   it("a header widget renders one overlay per visible page showing the header", () => {
     const { editor, region } = withRegion("INSERT_HEADER", ["one", "two", "three", "four", "five", "six", "seven", "eight"], "HDR");
-    const { container, controller } = mount(undefined, SLOTTED);
-    controller.update(editor);
+    const { container, controller } = mount(editor, undefined, SLOTTED);
     const pages = container.querySelectorAll("canvas[data-page-index]").length;
     expect(pages).toBeGreaterThan(1);
     controller.setDecorations([{ kind: "widget", id: "hw", at: core.createPosition(region, 1), text: "*" }]);
@@ -854,15 +835,14 @@ describe("print decorations — geometry across pages and regions", () => {
   it("block decorations on a table, a cell, and the paragraph inside it paint table < cell < paragraph < text", () => {
     const cfg = config(SLOTTED);
     let { editor } = seeded(["x"], cfg);
-    editor = core.reduceEditor(editor, { type: "INSERT_TABLE", rows: 1, cols: 1 });
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "cell" });
+    editor.dispatch({ type: "INSERT_TABLE", rows: 1, cols: 1 });
+    editor.dispatch({ type: "INSERT_TEXT", text: "cell" });
     const para = editor.selection.focus.blockId;
     const cell = core.getBlock(editor.document, para)?.parentId ?? null;
     let table: core.BlockId | null = cell;
     while (table !== null && core.getBlock(editor.document, table)?.type !== "table") table = core.getBlock(editor.document, table)?.parentId ?? null;
     if (cell === null || table === null) throw new Error("no table");
-    const { container, controller } = mount(undefined, SLOTTED);
-    controller.update(editor);
+    const { container, controller } = mount(editor, undefined, SLOTTED);
     ctxOf(container, 0)._ops.length = 0;
     controller.setDecorations([
       { kind: "block", id: "t", blockId: table, style: { backgroundColor: "rgb(1, 0, 0)" } },
@@ -885,8 +865,7 @@ describe("print decorations — geometry across pages and regions", () => {
     const { editor, ids } = seeded(["אבג דהו"], cfg);
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
-    const { container, controller } = mount();
-    controller.update(editor);
+    const { container, controller } = mount(editor);
     ctxOf(container)._ops.length = 0;
     controller.setDecorations([inline("rtl", p, 0, 3, { backgroundColor: BAND, underline: { color: "red", style: "solid" } })]);
     const ctx = ctxOf(container);
@@ -914,8 +893,7 @@ describe("print decorations — geometry across pages and regions", () => {
     const document = core.buildDocumentFromTree(root, {}, core.createTestAllocator(), TEST_RESOLVER);
     const p = core.firstLeafBlock(document, document.rootId); // root → section → paragraph
     if (p === null) throw new Error("setup");
-    const { container, controller } = mount();
-    controller.update(core.createEditorStateFromDocument(document, core.initialSelectionForDocument(document), cfg));
+    const { container, controller } = mount(core.createEditor(cfg, { document }));
     ctxOf(container)._ops.length = 0;
     controller.setDecorations([inline("v", p, 0, 3, { backgroundColor: BAND, underline: { color: "red", style: "solid" } })]);
     const ctx = ctxOf(container);
@@ -937,8 +915,7 @@ describe("print decorations — geometry across pages and regions", () => {
     const c = ids[2];
     if (c === undefined) throw new Error("setup");
     visiblePages = (i) => i === 0;
-    const { container, controller } = mount(undefined, TWO_PAGES);
-    controller.update(editor);
+    const { container, controller } = mount(editor, undefined, TWO_PAGES);
     controller.setDecorations([{ kind: "widget", id: "late", at: core.createPosition(c, 2), text: "!" }]);
     expect(container.querySelector('[data-tw-deco="late"]')).toBeNull();
     visiblePages = () => true; // scroll: the observer now reports page 2
@@ -953,17 +930,18 @@ describe("print decorations — geometry across pages and regions", () => {
   });
 });
 
-describe("print decorations — before the first update", () => {
-  it("`decorations` reports the queued host set, which is applied to the first document", () => {
+describe("print decorations — initial decorations", () => {
+  it("`options.decorations` is applied to the first document and reported by `decorations`", () => {
     const cfg = config();
     const { editor, ids } = seeded(["hello world"], cfg);
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
-    const { container, controller } = mount();
     const queued = [inline("q", p, 0, 5, { backgroundColor: BAND })];
-    controller.setDecorations(queued);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    containers.push(container);
+    const controller = createEditorController(container, { measurer, editor, decorations: queued });
     expect(controller.decorations.decorations).toEqual(queued);
-    controller.update(editor);
     expect(controller.decorations.decorations.map((d) => d.id)).toEqual(["q"]);
     expect(fills(ctxOf(container), BAND)).toHaveLength(1);
     controller.destroy();
@@ -976,9 +954,8 @@ describe("print decorations — review round 2", () => {
     const { editor, ids } = seeded(["hello world foo bar"], cfg);
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
-    const { container, controller } = mount();
+    const { container, controller } = mount(editor);
     container.style.setProperty("--mark", "rgb(4, 5, 6)");
-    controller.update(editor);
     ctxOf(container)._ops.length = 0;
     controller.setDecorations([
       inline("nested", p, 0, 5, { backgroundColor: "var(--missing, var(--mark, red))" }),
@@ -1005,8 +982,7 @@ describe("print decorations — review round 2", () => {
     const a = ids[0];
     if (a === undefined) throw new Error("setup");
     const events: PrintDecorationPointerEvent[] = [];
-    const { container, controller } = mount((e) => events.push(e), TWO_PAGES);
-    controller.update(editor);
+    const { container, controller } = mount(editor, (e) => events.push(e), TWO_PAGES);
     const widget = (cls: string): core.WidgetDecoration => ({ kind: "widget", id: "wd", at: core.createPosition(a, 1), text: "*", class: cls });
     controller.setDecorations([widget("v1")]);
     const first = container.querySelector('[data-tw-deco="wd"]');
@@ -1022,7 +998,6 @@ describe("print decorations — review round 2", () => {
       expect(events.map((e) => e.type)).toEqual(["enter"]); // no spurious leave / enter
       controller.setDecorations([]);
       document.elementFromPoint = () => container.querySelector("canvas");
-      controller.update(editor);
       expect(events.map((e) => e.type)).toEqual(["enter", "leave"]);
     } finally {
       document.elementFromPoint = original;
@@ -1035,11 +1010,11 @@ describe("print decorations — review round 2", () => {
     const { editor: e0, ids } = seeded(["ab"], cfg);
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
-    let editor = core.reduceEditor(e0, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 2), core.createPosition(p, 2)) });
-    editor = core.reduceEditor(editor, { type: "INSERT_TAB" });
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "cd" });
-    const { container, controller } = mount();
-    controller.update(editor);
+    e0.dispatch({ type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 2), core.createPosition(p, 2)) });
+    let editor = e0;
+    editor.dispatch({ type: "INSERT_TAB" });
+    editor.dispatch({ type: "INSERT_TEXT", text: "cd" });
+    const { container, controller } = mount(editor);
     ctxOf(container)._ops.length = 0;
     controller.setDecorations([inline("t", p, 0, 5, { backgroundColor: BAND })]);
     const ctx = ctxOf(container);
@@ -1087,14 +1062,11 @@ describe("print decorations — async host (basedOn)", () => {
     const { editor, ids } = seeded(["hello world foo"], cfg);
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
-    const { container, controller } = mount();
-    controller.update(editor);
+    const { container, controller } = mount(editor);
     const old = editor.document;
     const decos = [inline("m", p, 6, 11, { backgroundColor: BAND })]; // "world" in `old`
-    const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) });
-    controller.update(at0);
-    const typed = core.reduceEditor(at0, { type: "INSERT_TEXT", text: "XY" });
-    controller.update(typed);
+    editor.dispatch({ type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) });
+    editor.dispatch({ type: "INSERT_TEXT", text: "XY" });
     ctxOf(container)._ops.length = 0;
     controller.setDecorations(decos, old);
     const d = controller.decorations.decorations[0];

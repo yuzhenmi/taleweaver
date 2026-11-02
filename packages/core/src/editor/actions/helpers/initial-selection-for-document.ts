@@ -7,7 +7,7 @@ import { findFirstContentBlock } from "./find-first-content-block";
  * document: a caret at offset 0 of the first content-bearing leaf block
  * (`findFirstContentBlock`). Falls back to the root block id when the document
  * has no content leaf (a degenerate container-only doc) so the caller always
- * gets a well-formed Selection. Shared by `createInitialEditorState` (the empty
+ * gets a well-formed Selection. Shared by `createEditor` (the empty
  * document) and `loadDocument` (an arbitrary deserialized document) so both
  * derive the caret the same robust way (the empty-document factory seeds a
  * paragraph, so this matches the prior `firstChildId` result there, but it also

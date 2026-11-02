@@ -14,11 +14,11 @@ import { compatibilityGate, type CompatibilityGateOptions } from "../state/colla
 import { transitionMapping } from "../decorations/decoration-layers";
 import { comparePositionsCached, type Assoc } from "../state/position-mapping";
 import { initialSelectionForDocument } from "./actions/helpers/initial-selection-for-document";
-import type { EditorState } from "./editor-state";
+import type { Editor, EditorSnapshot } from "./editor";
 
 /**
  * Collaboration: a peer's change arrives in this editor's Y.Doc (via `Y.applyUpdate`
- * from a Yjs provider). `APPLY_FOREIGN_CHANGE` brings the EditorState up to date and
+ * from a Yjs provider). `APPLY_FOREIGN_CHANGE` brings the editor up to date and
  * rebases the local selection through the change.
  */
 
@@ -110,7 +110,7 @@ function isForward(prev: Document, anchor: Position, focus: Position): boolean {
  * the nearest valid position; endpoints that end up in different selection contexts
  * collapse to the focus.
  */
-export function rebaseSelection(before: EditorState, after: EditorState): Selection {
+export function rebaseSelection(before: EditorSnapshot, after: Editor): Selection {
   const { anchor, focus } = before.selection;
   const mapping = transitionMapping(before, after);
   const collapsed = positionsEqual(anchor, focus);

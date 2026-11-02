@@ -3,9 +3,7 @@ import { TEST_RESOLVER } from "../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import {
-  createInitialEditorState,
-  createEditorStateFromDocument,
-  reduceEditor,
+  createEditor,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   createAnchorSet,
@@ -22,10 +20,10 @@ import {
   report,
   resetPerfTrace,
   setPerfTraceEnabled,
-  initialSelectionForDocument,
   type EditorAction,
   type EditorConfig,
-  type EditorState,
+  type Editor,
+  type EditorSnapshot,
   type BlockId,
   type Position,
 } from "../index";
@@ -37,35 +35,33 @@ const config: EditorConfig = {
 };
 
 /** A controller-shaped harness: dispatch through the reducer, advance log + anchors per transition. */
-function harness(editor = createInitialEditorState(config)) {
-  let current = editor;
+function harness(editor = createEditor(config)) {
   const log = createMappingLog(8);
-  log.reset(current.document);
+  log.reset(editor.document);
   const anchors = createAnchorSet();
-  const advance = (next: EditorState): void => {
-    const prev = current;
-    current = next;
-    if (prev.document === next.document) return;
-    const mapping = transitionMapping(prev, next);
-    log.record(prev.document, next.document, mapping);
-    anchors.advance(prev.document, next.document, mapping);
+  const advance = (prev: EditorSnapshot): void => {
+    if (prev.document === editor.document) return;
+    const mapping = transitionMapping(prev, editor);
+    log.record(prev.document, editor.document, mapping);
+    anchors.advance(prev.document, editor.document, mapping);
   };
   return {
-    get editor() {
-      return current;
-    },
+    editor,
     log,
     anchors,
-    advance,
     run(...actions: EditorAction[]) {
-      for (const a of actions) advance(reduceEditor(current, a));
+      for (const a of actions) {
+        const prev = editor.snapshot();
+        editor.dispatch(a);
+        advance(prev);
+      }
     },
   };
 }
 
 const at = (id: BlockId, o: number): Position => createPosition(id, o);
 const caret = (id: BlockId, o: number): EditorAction => ({ type: "SET_SELECTION", selection: createSpan(at(id, o), at(id, o)) });
-const textOf = (e: EditorState, id: BlockId): string =>
+const textOf = (e: Editor, id: BlockId): string =>
   (getBlock(e.document, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
 const range = (a: { from: Position; to: Position }) => [a.from.offset, a.to.offset];
 
@@ -171,12 +167,13 @@ describe("anchors", () => {
 describe("collaboration: APPLY_FOREIGN_CHANGE over two synced Y.Docs", () => {
   /** Peers A and B over separate Y.Docs kept in sync with Y.applyUpdate (the provider model). */
   function peers(text: string) {
-    let a = reduceEditor(createInitialEditorState(config), { type: "INSERT_TEXT", text });
+    let a = createEditor(config);
+    a.dispatch({ type: "INSERT_TEXT", text });
     const docA = getYDoc(a.document);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
     const documentB = createDocument({ resolver: TEST_RESOLVER, rootId: a.document.rootId, doc: docB });
-    const b = harness(createEditorStateFromDocument(documentB, initialSelectionForDocument(documentB), config));
+    const b = harness(createEditor(config, { document: documentB }));
     docA.on("update", (u: Uint8Array, origin: unknown) => {
       if (origin !== "sync") Y.applyUpdate(docB, u, "sync");
     });
@@ -192,7 +189,7 @@ describe("collaboration: APPLY_FOREIGN_CHANGE over two synced Y.Docs", () => {
       b,
       id,
       a: (...actions: EditorAction[]) => {
-        for (const action of actions) a = reduceEditor(a, action);
+        for (const action of actions) a.dispatch(action);
       },
     };
   }

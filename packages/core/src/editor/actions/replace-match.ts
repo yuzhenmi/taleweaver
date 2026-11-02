@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { replaceRange, resolveBlock, attrsAtOffset, createPosition, createSpan } from "../../state";
 import type { TextMatch, ReadonlyAttrs } from "../../state";
@@ -12,7 +12,7 @@ import type { ActionOf } from "../editor-action";
  * back to `{}` when the block can't be resolved or the offset lands at
  * end-of-content / on an embed (unreachable for a real `TextMatch`).
  */
-function attrsAtMatchStart(editor: EditorState, match: TextMatch): ReadonlyAttrs {
+function attrsAtMatchStart(editor: Editor, match: TextMatch): ReadonlyAttrs {
   const resolved = resolveBlock(editor.document, match.blockId);
   const inline = resolved?.block.inlineContent ?? null;
   if (inline === null) return {};
@@ -30,7 +30,7 @@ function attrsAtMatchStart(editor: EditorState, match: TextMatch): ReadonlyAttrs
  * the engine's.
  */
 export function handleReplaceMatch(
-  editor: EditorState,
+  editor: Editor,
   { match, replacement }: ActionOf<"REPLACE_MATCH">,
 ): Edit | null {
   const span = createSpan(

@@ -14,13 +14,8 @@
 import { describe, it, expect } from "vitest";
 import {
   config,
-  createInitialEditorState,
-  reduceEditor,
-  firstChildId,
-  createPosition,
-  createSpan,
-} from "./test-helpers";
-import { createEditorStateFromDocument, type EditorState } from "../editor-state";
+  createEditor, firstChildId, createPosition, createSpan } from "./test-helpers";
+import { type Editor } from "../editor";
 import {
   getBlock,
   setListType,
@@ -29,10 +24,10 @@ import {
 import type { BlockId, Document } from "../../state";
 import { buildDocument, buildBlock, inlineContent, text } from "../../test-utils/document-builders";
 
-// Phase 0b: core's `EditorState` is geometry-free — these state-level action
+// Phase 0b: core's `Editor` is geometry-free — these state-level action
 // tests build only the geometry-free fields (the handler reads no layout).
-function makeEditor(document: Document, selection: EditorState["selection"]): EditorState {
-  return createEditorStateFromDocument(document, selection, config);
+function makeEditor(document: Document, selection: Editor["selection"]): Editor {
+  return createEditor(config, { document, selection: selection });
 }
 
 /** Classify a listId's def via the level-0 marker style (test mirror of the handler). */
@@ -48,16 +43,13 @@ function listKindOf(document: Document, listId: string): "ordered" | "unordered"
 
 describe("handleToggleList — flat list model (#L14)", () => {
   it("(a) paragraph → list-item: assigns a listId at level 0 + writes a list def", () => {
-    const initial = createInitialEditorState(config);
+    const initial = createEditor(config);
     const paraId = firstChildId(initial.document) as BlockId;
     expect(getBlock(initial.document, paraId)?.type).toBe("paragraph");
 
-    const next = reduceEditor(
-      initial,
-      { type: "TOGGLE_LIST", listType: "unordered" },
-    );
+    initial.dispatch({ type: "TOGGLE_LIST", listType: "unordered" });
 
-    const block = getBlock(next.document, paraId);
+    const block = getBlock(initial.document, paraId);
     expect(block?.type).toBe("list-item");
     const listId = block?.attrs.listId;
     expect(typeof listId).toBe("string");
@@ -65,7 +57,7 @@ describe("handleToggleList — flat list model (#L14)", () => {
     expect(block?.attrs.listLevel).toBeUndefined();
     expect(block?.attrs.listType).toBeUndefined();
     // A def was written and classifies as unordered.
-    expect(listKindOf(next.document, listId as string)).toBe("unordered");
+    expect(listKindOf(initial.document, listId as string)).toBe("unordered");
   });
 
   it("(b) toggling a paragraph adjacent to a same-type list JOINS it (shared listId)", () => {
@@ -98,9 +90,9 @@ describe("handleToggleList — flat list model (#L14)", () => {
       anchor: createPosition("p" as BlockId, 0),
       focus: createPosition("p" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "unordered" });
+    editor.dispatch({ type: "TOGGLE_LIST", listType: "unordered" });
 
-    const p = getBlock(next.document, "p" as BlockId);
+    const p = getBlock(editor.document, "p" as BlockId);
     expect(p?.type).toBe("list-item");
     // Joined the neighbour's list — same listId, no new list allocated.
     expect(p?.attrs.listId).toBe("L1");
@@ -126,9 +118,9 @@ describe("handleToggleList — flat list model (#L14)", () => {
       anchor: createPosition("li" as BlockId, 0),
       focus: createPosition("li" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "unordered" });
+    editor.dispatch({ type: "TOGGLE_LIST", listType: "unordered" });
 
-    const block = getBlock(next.document, "li" as BlockId);
+    const block = getBlock(editor.document, "li" as BlockId);
     expect(block?.type).toBe("paragraph");
     expect(block?.attrs.listId).toBeUndefined();
     expect(block?.attrs.listLevel).toBeUndefined();
@@ -160,16 +152,16 @@ describe("handleToggleList — flat list model (#L14)", () => {
       createSpan(createPosition("p0" as BlockId, 0), createPosition("p1" as BlockId, 3)),
     );
 
-    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" });
+    editor.dispatch({ type: "TOGGLE_LIST", listType: "ordered" });
 
-    const b0 = getBlock(next.document, "p0" as BlockId);
-    const b1 = getBlock(next.document, "p1" as BlockId);
+    const b0 = getBlock(editor.document, "p0" as BlockId);
+    const b1 = getBlock(editor.document, "p1" as BlockId);
     expect(b0?.type).toBe("list-item");
     expect(b1?.type).toBe("list-item");
     // Both share ONE freshly-allocated ordered list.
     expect(typeof b0?.attrs.listId).toBe("string");
     expect(b0?.attrs.listId).toBe(b1?.attrs.listId);
-    expect(listKindOf(next.document, b0?.attrs.listId as string)).toBe("ordered");
+    expect(listKindOf(editor.document, b0?.attrs.listId as string)).toBe("ordered");
   });
 
   it("cross-type: clicking ordered on an unordered item converts it (new ordered list)", () => {
@@ -193,13 +185,13 @@ describe("handleToggleList — flat list model (#L14)", () => {
       focus: createPosition("li" as BlockId, 0),
     });
     // Requesting ordered on an unordered item → NOT turning off → convert.
-    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" });
+    editor.dispatch({ type: "TOGGLE_LIST", listType: "ordered" });
 
-    const block = getBlock(next.document, "li" as BlockId);
+    const block = getBlock(editor.document, "li" as BlockId);
     expect(block?.type).toBe("list-item");
     const newId = block?.attrs.listId as string;
     expect(newId).not.toBe("L1");
-    expect(listKindOf(next.document, newId)).toBe("ordered");
+    expect(listKindOf(editor.document, newId)).toBe("ordered");
   });
 
   it("cross-type adjacent to a same-(requested-)type list joins it (reuses neighbour id)", () => {
@@ -234,10 +226,10 @@ describe("handleToggleList — flat list model (#L14)", () => {
       anchor: createPosition("li" as BlockId, 0),
       focus: createPosition("li" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" });
+    editor.dispatch({ type: "TOGGLE_LIST", listType: "ordered" });
 
     // Joined the adjacent ordered list rather than allocating a new one.
-    expect(getBlock(next.document, "li" as BlockId)?.attrs.listId).toBe("L1");
+    expect(getBlock(editor.document, "li" as BlockId)?.attrs.listId).toBe("L1");
   });
 
   it("tie-break: a paragraph between two same-type but different lists joins the BEFORE one", () => {
@@ -278,10 +270,10 @@ describe("handleToggleList — flat list model (#L14)", () => {
       anchor: createPosition("p" as BlockId, 0),
       focus: createPosition("p" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "unordered" });
+    editor.dispatch({ type: "TOGGLE_LIST", listType: "unordered" });
 
     // Both neighbours qualify → the BEFORE list (L1) wins.
-    expect(getBlock(next.document, "p" as BlockId)?.attrs.listId).toBe("L1");
+    expect(getBlock(editor.document, "p" as BlockId)?.attrs.listId).toBe("L1");
   });
 
   it("cross-type conversion preserves an existing nesting level", () => {
@@ -304,21 +296,21 @@ describe("handleToggleList — flat list model (#L14)", () => {
       anchor: createPosition("li" as BlockId, 0),
       focus: createPosition("li" as BlockId, 0),
     });
-    const next = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" });
+    editor.dispatch({ type: "TOGGLE_LIST", listType: "ordered" });
 
-    const block = getBlock(next.document, "li" as BlockId);
+    const block = getBlock(editor.document, "li" as BlockId);
     expect(block?.type).toBe("list-item");
-    expect(listKindOf(next.document, block?.attrs.listId as string)).toBe("ordered");
+    expect(listKindOf(editor.document, block?.attrs.listId as string)).toBe("ordered");
     // Nesting level survives the numbered↔bulleted conversion (Google Docs).
     expect(block?.attrs.listLevel).toBe(2);
   });
 
   it("preserves the block id and inlineContent across the toggle", () => {
-    let s = createInitialEditorState(config);
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "hello" });
+    let s = createEditor(config);
+    s.dispatch({ type: "INSERT_TEXT", text: "hello" });
     const paraId = firstChildId(s.document) as BlockId;
 
-    s = reduceEditor(s, { type: "TOGGLE_LIST", listType: "unordered" });
+    s.dispatch({ type: "TOGGLE_LIST", listType: "unordered" });
     const after = getBlock(s.document, paraId);
     expect(after?.id).toBe(paraId);
     expect(after?.type).toBe("list-item");
@@ -326,13 +318,13 @@ describe("handleToggleList — flat list model (#L14)", () => {
   });
 
   it("round-trip: toggling twice with the same type returns to paragraph", () => {
-    let s = createInitialEditorState(config);
+    let s = createEditor(config);
     const paraId = firstChildId(s.document) as BlockId;
 
-    s = reduceEditor(s, { type: "TOGGLE_LIST", listType: "ordered" });
+    s.dispatch({ type: "TOGGLE_LIST", listType: "ordered" });
     expect(getBlock(s.document, paraId)?.type).toBe("list-item");
 
-    s = reduceEditor(s, { type: "TOGGLE_LIST", listType: "ordered" });
+    s.dispatch({ type: "TOGGLE_LIST", listType: "ordered" });
     expect(getBlock(s.document, paraId)?.type).toBe("paragraph");
     expect(getBlock(s.document, paraId)?.attrs).toEqual({});
   });

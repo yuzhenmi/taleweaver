@@ -5,7 +5,7 @@ import {
   getSuggestionGroups,
   newSuggestionGroupId,
   type EditorAction,
-  type EditorState,
+  type Editor,
   type Proposal,
   type ProposedEdit,
   type ProposeResult,
@@ -41,7 +41,7 @@ const WORD_SWAPS: Readonly<Record<string, string>> = {
 export type Propose = (proposal: Proposal, options?: { readonly basedOn?: Document }) => Promise<ProposeResult>;
 
 /** The edits the simulated assistant proposes for the paragraph holding the caret. */
-function draftEdits(editor: EditorState): ProposedEdit[] {
+function draftEdits(editor: Editor): ProposedEdit[] {
   const id = editor.selection.focus.blockId;
   const items = getBlock(editor.document, id)?.inlineContent?.items ?? [];
   const text = items.map((i) => (i.kind === "text" ? i.text : "￼")).join("");
@@ -82,17 +82,19 @@ export interface SuggestEdit {
   readonly run: () => void;
 }
 
-export function useSuggestEdit(editorState: EditorState, propose: Propose): SuggestEdit {
+export function useSuggestEdit(editor: Editor, propose: Propose): SuggestEdit {
   const [status, setStatus] = useState("Put the caret in a paragraph and ask for a suggested edit.");
   const [busy, setBusy] = useState(false);
-  const latest = useRef(editorState);
-  latest.current = editorState;
+  const latest = useRef(editor);
+  latest.current = editor;
   const timers = useRef<number[]>([]);
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), []);
 
   const run = useCallback(() => {
-    const snapshot = latest.current;
-    const edits = draftEdits(snapshot);
+    const current = latest.current;
+    // The version the edits are drafted against: the editor is live, so read it now.
+    const basedOn = current.document;
+    const edits = draftEdits(current);
     if (edits.length === 0) {
       setStatus("Nothing to suggest in this paragraph.");
       return;
@@ -109,9 +111,9 @@ export function useSuggestEdit(editorState: EditorState, propose: Propose): Sugg
             metadata: { source: SOURCE, reason: "Tidy spacing, a stronger word, emphasise the opening" },
             edits,
           },
-          { basedOn: snapshot.document },
+          { basedOn },
         ).then((result) => {
-          // The editor's TRUE verdict (print: once the host has applied the dispatch).
+          // The editor's TRUE verdict, once the PROPOSE has run (`dispatchProposal`).
           if (result.ok) setStatus("Suggested — review it in the panel.");
           else if (result.reason === "stale") setStatus("Discarded: the paragraph changed while the suggestion was being made.");
           else if (result.reason === "halted") setStatus("Not proposed: the editor is halted (the document needs an upgrade).");
@@ -127,14 +129,14 @@ export function useSuggestEdit(editorState: EditorState, propose: Propose): Sugg
 /** Button + status + a review panel of the open suggestion groups (shared by both tabs). */
 export function SuggestEditBar({
   tool,
-  editorState,
+  editor,
   dispatch,
 }: {
   tool: SuggestEdit;
-  editorState: EditorState;
+  editor: Editor;
   dispatch: (action: EditorAction) => void;
 }) {
-  const groups = getSuggestionGroups(editorState.document);
+  const groups = getSuggestionGroups(editor.document);
   return (
     <div className="border-b px-4 py-1 text-xs text-gray-600">
       <div className="flex items-center gap-3">

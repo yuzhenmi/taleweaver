@@ -7,7 +7,7 @@ import { cascadeBodies } from "./cascade-bodies";
  * Cascade every footnote body in `rendered.embedContents`, the exact parallel
  * of `cascadeTemplateContents` (which cascades header/footer bodies). Same
  * full + incremental semantics; see `cascadeBodies` for the shared logic. The result is
- * stored on `EditorState.cascadedEmbedContents`; the footnote layout
+ * stored on `Editor.cascadedEmbedContents`; the footnote layout
  * pass (`resolveFootnotes`) consumes it.
  */
 export function cascadeEmbedContents(

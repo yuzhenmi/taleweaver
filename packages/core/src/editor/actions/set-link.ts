@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./helpers/apply-attrs-or-suggest";
 import { storeTypingAttrs } from "../typing-attrs";
@@ -27,7 +27,7 @@ import type { ActionOf } from "../editor-action";
  * preserved unchanged; dirtyIds threaded through to the
  * incremental render pipeline.
  */
-export function handleSetLink(editor: EditorState, { url }: ActionOf<"SET_LINK">): Edit | null {
+export function handleSetLink(editor: Editor, { url }: ActionOf<"SET_LINK">): Edit | null {
   const { selection } = editor;
   // Collapsed caret: removing the link stops the next typed text from being
   // linked (typing attrs); a URL needs text to target, so setting one is a no-op.

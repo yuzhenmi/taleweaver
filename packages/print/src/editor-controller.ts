@@ -1,4 +1,4 @@
-import { inspectDocument, type IncompatibleDocumentReport, createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, selectParagraph, getBlock, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type EditorAction, type EditorState, type Document, type TextMatch, type FindMatchesOptions, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, type Proposal, type ProposeResult, type ProposalOutcome, proposeResultOf, type SuggestionGroupStyle, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
+import { inspectDocument, type IncompatibleDocumentReport, createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, selectParagraph, getBlock, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type EditorAction, type Editor, type Document, type Selection, type CaretAffinity, type TextMatch, type FindMatchesOptions, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, type Proposal, type ProposeResult, dispatchProposal, type SuggestionGroupStyle, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
 import { resolvePixelPosition, type PixelPosition } from "./cursor/cursor-position";
 import { resolvePositionFromPixel } from "./cursor/hit-test";
 import { computeSelectionRects, computeSelectionRectsForPage, computeSelectionRectsAcrossPages, type SelectionRect } from "./cursor/selection-geometry";
@@ -34,11 +34,20 @@ const SCROLL_DURATION = 250;
  * an empty `language` ("" = no language) is skipped so a language-free document
  * emits no `/Lang`.
  */
-/** `editorState` is, or was reduced from, a forbidden Document (its change chain reaches one; bounded walk). */
-function descendsFrom(editorState: EditorState, forbidden: (s: Document) => boolean): boolean {
-  if (forbidden(editorState.document)) return true;
-  for (let c = editorState.lastChange; c !== null; c = c.prior) if (forbidden(c.from)) return true;
+/** `editor`'s document is, or was reduced from, a forbidden Document (its change chain reaches one; bounded walk). */
+function descendsFrom(editor: Editor, forbidden: (s: Document) => boolean): boolean {
+  if (forbidden(editor.document)) return true;
+  for (let c = editor.lastChange; c !== null; c = c.prior) if (forbidden(c.from)) return true;
   return false;
+}
+
+/** The editor's fields a render painted: the document, the selection and the caret's view state. */
+interface RenderedView {
+  readonly document: Document;
+  readonly selection: Selection;
+  readonly caretPageHint: number | undefined;
+  readonly caretAffinity: CaretAffinity | undefined;
+  readonly anchorAffinity: CaretAffinity | undefined;
 }
 
 function firstBodyLanguage(box: LayoutBox): string | null {
@@ -84,7 +93,12 @@ function linkUrlAtPosition(
 
 export interface EditorControllerOptions {
   measurer: TextShaper | TextMeasurer;
-  dispatch: (action: EditorAction) => void;
+  /**
+   * The editor this controller shows. The controller subscribes to it and re-renders after
+   * every dispatch; its own input dispatches to it (not while halted). Replace it with
+   * {@link EditorController.setEditor}.
+   */
+  editor: Editor;
   pageHeight?: number;
   pageGap?: number;
   /**
@@ -107,7 +121,7 @@ export interface EditorControllerOptions {
    */
   remoteChanges?: "observe" | "ignore";
   /** Initial host decorations (view-only; see {@link EditorController.setDecorations}).
-   *  Applied against the first `update()`'s document. */
+   *  Applied against the first document shown. */
   decorations?: readonly Decoration[];
   /**
    * Pointer events on painted decorations: `enter` / `leave` as the pointer moves
@@ -125,10 +139,10 @@ export interface EditorControllerOptions {
    * defined no-op result without touching the Y.Doc. Called once per halt — and again,
    * while still halted, when a legacy write lands after `onDocumentCompatible` was
    * reported. Do not keep reading the halted Document with core read functions. Exit: the
-   * host calls `update` with a FRESH EditorState that holds no legacy storage — one built
-   * anew (`createEditorStateFromDocument`) over the same Y.Doc, or one over another
-   * document, possibly with edits on top. A Document reduced from the halted one (its change
-   * chain reaches the halted Document) is ignored. While halted, setters and clears of
+   * host calls `setEditor` with a FRESH Editor whose document holds no legacy storage — one
+   * built anew (`createEditor`) over the same Y.Doc, or one over another document, possibly
+   * with edits on top. An editor whose Document was reduced from the halted one (its change
+   * chain reaches the halted Document) is ignored, as are edits to the halted editor. While halted, setters and clears of
    * decorations / highlights / styles are no-ops; the replacement drops every layer (the
    * host sets them again).
    */
@@ -136,17 +150,17 @@ export interface EditorControllerOptions {
   /**
    * While HALTED on a NOT-YET-UPGRADED document ("legacy-schema"), it was upgraded (by
    * this host or an upgraded peer — any transaction is re-checked): the host can now
-   * resume by calling `update` with a fresh EditorState over the same Y.Doc
+   * resume by calling `setEditor` with a fresh Editor over the same Y.Doc
    * (`createDocument({ rootId, doc })`). Called once per halt; the controller stays halted
-   * until that `update`. Never for a sticky halt.
+   * until that `setEditor`. Never for a sticky halt.
    */
   onDocumentCompatible?: () => void;
   /**
-   * @internal Start HALTED on `startHaltedOn`'s document (a React view re-created while
-   * its editor is halted): nothing is shown and no action runs; the document is watched
-   * so `onDocumentCompatible` fires once it is upgraded. `update` resumes as usual.
+   * @internal Start HALTED on `editor`'s document (a React view re-created while its
+   * editor is halted): nothing is shown and no action runs; the document is watched so
+   * `onDocumentCompatible` fires once it is upgraded. `setEditor` resumes as usual.
    */
-  startHaltedOn?: EditorState;
+  startHalted?: boolean;
 }
 
 // The find-bar status ("n of N"; `activeIndex` -1 when no match is active) is
@@ -169,14 +183,21 @@ export interface CaretViewportRect {
 export interface EditorController {
   /** True while halted on incompatible (legacy) document storage — see `onIncompatibleDocument`. */
   readonly halted: boolean;
-  update(editorState: EditorState): void;
+  /**
+   * Show another editor — a document REPLACEMENT (the old editor is unsubscribed from, not
+   * destroyed): its document must hold no legacy storage, else the controller halts on it
+   * (see `onIncompatibleDocument`). Also how a halted controller resumes.
+   * Older versions no longer map; on a resume every decoration layer and the find session
+   * are dropped (the host sets them again). The same editor again is a no-op.
+   */
+  setEditor(editor: Editor): void;
   focus(): void;
   destroy(): void;
   /**
    * Resolve a document `Position` to its caret's viewport-relative pixel rect
    * (CSS `position: fixed` space), or `null` when no document is loaded, the
    * position can't be resolved, or the layout isn't ready. Pure read-only query
-   * — no mutation, no repaint. The geometry reflects the LATEST `update()`; call
+   * — no mutation, no repaint. The geometry reflects the LATEST `render()`; call
    * after the controller has rendered the state the position refers to. Used to
    * overlay position-anchored UI (e.g. remote collaborator cursors).
    */
@@ -187,7 +208,7 @@ export interface EditorController {
    * ran (false: unknown name, no state yet, or the command declined).
    */
   runCommand(command: string | Command): boolean;
-  /** The current document version (an opaque token for `mapPosition` / `createAnchor`); null before the first `update`. */
+  /** The current document version (an opaque token for `mapPosition` / `createAnchor`); null while nothing is rendered (started halted). */
   readonly version: Document | null;
   /**
    * Map `position` from an earlier `version` to the current document: `{ position, deleted }`,
@@ -198,18 +219,15 @@ export interface EditorController {
    * Anchor a point (`to` omitted) or range that follows every later edit (local, undo /
    * redo, collaborative). `basedOn`: the version the positions refer to (default: the
    * current one); null when that version can no longer be mapped, the content is gone,
-   * or before the first `update`.
+   * or while nothing is rendered.
    */
   createAnchor(from: Position, to?: Position, options?: AnchorOptions & { readonly basedOn?: Document }): Anchor | null;
   /**
-   * Offer `proposal` as ONE suggestion group, dispatched to the host as `PROPOSE` (any
+   * Offer `proposal` as ONE suggestion group, dispatched to the editor as `PROPOSE` (any
    * editing mode; the caret is only rebased). `basedOn`: the version its positions refer
-   * to (default: the version this controller shows); the host's reducer maps it through
-   * the edits made since and validates it. Resolves with that TRUE verdict once an `update`
-   * carrying it arrives (`EditorState.lastProposal`); "stale" when the document is
-   * replaced before the host applies it; rejected ("controller destroyed") when the
-   * controller is destroyed first, and at once before the first `update` ("no document
-   * yet") or after `destroy`.
+   * to (default: the version this controller shows); the reducer maps it through the
+   * edits made since and validates it. Resolves with that TRUE verdict once it has run
+   * (`dispatchProposal`); rejected ("controller destroyed") at once after `destroy`.
    */
   propose(proposal: Proposal, options?: { readonly basedOn?: Document }): Promise<ProposeResult>;
   /**
@@ -280,7 +298,7 @@ export interface EditorController {
    * Start a find session: run `findMatches(state, query, options)`,
    * highlight every match, pick the initial active match (the first at/after the
    * document cursor — Google Docs "find from here"), and scroll it into view.
-   * Stores the session so a doc edit live-recomputes the matches (in `update()`).
+   * Stores the session so a doc edit live-recomputes the matches (in `render()`).
    * Calling it again overwrites the session and re-queries. `options` defaults to
    * `{ caseSensitive: false, wholeWord: false }`. Returns the find status.
    */
@@ -288,26 +306,23 @@ export interface EditorController {
   /**
    * The current find status — `{ total, activeIndex }` for the active session
    * (`total 0` / `activeIndex -1` when there's no session or no matches). The
-   * find bar polls this each render for the authoritative "n of N" count, since
-   * `replaceActive`/`replaceAll` dispatch asynchronously (the post-replace count
-   * only lands after the React reducer feeds the new state back via `update()`).
+   * session refreshes on every edit the controller renders.
    */
   findStatus(): FindStatus;
   /**
    * Replace the ACTIVE find match with `replacement`. When a session is
    * active and there's an active match, dispatches `REPLACE_MATCH` with that
    * match (the core session's active match). Does NOT manually advance the
-   * active index — the session's refresh in the following `update()` moves it to
-   * the first match after the replacement text (wrapping). Returns the CURRENT
-   * (pre-refresh) status; the find bar polls `findStatus()` after the update for
-   * the authoritative count. No-op (returns the current status, no dispatch) when
-   * there's no session / no active match.
+   * active index — the session's refresh when the edit renders (inside the
+   * dispatch) moves it to the first match after the replacement text (wrapping).
+   * Returns the status after that refresh. No-op (returns the current status, no
+   * dispatch) when there's no session / no active match.
    */
   replaceActive(replacement: string): FindStatus;
   /**
    * Replace EVERY match in the active session with `replacement` in one
    * undo step — dispatches `REPLACE_ALL` with the session's matches
-   * (the core session's matches). Returns the current (pre-refresh) status. No-op
+   * (the core session's matches). Returns the status after the refresh. No-op
    * (no dispatch) when there's no session / no matches.
    */
   replaceAll(replacement: string): FindStatus;
@@ -338,21 +353,25 @@ export function createEditorController(
   const { measurer } = options;
   // HALTED (a peer update carried legacy inline storage): controller-local runtime
   // state — the reducer knows nothing of it. Every action and remote change is ignored.
-  let halted = options.startHaltedOn !== undefined;
+  let halted = options.startHalted === true;
+  // The editor shown (live; replaced by `setEditor`). The controller re-renders from its
+  // subscription; its own input dispatches to it.
+  let editor: Editor = options.editor;
+  let unsubscribeEditor: () => void = () => undefined;
   const dispatch = (action: EditorAction): void => {
-    if (!halted) options.dispatch(action);
+    if (!halted) editor.dispatch(action);
   };
-  // Anchors follow every transition `update` sees (the same mapping the decorations use).
+  // Anchors follow every transition `render` sees (the same mapping the decorations use).
   const anchors = createAnchorSet();
-  // A peer's change landing in the current document's Y.Doc is DISPATCHED to the host
-  // as APPLY_FOREIGN_CHANGE (the host owns the state; its reducer rebases the selection
-  // and the next `update` advances decorations / anchors / mapping log as usual).
+  // A peer's change landing in the current document's Y.Doc is DISPATCHED to the editor
+  // as APPLY_FOREIGN_CHANGE (its reducer rebases the selection; the render that follows
+  // advances decorations / anchors / mapping log as usual).
   let remoteDoc: unknown = null;
   let unsubscribeRemote: (() => void) | null = null;
   // Host keymap `Mod` = Cmd on Mac, Ctrl elsewhere (the same rule as the digital backend).
   const modConvention = modConventionFor(typeof navigator === "undefined" ? "" : navigator.userAgent);
-  // The registries, page setup and host extensions are the host's `EditorState.config` —
-  // the same config its reducer runs with — read from the latest state at each use.
+  // The registries, page setup and host extensions are the editor's `config` — the same
+  // config its reducer runs with — read at each use.
   const driver = createLayoutDriver({ measurer: options.measurer, hyphenator: options.hyphenator });
   const pageHeight = options.pageHeight;
   const pageGap = options.pageGap ?? DEFAULT_PAGE_GAP;
@@ -365,9 +384,11 @@ export function createEditorController(
 
   // ── Document ──────────────────────────────────────────────────────────────
 
-  let state: EditorState | null = null;
+  // The editor's fields as last rendered (null until the first render): what the layout
+  // tree, caret and paint were computed from, and the `before` side of the next transition.
+  let state: RenderedView | null = null;
   // The current layout tree, built by the backend layout-driver from
-  // `state.document` + `state.lastDirtyIds` in `update()`. In paginated mode
+  // `editor.document` + `editor.lastDirtyIds` in `render()`. In paginated mode
   // it is a `VirtualLayoutTree` (a `PagePlan` + lazily-materialized pages); in
   // unpaginated / unsupported-feature-fallback mode it is a fully-positioned
   // `LayoutBox`. The HOT PATH (paint visible pages, slot sizing, caret) reads
@@ -428,10 +449,6 @@ export function createEditorController(
   let tocNavDownY = 0;
   let isComposing = false;
   let destroyed = false;
-  // Proposals dispatched to the host, awaiting the reducer's verdict on a later update
-  // (dispatch order). `seenProposal`: the newest verdict already settled.
-  let pendingProposals: Array<{ readonly proposal: Proposal; readonly resolve: (result: ProposeResult) => void }> = [];
-  let seenProposal: ProposalOutcome | undefined;
   const rejectedProposal = (message: string): ProposeResult => ({ ok: false, reason: "rejected", problem: { kind: "invalid", message } });
   const HALTED_RESULT: ProposeResult = { ok: false, reason: "halted" };
   const EMPTY_FIND: FindStatus = { total: 0, activeIndex: -1 };
@@ -463,21 +480,19 @@ export function createEditorController(
       textarea.blur();
       mirrorHost?.abandonComposition();
     }
-    for (const p of pendingProposals) p.resolve(HALTED_RESULT);
-    pendingProposals = [];
     options.onIncompatibleDocument?.(report);
   }
 
   /**
-   * Watch `editorState`'s Y.Doc: peer changes are dispatched (unless `remoteChanges`
+   * Watch `watched`'s Y.Doc: peer changes are dispatched (unless `remoteChanges`
    * is `"ignore"`), and EVERY controller shape-checks them — legacy storage halts it;
    * while halted, a document that became compatible again fires `onDocumentCompatible`.
    */
-  function watchDocument(editorState: EditorState, startHalted: boolean): void {
+  function watchDocument(watched: Editor, startHalted: boolean): void {
     unsubscribeRemote?.();
-    remoteDoc = getYDoc(editorState.document);
+    remoteDoc = getYDoc(watched.document);
     unsubscribeRemote = subscribeRemoteChanges(
-      editorState.document,
+      watched.document,
       (dirtyIds) => {
         if (options.remoteChanges !== "ignore") dispatch({ type: "APPLY_FOREIGN_CHANGE", dirtyIds });
       },
@@ -489,48 +504,6 @@ export function createEditorController(
       },
       { startHalted },
     );
-  }
-
-  /**
-   * Settle the pending proposals whose verdicts arrived in `latest`'s chain (matched by
-   * the dispatched object, oldest first). Dispatches apply in order, so a pending proposal
-   * dispatched BEFORE a settled one with no verdict in the chain was never applied by the
-   * host ("proposal was not applied by the host") — or, when the chain was cut (more than
-   * MAX_PROPOSAL_CHAIN proposals between two updates), its verdict aged out. After a
-   * document replacement (`replaced`) the rest can no longer land on the document they
-   * were computed for: stale. A host that never updates again leaves the rest pending
-   * until the next update / replacement / destroy.
-   */
-  function settleProposals(latest: ProposalOutcome | undefined, replaced: boolean): void {
-    const fresh: ProposalOutcome[] = [];
-    // Walk back to the last verdict already seen — by its dispatch number, which copies of
-    // a trimmed chain keep (object identity does not survive a trim). A gap between the
-    // oldest verdict walked and the one seen means the chain was cut.
-    const seenSeq = seenProposal?.seq ?? 0;
-    for (let o = latest; o !== undefined && o.seq > seenSeq; o = o.prior) fresh.push(o);
-    const oldest = fresh.at(-1);
-    const cut = oldest !== undefined && oldest.seq > seenSeq + 1;
-    seenProposal = latest;
-    if (pendingProposals.length === 0) return;
-    const settled = new Set<number>();
-    let lastSettled = -1;
-    for (let k = fresh.length - 1; k >= 0; k--) {
-      const outcome = fresh[k];
-      const i = pendingProposals.findIndex((p, j) => !settled.has(j) && p.proposal === outcome?.proposal);
-      const entry = pendingProposals[i];
-      if (outcome === undefined || entry === undefined) continue;
-      settled.add(i);
-      lastSettled = Math.max(lastSettled, i);
-      entry.resolve(proposeResultOf(outcome));
-    }
-    pendingProposals.forEach((p, j) => {
-      if (settled.has(j)) return;
-      if (j < lastSettled) p.resolve(rejectedProposal(cut ? "verdict aged out" : "proposal was not applied by the host"));
-      else if (replaced) p.resolve({ ok: false, reason: "stale" });
-      else return;
-      settled.add(j);
-    });
-    pendingProposals = pendingProposals.filter((_p, j) => !settled.has(j));
   }
 
   // Image cache for rendering image blocks
@@ -566,7 +539,7 @@ export function createEditorController(
     pageIndex: 0,
   };
   let selectionRects: SelectionRect[] = [];
-  // Selection-highlight state (set in `update()`, consumed in `paintPages` and
+  // Selection-highlight state (set in `render()`, consumed in `paintPages` and
   // `getCursorState`). Paginated mode computes rects PER VISIBLE PAGE in
   // `paintPages` from the cached span boundary positions — `selectionRects`
   // above is then empty (it carries rects only for the non-paginated path and
@@ -597,8 +570,8 @@ export function createEditorController(
   //
   // ONE mechanism for every painted decoration: suggestion / comment / find
   // highlights and host decorations are layers of core's `DecorationLayers`,
-  // carried through every state transition in `update()` (`layers.advance`).
-  // Calls made before the first `update()` (no document yet) are queued and
+  // carried through every state transition in `render()` (`layers.advance`).
+  // Calls made before the first `render()` (no document yet) are queued and
   // replayed against the first state; `pendingHost` lets the `decorations` getter
   // report a queued host set meanwhile.
   let layers = createDecorationLayers();
@@ -621,7 +594,7 @@ export function createEditorController(
   // Per-paint-target decoration geometry, resolved LAZILY (only for a page being
   // painted / hit) and cached by (layout tree, merged set, page box, document[,
   // band]) — blink repaints and unaffected pages never re-resolve. Key: page index
-  // (paginated) or -1 (single canvas). Cleared on every `update()` (so it never
+  // (paginated) or -1 (single canvas). Cleared on every `render()` (so it never
   // pins an old tree / Document) and when a page's canvas is released.
   const decoRectCache = new Map<
     number,
@@ -1152,7 +1125,7 @@ export function createEditorController(
     const dpr = typeof devicePixelRatio !== "undefined" ? devicePixelRatio : 1;
     const cs = getCursorState();
     // Per-page selection rects for a non-collapsed selection in paginated mode,
-    // computed from the boundary positions resolved once in `update()` (cached
+    // computed from the boundary positions resolved once in `render()` (cached
     // in `selStart`/`selEnd`) — NO `resolvePixelPosition` per blink/scroll
     // repaint. The non-paginated path and the spanning-block fallback use the
     // `selectionRects` array (filtered per page) instead. `pgStart`/`pgEnd` are
@@ -1276,7 +1249,7 @@ export function createEditorController(
    * height}` — the cursor path passes `cursorPos`; the find-session path passes
    * an active match's start `PixelPosition`. Unlike `scrollCursorIntoView`, this
    * has NO `!focused`/`!state` guard: it reads only `pos` + the closure-local
-   * `pageSlotGeoms`/`container`/`scrollParent`, all valid after ≥1 `update()`.
+   * `pageSlotGeoms`/`container`/`scrollParent`, all valid after ≥1 `render()`.
    * Find callers (the find bar holds focus, not the canvas) scroll regardless of
    * the editor's focus, by calling this directly with the match position.
    */
@@ -1758,7 +1731,7 @@ export function createEditorController(
       coords.x,
       coords.y,
       coords.pageIndex,
-      state.config.componentRegistry,
+      editor.config.componentRegistry,
     );
     if (!hit) {
       dispatch({ type: "MOVE_DOCUMENT_BOUNDARY", boundary: "end" });
@@ -1870,7 +1843,7 @@ export function createEditorController(
       coords.x,
       coords.y,
       coords.pageIndex,
-      state.config.componentRegistry,
+      editor.config.componentRegistry,
     );
     if (hit) {
       // A drag builds a (usually non-collapsed) span — caret
@@ -1908,7 +1881,7 @@ export function createEditorController(
     // TOC click-to-navigate: a pending nav that survived to mouseup (no drag past
     // the epsilon) is a CLICK → jump the caret to the heading's start. A drag would
     // have cleared `pendingTocNav` in handleMouseMove. The heading is scrolled into
-    // view by the post-dispatch `update()` cycle (which recomputes `cursorPos` then
+    // view by the post-dispatch `render()` cycle (which recomputes `cursorPos` then
     // calls `scrollCursorIntoView`) — calling it here would scroll to the STALE
     // pre-dispatch caret, so it is intentionally NOT called (matching the other
     // selection-changing gestures, none of which scroll inline).
@@ -1933,7 +1906,7 @@ export function createEditorController(
     // Host keymap BEFORE the defaults: a command that runs claims the key; an
     // unbound (`null`) key is swallowed so the default cannot run.
     if (state !== null) {
-      const outcome = runKeyBinding(state.config.extensions, e, modConvention, state, dispatch);
+      const outcome = runKeyBinding(editor.config.extensions, e, modConvention, editor, dispatch);
       if (outcome !== "default") {
         e.preventDefault();
         return;
@@ -1966,7 +1939,7 @@ export function createEditorController(
     if (result === null) return;
     // Claim Escape only when it dismisses something (an object selection or a host
     // trigger); otherwise it must reach the page (e.g. close a containing dialog).
-    if (!isNavIntent(result) && result.type === "ESCAPE" && (state === null || !escapeWouldChange(state, state.config.componentRegistry))) return;
+    if (!isNavIntent(result) && result.type === "ESCAPE" && (state === null || !escapeWouldChange(editor, editor.config.componentRegistry))) return;
     e.preventDefault();
     if (isNavIntent(result)) {
       // Geometric navigation: core's reducer is geometry-free, so the
@@ -1975,7 +1948,7 @@ export function createEditorController(
       // null resolution (line-move off the document edge, degenerate line-delete)
       // dispatches nothing — matching the lifted handlers' `return editor;`.
       if (state === null || layoutTree === null) return;
-      const navAction = resolveNavIntent(result, state, layoutTree, measurer, state.config.componentRegistry);
+      const navAction = resolveNavIntent(result, editor, layoutTree, measurer, editor.config.componentRegistry);
       if (navAction !== null) dispatch(navAction);
       return;
     }
@@ -2145,7 +2118,7 @@ export function createEditorController(
   // `isComposing`/`document` locals are in scope so they can be forwarded verbatim.
   // The engine still owns every edit: the mirror's events dispatch the SAME
   // actions the textarea path does (INSERT_TEXT, SET_SELECTION, …); the mirror
-  // never mutates the document directly. `update()` re-syncs the mirror tree +
+  // never mutates the document directly. `render()` re-syncs the mirror tree +
   // selection AFTER each paint.
   if (mirrorEnabled) {
     mirrorHost = createDomMirrorHost({
@@ -2195,8 +2168,17 @@ export function createEditorController(
     mirrorHost.focus();
   }
 
-  // A view re-created while its editor is halted: watch the halted document (no render).
-  if (options.startHaltedOn !== undefined) watchDocument(options.startHaltedOn, true);
+  /** A view re-created while its editor is halted: the document it started halted on. */
+  const startHaltedDocument = halted ? editor.document : undefined;
+
+  /** Show another editor: a document replacement (see `EditorController.setEditor`). */
+  function setEditor(nextEditor: Editor): void {
+    if (destroyed || nextEditor === editor) return;
+    unsubscribeEditor();
+    editor = nextEditor;
+    unsubscribeEditor = editor.subscribe(() => render(false));
+    render(true);
+  }
 
   // ── Public API ─────────────────────────────────────────────────────────
 
@@ -2224,33 +2206,37 @@ export function createEditorController(
     mirrorHost.syncSelection(state.selection);
   }
 
-  function update(editorState: EditorState) {
+  /**
+   * Render the editor's current fields. `replacing`: the editor was just handed over (the
+   * first one, or `setEditor`) — a document REPLACEMENT; otherwise it is an edit the
+   * subscription reported.
+   */
+  function render(replacing: boolean): void {
     if (destroyed) return;
-    const doc = getYDoc(editorState.document);
-    // A document REPLACEMENT (the first Document, another Y.Doc, or a Document not reduced from
-    // the current one) must hold no legacy storage (the load assertion; O(blocks), only
-    // here) — checked even when not halted (legacy may land between `createDocument` and
-    // here): refused, the controller halts on it and keeps the last good render. Halted,
-    // only such a replacement resumes; the halted Document, a refused replacement and any
-    // Document reduced from either keep the last good render.
+    const doc = getYDoc(editor.document);
+    // A document REPLACEMENT must hold no legacy storage (the load assertion; O(blocks),
+    // only here) — checked even when not halted (legacy may land between `createDocument`
+    // and here): refused, the controller halts on it and keeps the last good render.
+    // Halted, only a replacement resumes; edits to a halted / refused editor, and an
+    // editor whose Document was reduced from the halted one or a refused one, keep the
+    // last good render.
     let resumed = false;
     if (halted) {
-      const haltedDocument = state?.document ?? options.startHaltedOn?.document;
-      if (descendsFrom(editorState, (s) => s === haltedDocument || refusedDocuments.has(s))) return;
+      if (!replacing) return;
+      const haltedDocument = state?.document ?? startHaltedDocument;
+      if (descendsFrom(editor, (s) => s === haltedDocument || refusedDocuments.has(s))) return;
     }
-    const current = state?.document;
-    const replacing = halted || current === undefined || doc !== remoteDoc || !descendsFrom(editorState, (s) => s === current);
     if (replacing) {
       const legacy = inspectDocument(doc).legacyBlocks;
       if (legacy.length > 0) {
         // A refused replacement is forbidden like the halted Document: so is anything reduced from it.
-        refusedDocuments.add(editorState.document);
+        refusedDocuments.add(editor.document);
         // Its legacy storage went unseen (not halted yet, another document, or a local
         // write after "compatible"): halt (or report again if the host was told
         // "compatible") and watch this document halted — so its upgrade is reported.
         if (!halted || doc !== remoteDoc || toldCompatible) {
           halt({ reason: "legacy-schema", legacyBlocks: legacy, legacyText: {} });
-          watchDocument(editorState, true);
+          watchDocument(editor, true);
         }
         return;
       }
@@ -2263,7 +2249,7 @@ export function createEditorController(
     }
     // Collaboration: follow the document's Y.Doc (re-subscribing when the host swaps
     // in another document, or afresh on resume).
-    if (doc !== remoteDoc || resumed) watchDocument(editorState, false);
+    if (doc !== remoteDoc || resumed) watchDocument(editor, false);
     const tTotal = markStart("ctrl.update");
     // A resume is a document replacement: every layer and the find session are dropped
     // (the host sets them again); the transition is unknown.
@@ -2272,47 +2258,49 @@ export function createEditorController(
       find.close();
     }
     const prev = state;
-    state = editorState;
-    let replaced = false;
+    const next: RenderedView = {
+      document: editor.document,
+      selection: editor.selection,
+      caretPageHint: editor.caretPageHint,
+      caretAffinity: editor.caretAffinity,
+      anchorAffinity: editor.anchorAffinity,
+    };
+    state = next;
 
     // Decoration layers: carry every layer through the transition (positions
     // mapped; comment / suggestion ranges re-scanned when the edit touched their
     // anchors). The first update replays calls queued before a document existed.
     const tLayers = markStart("ctrl.decorationLayers");
     if (prev !== null) {
-      if (prev.document !== editorState.document) {
+      if (prev.document !== next.document) {
         // One mapping for the transition, shared by the layers and the session.
-        const mapping = transitionMapping(prev, editorState);
+        const mapping = transitionMapping(prev, editor);
         // An unknown transition (document replaced) restarts the log: older Documents
         // can no longer be mapped. A host that batched several dispatches still maps
         // (transitionMapping walks the change chain).
-        if (mapping !== UNKNOWN_MAPPING) mappingLog.record(prev.document, editorState.document, mapping);
-        else {
-          mappingLog.reset(editorState.document);
-          replaced = true;
-        }
-        layers.advance(prev, editorState, mapping);
-        anchors.advance(prev.document, editorState.document, mapping);
+        if (mapping !== UNKNOWN_MAPPING) mappingLog.record(prev.document, next.document, mapping);
+        else mappingLog.reset(next.document);
+        layers.advance(prev, editor, mapping);
+        anchors.advance(prev.document, next.document, mapping);
         // Find live-recompute: an open session re-finds only in the edited
         // blocks (keeping its active occurrence; advancing past a replacement) and
         // the find layer is patched only where matches changed. Never scrolls — a
         // recompute mid-typing must not yank the viewport.
         if (find.active) {
-          const { changedBlocks } = find.refresh(editorState.document, mapping);
-          if (changedBlocks === null) layers.setFind(editorState.document, find.matches(), find.activeIndex());
-          else layers.patchFind(editorState.document, find.matches(), find.activeIndex(), changedBlocks);
+          const { changedBlocks } = find.refresh(next.document, mapping);
+          if (changedBlocks === null) layers.setFind(next.document, find.matches(), find.activeIndex());
+          else layers.patchFind(next.document, find.matches(), find.activeIndex(), changedBlocks);
         }
       }
     } else {
-      mappingLog.reset(editorState.document);
+      mappingLog.reset(next.document);
     }
     if (prev === null && pendingLayerOps.length > 0) {
       const ops = pendingLayerOps;
       pendingLayerOps = [];
-      for (const op of ops) op(editorState.document);
+      for (const op of ops) op(next.document);
     }
     pendingHost = null;
-    settleProposals(editorState.lastProposal, replaced);
     // Fragments computed against the previous tree / document are dead.
     decoRectCache.clear();
     markEnd("ctrl.decorationLayers", tLayers);
@@ -2325,10 +2313,10 @@ export function createEditorController(
     // `nonPaginatedTree()`).
     // The backend layout-driver owns the render→cascade→layout
     // rebuild. Core's reducer is geometry-free — it records WHAT changed
-    // (`state.lastDirtyIds`); the driver consumes that to rebuild incrementally
+    // (`editor.lastDirtyIds`); the driver consumes that to rebuild incrementally
     // (reusing unchanged page subtrees by reference) and is the SOLE source of
     // the layout tree the controller paints / hit-tests / positions the caret on.
-    layoutTree = driver.rebuild(state);
+    layoutTree = driver.rebuild(editor);
 
     // Cursor position: resolved directly against the (virtual or positioned)
     // tree. In virtual mode `resolvePixelPosition` positions only the cursor's
@@ -2505,9 +2493,8 @@ export function createEditorController(
   function replaceActive(replacement: string): FindStatus {
     if (halted) return EMPTY_FIND;
     if (destroyed) return find.status();
-    // Dispatch the engine action; the host's reducer produces the new state and
-    // the following `update()` refreshes the session (activating the first match
-    // after the replacement). Returns the CURRENT (pre-refresh) status.
+    // Dispatch the engine action; its render (inside the dispatch) refreshes the
+    // session (activating the first match after the replacement).
     const action = find.replaceActiveAction(replacement);
     if (action !== null) dispatch(action);
     return find.status();
@@ -2516,7 +2503,7 @@ export function createEditorController(
   function replaceAll(replacement: string): FindStatus {
     if (halted) return EMPTY_FIND;
     if (destroyed) return find.status();
-    // One undo step (REPLACE_ALL); the following `update()` refreshes the session.
+    // One undo step (REPLACE_ALL); its render refreshes the session.
     const action = find.replaceAllAction(replacement);
     if (action !== null) dispatch(action);
     return find.status();
@@ -2605,8 +2592,7 @@ export function createEditorController(
 
   function destroy() {
     destroyed = true;
-    for (const p of pendingProposals) p.resolve(rejectedProposal("controller destroyed"));
-    pendingProposals = [];
+    unsubscribeEditor();
     unsubscribeRemote?.();
     unsubscribeRemote = null;
     layoutTree = null;
@@ -2641,12 +2627,8 @@ export function createEditorController(
     cancelAnimationFrame(scrollRafId);
     cancelAnimationFrame(scrollAnimId);
 
-    // Dispose the document History so its Y.UndoManager detaches its
-    // afterTransaction observers from the Doc. `history` is the one long-lived
-    // instance carried by reference across every EditorState, so disposing it
-    // once here releases the observers a torn-down/recreated controller would
-    // otherwise leak (collab / multi-view).
-    state?.history.destroy();
+    // The editor (and its History) belongs to the host, which may hand it to another
+    // view: destroying this controller leaves it alive.
 
     // Dispose the accessibility mirror host: detaches its
     // selectionchange + element listeners and removes the mirror element.
@@ -2697,11 +2679,17 @@ export function createEditorController(
     return { left: rect.left + pos.x, top: rect.top + localTop, height: pos.height };
   }
 
+  unsubscribeEditor = editor.subscribe(() => render(false));
+  // Started halted (a view re-created while its editor is halted): watch the halted
+  // document, render nothing. Otherwise show the editor (a replacement: the first document).
+  if (halted) watchDocument(editor, true);
+  else render(true);
+
   return {
     get halted() {
       return halted;
     },
-    update,
+    setEditor,
     focus,
     destroy,
     getCaretRect,
@@ -2721,16 +2709,11 @@ export function createEditorController(
       if (destroyed) return Promise.resolve(rejectedProposal("controller destroyed"));
       if (halted) return Promise.resolve(HALTED_RESULT);
       if (state === null) return Promise.resolve(rejectedProposal("no document yet"));
-      // The HOST owns the state: the proposal is dispatched with the version its positions
-      // refer to (default: the version this controller shows), and the host's reducer maps
-      // it through the change chain and validates it — so it can never land on wrong text
-      // even if the host has applied edits this controller has not seen yet. The promise
-      // resolves with the reducer's verdict when an update carrying it arrives.
-      const basedOn = proposeOptions.basedOn ?? state.document;
-      return new Promise<ProposeResult>((resolve) => {
-        pendingProposals.push({ proposal, resolve });
-        dispatch({ type: "PROPOSE", proposal, basedOn });
-      });
+      // The proposal is dispatched with the version its positions refer to (default: the
+      // version this controller shows), and the reducer maps it through the change chain
+      // and validates it — so it can never land on wrong text even if the editor holds
+      // edits this controller has not rendered yet.
+      return dispatchProposal(editor, proposal, proposeOptions.basedOn ?? state.document);
     },
     setSuggestionStyles(styleOf: SuggestionGroupStyle | null): void {
       if (destroyed) return;
@@ -2739,8 +2722,8 @@ export function createEditorController(
     },
     runCommand(command: string | Command): boolean {
       if (halted || destroyed || state === null) return false;
-      const resolved = resolveCommand(command, state.config.extensions);
-      return resolved !== null && resolved(state, dispatch);
+      const resolved = resolveCommand(command, editor.config.extensions);
+      return resolved !== null && resolved(editor, dispatch);
     },
     exportToPdf,
     get decorations() {

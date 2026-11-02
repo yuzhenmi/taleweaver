@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { resolveTableContext, deleteTableRow, deleteTableRowSpanAware, getBlock, createPosition, createSpan } from "../../state";
 import { deleteWholeTable } from "./helpers/delete-whole-table";
@@ -20,7 +20,7 @@ import { deleteWholeTable } from "./helpers/delete-whole-table";
  * for the no-span path from `ctx.cellIdsByRow`. The target cell id survives the
  * delete; its first paragraph is read from the POST-op state. One undo (`"command"`).
  */
-export function handleDeleteTableRow(editor: EditorState): Edit | null {
+export function handleDeleteTableRow(editor: Editor): Edit | null {
   const ctx = resolveTableContext(editor.document, editor.selection.focus.blockId);
   if (ctx === null || ctx.ragged) return null;
 

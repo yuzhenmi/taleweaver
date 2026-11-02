@@ -10,8 +10,7 @@ import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
 import { getBlock, createPosition, createSpan, inlineContentLength } from "../../state";
 import { topLevelBlockIds } from "../../state/block-traversal";
 import type { Document, BlockId, Selection } from "../../state";
-import { createInitialEditorState, type EditorState } from "../editor-state";
-import { reduceEditor } from "../reduce-editor";
+import { createEditor, type Editor } from "../editor";
 import { type EditorConfig } from "../editor-config";
 
 export const measurer = createMockShaper(8, 16);
@@ -37,33 +36,31 @@ export function getTextOf(document: Document, blockId: BlockId): string {
 }
 
 /** Build an editor with the given text typed in, cursor at end. */
-export function stateWithText(text: string): EditorState {
-  let s = createInitialEditorState(config);
-  s = reduceEditor(s, { type: "INSERT_TEXT", text });
-  return s;
+export function stateWithText(text: string): Editor {
+  const editor = createEditor(config);
+  editor.dispatch({ type: "INSERT_TEXT", text });
+  return editor;
 }
 
 /** Build an editor with two paragraphs: "abc" and "def". */
-export function stateWithTwoParagraphs(): EditorState {
-  let s = createInitialEditorState(config);
-  s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" });
-  s = reduceEditor(s, { type: "SPLIT_NODE" });
-  s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" });
-  return s;
+export function stateWithTwoParagraphs(): Editor {
+  const editor = createEditor(config);
+  editor.dispatch({ type: "INSERT_TEXT", text: "abc" });
+  editor.dispatch({ type: "SPLIT_NODE" });
+  editor.dispatch({ type: "INSERT_TEXT", text: "def" });
+  return editor;
 }
 
-/** Set a specific selection on an editor state. */
-export function withSelection(s: EditorState, sel: Selection): EditorState {
-  return reduceEditor(s, { type: "SET_SELECTION", selection: sel });
+/** Set a specific selection on `editor` (in place; returns it). */
+export function withSelection(editor: Editor, sel: Selection): Editor {
+  editor.dispatch({ type: "SET_SELECTION", selection: sel });
+  return editor;
 }
 
-/** Type individual characters one at a time. */
-export function typeChars(state: EditorState, chars: string): EditorState {
-  let s = state;
-  for (const ch of chars) {
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: ch });
-  }
-  return s;
+/** Type individual characters one at a time (in place; returns `editor`). */
+export function typeChars(editor: Editor, chars: string): Editor {
+  for (const ch of chars) editor.dispatch({ type: "INSERT_TEXT", text: ch });
+  return editor;
 }
 
 /**
@@ -87,8 +84,7 @@ export function blockEnd(document: Document, blockId: BlockId): number {
 }
 
 // Re-exports tests commonly need.
-export { createInitialEditorState, type EditorState } from "../editor-state";
-export { reduceEditor } from "../reduce-editor";
+export { createEditor, type Editor } from "../editor";
 export { type EditorConfig } from "../editor-config";
 export { createPosition, createSpan };
 export type { Selection } from "../../state";

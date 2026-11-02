@@ -10,15 +10,14 @@
 import { finalSectionOf } from "../../test-utils/document-builders";
 import { describe, it, expect } from "vitest";
 import {
-  createInitialEditorState,
-  reduceEditor,
+  createEditor,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   getBlock,
   createPosition,
   createSpan,
   type EditorConfig,
-  type EditorState,
+  type Editor,
   type BlockId,
 } from "../../index";
 
@@ -30,7 +29,7 @@ function makeConfig(): EditorConfig {
   };
 }
 
-function firstBlockId(editor: EditorState): BlockId {
+function firstBlockId(editor: Editor): BlockId {
   const root = getBlock(editor.document, finalSectionOf(editor.document)); // the root holds sections
   if (root === null || root.firstChildId === null) {
     throw new Error("test setup: no first child");
@@ -38,10 +37,10 @@ function firstBlockId(editor: EditorState): BlockId {
   return root.firstChildId;
 }
 
-function typeString(editor: EditorState, text: string): EditorState {
+function typeString(editor: Editor, text: string): Editor {
   let cur = editor;
   for (const ch of text) {
-    cur = reduceEditor(cur, { type: "INSERT_TEXT", text: ch });
+    cur.dispatch({ type: "INSERT_TEXT", text: ch });
   }
   return cur;
 }
@@ -49,18 +48,15 @@ function typeString(editor: EditorState, text: string): EditorState {
 describe("SPLIT_NODE — follow-on block type (Enter at end of heading)", () => {
   it("Enter at the END of a heading creates a paragraph; the heading keeps its type + level", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
+    let editor = createEditor(config);
     const headingId = firstBlockId(editor);
 
-    editor = reduceEditor(
-      editor,
-      { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } },
-    );
+    editor.dispatch({ type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } });
     editor = typeString(editor, "Title");
     // Cursor is at the end (offset 5) after typing.
     expect(getBlock(editor.document, headingId)?.type).toBe("heading");
 
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+    editor.dispatch({ type: "SPLIT_NODE" });
 
     // (Word) the split's HEAD [0, k) is the new block; the caret's
     // block keeps the tail + its ¶. So the heading text now lives in the new head
@@ -80,21 +76,15 @@ describe("SPLIT_NODE — follow-on block type (Enter at end of heading)", () => 
 
   it("Enter in the MIDDLE of a heading keeps BOTH halves as heading", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
+    let editor = createEditor(config);
     const headingId = firstBlockId(editor);
 
-    editor = reduceEditor(
-      editor,
-      { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 2 } },
-    );
+    editor.dispatch({ type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 2 } });
     editor = typeString(editor, "Title");
     // Move the cursor into the middle (offset 2).
-    editor = {
-      ...editor,
-      selection: createSpan(createPosition(headingId, 2), createPosition(headingId, 2)),
-    };
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(headingId, 2), createPosition(headingId, 2)) });
 
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+    editor.dispatch({ type: "SPLIT_NODE" });
 
     // Mid-split: the follow-on type does NOT apply — both halves stay heading
     // (the head [0, 2) is the new block).
@@ -110,11 +100,11 @@ describe("SPLIT_NODE — follow-on block type (Enter at end of heading)", () => 
 
   it("Enter at the END of a paragraph creates a paragraph (no follow-on; unchanged)", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
+    let editor = createEditor(config);
     const paragraphId = firstBlockId(editor);
 
     editor = typeString(editor, "hello");
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+    editor.dispatch({ type: "SPLIT_NODE" });
 
     const tail = getBlock(editor.document, paragraphId);
     expect(tail?.type).toBe("paragraph");
@@ -127,13 +117,13 @@ describe("SPLIT_NODE — follow-on block type (Enter at end of heading)", () => 
 describe("SPLIT_NODE — the head's ¶ character props", () => {
   it("Enter mid bold text: the new head's markAttrs carry the inclusive props at the caret (the registry reaches the split)", () => {
     const config = makeConfig();
-    let editor = createInitialEditorState(config);
+    let editor = createEditor(config);
     const pId = firstBlockId(editor);
-    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
+    editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
     editor = typeString(editor, "abcd");
-    editor = { ...editor, selection: createSpan(createPosition(pId, 2), createPosition(pId, 2)) };
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(pId, 2), createPosition(pId, 2)) });
 
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+    editor.dispatch({ type: "SPLIT_NODE" });
 
     const headId = getBlock(editor.document, pId)?.prevSiblingId ?? null;
     expect(headId).not.toBeNull();
@@ -142,31 +132,31 @@ describe("SPLIT_NODE — the head's ¶ character props", () => {
 });
 
 describe("splits made by other actions write the head's ¶ character props too", () => {
-  function boldAbcd(config: EditorConfig): { editor: EditorState; pId: BlockId } {
-    let editor = createInitialEditorState(config);
+  function boldAbcd(config: EditorConfig): { editor: Editor; pId: BlockId } {
+    let editor = createEditor(config);
     const pId = firstBlockId(editor);
-    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
+    editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
     editor = typeString(editor, "abcd");
-    editor = { ...editor, selection: createSpan(createPosition(pId, 2), createPosition(pId, 2)) };
+    editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(pId, 2), createPosition(pId, 2)) });
     return { editor, pId };
   }
 
   it("SECTION_BREAK mid bold text", () => {
     const config = makeConfig();
     const { editor, pId } = boldAbcd(config);
-    const next = reduceEditor(editor, { type: "SECTION_BREAK" });
-    const sectionA = getBlock(next.document, next.document.rootId)?.firstChildId ?? null;
-    const headId = sectionA === null ? null : (getBlock(next.document, sectionA)?.lastChildId ?? null);
+    editor.dispatch({ type: "SECTION_BREAK" });
+    const sectionA = getBlock(editor.document, editor.document.rootId)?.firstChildId ?? null;
+    const headId = sectionA === null ? null : (getBlock(editor.document, sectionA)?.lastChildId ?? null);
     expect(headId).not.toBe(pId);
-    expect(getBlock(next.document, headId as BlockId)?.markAttrs).toEqual({ bold: true });
+    expect(getBlock(editor.document, headId as BlockId)?.markAttrs).toEqual({ bold: true });
   });
 
   it("INSERT_TABLE mid bold text", () => {
     const config = makeConfig();
     const { editor, pId } = boldAbcd(config);
-    const next = reduceEditor(editor, { type: "INSERT_TABLE", rows: 1, cols: 1 });
-    const tableId = getBlock(next.document, pId)?.prevSiblingId ?? null;
-    const headId = tableId === null ? null : (getBlock(next.document, tableId)?.prevSiblingId ?? null);
-    expect(getBlock(next.document, headId as BlockId)?.markAttrs).toEqual({ bold: true });
+    editor.dispatch({ type: "INSERT_TABLE", rows: 1, cols: 1 });
+    const tableId = getBlock(editor.document, pId)?.prevSiblingId ?? null;
+    const headId = tableId === null ? null : (getBlock(editor.document, tableId)?.prevSiblingId ?? null);
+    expect(getBlock(editor.document, headId as BlockId)?.markAttrs).toEqual({ bold: true });
   });
 });

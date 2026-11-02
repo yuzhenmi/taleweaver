@@ -2,7 +2,7 @@
  * Behavior-regression lock: caret / hit-test / selection around a FLOATED image
  * (image text-wrap, Task 5). The spec's named load-bearing risk is that there is
  * zero existing coverage for editor interaction around a float — this file closes
- * that gap by driving the REAL editor (`createEditorStateFromDocument` →
+ * that gap by driving the REAL editor (`createEditor` →
  * `reduceEditor`) end-to-end (render → cascade → layout → cursor/hit-test/
  * selection), NOT internal units.
  *
@@ -39,8 +39,7 @@
  * untested.
  */
 import { describe, it, expect } from "vitest";
-import { createEditorStateFromDocument, type EditorState } from "./editor-state";
-import { reduceEditor } from "./reduce-editor";
+import { createEditor, type Editor } from "./editor";
 import { type EditorConfig } from "./editor-config";
 import { createMockShaper } from "../layout/mock-shaper";
 import { createDefaultComponentRegistry } from "../components/component-registry";
@@ -81,16 +80,20 @@ const H = 32; // image block-size (float height) = two line-heights.
 // (packages/print/src/nav/image-wrap-nav.test.ts).
 const measurer = createMockShaper(CHAR_W, LINE_H);
 
+// One editor's registries are fixed for its lifetime (`Editor.setConfig`): every config here shares them.
+const COMPONENT_REGISTRY = createDefaultComponentRegistry();
+const ATTR_REGISTRY = createDefaultAttrRegistry();
+
 function makeConfig(): EditorConfig {
   return {
-    componentRegistry: createDefaultComponentRegistry(),
-    attrRegistry: createDefaultAttrRegistry(),
+    componentRegistry: COMPONENT_REGISTRY,
+    attrRegistry: ATTR_REGISTRY,
     containerWidth: CONTAINER_W,
   };
 }
 
 /** Build the layout tree the backend driver would (render → cascade → layout). */
-function layoutOf(editor: EditorState, config: EditorConfig): LayoutBox {
+function layoutOf(editor: Editor, config: EditorConfig): LayoutBox {
   const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   const tree = layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
@@ -184,12 +187,12 @@ function seedWithPredecessor(wrap = "left") {
   });
 }
 
-function editorFrom(document: ReturnType<typeof seed>, sel: Selection): EditorState {
-  return createEditorStateFromDocument(document, sel, makeConfig());
+function editorFrom(document: ReturnType<typeof seed>, sel: Selection): Editor {
+  return createEditor(makeConfig(), { document: document, selection: sel });
 }
 
 /** The editor's (non-paginated) plain LayoutBox tree, built via the driver recipe. */
-function plainTree(editor: EditorState): LayoutBox {
+function plainTree(editor: Editor): LayoutBox {
   return layoutOf(editor, makeConfig());
 }
 
@@ -414,21 +417,22 @@ describe("image-wrap behavior — delete + undo restores the wrap attr", () => {
     const start = createPosition("pre" as BlockId, "PRE".length);
     const seeded = editorFrom(seedWithPredecessor("left"), createSpan(start, start));
 
-    const deleted = reduceEditor({ ...seeded, config: config }, { type: "DELETE_FORWARD" });
-    expect(getBlock(deleted.document, "img" as BlockId)).toBeNull();
+    seeded.setConfig(config);
+    seeded.dispatch({ type: "DELETE_FORWARD" });
+    expect(getBlock(seeded.document, "img" as BlockId)).toBeNull();
     // With the float gone, the paragraph reflows full-width (no inset line).
-    const afterLines = paraLines(plainTree(deleted));
+    const afterLines = paraLines(plainTree(seeded));
     expect(afterLines.length).toBeGreaterThanOrEqual(1);
     expect(afterLines[0]?.x).toBe(0);
     expect(afterLines[0]?.inlineSize).toBe(CONTAINER_W);
 
     // UNDO restores the image as a unit, INCLUDING its wrap attr…
-    const undone = reduceEditor(deleted, { type: "UNDO" });
-    const restored = getBlock(undone.document, "img" as BlockId);
+    seeded.dispatch({ type: "UNDO" });
+    const restored = getBlock(seeded.document, "img" as BlockId);
     expect(restored?.type).toBe("image");
     expect(restored?.attrs.wrap).toBe("left");
     // …and the restored image floats again (real box: x=0, W×H, inline-start)…
-    const reImg = findBoxByKey(plainTree(undone), "img");
+    const reImg = findBoxByKey(plainTree(seeded), "img");
     expect(reImg).not.toBeNull();
     expect(reImg?.x).toBe(0);
     expect(reImg?.inlineSize).toBe(W);
@@ -439,7 +443,7 @@ describe("image-wrap behavior — delete + undo restores the wrap attr", () => {
     // load-bearing fact is that the exclusion re-applies after undo. Verified
     // identical to a fresh rebuild from the restored state — this is the correct
     // post-undo layout, not an incremental-relayout artifact.)
-    const reLines = paraLines(plainTree(undone));
+    const reLines = paraLines(plainTree(seeded));
     const reNarrowed = reLines.filter((l) => l.x === W && l.inlineSize === CONTAINER_W - W);
     expect(reNarrowed.length).toBeGreaterThanOrEqual(1);
   });
@@ -448,11 +452,12 @@ describe("image-wrap behavior — delete + undo restores the wrap attr", () => {
     const config = makeConfig();
     const seeded = editorFrom(seedWithPredecessor("left"), createSpan(para(0), para(0)));
 
-    const deleted = reduceEditor({ ...seeded, config: config }, { type: "DELETE_BACKWARD" });
-    expect(getBlock(deleted.document, "img" as BlockId)).toBeNull();
-    expect(getBlock(deleted.document, "para" as BlockId)?.type).toBe("paragraph");
+    seeded.setConfig(config);
+    seeded.dispatch({ type: "DELETE_BACKWARD" });
+    expect(getBlock(seeded.document, "img" as BlockId)).toBeNull();
+    expect(getBlock(seeded.document, "para" as BlockId)?.type).toBe("paragraph");
     // pre and para close up around the removed image.
-    expect(getBlock(deleted.document, "pre" as BlockId)?.nextSiblingId).toBe("para");
-    expect(getBlock(deleted.document, "para" as BlockId)?.prevSiblingId).toBe("pre");
+    expect(getBlock(seeded.document, "pre" as BlockId)?.nextSiblingId).toBe("para");
+    expect(getBlock(seeded.document, "para" as BlockId)?.prevSiblingId).toBe("pre");
   });
 });

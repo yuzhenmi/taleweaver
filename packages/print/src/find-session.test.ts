@@ -76,10 +76,10 @@ function config(): core.EditorConfig {
 }
 
 /** A single-paragraph doc: "foo bar foo baz foo" (3 × "foo"). */
-function seededEditorState(text: string): core.EditorState {
+function seededEditorState(text: string): core.Editor {
   const cfg = config();
-  let editor = core.createInitialEditorState(cfg);
-  editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text });
+  let editor = core.createEditor(cfg);
+  editor.dispatch({ type: "INSERT_TEXT", text });
   return editor;
 }
 
@@ -174,8 +174,7 @@ describe("find session + navigation (#433)", () => {
     // at/after offset 19 is none → wraps to 0.
     const editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
     const { container, lastCtx } = mount();
-    const ctrl = createEditorController(container, { measurer, dispatch: vi.fn() });
-    ctrl.update(editor);
+    const ctrl = createEditorController(container, { measurer, editor });
 
     const status = ctrl.findStart("foo");
     expect(status).toEqual({ total: 3, activeIndex: 0 });
@@ -191,20 +190,15 @@ describe("find session + navigation (#433)", () => {
   it("findStart initial activeIndex = first match at/after a mid-document cursor", () => {
     // Move the caret to offset 4 (start of the 2nd word). The first "foo" match
     // at/after offset 4 is the 2nd occurrence (offset 8) → activeIndex 1.
-    const cfg = config();
     let editor = seededEditorState("foo bar foo baz foo");
     const blockId = finalSection(editor.document)?.firstChildId;
     if (blockId === null || blockId === undefined) throw new Error("no block");
-    editor = core.reduceEditor(
-      { ...editor, config: cfg },
-      {
+    editor.dispatch({
         type: "SET_SELECTION",
         selection: core.createSpan(core.createPosition(blockId, 4), core.createPosition(blockId, 4)),
-      },
-    );
+      });
     const { container } = mount();
-    const ctrl = createEditorController(container, { measurer, dispatch: vi.fn() });
-    ctrl.update(editor);
+    const ctrl = createEditorController(container, { measurer, editor });
 
     const status = ctrl.findStart("foo");
     expect(status).toEqual({ total: 3, activeIndex: 1 });
@@ -217,9 +211,9 @@ describe("find session + navigation (#433)", () => {
     // selection context than the main-tree "hello" matches). The first-at/after
     // walk must NOT throw "no common ancestor" — it falls back to activeIndex 0.
     const cfg = config();
-    let editor = core.createInitialEditorState(cfg);
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "hello hello" });
-    editor = core.reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
+    let editor = core.createEditor(cfg);
+    editor.dispatch({ type: "INSERT_TEXT", text: "hello hello" });
+    editor.dispatch({ type: "INSERT_FOOTNOTE" });
     // Sanity: the caret is now in a different context than the main body.
     const bodyBlockId = finalSection(editor.document)?.firstChildId;
     if (bodyBlockId === null || bodyBlockId === undefined) throw new Error("no body block");
@@ -228,8 +222,7 @@ describe("find session + navigation (#433)", () => {
     );
 
     const { container } = mount();
-    const ctrl = createEditorController(container, { measurer, dispatch: vi.fn() });
-    ctrl.update(editor);
+    const ctrl = createEditorController(container, { measurer, editor });
 
     let status: { total: number; activeIndex: number } | undefined;
     expect(() => {
@@ -245,8 +238,7 @@ describe("find session + navigation (#433)", () => {
   it("findNext cycles 0→1→2→0 (wrap last→first); status advances", () => {
     const editor = seededEditorState("foo bar foo baz foo");
     const { container } = mount();
-    const ctrl = createEditorController(container, { measurer, dispatch: vi.fn() });
-    ctrl.update(editor);
+    const ctrl = createEditorController(container, { measurer, editor });
 
     expect(ctrl.findStart("foo")).toEqual({ total: 3, activeIndex: 0 });
     expect(ctrl.findNext()).toEqual({ total: 3, activeIndex: 1 });
@@ -259,8 +251,7 @@ describe("find session + navigation (#433)", () => {
   it("findPrev cycles 0→2→1→0 (wrap first→last); status retreats", () => {
     const editor = seededEditorState("foo bar foo baz foo");
     const { container } = mount();
-    const ctrl = createEditorController(container, { measurer, dispatch: vi.fn() });
-    ctrl.update(editor);
+    const ctrl = createEditorController(container, { measurer, editor });
 
     expect(ctrl.findStart("foo")).toEqual({ total: 3, activeIndex: 0 });
     expect(ctrl.findPrev()).toEqual({ total: 3, activeIndex: 2 }); // wrap first→last
@@ -273,8 +264,7 @@ describe("find session + navigation (#433)", () => {
   it("the active match's rects carry the ACTIVE colour after navigation", () => {
     const editor = seededEditorState("foo bar foo baz foo");
     const { container, lastCtx } = mount();
-    const ctrl = createEditorController(container, { measurer, dispatch: vi.fn() });
-    ctrl.update(editor);
+    const ctrl = createEditorController(container, { measurer, editor });
 
     ctrl.findStart("foo");
     ctrl.findNext(); // activeIndex 1
@@ -297,18 +287,17 @@ describe("find session + navigation (#433)", () => {
       //   ... several fillers ...
       //   pN: "foo"  (far down)
       const cfg = config();
-      let editor = core.createInitialEditorState(cfg);
-      editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "foo" });
+      let editor = core.createEditor(cfg);
+      editor.dispatch({ type: "INSERT_TEXT", text: "foo" });
       for (let i = 0; i < 8; i++) {
-        editor = core.reduceEditor(editor, { type: "SPLIT_NODE" });
-        editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "filler" });
+        editor.dispatch({ type: "SPLIT_NODE" });
+        editor.dispatch({ type: "INSERT_TEXT", text: "filler" });
       }
-      editor = core.reduceEditor(editor, { type: "SPLIT_NODE" });
-      editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "foo" });
+      editor.dispatch({ type: "SPLIT_NODE" });
+      editor.dispatch({ type: "INSERT_TEXT", text: "foo" });
 
       const { container, sp } = mountScrollable();
-      const ctrl = createEditorController(container, { measurer, dispatch: vi.fn() });
-      ctrl.update(editor);
+      const ctrl = createEditorController(container, { measurer, editor });
 
       // findStart picks the FIRST match at/after the cursor. The cursor is at the
       // end (last paragraph) → no match after → wraps to 0 (the top "foo").
@@ -334,9 +323,8 @@ describe("find session + navigation (#433)", () => {
   it("findClose clears highlights and leaves the document selection UNCHANGED", () => {
     const editor = seededEditorState("foo bar foo baz foo");
     const { container, lastCtx } = mount();
-    const dispatch = vi.fn();
-    const ctrl = createEditorController(container, { measurer, dispatch });
-    ctrl.update(editor);
+    const ctrl = createEditorController(container, { measurer, editor });
+    const dispatch = vi.spyOn(editor, "dispatch");
 
     ctrl.findStart("foo");
     ctrl.findNext();
@@ -361,9 +349,8 @@ describe("find session + navigation (#433)", () => {
   it("find navigation never dispatches a document-selection action", () => {
     const editor = seededEditorState("foo bar foo baz foo");
     const { container } = mount();
-    const dispatch = vi.fn();
-    const ctrl = createEditorController(container, { measurer, dispatch });
-    ctrl.update(editor);
+    const ctrl = createEditorController(container, { measurer, editor });
+    const dispatch = vi.spyOn(editor, "dispatch");
 
     ctrl.findStart("foo");
     ctrl.findNext();
@@ -381,11 +368,9 @@ describe("find session + navigation (#433)", () => {
     // After an edit while find is active, the session re-queries in update():
     // the highlight set + match COUNT refresh and the activeIndex clamps into
     // the new range (here: still in range, so it's preserved).
-    const cfg = config();
     let editor = seededEditorState("foo bar foo baz foo"); // 3 matches
     const { container, lastCtx } = mount();
-    const ctrl = createEditorController(container, { measurer, dispatch: vi.fn() });
-    ctrl.update(editor);
+    const ctrl = createEditorController(container, { measurer, editor });
 
     ctrl.findStart("foo");
     ctrl.findNext(); // activeIndex 1
@@ -394,8 +379,7 @@ describe("find session + navigation (#433)", () => {
     // 4 matches; the preserved activeIndex (1) is still in range.
     const ctx0 = lastCtx();
     if (ctx0) ctx0._ops.length = 0;
-    editor = core.reduceEditor({ ...editor, config: cfg }, { type: "INSERT_TEXT", text: " foo" });
-    ctrl.update(editor);
+    editor.dispatch({ type: "INSERT_TEXT", text: " foo" });
 
     // Highlights refreshed: 4 matched bands now paint (3 inactive + 1 active).
     const { inactive, active } = matchOps(lastCtx());
@@ -419,24 +403,23 @@ describe("find session + navigation (#433)", () => {
       // scroll. The window scroll target for a cursor already at the top is 0, so
       // cursor-scroll never fires; any rAF would be a find-recompute scroll.
       const cfg = config();
-      let editor = core.createInitialEditorState(cfg);
-      editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "foo" });
+      let editor = core.createEditor(cfg);
+      editor.dispatch({ type: "INSERT_TEXT", text: "foo" });
       const topBlockId = finalSection(editor.document)?.firstChildId;
       if (topBlockId === null || topBlockId === undefined) throw new Error("no top block");
       for (let i = 0; i < 8; i++) {
-        editor = core.reduceEditor(editor, { type: "SPLIT_NODE" });
-        editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "foo" });
+        editor.dispatch({ type: "SPLIT_NODE" });
+        editor.dispatch({ type: "INSERT_TEXT", text: "foo" });
       }
       const topSel = core.createSpan(core.createPosition(topBlockId, 0), core.createPosition(topBlockId, 0));
-      editor = core.reduceEditor(editor, { type: "SET_SELECTION", selection: topSel });
+      editor.dispatch({ type: "SET_SELECTION", selection: topSel });
 
       const { container } = mount(); // window-scrolled; window.scrollY starts at 0
-      const ctrl = createEditorController(container, { measurer, dispatch: vi.fn() });
+      const ctrl = createEditorController(container, { measurer, editor });
       // Container flush with the window top; the caret at y≈0 needs no scroll.
       container.getBoundingClientRect = vi.fn(() => ({
         left: 0, top: 0, right: 600, bottom: 2000, width: 600, height: 2000, x: 0, y: 0, toJSON: () => {},
       }));
-      ctrl.update(editor);
       vi.advanceTimersByTime(400);
 
       ctrl.findStart("foo"); // active = top match (index 0), caret at top → no scroll
@@ -448,16 +431,6 @@ describe("find session + navigation (#433)", () => {
       // not smooth-scroll (no rAF scheduled).
       const lastBlockId = finalSection(editor.document)?.lastChildId;
       if (lastBlockId === null || lastBlockId === undefined) throw new Error("no last block");
-      editor = core.reduceEditor(
-        editor,
-        {
-          type: "SET_SELECTION",
-          selection: core.createSpan(core.createPosition(lastBlockId, 0), core.createPosition(lastBlockId, 3)),
-        },
-      );
-      editor = core.reduceEditor(editor, { type: "DELETE_BACKWARD" });
-      editor = core.reduceEditor(editor, { type: "SET_SELECTION", selection: topSel });
-
       // Install the rAF spy ONLY AFTER the two `advanceTimersByTime(400)` calls
       // above (one after the initial update, one after findStart). 400ms exceeds
       // SCROLL_DURATION, so those drains run the findStart smooth-scroll animation
@@ -466,7 +439,18 @@ describe("find session + navigation (#433)", () => {
       // recompute itself never smooth-scrolls (any leftover findStart rAF would be
       // a false positive, which the pre-drain rules out).
       const rafSpy = vi.spyOn(globalThis, "requestAnimationFrame");
-      ctrl.update(editor);
+      // ONE dispatch (one render) that edits below and leaves the caret at the top.
+      editor.dispatch({
+        type: "TRANSACTION",
+        run: (tx) => {
+          tx.dispatch({
+            type: "SET_SELECTION",
+            selection: core.createSpan(core.createPosition(lastBlockId, 0), core.createPosition(lastBlockId, 3)),
+          });
+          tx.dispatch({ type: "DELETE_BACKWARD" });
+          tx.dispatch({ type: "SET_SELECTION", selection: topSel });
+        },
+      });
       vi.advanceTimersByTime(400);
       expect(rafSpy).not.toHaveBeenCalled(); // no smooth-scroll on the recompute
       rafSpy.mockRestore();
@@ -481,7 +465,6 @@ describe("find session + navigation (#433)", () => {
   });
 
   it("live recompute: deleting the active match lands the highlight on a surviving match (no throw)", () => {
-    const cfg = config();
     // "foo foo" → 2 matches. Active = index 1 (the 2nd). Delete the whole doc's
     // text down to "foo" → only 1 match survives; activeIndex clamps 1 → 0.
     let editor = seededEditorState("foo foo");
@@ -489,25 +472,20 @@ describe("find session + navigation (#433)", () => {
     if (blockId === null || blockId === undefined) throw new Error("no block");
 
     const { container, lastCtx } = mount();
-    const ctrl = createEditorController(container, { measurer, dispatch: vi.fn() });
-    ctrl.update(editor);
+    const ctrl = createEditorController(container, { measurer, editor });
 
     ctrl.findStart("foo");
     expect(ctrl.findNext()).toEqual({ total: 2, activeIndex: 1 }); // active = 2nd "foo"
 
     // Delete " foo" (offsets 3..7) — removes the active (2nd) match.
-    editor = core.reduceEditor(
-      { ...editor, config: cfg },
-      {
+    editor.dispatch({
         type: "SET_SELECTION",
         selection: core.createSpan(core.createPosition(blockId, 3), core.createPosition(blockId, 7)),
-      },
-    );
-    editor = core.reduceEditor(editor, { type: "DELETE_BACKWARD" });
-
+      });
     const ctx = lastCtx();
     if (ctx) ctx._ops.length = 0;
-    expect(() => ctrl.update(editor)).not.toThrow();
+    // The controller re-renders from its subscription, inside the dispatch.
+    expect(() => editor.dispatch({ type: "DELETE_BACKWARD" })).not.toThrow();
 
     // One match survives, highlighted; the clamped activeIndex (0) is active.
     const { inactive, active } = matchOps(lastCtx());
@@ -522,8 +500,7 @@ describe("find session + navigation (#433)", () => {
   it("zero matches → total 0, activeIndex -1; next/prev no-op", () => {
     const editor = seededEditorState("foo bar foo baz foo");
     const { container, lastCtx } = mount();
-    const ctrl = createEditorController(container, { measurer, dispatch: vi.fn() });
-    ctrl.update(editor);
+    const ctrl = createEditorController(container, { measurer, editor });
 
     const status = ctrl.findStart("zzz");
     expect(status).toEqual({ total: 0, activeIndex: -1 });

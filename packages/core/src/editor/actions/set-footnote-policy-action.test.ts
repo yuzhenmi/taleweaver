@@ -16,16 +16,13 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  config,
-  reduceEditor,
-  createInitialEditorState,
-} from "./test-helpers";
+  config, createEditor } from "./test-helpers";
 import { documentFootnotePolicy } from "../../footnotes";
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import { render } from "../../render/render";
 import type { Document, BlockId } from "../../state";
 
-// Phase 0b: core's `EditorState` carries NO render output. The policy WRITE is a
+// Phase 0b: core's `Editor` carries NO render output. The policy WRITE is a
 // geometry-free core action (it stamps `footnoteNumberingReset`/`Format` on the
 // document root, read back by `documentFootnotePolicy`). The displayed NUMBERS
 // are a render-pass product — so these tests run `render(state, ...)` directly
@@ -41,37 +38,34 @@ function footnoteNumbersOf(document: Document): ReadonlyMap<BlockId, { value: nu
  * Build a two-section document (non-paginated config), each section's paragraph
  * carrying a footnote. Mirrors `render/footnote-policy-threading.test.ts`.
  */
-function twoSectionDocWithFootnotes(): EditorState {
-  let editor = createInitialEditorState(config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
+function twoSectionDocWithFootnotes(): Editor {
+  let editor = createEditor(config);
+  editor.dispatch({ type: "INSERT_TEXT", text: "a" });
   const firstHost = editor.selection.focus.blockId;
-  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
-  editor = reduceEditor(
-    editor,
-    {
+  editor.dispatch({ type: "INSERT_FOOTNOTE" });
+  editor.dispatch({
       type: "SET_SELECTION",
       selection: {
         anchor: { blockId: firstHost, offset: 2 },
         focus: { blockId: firstHost, offset: 2 },
       },
-    },
-  );
-  editor = reduceEditor(editor, { type: "SPLIT_NODE" });
-  editor = reduceEditor(editor, { type: "SECTION_BREAK" });
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
-  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
+    });
+  editor.dispatch({ type: "SPLIT_NODE" });
+  editor.dispatch({ type: "SECTION_BREAK" });
+  editor.dispatch({ type: "INSERT_TEXT", text: "b" });
+  editor.dispatch({ type: "INSERT_FOOTNOTE" });
   return editor;
 }
 
 /** The sorted footnote VALUES from an editor's render-derived numbering map. */
-function numberValues(editor: EditorState): number[] {
+function numberValues(editor: Editor): number[] {
   return [...footnoteNumbersOf(editor.document).values()]
     .map((n) => n.value)
     .sort((x, y) => x - y);
 }
 
 /** The sorted footnote FORMATTED strings from an editor's render-derived map. */
-function numberFormats(editor: EditorState): string[] {
+function numberFormats(editor: Editor): string[] {
   return [...footnoteNumbersOf(editor.document).values()]
     .map((n) => n.formatted)
     .sort();
@@ -84,108 +78,83 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
     expect(documentFootnotePolicy(editor.document).reset).toBe("continuous");
     expect(numberValues(editor)).toEqual([1, 2]);
 
-    const next = reduceEditor(
-      editor,
-      { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" },
-    );
+    const before = editor.snapshot();
+    editor.dispatch({ type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" });
 
     // The policy attr is now on the root, and numbering restarts: each
     // section's footnote is "1".
-    expect(documentFootnotePolicy(next.document).reset).toBe("restart-per-section");
-    expect(numberValues(next)).toEqual([1, 1]);
+    expect(documentFootnotePolicy(editor.document).reset).toBe("restart-per-section");
+    expect(numberValues(editor)).toEqual([1, 1]);
     // A real change happened (new state reference).
-    expect(next.document).not.toBe(editor.document);
+    expect(editor.document).not.toBe(before.document);
   });
 
   it("format: lower-roman changes only the format; numbers render i, ii", () => {
     const editor = twoSectionDocWithFootnotes();
-    const next = reduceEditor(
-      editor,
-      { type: "SET_FOOTNOTE_POLICY", format: "lower-roman" },
-    );
+    editor.dispatch({ type: "SET_FOOTNOTE_POLICY", format: "lower-roman" });
 
-    expect(documentFootnotePolicy(next.document).format).toBe("lower-roman");
+    expect(documentFootnotePolicy(editor.document).format).toBe("lower-roman");
     // reset untouched (still continuous): values 1, 2 formatted i, ii.
-    expect(documentFootnotePolicy(next.document).reset).toBe("continuous");
-    expect(numberFormats(next)).toEqual(["i", "ii"]);
+    expect(documentFootnotePolicy(editor.document).reset).toBe("continuous");
+    expect(numberFormats(editor)).toEqual(["i", "ii"]);
   });
 
   it("sets reset and format INDEPENDENTLY — setting one leaves the other untouched", () => {
     const editor = twoSectionDocWithFootnotes();
-    const withReset = reduceEditor(
-      editor,
-      { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" },
-    );
+    editor.dispatch({ type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" });
     // Now set ONLY the format; reset must stay restart-per-section.
-    const withFormat = reduceEditor(
-      withReset,
-      { type: "SET_FOOTNOTE_POLICY", format: "upper-alpha" },
-    );
-    expect(documentFootnotePolicy(withFormat.document).reset).toBe(
+    editor.dispatch({ type: "SET_FOOTNOTE_POLICY", format: "upper-alpha" });
+    expect(documentFootnotePolicy(editor.document).reset).toBe(
       "restart-per-section",
     );
-    expect(documentFootnotePolicy(withFormat.document).format).toBe("upper-alpha");
+    expect(documentFootnotePolicy(editor.document).format).toBe("upper-alpha");
   });
 
   it("undo restores the prior policy AND the prior numbering", () => {
     const editor = twoSectionDocWithFootnotes();
-    const next = reduceEditor(
-      editor,
-      { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" },
-    );
-    expect(documentFootnotePolicy(next.document).reset).toBe("restart-per-section");
-    expect(numberValues(next)).toEqual([1, 1]);
+    editor.dispatch({ type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" });
+    expect(documentFootnotePolicy(editor.document).reset).toBe("restart-per-section");
+    expect(numberValues(editor)).toEqual([1, 1]);
 
-    const undone = reduceEditor(next, { type: "UNDO" });
+    editor.dispatch({ type: "UNDO" });
     // Policy back to the default (continuous), numbering back to 1, 2.
-    expect(documentFootnotePolicy(undone.document).reset).toBe("continuous");
-    expect(numberValues(undone)).toEqual([1, 2]);
+    expect(documentFootnotePolicy(editor.document).reset).toBe("continuous");
+    expect(numberValues(editor)).toEqual([1, 2]);
   });
 
   it("an invalid reset value is ignored (no-op, editor unchanged)", () => {
     const editor = twoSectionDocWithFootnotes();
-    const next = reduceEditor(
-      editor,
-      // Force an out-of-set value past the type via a cast on the action shape.
-      {
+    const before = editor.snapshot();
+    editor.dispatch({
         type: "SET_FOOTNOTE_POLICY",
         reset: "restart-per-paragraph" as never,
-      },
-    );
+      });
     // No valid field → no-op: the document `document` is untouched (same reference,
     // no history commit). The editor WRAPPER may differ only by the reducer's
     // Phase 0b entry-clear of `lastDirtyIds` — so assert on `document` identity, the
     // real "nothing was written" signal, not the wrapper reference.
-    expect(next.document).toBe(editor.document);
-    expect(documentFootnotePolicy(next.document).reset).toBe("continuous");
+    expect(editor.document).toBe(before.document);
+    expect(documentFootnotePolicy(editor.document).reset).toBe("continuous");
   });
 
   it("setting the SAME value already on the root is a no-op (same editor reference)", () => {
     const editor = twoSectionDocWithFootnotes();
-    const withReset = reduceEditor(
-      editor,
-      { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" },
-    );
-    const again = reduceEditor(
-      withReset,
-      { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" },
-    );
+    editor.dispatch({ type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" });
+    const before = editor.snapshot();
+    editor.dispatch({ type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" });
     // mergeBlockAttrs is a no-op → no document mutation, no history commit. The
     // `document` reference is preserved; the editor wrapper may differ only by the
     // reducer's Phase 0b entry-clear of `lastDirtyIds`.
-    expect(again.document).toBe(withReset.document);
+    expect(editor.document).toBe(before.document);
   });
 
   it("selection is unchanged across a policy change", () => {
     const editor = twoSectionDocWithFootnotes();
     const before = editor.selection;
-    const next = reduceEditor(
-      editor,
-      { type: "SET_FOOTNOTE_POLICY", format: "upper-roman" },
-    );
-    expect(next.selection.anchor.blockId).toBe(before.anchor.blockId);
-    expect(next.selection.anchor.offset).toBe(before.anchor.offset);
-    expect(next.selection.focus.blockId).toBe(before.focus.blockId);
-    expect(next.selection.focus.offset).toBe(before.focus.offset);
+    editor.dispatch({ type: "SET_FOOTNOTE_POLICY", format: "upper-roman" });
+    expect(editor.selection.anchor.blockId).toBe(before.anchor.blockId);
+    expect(editor.selection.anchor.offset).toBe(before.anchor.offset);
+    expect(editor.selection.focus.blockId).toBe(before.focus.blockId);
+    expect(editor.selection.focus.offset).toBe(before.focus.offset);
   });
 });

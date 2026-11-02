@@ -12,13 +12,13 @@
  * `plan.entries[i].children` keys. No section-2 block key appears in section 1's
  * last page, and no key appears on two pages.
  *
- * Harness: the real editor (`createInitialEditorState`, `reduceEditor`), a small
+ * Harness: the real editor (`createEditor`, `reduceEditor`), a small
  * page so a couple one-line paragraphs leave leftover room, and a mid-doc
  * `SECTION_BREAK` so section 2 lands on page 2 with section 1 NOT filling page 1.
  */
 import { topLevelBlockIds } from "../../state";
 import { describe, it, expect } from "vitest";
-import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, getBlock, createPosition, render, cascadePass, type EditorConfig, type PageConfig, type EditorState, type BlockId } from "../../index";
+import { createEditor, type EditorConfig, type PageConfig, type Editor, type BlockId, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, getBlock, createPosition, render, cascadePass } from "../../index";
 import { layoutTree } from "@taleweaver/print";
 import type { PageBox } from "@taleweaver/print";
 import type { LayoutBox } from "@taleweaver/print";
@@ -30,7 +30,7 @@ import type { VirtualLayoutTree } from "@taleweaver/print";
 const measurer = createMockShaper(8, 16);
 
 /** Build the layout tree the backend driver would (render → cascade → layout). */
-function layoutOf(editor: EditorState, config: EditorConfig): LayoutBox | VirtualLayoutTree {
+function layoutOf(editor: Editor, config: EditorConfig): LayoutBox | VirtualLayoutTree {
   const rendered = render(editor.document, config.componentRegistry, config.attrRegistry);
   const cascaded = cascadePass(rendered.root);
   return layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
@@ -56,13 +56,15 @@ function makeConfig(pageBlockSize = 64): EditorConfig {
 }
 
 /** Build an N-paragraph doc in one O(N) PASTE (one paragraph per line). */
-function buildPasted(config: EditorConfig, n: number): EditorState {
+function buildPasted(config: EditorConfig, n: number): Editor {
   const text = Array.from({ length: n }, (_, i) => `para ${i}`).join("\n");
-  return reduceEditor(createInitialEditorState(config), { type: "PASTE", text });
+  const editor = createEditor(config);
+  editor.dispatch({ type: "PASTE", text });
+  return editor;
 }
 
 /** The document root's direct children, in order. */
-function rootChildIds(editor: EditorState): BlockId[] {
+function rootChildIds(editor: Editor): BlockId[] {
   const root = getBlock(editor.document, editor.document.rootId); // the root holds sections
   if (root === null || root.firstChildId === null) return [];
   const ids: BlockId[] = [];
@@ -75,7 +77,7 @@ function rootChildIds(editor: EditorState): BlockId[] {
 }
 
 /** The nth top-level block id (paragraphs, pre-section-break). */
-function nthBlockId(editor: EditorState, n: number): BlockId {
+function nthBlockId(editor: Editor, n: number): BlockId {
   const ids = topLevelBlockIds(editor.document);
   const id = ids[n];
   if (id === undefined) throw new Error(`no block ${n}`);
@@ -118,11 +120,8 @@ describe("section pagination — positioning honors the section page-break cap (
     // (64px), so before the fix page 0's positioning greedily pulls in section
     // B's leading block(s) — the leak.
     const boundary = nthBlockId(editor, 1);
-    editor = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: { anchor: createPosition(boundary, 0), focus: createPosition(boundary, 0) } },
-    );
-    editor = reduceEditor(editor, { type: "SECTION_BREAK" });
+    editor.dispatch({ type: "SET_SELECTION", selection: { anchor: createPosition(boundary, 0), focus: createPosition(boundary, 0) } });
+    editor.dispatch({ type: "SECTION_BREAK" });
 
     // Root now holds two sections.
     const sectionIds = rootChildIds(editor);
@@ -138,11 +137,8 @@ describe("section pagination — positioning honors the section page-break cap (
     const secA = nth(sectionIds, 0, "section");
     const firstParaOfA = getBlock(editor.document, secA)?.firstChildId;
     if (firstParaOfA == null) throw new Error("section A has no first child");
-    editor = reduceEditor(
-      editor,
-      { type: "SET_SELECTION", selection: { anchor: createPosition(firstParaOfA, 2), focus: createPosition(firstParaOfA, 2) } },
-    );
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+    editor.dispatch({ type: "SET_SELECTION", selection: { anchor: createPosition(firstParaOfA, 2), focus: createPosition(firstParaOfA, 2) } });
+    editor.dispatch({ type: "SPLIT_NODE" });
 
     // The layout must be virtual (paginated mode).
     const tree = layoutOf(editor, config);

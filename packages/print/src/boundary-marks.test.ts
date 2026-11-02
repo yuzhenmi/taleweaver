@@ -17,7 +17,7 @@ import {
   createDecorationSet,
   createDefaultAttrRegistry,
   createDefaultComponentRegistry,
-  createEditorStateFromDocument,
+  createEditor,
   createJsonDocumentSerializer,
   createMockShaper,
   createPosition,
@@ -29,14 +29,13 @@ import {
   inlineContentLength,
   setBlockAttrs,
   paragraphComponent,
-  reduceEditor,
   render,
   suggestionHighlightDecorations,
   text,
   type BlockId,
   type EditorAction,
   type EditorConfig,
-  type EditorState,
+  type Editor,
   type PageConfig,
   type Document,
   type TextShaper,
@@ -116,9 +115,9 @@ const para = (pid: string, t: string, key?: Record<string, string>): Record<stri
 });
 
 /** Run `actions` (caret at `(b, o)` first) against `document` with `config`. */
-function run(document: Document, b: BlockId, o: number, config: EditorConfig, ...actions: EditorAction[]): EditorState {
-  let e = createEditorStateFromDocument(document, createSpan(createPosition(b, o), createPosition(b, o)), config);
-  for (const a of actions) e = reduceEditor(e, a);
+function run(document: Document, b: BlockId, o: number, config: EditorConfig, ...actions: EditorAction[]): Editor {
+  let e = createEditor(config, { document, selection: createSpan(createPosition(b, o), createPosition(b, o)) });
+  for (const a of actions) e.dispatch(a);
   return e;
 }
 
@@ -299,8 +298,9 @@ describe("print ¶ — placement", () => {
     const wideGlyph = createMockShaper(12, 16);
     let e = run(doc(["A", "B"]), id("p1"), 0, base, { type: "INSERT_TABLE", rows: 1, cols: 2 });
     const cellPara = e.selection.focus.blockId;
-    e = reduceEditor(e, { type: "INSERT_TEXT", text: `a${" ".repeat(60)}` });
-    e = reduceEditor({ ...e, config: alice }, { type: "SPLIT_NODE" });
+    e.dispatch({ type: "INSERT_TEXT", text: `a${" ".repeat(60)}` });
+    e.setConfig(alice);
+    e.dispatch({ type: "SPLIT_NODE" });
     const cellHead = headOf(e.document, cellPara); // Enter at the end — the head holds the text
     const tree = lay(e.document, WIDTH, wideGlyph);
     const m = getBoundaryMarkIndex(tree).find((r) => r.box.boundaryMark.blockId === cellHead);
@@ -397,9 +397,12 @@ describe("print ¶ — incremental + paginated layout", () => {
     };
     expect(marks()).toEqual([]); // warm the layout cache
     const suggesting = { ...ctx.config, suggestingAuthor: "alice" };
-    ctx = { ...ctx, editor: reduceEditor(reduceEditor({ ...ctx.editor, config: suggesting }, caret(id("p1"), 0)), { type: "DELETE_BACKWARD" }) };
+    ctx.editor.setConfig(suggesting);
+    ctx.editor.dispatch(caret(id("p1"), 0));
+    ctx.editor.dispatch({ type: "DELETE_BACKWARD" });
     expect(marks().map((m) => [m.box.boundaryMark.blockId, m.box.boundaryMark.offset, m.x, m.pageIndex])).toEqual([[id("p0"), 4, 32, 0]]);
-    ctx = { ...ctx, editor: reduceEditor({ ...ctx.editor, config: ctx.config }, { type: "UNDO" }) };
+    ctx.editor.setConfig(ctx.config);
+    ctx.editor.dispatch({ type: "UNDO" });
     expect(marks()).toEqual([]);
   });
 
@@ -427,7 +430,7 @@ describe("print ¶ — interaction", () => {
     const { document, tree } = joined(["Anna", "Rosa"]);
     expectAtCaret(document, tree, id("p0"), 4);
     let ctx: NavCtx = makeNavEditorFromDocument(document, { suggestingAuthor: "alice" });
-    ctx = { ...ctx, editor: reduceEditor(ctx.editor, caret(id("p0"), 0)) };
+    ctx.editor.dispatch(caret(id("p0"), 0));
     ctx = nav(ctx, { type: "MOVE_LINE_BOUNDARY", boundary: "end" });
     expect(ctx.editor.selection.focus).toEqual(createPosition(id("p0"), 4));
     ctx = nav(ctx, { type: "MOVE_CURSOR", direction: "forward" });
@@ -473,8 +476,9 @@ describe("print ¶ — interaction", () => {
     const wideGlyph = createMockShaper(12, 16);
     let e = run(doc(["A", "B"]), id("p1"), 0, base, { type: "INSERT_TABLE", rows: 1, cols: 2 });
     const cellPara = e.selection.focus.blockId;
-    e = reduceEditor(e, { type: "INSERT_TEXT", text: `a${" ".repeat(60)}` });
-    e = reduceEditor({ ...e, config: alice }, { type: "SPLIT_NODE" });
+    e.dispatch({ type: "INSERT_TEXT", text: `a${" ".repeat(60)}` });
+    e.setConfig(alice);
+    e.dispatch({ type: "SPLIT_NODE" });
     const cellHead = headOf(e.document, cellPara); // the head holds the text and the keyed ¶
     const document = setBlockAttrs(e.document, cellHead, { shift: true }).document;
     const tree = lay(document, WIDTH, wideGlyph);
@@ -584,8 +588,8 @@ describe("print — selection ¶ extension: anchored at the caret of (P, len), a
   function cellDoc(text: string, attrs?: Record<string, unknown>): { document: Document; head: BlockId; tail: BlockId } {
     let e = run(doc(["A", "B"]), id("p1"), 0, base, { type: "INSERT_TABLE", rows: 1, cols: 2 });
     const tail = e.selection.focus.blockId;
-    e = reduceEditor(e, { type: "INSERT_TEXT", text: `${text}${" ".repeat(60)}` });
-    e = reduceEditor(e, { type: "SPLIT_NODE" });
+    e.dispatch({ type: "INSERT_TEXT", text: `${text}${" ".repeat(60)}` });
+    e.dispatch({ type: "SPLIT_NODE" });
     const head = headOf(e.document, tail); // Enter at the end — the head holds the text
     return { document: attrs === undefined ? e.document : setBlockAttrs(e.document, head, attrs).document, head, tail };
   }
@@ -673,8 +677,10 @@ describe("print section-break label (a tracked section-end item)", () => {
 
   it("section-join: struck; vertical-rl: the label runs down the line from the caret", () => {
     const split = run(doc(["A", "B"]), id("p1"), 0, base, { type: "SECTION_BREAK" });
-    const j = reduceEditor(reduceEditor({ ...split, config: alice }, caret(id("p1"), 0)), { type: "DELETE_BACKWARD" });
-    const jm = sectionMarkOf(lay(j.document));
+    split.setConfig(alice);
+    split.dispatch(caret(id("p1"), 0));
+    split.dispatch({ type: "DELETE_BACKWARD" });
+    const jm = sectionMarkOf(lay(split.document));
     expect(jm.box.boundaryMark.mark.kind).toBe("section-join");
     expect(jm.box.computedStyle.lineThrough).toBe(true);
     expect(jm.box.computedStyle.underline).toBe(false);
@@ -719,9 +725,12 @@ describe("print section-break label (a tracked section-end item)", () => {
     };
     expect(view()).toEqual({ marks: 0, p1: 0 });
     const suggesting = { ...ctx.config, suggestingAuthor: "alice" };
-    ctx = { ...ctx, editor: reduceEditor(reduceEditor({ ...ctx.editor, config: suggesting }, caret(id("p1"), 0)), { type: "SECTION_BREAK" }) };
+    ctx.editor.setConfig(suggesting);
+    ctx.editor.dispatch(caret(id("p1"), 0));
+    ctx.editor.dispatch({ type: "SECTION_BREAK" });
     expect(view()).toEqual({ marks: 1, p1: 1 });
-    ctx = { ...ctx, editor: reduceEditor({ ...ctx.editor, config: ctx.config }, { type: "UNDO" }) };
+    ctx.editor.setConfig(ctx.config);
+    ctx.editor.dispatch({ type: "UNDO" });
     expect(view()).toEqual({ marks: 0, p1: 0 });
   });
 });

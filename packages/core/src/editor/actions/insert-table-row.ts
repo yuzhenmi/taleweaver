@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { resolveTableContext, insertTableRow, insertTableRowSpanAware, productionAllocator } from "../../state";
 import type { ActionOf } from "../editor-action";
@@ -17,7 +17,7 @@ import type { ActionOf } from "../editor-action";
  * entry (the op is a single transaction; classified `"command"`).
  */
 export function handleInsertTableRow(
-  editor: EditorState,
+  editor: Editor,
   { position }: ActionOf<"INSERT_TABLE_ROW">,
 ): Edit | null {
   const ctx = resolveTableContext(editor.document, editor.selection.focus.blockId);

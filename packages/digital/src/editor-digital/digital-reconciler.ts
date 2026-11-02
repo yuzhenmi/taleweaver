@@ -3,7 +3,8 @@ import {
   getBlock,
   changedDecorationBlocks,
   EMPTY_DECORATION_SET,
-  type EditorState,
+  type Editor,
+  type EditorSnapshot,
   type ComponentRegistry,
   type AttrRegistry,
   type BlockId,
@@ -28,14 +29,14 @@ import {
 } from "./digital-selection-bridge";
 
 export interface DigitalReconciler {
-  mount(container: HTMLElement, initial: EditorState, decorations?: DecorationSet): void;
+  mount(container: HTMLElement, initial: EditorSnapshot, decorations?: DecorationSet): void;
   /**
    * Bring the DOM in line with `next` (and `decorations`). Incremental whenever `next`
    * carries `lastDirtyIds`: render + cascade reuse unchanged subtrees by reference, and only
    * DOM units whose styled node changed — or whose decorations changed — are rebuilt.
    * `prev` is accepted for API symmetry; the reconciler diffs against what it last rendered.
    */
-  reconcile(prev: EditorState | null, next: EditorState, isComposing: boolean, decorations?: DecorationSet): void;
+  reconcile(prev: EditorSnapshot | null, next: Pick<Editor, "document" | "selection" | "lastDirtyIds">, isComposing: boolean, decorations?: DecorationSet): void;
   /**
    * The selection bridge this reconciler owns (created on `mount`, cleared on `destroy`), or null
    * before mount. The controller reuses it for `domToPosition` / `readDomSelection` so there is ONE
@@ -197,7 +198,7 @@ export function createDigitalReconciler(
     materialize(rendered.cascaded, rendered.decorations);
   }
 
-  function mount(c: HTMLElement, initial: EditorState, decorations: DecorationSet = EMPTY_DECORATION_SET): void {
+  function mount(c: HTMLElement, initial: EditorSnapshot, decorations: DecorationSet = EMPTY_DECORATION_SET): void {
     container = c;
     const win = doc.defaultView ?? window;
     // Thread the authoritative `blockElMap` into the bridge so `positionToDom` resolves blocks via
@@ -432,8 +433,8 @@ export function createDigitalReconciler(
   }
 
   function reconcile(
-    _prev: EditorState | null,
-    next: EditorState,
+    _prev: EditorSnapshot | null,
+    next: Pick<Editor, "document" | "selection" | "lastDirtyIds">,
     isComposing: boolean,
     decorations: DecorationSet = rendered?.decorations ?? EMPTY_DECORATION_SET,
   ): void {

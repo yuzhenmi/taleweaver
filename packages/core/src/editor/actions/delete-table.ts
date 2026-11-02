@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { resolveTableContext } from "../../state";
 import { deleteWholeTable } from "./helpers/delete-whole-table";
@@ -11,7 +11,7 @@ import { deleteWholeTable } from "./helpers/delete-whole-table";
  * always safe (Google Docs allows it on merged-cell tables), so it is NOT gated
  * on `ctx.hasSpans`. Caret-after semantics: see `deleteWholeTable`.
  */
-export function handleDeleteTable(editor: EditorState): Edit | null {
+export function handleDeleteTable(editor: Editor): Edit | null {
   const ctx = resolveTableContext(editor.document, editor.selection.focus.blockId);
   if (ctx === null) return null;
   return deleteWholeTable(editor, ctx.tableId);

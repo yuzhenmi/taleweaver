@@ -1,4 +1,4 @@
-import type { EditorState } from "../editor-state";
+import type { Editor } from "../editor";
 import type { Edit } from "../edit";
 import { createPosition, createSpan, selectionContextOf } from "../../state";
 import { firstBoundaryBlock } from "./helpers/first-boundary-block";
@@ -17,7 +17,7 @@ import type { ActionOf } from "../editor-action";
  * `handleExpandDocumentBoundary`; the only difference is the result is collapsed.
  */
 export function handleMoveDocumentBoundary(
-  editor: EditorState,
+  editor: Editor,
   { boundary }: ActionOf<"MOVE_DOCUMENT_BOUNDARY">,
 ): Edit | null {
   const ctxRoot = selectionContextOf(editor.document, editor.selection.focus.blockId);
