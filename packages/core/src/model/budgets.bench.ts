@@ -20,13 +20,21 @@
 import { afterAll, bench, describe, expect } from "vitest";
 import * as Y from "yjs";
 import { Model } from "./model";
-import type { Document } from "./derive";
+import type { Document } from "./document/types";
 import { ModelHistory } from "./history";
-import { PIECE_SOFT_MAX, createEditorOrigin, flowOf, getDocMap, newParagraphMark, pieceStructCount, writablePoint, type PiecePoint } from "./storage";
-import { PARAS_PER_PAGE, buildPages } from "./test-helpers";
-import { deleteSelection, insertText } from "./commands";
+import { getDocMap } from "./storage/doc-map";
+import { createEditorOrigin } from "./storage/history-hooks";
+import { PIECE_SOFT_MAX } from "./storage/limits";
+import { flowOf } from "./storage/map-reads";
+import { newParagraphMark } from "./storage/new-items";
+import { pieceStructCount } from "./storage/pieces";
+import { type PiecePoint, writablePoint } from "./storage/writable-point";
+import { PARAS_PER_PAGE, buildPages } from "./test-helpers/build-pages";
+import { deleteSelection } from "./commands/delete-selection";
+import { insertText } from "./commands/insert-text";
 import { applyPlan } from "./plan";
-import { positionAtPoint, caretAt, type ModelSelection } from "./position";
+import { type ModelSelection, caretAt } from "./position/model-position";
+import { positionAtPoint } from "./position/position-at-point";
 
 declare const console: { log(...args: unknown[]): void; warn(...args: unknown[]): void };
 declare const process: { memoryUsage(): { heapUsed: number } };

@@ -7,7 +7,7 @@
  * props are missing / mistyped, reads as an atomic PLACEHOLDER of its stored size.
  * Its stored data is never touched (valid by definition, nothing rewritten).
  */
-import type { Scalar } from "./storage";
+import type { Scalar } from "./storage/scalar";
 
 export type PropType = "string" | "number" | "boolean";
 

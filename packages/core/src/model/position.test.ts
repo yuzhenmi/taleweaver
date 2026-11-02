@@ -1,12 +1,24 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { Harness, typeLines } from "./command-test-helpers";
-import { deleteBackward, deleteForward, deleteSelection, insertText, splitParagraph } from "./commands";
-import { insertObject, setObjectProps } from "./commands-insert";
-import { fromRelativePosition, mapIndex, mapPosition, toRelativePosition } from "./mapping";
-import { paragraphLayout, pointAfter, pointBefore, position, positionAtPoint, resolvePosition } from "./position";
-import { PIECE_SOFT_MAX, newObject, newParagraphMark, newTableOfContents, pieceStructCount } from "./storage";
-import { mapAt } from "./test-helpers";
+import { Harness, typeLines } from "./test-helpers/harness";
+import { deleteBackward } from "./commands/delete-backward";
+import { deleteForward } from "./commands/delete-forward";
+import { deleteSelection } from "./commands/delete-selection";
+import { insertText } from "./commands/insert-text";
+import { splitParagraph } from "./commands/split-paragraph";
+import { insertObject } from "./commands/insert-object";
+import { setObjectProps } from "./commands/set-object-props";
+import { mapIndex, mapPosition } from "./mapping/map-position";
+import { fromRelativePosition, toRelativePosition } from "./mapping/relative-position";
+import { position } from "./position/model-position";
+import { paragraphLayout } from "./position/paragraph-layout";
+import { positionAtPoint } from "./position/position-at-point";
+import { resolvePosition } from "./position/resolve-position";
+import { pointAfter, pointBefore } from "./position/storage-points";
+import { PIECE_SOFT_MAX } from "./storage/limits";
+import { newObject, newParagraphMark, newTableOfContents } from "./storage/new-items";
+import { pieceStructCount } from "./storage/pieces";
+import { mapAt } from "./test-helpers/fixture";
 
 function doc(text: string): Harness {
   const h = new Harness();

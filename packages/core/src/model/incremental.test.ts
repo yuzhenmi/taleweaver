@@ -6,23 +6,17 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { deriveDocument, type Document, type FlowState, type TreeKind } from "./derive";
+import { deriveDocument } from "./derive/derive-document";
+import type { Document, FlowState, TreeKind } from "./document/types";
 import { Model } from "./model";
 import { BUILTIN_OBJECT_KINDS } from "./object-kinds";
+import { createDocMap, getDocMap } from "./storage/doc-map";
+import { createEditorOrigin, flowContainerDeleteFilter } from "./storage/history-hooks";
+import { typeId } from "./storage/item-id";
+import { BODIES_KEY, BODY_KEY, FLOW_KEY, LIST_DEFS_KEY, PIECES_KEY } from "./storage/keys";
+import { SUBFLOW_DEPTH_CAP } from "./storage/limits";
+import { childMap, flowOf, kindOf } from "./storage/map-reads";
 import {
-  BODIES_KEY,
-  BODY_KEY,
-  FLOW_KEY,
-  LIST_DEFS_KEY,
-  PIECES_KEY,
-  SUBFLOW_DEPTH_CAP,
-  childMap,
-  createDocMap,
-  createEditorOrigin,
-  flowOf,
-  getDocMap,
-  insertPieceAfter,
-  kindOf,
   newBody,
   newFlow,
   newFootnote,
@@ -33,15 +27,19 @@ import {
   newSectionBreak,
   newSubflow,
   newTableOfContents,
-  typeId,
-  writablePoint,
-  flowContainerDeleteFilter,
-} from "./storage";
-import { childrenOf, expectSameVersion, fixture, idOf, mapAt, textOf } from "./test-helpers";
+} from "./storage/new-items";
+import { insertPieceAfter } from "./storage/pieces";
+import { writablePoint } from "./storage/writable-point";
+import { expectSameVersion } from "./test-helpers/expect-same-version";
+import { childrenOf, fixture, idOf, mapAt, textOf } from "./test-helpers/fixture";
 import { applyPlan } from "./plan";
-import { type ModelPosition, paragraphLayout, positionAtPoint } from "./position";
-import { mapPosition } from "./mapping";
-import { type RandomCommand, envNumber, lengthOf, paragraphIds, pick, randomCommand, rng, seedChunks, wellFormed } from "./oracle/generate";
+import type { ModelPosition } from "./position/model-position";
+import { paragraphLayout } from "./position/paragraph-layout";
+import { positionAtPoint } from "./position/position-at-point";
+import { mapPosition } from "./mapping/map-position";
+import { lengthOf, paragraphIds, wellFormed } from "./oracle/document-probes";
+import { envNumber, pick, rng, seedChunks } from "./oracle/random";
+import { type RandomCommand, randomCommand } from "./oracle/random-command";
 
 /** Every live piece (top-level and sub-flow) of every flow, plus the flow arrays. */
 function storageOf(docMap: Y.Map<unknown>): { pieces: Y.Text[]; flows: Y.Array<Y.Text>[]; subArrays: Y.Array<Y.Text>[]; maps: Y.Map<unknown>[] } {

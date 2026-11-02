@@ -16,12 +16,22 @@
  */
 import * as Y from "yjs";
 import type { BlockId } from "./block";
-import { type Document, Working, deriveAll, deriveDocument, deriveFlow, deriveFootnote, readListDefs, removeFlow, writeSections } from "./derive";
-import { updateFlow, type DeltaOp, type FlowChange, type PieceChange } from "./update";
-import { recordStep } from "./mapping";
+import { deriveAll, deriveDocument } from "./derive/derive-document";
+import { deriveFlow, deriveFootnote, removeFlow } from "./derive/derive-flow";
+import { readListDefs } from "./derive/list-defs";
+import { writeSections } from "./derive/sections";
+import { Working } from "./derive/working";
+import type { Document } from "./document/types";
+import type { DeltaOp, FlowChange, PieceChange } from "./update/flow-change";
+import { updateFlow } from "./update/update-flow";
+import { recordStep } from "./mapping/map-position";
 import { footnoteBodyId, templateBodyId } from "./ids";
-import type { FootnoteRef } from "./scan";
-import { BODIES_KEY, BODY_KEY, COMMENTS_KEY, FLOW_KEY, ITEM_KINDS, LIST_DEFS_KEY, ROOT_MAP, SUGGESTIONS_KEY, childMap, flowOf, getDocMap, itemId, kindOf, pieceHoldingSubflow, typeId, type HasItem } from "./storage";
+import type { FootnoteRef } from "./scan/tokens";
+import { getDocMap } from "./storage/doc-map";
+import { type HasItem, itemId, typeId } from "./storage/item-id";
+import { BODIES_KEY, BODY_KEY, COMMENTS_KEY, FLOW_KEY, ITEM_KINDS, LIST_DEFS_KEY, ROOT_MAP, SUGGESTIONS_KEY } from "./storage/keys";
+import { childMap, flowOf, kindOf } from "./storage/map-reads";
+import { pieceHoldingSubflow } from "./storage/pieces";
 import { BUILTIN_OBJECT_KINDS, type ObjectKindRegistry } from "./object-kinds";
 
 export interface ModelChange {

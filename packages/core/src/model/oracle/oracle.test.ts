@@ -8,12 +8,13 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { deriveDocument } from "../derive";
+import { deriveDocument } from "../derive/derive-document";
 import { BUILTIN_OBJECT_KINDS } from "../object-kinds";
-import { ITEM_KINDS, KIND_KEY } from "../storage";
-import { fixture } from "../test-helpers";
-import { envNumber } from "./generate";
-import { firingsOf, runSeed } from "./oracle";
+import { ITEM_KINDS, KIND_KEY } from "../storage/keys";
+import { fixture } from "../test-helpers/fixture";
+import { envNumber } from "./random";
+import { firingsOf } from "./firings";
+import { runSeed } from "./run-seed";
 
 declare const console: { log(...args: unknown[]): void };
 

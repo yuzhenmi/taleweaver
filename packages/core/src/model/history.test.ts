@@ -6,35 +6,33 @@
  */
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { Harness, pair, sync, typeLines } from "./command-test-helpers";
-import {
-  deleteBackward,
-  deleteForward,
-  deleteSelection,
-  insertText,
-  plan,
-  selectAll,
-  setMarks,
-  setParagraphAttrs,
-  splitParagraph,
-} from "./commands";
-import {
-  deleteBlockObject,
-  insertFootnote,
-  insertHeaderFooter,
-  insertHorizontalRule,
-  insertMarker,
-  insertObject,
-  insertSectionBreak,
-  insertTableOfContents,
-  paste,
-  removeHeaderFooter,
-  removeMarker,
-  setObjectProps,
-} from "./commands-insert";
-import { mapPosition } from "./mapping";
-import { position } from "./position";
-import { ITEM_KINDS, PIECES_KEY, PIECE_SOFT_MAX, kindOf } from "./storage";
+import { Harness, pair, sync, typeLines } from "./test-helpers/harness";
+import { deleteBackward } from "./commands/delete-backward";
+import { deleteForward } from "./commands/delete-forward";
+import { deleteSelection } from "./commands/delete-selection";
+import { plan } from "./commands/helpers/build-plan";
+import { insertText } from "./commands/insert-text";
+import { selectAll } from "./commands/selections";
+import { setMarks } from "./commands/set-marks";
+import { setParagraphAttrs } from "./commands/set-paragraph-attrs";
+import { splitParagraph } from "./commands/split-paragraph";
+import { deleteBlockObject } from "./commands/delete-block-object";
+import { insertFootnote } from "./commands/insert-footnote";
+import { insertHeaderFooter } from "./commands/insert-header-footer";
+import { insertHorizontalRule } from "./commands/insert-horizontal-rule";
+import { insertMarker } from "./commands/insert-marker";
+import { insertObject } from "./commands/insert-object";
+import { insertSectionBreak } from "./commands/insert-section-break";
+import { insertTableOfContents } from "./commands/insert-table-of-contents";
+import { paste } from "./commands/paste";
+import { removeHeaderFooter } from "./commands/remove-header-footer";
+import { removeMarker } from "./commands/remove-marker";
+import { setObjectProps } from "./commands/set-object-props";
+import { mapPosition } from "./mapping/map-position";
+import { position } from "./position/model-position";
+import { ITEM_KINDS, PIECES_KEY } from "./storage/keys";
+import { PIECE_SOFT_MAX } from "./storage/limits";
+import { kindOf } from "./storage/map-reads";
 import { UNDO_COALESCE_PAUSE_MS } from "./history";
 
 const type = (h: Harness, text: string): void => typeLines(h, text, insertText, splitParagraph);

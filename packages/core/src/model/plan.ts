@@ -1,7 +1,7 @@
 /**
  * Commands as Plan + Apply (core-architecture G1: Yjs has no transaction abort).
  *
- *   - PLAN (`commands.ts`, `commands-insert.ts`): read ONE version, validate, and build
+ *   - PLAN (`commands/`): read ONE version, validate, and build
  *     the primitive writes as data. Every throw happens here; a command that does
  *     nothing returns null.
  *   - APPLY ({@link applyPlan}): run the writes in ONE `Y.transact` with the
@@ -19,10 +19,14 @@
  */
 import * as Y from "yjs";
 import type { ReadonlyAttrs } from "./block";
-import type { Document } from "./derive";
+import type { Document } from "./document/types";
 import type { Model } from "./model";
-import type { ModelSelection } from "./position";
-import { PIECE_SOFT_MAX, SUBFLOW_DEPTH_CAP, arrayOfPiece, newSubflow, pieceDepth, pieceIndex, writablePoint, type Scalar } from "./storage";
+import type { ModelSelection } from "./position/model-position";
+import { PIECE_SOFT_MAX, SUBFLOW_DEPTH_CAP } from "./storage/limits";
+import { newSubflow } from "./storage/new-items";
+import { arrayOfPiece, pieceDepth, pieceIndex } from "./storage/pieces";
+import type { Scalar } from "./storage/scalar";
+import { writablePoint } from "./storage/writable-point";
 
 /** One inserted storage unit: text with its exact formatting, or an embedded item map (detached). */
 export type InsertUnit =
@@ -43,7 +47,7 @@ export type Write =
 export interface Plan {
   /**
    * The version the plan was read from. Holding a plan (or any old Document) keeps
-   * the forward chain of every later version alive (`mapping.ts`): drop stale plans.
+   * the forward chain of every later version alive (`mapping/map-position.ts`): drop stale plans.
    */
   readonly base: Document;
   readonly writes: readonly Write[];

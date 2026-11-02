@@ -1,15 +1,13 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { deriveDocument } from "./derive";
-import { getBlock, getEmbedContent, getTemplateContent, listLevelConfig, markerKey, markerRanges, resolveBlock } from "./document";
+import { deriveDocument } from "./derive/derive-document";
+import { getBlock, getEmbedContent, getTemplateContent, resolveBlock } from "./document/blocks";
+import { listLevelConfig } from "./document/list-levels";
+import { markerKey, markerRanges } from "./document/markers";
 import { BUILTIN_OBJECT_KINDS, objectKindRegistry } from "./object-kinds";
+import { BODIES_KEY, LIST_DEFS_KEY, META_MAP, SCHEMA_VERSION } from "./storage/keys";
+import { childMap, flowOf } from "./storage/map-reads";
 import {
-  BODIES_KEY,
-  flowOf,
-  LIST_DEFS_KEY,
-  META_MAP,
-  SCHEMA_VERSION,
-  childMap,
   newBody,
   newFootnote,
   newHorizontalRule,
@@ -19,8 +17,8 @@ import {
   newSectionBreak,
   newSubflow,
   newTableOfContents,
-} from "./storage";
-import { childrenOf, fixture, idOf, mapAt, textOf } from "./test-helpers";
+} from "./storage/new-items";
+import { childrenOf, fixture, idOf, mapAt, textOf } from "./test-helpers/fixture";
 
 const derive = (doc: Y.Doc) => deriveDocument(doc, BUILTIN_OBJECT_KINDS);
 

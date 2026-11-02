@@ -23,12 +23,15 @@
  * pipeline like any other write (one version, dirty ids, exact mapping).
  */
 import * as Y from "yjs";
-import type { Document } from "./derive";
+import type { Document } from "./document/types";
 import type { Model } from "./model";
 import { applyPlan, type Plan } from "./plan";
-import { comparePoints, paragraphLayout, pointBefore, type Assoc, type ModelPosition, type ModelSelection } from "./position";
-import { fromRelativePosition, toRelativePosition } from "./mapping";
-import { flowContainerDeleteFilter, ROOT_MAP } from "./storage";
+import type { Assoc, ModelPosition, ModelSelection } from "./position/model-position";
+import { paragraphLayout } from "./position/paragraph-layout";
+import { comparePoints, pointBefore } from "./position/storage-points";
+import { fromRelativePosition, toRelativePosition } from "./mapping/relative-position";
+import { flowContainerDeleteFilter } from "./storage/history-hooks";
+import { ROOT_MAP } from "./storage/keys";
 
 /** Pause (ms) that ends a typing run (today's `UNDO_COALESCE_PAUSE_MS`). */
 export const UNDO_COALESCE_PAUSE_MS = 500;

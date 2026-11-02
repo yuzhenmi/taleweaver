@@ -18,14 +18,21 @@
  */
 import { afterAll, bench, describe, expect } from "vitest";
 import { Model } from "./model";
-import { deriveDocument } from "./derive";
+import { deriveDocument } from "./derive/derive-document";
 import { BUILTIN_OBJECT_KINDS } from "./object-kinds";
 import * as Y from "yjs";
-import { PIECE_SOFT_MAX, createDocMap, createEditorOrigin, flowOf, getDocMap, newParagraphMark, pieceStructCount, newSectionBreak, pieceDepth, writablePoint, type PiecePoint } from "./storage";
-import { buildPages as build } from "./test-helpers";
-import { insertText } from "./commands";
+import { createDocMap, getDocMap } from "./storage/doc-map";
+import { createEditorOrigin } from "./storage/history-hooks";
+import { PIECE_SOFT_MAX } from "./storage/limits";
+import { flowOf } from "./storage/map-reads";
+import { newParagraphMark, newSectionBreak } from "./storage/new-items";
+import { pieceDepth, pieceStructCount } from "./storage/pieces";
+import { type PiecePoint, writablePoint } from "./storage/writable-point";
+import { buildPages as build } from "./test-helpers/build-pages";
+import { insertText } from "./commands/insert-text";
 import { applyPlan } from "./plan";
-import { positionAtPoint, caretAt, type ModelSelection } from "./position";
+import { type ModelSelection, caretAt } from "./position/model-position";
+import { positionAtPoint } from "./position/position-at-point";
 
 // Module-scoped: core's headless lib has no `console` typing.
 declare const console: { log(...args: unknown[]): void };

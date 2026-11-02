@@ -1,19 +1,12 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { PMap } from "./pmap";
-import {
-  PIECE_SOFT_MAX,
-  createEditorOrigin,
-  flowContainerDeleteFilter,
-  insertPieceAfter,
-  newFootnote,
-  newParagraphMark,
-  pieceDepth,
-  pieceIndex,
-  pieceStructCount,
-  writablePoint,
-} from "./storage";
-import { fixture } from "./test-helpers";
+import { createEditorOrigin, flowContainerDeleteFilter } from "./storage/history-hooks";
+import { PIECE_SOFT_MAX } from "./storage/limits";
+import { newFootnote, newParagraphMark } from "./storage/new-items";
+import { insertPieceAfter, pieceDepth, pieceIndex, pieceStructCount } from "./storage/pieces";
+import { writablePoint } from "./storage/writable-point";
+import { fixture } from "./test-helpers/fixture";
 
 describe("pieces (X11) and sub-flows (X12)", () => {
   it("inserts a piece after another through the public Y.Array API", () => {

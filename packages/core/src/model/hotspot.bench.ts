@@ -18,8 +18,12 @@
 import { afterAll, bench, describe, expect } from "vitest";
 import * as Y from "yjs";
 import { Model } from "./model";
-import { createEditorOrigin, flowOf, getDocMap, pieceStructCount, writablePoint, type PiecePoint } from "./storage";
-import { buildPages } from "./test-helpers";
+import { getDocMap } from "./storage/doc-map";
+import { createEditorOrigin } from "./storage/history-hooks";
+import { flowOf } from "./storage/map-reads";
+import { pieceStructCount } from "./storage/pieces";
+import { type PiecePoint, writablePoint } from "./storage/writable-point";
+import { buildPages } from "./test-helpers/build-pages";
 
 declare const console: { log(...args: unknown[]): void };
 

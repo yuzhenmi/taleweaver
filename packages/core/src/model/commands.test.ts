@@ -5,38 +5,36 @@
  */
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { caretAt } from "./position";
-import { Harness, pair, sync, typeLines } from "./command-test-helpers";
-import {
-  deleteBackward,
-  deleteForward,
-  deleteSelection,
-  insertText,
-  objectSelection,
-  selectAll,
-  setMarks,
-  setParagraphAttrs,
-  splitParagraph,
-} from "./commands";
-import {
-  type FragmentItem,
-  deleteBlockObject,
-  insertFootnote,
-  insertHeaderFooter,
-  insertHorizontalRule,
-  insertMarker,
-  insertObject,
-  insertSectionBreak,
-  insertTableOfContents,
-  paste,
-  removeHeaderFooter,
-  removeMarker,
-  setObjectProps,
-} from "./commands-insert";
-import { markerRanges } from "./document";
+import { caretAt } from "./position/model-position";
+import { Harness, pair, sync, typeLines } from "./test-helpers/harness";
+import { deleteBackward } from "./commands/delete-backward";
+import { deleteForward } from "./commands/delete-forward";
+import { deleteSelection } from "./commands/delete-selection";
+import { insertText } from "./commands/insert-text";
+import { objectSelection, selectAll } from "./commands/selections";
+import { setMarks } from "./commands/set-marks";
+import { setParagraphAttrs } from "./commands/set-paragraph-attrs";
+import { splitParagraph } from "./commands/split-paragraph";
+import { deleteBlockObject } from "./commands/delete-block-object";
+import type { FragmentItem } from "./commands/helpers/fragment";
+import { insertFootnote } from "./commands/insert-footnote";
+import { insertHeaderFooter } from "./commands/insert-header-footer";
+import { insertHorizontalRule } from "./commands/insert-horizontal-rule";
+import { insertMarker } from "./commands/insert-marker";
+import { insertObject } from "./commands/insert-object";
+import { insertSectionBreak } from "./commands/insert-section-break";
+import { insertTableOfContents } from "./commands/insert-table-of-contents";
+import { paste } from "./commands/paste";
+import { removeHeaderFooter } from "./commands/remove-header-footer";
+import { removeMarker } from "./commands/remove-marker";
+import { setObjectProps } from "./commands/set-object-props";
+import { markerRanges } from "./document/markers";
 import { Model } from "./model";
 import { applyPlan } from "./plan";
-import { PIECE_SOFT_MAX, newObject, newTableOfContents, pieceStructCount, type Scalar } from "./storage";
+import { PIECE_SOFT_MAX } from "./storage/limits";
+import { newObject, newTableOfContents } from "./storage/new-items";
+import { pieceStructCount } from "./storage/pieces";
+import type { Scalar } from "./storage/scalar";
 
 const type = (h: Harness, text: string): void => typeLines(h, text, insertText, splitParagraph);
 
