@@ -73,7 +73,7 @@ function bodyInlineImages(document: Document, id: BlockId): EmbedItem[] {
 describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
   it("splices an inline-image EmbedItem at a collapsed caret and advances the caret by 1 (one embed = one offset)", () => {
     const editor = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 1 }); // between "a" and "b"
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt });
 
     // (a) an inline-image embed carrying the supplied properties is inserted at the caret offset
@@ -119,7 +119,7 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
     // configured suggestingAuthor must NOT throw or alter the direct-insert path.
     const suggestingConfig: EditorConfig = { ...config, suggestingAuthor: "alice" };
     const editor = buildEditor(buildDocumentWithBody(), { blockId: BODY_P, offset: 1 });
-    editor.config = suggestingConfig;
+    editor.setConfig(suggestingConfig);
     editor.dispatch({ type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt });
     expect(bodyInlineImages(editor.document, BODY_P).length).toBe(1);
   });

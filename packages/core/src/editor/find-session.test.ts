@@ -41,7 +41,7 @@ describe("createFindSession", () => {
     for (let i = 0; i < 3; i++) {
       const action = s.replaceActiveAction("aa");
       if (action === null) throw new Error("no action");
-      const prev = { ...e };
+      const prev = e.snapshot();
       e.dispatch(action);
       const r = s.refresh(e.document, transitionMapping(prev, e));
       seen.push(s.matches()[r.status.activeIndex]?.start ?? -1);
@@ -62,7 +62,7 @@ describe("createFindSession", () => {
     s.start(e.document, createPosition(p2, 4), "cat"); // active = p2's second "cat"
     expect(s.activeIndex()).toBe(2);
     e.dispatch({ type: "SET_SELECTION", selection: { anchor: createPosition(p1, 0), focus: createPosition(p1, 0) } });
-    const prev = { ...e };
+    const prev = e.snapshot();
     e.dispatch({ type: "INSERT_TEXT", text: "cat " }); // a new match BEFORE the active one
     const r = s.refresh(e.document, transitionMapping(prev, e));
     expect(r.status).toEqual({ total: 4, activeIndex: 3 }); // still p2's second "cat"

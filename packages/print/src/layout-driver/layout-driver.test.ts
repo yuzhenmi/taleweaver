@@ -138,7 +138,7 @@ describe("createLayoutDriver — Phase 0b relocation of the layout pipeline", ()
     expect(editor.lastDirtyIds).toBeNull();
     expect(driver.rebuild(editor)).toBe(first);
     // A width change still rebuilds.
-    const widened = { ...editor, containerWidth: editor.containerWidth + 10 };
+    const widened = { document: editor.document, config: editor.config, lastDirtyIds: editor.lastDirtyIds, containerWidth: editor.containerWidth + 10 };
     const second = driver.rebuild(widened);
     expect(second).not.toBe(first);
     // So does a page-setup change on the editor's config (same Document, width, no dirty set).
@@ -163,7 +163,7 @@ describe("createLayoutDriver — Phase 0b relocation of the layout pipeline", ()
     const firstPageBefore = tree1.getPage(0);
 
     // Edit at the END of the document (last block), then incrementally rebuild.
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "INSERT_TEXT", text: "X" });
     expect(editor.lastDirtyIds).not.toBeNull();
     const dirty = editor.lastDirtyIds;

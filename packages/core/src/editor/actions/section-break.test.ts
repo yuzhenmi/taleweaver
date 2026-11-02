@@ -102,7 +102,7 @@ describe("handleSectionBreak — SECTION_BREAK action", () => {
   it("breaks the doc into two flat sections at the cursor's boundary (cursor in p3)", () => {
     const initial = makeEditor("p3" as BlockId);
 
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "SECTION_BREAK" });
 
     // Positive direction: a real break produces a NEW state reference.

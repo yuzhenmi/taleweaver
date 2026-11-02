@@ -114,7 +114,7 @@ describe("object-selection action-handler guards (#525 T6)", () => {
 
   it("SPLIT_NODE (Enter) on an object selection is a no-op (same editor reference)", () => {
     const editor = objectEditor();
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SPLIT_NODE" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -127,7 +127,7 @@ describe("object-selection action-handler guards (#525 T6)", () => {
     // selection. The geometry-free core action it would otherwise dispatch —
     // DELETE_RANGE over the object's collapsed span — is itself a no-op.
     const editor = objectEditor();
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_RANGE", span: editor.selection });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);

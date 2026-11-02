@@ -48,7 +48,7 @@ describe("INSERT_LINE_BREAK", () => {
     it("in suggesting mode the break is an inline insertion revision (view, accept / reject, own Backspace)", () => {
     const suggesting = { ...config, suggestingAuthor: "alice" };
     const { editor, p } = typed("abcd", 2);
-    editor.config = suggesting;
+    editor.setConfig(suggesting);
     editor.dispatch({ type: "INSERT_LINE_BREAK" });
     expect(bodyBlockIds(editor.document)).toEqual([p]);
     const brk = (getBlock(editor.document, p)?.inlineContent?.items ?? []).find((i) => i.kind === "embed");
@@ -63,14 +63,14 @@ describe("INSERT_LINE_BREAK", () => {
     expect(kinds(editor)).toEqual(["abcd"]);
     // (Each case on a fresh document: ops write the shared Y.Doc.)
     const again = typed("abcd", 2).editor;
-    again.config = suggesting;
+    again.setConfig(suggesting);
     again.dispatch({ type: "INSERT_LINE_BREAK" });
     again.dispatch({ type: "ACCEPT_ALL_SUGGESTIONS" });
     expect(kinds(again)).toEqual(["ab", HARD_BREAK_EMBED_TYPE, "cd"]);
     expect(getSuggestions(again.document)).toHaveLength(0);
     // Backspace over the author's own pending break removes it for real.
     const own = typed("abcd", 2).editor;
-    own.config = suggesting;
+    own.setConfig(suggesting);
     own.dispatch({ type: "INSERT_LINE_BREAK" });
     own.dispatch({ type: "DELETE_BACKWARD" });
     expect(kinds(own)).toEqual(["abcd"]);
@@ -80,7 +80,7 @@ describe("INSERT_LINE_BREAK", () => {
     const suggesting = { ...config, suggestingAuthor: "alice" };
     const { editor, p } = typed("abcd", 1);
     editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(p, 1), createPosition(p, 3)) });
-    editor.config = suggesting;
+    editor.setConfig(suggesting);
     editor.dispatch({ type: "INSERT_LINE_BREAK" });
     expect(getSuggestions(editor.document).map((s) => s.kind).sort()).toEqual(["deletion", "insertion"]);
     expect(extractText(editor.document, createSpan(createPosition(p, 0), createPosition(p, 5)), builtinEmbedSerializer, "final")).toBe("a\nd");

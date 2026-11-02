@@ -126,7 +126,7 @@ describe("C.2c T7d — mid-header DELETE_BACKWARD reaches the op", () => {
   it("backspace after a char in a header paragraph deletes the preceding grapheme (in templateContents)", () => {
     const editor = buildEditor(buildDocumentWithHeaderBody(), { blockId: HDR_P1, offset: 3 });
     // "alpha", caret after "alp" → backspace removes "p".
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_BACKWARD" });
 
     // The header body block shrank — observable via getTemplateContent.
@@ -163,7 +163,7 @@ describe("C.2c T7d — mid-header DELETE_FORWARD reaches the op", () => {
   it("forward-delete before a char in a header paragraph removes that grapheme (in templateContents)", () => {
     const editor = buildEditor(buildDocumentWithHeaderBody(), { blockId: HDR_P1, offset: 2 });
     // "alpha", caret after "al" → forward-delete removes "p".
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_FORWARD" });
 
     expect(headerText(editor.document, HDR_P1)).toBe("alha");

@@ -61,7 +61,7 @@ const suggestingConfig: EditorConfig = { ...directConfig, suggestingAuthor: "ali
 
 /** Place a collapsed caret at `offset` of `paraId` (suggesting config). */
 function caretAt(editor: Editor, paraId: BlockId, offset: number): Editor {
-  editor.config = suggestingConfig;
+  editor.setConfig(suggestingConfig);
   editor.dispatch({
     type: "SET_SELECTION",
     selection: createSpan(createPosition(paraId, offset), createPosition(paraId, offset)),
@@ -76,7 +76,7 @@ function select(
   start: number,
   end: number,
 ): Editor {
-  editor.config = suggestingConfig;
+  editor.setConfig(suggestingConfig);
   editor.dispatch({
     type: "SET_SELECTION",
     selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),

@@ -190,14 +190,14 @@ describe("virtual-layout caret/paint regressions", () => {
     });
     paintFrame(ctx);
 
-    const before = { ...ctx.editor };
+    const before = ctx.editor.snapshot();
     const oracle = moveToLine(
       before.document,
       before.selection.focus,
       freshLayout(ctx, before),
       ctx.measurer,
       "up",
-      before.targetX,
+      ctx.editor.targetX,
     );
     if (oracle === null) throw new Error("oracle move failed");
 

@@ -13,7 +13,7 @@ describe("createMappingLog", () => {
     log.reset(e.document);
     const old = e.document;
     const apply = (action: EditorAction): void => {
-      const prev = { ...e };
+      const prev = e.snapshot();
       e.dispatch(action);
       if (prev.document !== e.document) log.record(prev.document, e.document, transitionMapping(prev, e));
     };

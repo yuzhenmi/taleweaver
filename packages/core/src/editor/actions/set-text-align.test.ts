@@ -76,7 +76,7 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
     const startX = firstLineX(layoutOf(initial.document), paraId);
     expect(startX).toBe(0);
 
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "SET_TEXT_ALIGN", align: "center" });
 
     // Attr set on the focus block.
@@ -95,7 +95,7 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
     const initial = createEditor(config);
     initial.dispatch({ type: "INSERT_TEXT", text: "hi" });
 
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "SET_TEXT_ALIGN", align: "center" });
 
     expect(initial.selection).toEqual(before.selection);
@@ -188,7 +188,7 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
     let editor = initial;
     editor.dispatch({ type: "SET_TEXT_ALIGN", align: "center" });
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_TEXT_ALIGN", align: "center" });
 
     // No commit, no state change (the identity-no-op contract): the `document` is the SAME

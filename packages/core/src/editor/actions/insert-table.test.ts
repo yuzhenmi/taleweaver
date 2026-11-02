@@ -69,7 +69,7 @@ describe("handleInsertTable — INSERT_TABLE", () => {
     // Caret at offset 0 of the (empty) body paragraph → table inserted BEFORE it.
     initial.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(paraId, 0), createPosition(paraId, 0)) });
 
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "INSERT_TABLE", rows: 2, cols: 3 });
     expect(initial.document).not.toBe(before.document);
 
@@ -152,17 +152,17 @@ describe("handleInsertTable — INSERT_TABLE", () => {
     initial.dispatch({ type: "INSERT_FOOTNOTE" });
     expect(resolveBlock(initial.document, initial.selection.focus.blockId)?.kind).toBe("embedContent");
 
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "INSERT_TABLE", rows: 2, cols: 2 });
     expect(initial.document).toBe(before.document); // identity: nothing changed
   });
 
   it("is a no-op for rows < 1 or cols < 1", () => {
     const initial = createEditor(config);
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "INSERT_TABLE", rows: 0, cols: 3 });
     expect(initial.document).toBe(before.document);
-    const before2 = { ...initial };
+    const before2 = initial.snapshot();
     initial.dispatch({ type: "INSERT_TABLE", rows: 2, cols: 0 });
     expect(initial.document).toBe(before2.document);
   });

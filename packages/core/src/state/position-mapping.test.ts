@@ -19,7 +19,7 @@ function warm(editor: Editor): void {
 
 function step(editor: Editor, action: EditorAction) {
   warm(editor);
-  const before = { ...editor };
+  const before = editor.snapshot();
   editor.dispatch(action);
   const dirty = editor.lastDirtyIds;
   const mapping =

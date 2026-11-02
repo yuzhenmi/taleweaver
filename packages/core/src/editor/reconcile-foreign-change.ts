@@ -8,8 +8,8 @@ import { applyEdit } from "./edit";
  *
  * When a remote peer mutates the shared `Y.Doc`, the local
  * `subscribeForeignChanges` observer fires with the set of block ids that
- * changed. This function consumes that set to produce the next local
- * `Editor`:
+ * changed. This function consumes that set to apply the peer's change to the
+ * editor in place:
  *
  * - **`freshDocument(state, dirtyIds)`** mints a new `Document` over the same Y.Doc
  *   whose snapshot cache is invalidated for `dirtyIds` only. Reads of those
@@ -18,8 +18,8 @@ import { applyEdit } from "./edit";
  *   reference-equal, so a one-block remote edit doesn't force a full
  *   re-snapshot of a hundred-page document.
  * - **`lastDirtyIds: dirtyIds`** is the layout-driver's incremental hint — the
- *   print backend relayouts only the foreign-dirtied blocks on the next
- *   `update()`, exactly like the post-local-dispatch path.
+ *   print backend relayouts only the foreign-dirtied blocks when it renders the
+ *   change, exactly like the post-local-dispatch path.
  *
  * **The selection passes through untouched**, and the change is not a local undo step
  * (the peer owns it): history only follows it, so a later local undo starts from the
@@ -27,10 +27,9 @@ import { applyEdit } from "./edit";
  * `APPLY_FOREIGN_CHANGE` action adds (`handleApplyForeignChange`).
  *
  * This is an editor-level seam, NOT a controller change: a backend controller
- * that observes a peer's Y.Doc update dispatches `APPLY_FOREIGN_CHANGE` to
- * whichever reducer owns the state: the print host feeds the result back through its controller's
- * `update(editorState)`; the digital controller reduces it in its own `dispatch`.
- * Core is geometry-free, so — like `applyEdit` — this carries no
+ * that observes a peer's Y.Doc update dispatches `APPLY_FOREIGN_CHANGE` through
+ * `Editor.dispatch`, so the change reaches every subscriber — the print and digital
+ * controllers included. Core is geometry-free, so — like `applyEdit` — this carries no
  * `config`/geometry.
  */
 export function reconcileForeignChange(

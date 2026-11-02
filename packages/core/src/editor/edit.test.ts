@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { stateWithText, firstChildId, type Editor, createPosition, createSpan } from "./actions/test-helpers";
 import { applyEdit, type Edit } from "./edit";
+import { EDITOR_INTERNAL } from "./editor-internal";
 import { getBlock, mergeBlockAttrs, positionsEqual } from "../state";
 import type { BlockId } from "../state";
 
@@ -19,7 +20,7 @@ describe("applyEdit", () => {
     const change = mergeBlockAttrs(editor.document, id, { textAlign: "center" });
     const after = createSpan(createPosition(id, 1), createPosition(id, 1));
 
-    const before = { ...editor };
+    const before = { ...editor[EDITOR_INTERNAL] };
     applyEdit(editor, { change, selection: after });
     expect(editor.document).toBe(change.document);
     expect(editor.selection).toBe(after);
@@ -33,9 +34,9 @@ describe("applyEdit", () => {
 
   it("null — or a change that leaves the document as it was — commits and records nothing", () => {
     const { editor, id } = seeded();
-    const before = { ...editor };
+    const before = { ...editor[EDITOR_INTERNAL] };
     applyEdit(editor, null);
-    expect({ ...editor }).toEqual(before);
+    expect({ ...editor[EDITOR_INTERNAL] }).toEqual(before);
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
 

@@ -18,7 +18,7 @@
  * leave the state untouched when the intent is a no-op `null`). This is exactly the
  * controller's per-keystroke loop, distilled for tests.
  */
-import { createEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, firstLeafBlock, createPosition, createSpan, type Editor, type EditorConfig, type EditorAction, type Selection, type Position, type Document, type BlockId, type PageConfig, type Hyphenator, type TextShaper, type ComponentRegistry, type AttrRegistry } from "@taleweaver/core";
+import { createEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, firstLeafBlock, createPosition, createSpan, type Editor, type EditorConfig, type EditorAction, type Selection, type Position, type Document, type BlockId, type PageConfig, type Hyphenator, type TextShaper, type ComponentRegistry, type AttrRegistry, type CaretAffinity } from "@taleweaver/core";
 import { type LayoutBox, type VirtualLayoutTree } from "../index";
 import { createLayoutDriver, type LayoutDriver } from "../layout-driver/layout-driver";
 import { resolveNavIntent, type NavIntent } from "./nav-intent";
@@ -136,7 +136,7 @@ export function nav(ctx: NavCtx, intent: NavIntent): NavCtx {
 
 /** Apply a non-nav `EditorAction` (INSERT_TEXT, SPLIT_NODE, TOGGLE_STYLE, …). */
 export function dispatch(ctx: NavCtx, action: EditorAction): NavCtx {
-  ctx.editor.config = ctx.config;
+  ctx.editor.setConfig(ctx.config);
   ctx.editor.dispatch(action);
   return ctx;
 }
@@ -158,6 +158,12 @@ export function splitBlock(ctx: NavCtx): NavCtx {
 /** Replace the selection wholesale (collapsed unless `focus` differs). */
 export function setSelection(ctx: NavCtx, selection: Selection): NavCtx {
   return dispatch(ctx, { type: "SET_SELECTION", selection });
+}
+
+/** Keep the selection; set the caret / anchor bidi affinities (each omitted one stays). */
+export function setAffinity(ctx: NavCtx, affinity: { caretAffinity?: CaretAffinity; anchorAffinity?: CaretAffinity }): NavCtx {
+  const { selection, caretPageHint, caretAffinity, anchorAffinity } = ctx.editor;
+  return dispatch(ctx, { type: "SET_SELECTION", selection, caretPageHint, caretAffinity, anchorAffinity, ...affinity });
 }
 
 /** Place a collapsed caret at `(blockId, offset)` (clears any prior affinity). */

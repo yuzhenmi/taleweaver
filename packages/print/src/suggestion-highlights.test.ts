@@ -182,12 +182,12 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     editor.dispatch({ type: "INSERT_TEXT", text: "hello" });
     const paraId = bodyParaId(editor);
     const sep = paraLength(editor, paraId);
-    editor.config = directConfig;
+    editor.setConfig(directConfig);
     editor.dispatch({ type: "SET_SELECTION", selection: core.createSpan(core.createPosition(paraId, sep), core.createPosition(paraId, sep)) });
     // Direct (untracked) separator splits the two suggestion runs.
     editor.dispatch({ type: "INSERT_TEXT", text: " sep " });
     const end = paraLength(editor, paraId);
-    editor.config = suggestingConfig;
+    editor.setConfig(suggestingConfig);
     editor.dispatch({ type: "SET_SELECTION", selection: core.createSpan(core.createPosition(paraId, end), core.createPosition(paraId, end)) });
     editor.dispatch({ type: "INSERT_TEXT", text: "world" });
     const suggestions = core.getSuggestions(editor.document);
@@ -220,10 +220,10 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
       type: "SET_SELECTION",
       selection: core.createSpan(core.createPosition(paraId, a), core.createPosition(paraId, b)),
     });
-    editor.config = alice;
+    editor.setConfig(alice);
     editor.dispatch(select(0, 4));
     editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
-    editor.config = bob;
+    editor.setConfig(bob);
     editor.dispatch(select(2, 6));
     editor.dispatch({ type: "TOGGLE_STYLE", style: "italic" });
     const ids = core.getSuggestions(editor.document).map((x) => x.id);
@@ -233,7 +233,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     const { container, lastCtx } = mount();
     const current = editor;
     const dispatch = (action: core.EditorAction): void => {
-      current.config = base;
+      current.setConfig(base);
       current.dispatch(action);
     };
     const controller = createEditorController(container, { measurer, editor: current });
@@ -274,7 +274,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     editor.dispatch({ type: "INSERT_TEXT", text: "cd" });
     const paraId = bodyParaId(editor);
     const tabOnly = core.createSpan(core.createPosition(paraId, 2), core.createPosition(paraId, 3));
-    editor.config = suggestingConfig;
+    editor.setConfig(suggestingConfig);
     editor.dispatch({ type: "SET_SELECTION", selection: tabOnly });
     editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
     const [only] = core.getSuggestions(editor.document);
@@ -295,7 +295,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     // Delete the whole inserted (suggestion-tagged) run, leaving no tagged item →
     // the range index omits the id → resolveSuggestionRange returns null.
     const paraId = bodyParaId(editor);
-    editor.config = { ...suggestingConfig, suggestingAuthor: null };
+    editor.setConfig({ ...suggestingConfig, suggestingAuthor: null });
     editor.dispatch({
         type: "SET_SELECTION",
         selection: core.createSpan(

@@ -104,7 +104,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
         },
       });
 
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "INSERT_FOOTNOTE" });
 
     // A new state (real change).
@@ -277,7 +277,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
 
     // The caret is now in the footnote body (a non-main context).
     const before = initial;
-    const before2 = { ...before };
+    const before2 = before.snapshot();
     before.dispatch({ type: "INSERT_FOOTNOTE" });
 
     // No-op: same STATE reference (the guard returns the editor with its state
@@ -294,7 +294,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     const initial = createEditor(config);
     initial.dispatch({ type: "INSERT_HEADER" });
     // The caret is now inside the header body (a templateContents non-main context).
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "INSERT_FOOTNOTE" });
 
     // Document-identity no-op (Phase 0b entry-clear rewraps the editor object —

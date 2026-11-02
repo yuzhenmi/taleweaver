@@ -1,6 +1,7 @@
 import type { BlockId, OperationResult, ReadonlyAttrs, Selection } from "../state";
 import type { CaretAffinity } from "../cursor/selection";
 import type { Editor } from "./editor";
+import { EDITOR_INTERNAL } from "./editor-internal";
 import type { ProposalOutcome } from "./proposals";
 import { recordChange } from "./document-change";
 import { rebaseSelection } from "./foreign-change";
@@ -64,7 +65,8 @@ export interface Edit {
 export function applyEdit(editor: Editor, edit: Edit | null): void {
   if (edit === null) return;
   const steps = edit.change === undefined ? [] : "document" in edit.change ? [edit.change] : edit.change;
-  const before = { document: editor.document, selection: editor.selection };
+  const fields = editor[EDITOR_INTERNAL];
+  const before = editor.snapshot();
   let document = editor.document;
   let lastChange = editor.lastChange;
   let dirtyIds: ReadonlySet<BlockId> | null = null;
@@ -75,9 +77,9 @@ export function applyEdit(editor: Editor, edit: Edit | null): void {
     document = step.document;
   }
   if (dirtyIds !== null) {
-    editor.document = document;
-    editor.lastDirtyIds = dirtyIds;
-    editor.lastChange = lastChange;
+    fields.document = document;
+    fields.lastDirtyIds = dirtyIds;
+    fields.lastChange = lastChange;
   }
   // Rebased while `editor.selection` is still the old one (the mapping reads both).
   const selection = edit.selection === "rebase" ? rebaseSelection(before, editor) : (edit.selection ?? before.selection);
@@ -85,15 +87,15 @@ export function applyEdit(editor: Editor, edit: Edit | null): void {
     if (edit.undoable === false) editor.history.advanceDocument(document);
     else editor.history.commit({ document, dirtyIds }, { before: before.selection, after: selection });
   }
-  editor.selection = selection;
+  fields.selection = selection;
   if (edit.view !== undefined) {
     const { caretPageHint, caretAffinity, anchorAffinity, targetX } = edit.view;
-    editor.caretPageHint = caretPageHint;
-    editor.caretAffinity = caretAffinity;
-    editor.anchorAffinity = anchorAffinity;
-    if (targetX !== undefined) editor.targetX = targetX;
+    fields.caretPageHint = caretPageHint;
+    fields.caretAffinity = caretAffinity;
+    fields.anchorAffinity = anchorAffinity;
+    if (targetX !== undefined) fields.targetX = targetX;
   }
-  if (edit.storedAttrs !== undefined) editor.storedAttrs = edit.storedAttrs;
-  if (edit.proposal !== undefined) editor.lastProposal = edit.proposal;
-  if (edit.containerWidth !== undefined) editor.containerWidth = edit.containerWidth;
+  if (edit.storedAttrs !== undefined) fields.storedAttrs = edit.storedAttrs;
+  if (edit.proposal !== undefined) fields.lastProposal = edit.proposal;
+  if (edit.containerWidth !== undefined) fields.containerWidth = edit.containerWidth;
 }

@@ -103,7 +103,7 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
       anchor: createPosition("i0" as BlockId, 0),
       focus: createPosition("i0" as BlockId, 0),
     });
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_LIST_TYPE", listType: "ordered" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -126,7 +126,7 @@ describe("handleSetListType — SET_LIST_TYPE (#L15)", () => {
       anchor: createPosition("p" as BlockId, 0),
       focus: createPosition("p" as BlockId, 0),
     });
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_LIST_TYPE", listType: "ordered" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -251,7 +251,7 @@ describe("handleSetListRestart — SET_LIST_RESTART (#L15)", () => {
       anchor: createPosition("p" as BlockId, 0),
       focus: createPosition("p" as BlockId, 0),
     });
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_LIST_RESTART", value: 3 });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -270,7 +270,7 @@ describe("handleSetListRestart — SET_LIST_RESTART (#L15)", () => {
       anchor: createPosition("i1" as BlockId, 0),
       focus: createPosition("i1" as BlockId, 0),
     });
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_LIST_RESTART", value: 5 });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);

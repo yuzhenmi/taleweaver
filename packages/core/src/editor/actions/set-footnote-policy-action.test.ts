@@ -78,7 +78,7 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
     expect(documentFootnotePolicy(editor.document).reset).toBe("continuous");
     expect(numberValues(editor)).toEqual([1, 2]);
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" });
 
     // The policy attr is now on the root, and numbering restarts: each
@@ -124,7 +124,7 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
 
   it("an invalid reset value is ignored (no-op, editor unchanged)", () => {
     const editor = twoSectionDocWithFootnotes();
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({
         type: "SET_FOOTNOTE_POLICY",
         reset: "restart-per-paragraph" as never,
@@ -140,7 +140,7 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
   it("setting the SAME value already on the root is a no-op (same editor reference)", () => {
     const editor = twoSectionDocWithFootnotes();
     editor.dispatch({ type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" });
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" });
     // mergeBlockAttrs is a no-op → no document mutation, no history commit. The
     // `document` reference is preserved; the editor wrapper may differ only by the

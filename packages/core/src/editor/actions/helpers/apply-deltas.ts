@@ -11,7 +11,7 @@ export function applyDeltas(
   let document = editor.document;
   const dirtyIds = new Set<BlockId>();
   for (const [span, attrs] of deltas) {
-    const r = applyAttrsOrSuggest(editor, span, attrs);
+    const r = applyAttrsOrSuggest(editor, span, attrs, document);
     document = r.document;
     for (const id of r.dirtyIds) dirtyIds.add(id);
   }

@@ -53,7 +53,7 @@ const suggestingConfig: EditorConfig = { ...directConfig, suggestingAuthor: "ali
 
 /** Place a collapsed caret at `offset` of `paraId` (suggesting config). */
 function caretAt(editor: Editor, paraId: BlockId, offset: number): Editor {
-  editor.config = suggestingConfig;
+  editor.setConfig(suggestingConfig);
   editor.dispatch({
     type: "SET_SELECTION",
     selection: createSpan(createPosition(paraId, offset), createPosition(paraId, offset)),
@@ -68,7 +68,7 @@ function select(
   start: number,
   end: number,
 ): Editor {
-  editor.config = suggestingConfig;
+  editor.setConfig(suggestingConfig);
   editor.dispatch({
     type: "SET_SELECTION",
     selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
@@ -254,14 +254,14 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(secondId, 0), createPosition(secondId, 0)),
       });
-    const before = { ...s };
+    const before = s.snapshot();
     s.dispatch({ type: "DELETE_WORD", direction: "backward" });
     expect(s.document).toBe(before.document);
     expect(s.selection).toBe(before.selection);
 
     // Suggesting mode: same NO-OP, no suggestion record minted.
     const placedSuggest = caretAt(s, secondId, 0);
-    const before2 = { ...placedSuggest };
+    const before2 = placedSuggest.snapshot();
     placedSuggest.dispatch({ type: "DELETE_WORD", direction: "backward" });
     expect(placedSuggest.document).toBe(before2.document);
     expect(placedSuggest.selection).toBe(before2.selection);

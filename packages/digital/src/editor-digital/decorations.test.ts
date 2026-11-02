@@ -418,10 +418,10 @@ describe("digital — stacked formatting suggestions", () => {
     editor.dispatch({ type: "INSERT_TEXT", text: "abcdefgh" });
     const p = editor.selection.focus.blockId;
     const select = (a: number, b: number): EditorAction => ({ type: "SET_SELECTION", selection: createSpan(createPosition(p, a), createPosition(p, b)) });
-    editor.config = alice;
+    editor.setConfig(alice);
     editor.dispatch(select(0, 4));
     editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
-    editor.config = bob;
+    editor.setConfig(bob);
     editor.dispatch(select(2, 6));
     editor.dispatch({ type: "TOGGLE_STYLE", style: "italic" });
     const ids = getSuggestions(editor.document).map((s) => s.id);
@@ -487,7 +487,7 @@ describe("digital — stacked formatting suggestions", () => {
     editor.dispatch({ type: "INSERT_TAB" });
     editor.dispatch({ type: "INSERT_TEXT", text: "cd" });
     const p = editor.selection.focus.blockId;
-    editor.config = alice;
+    editor.setConfig(alice);
     editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(p, 2), createPosition(p, 3)) });
     editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
     const [only] = getSuggestions(editor.document);

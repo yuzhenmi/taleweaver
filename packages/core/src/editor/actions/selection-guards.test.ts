@@ -211,7 +211,7 @@ describe("INSERT_TEXT over a cross-parent span (across a section break)", () => 
     const document = buildDocumentWithTwoSections();
     const span = createSpan(createPosition("a" as BlockId, 1), createPosition("b" as BlockId, 1));
     const editor = createEditor(config, { document, selection: span });
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "INSERT_TEXT", text: "X" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toEqual(span);

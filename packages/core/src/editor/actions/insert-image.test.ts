@@ -65,7 +65,7 @@ describe("handleInsertImage — INSERT_IMAGE (#P11.2)", () => {
     editor.dispatch({ type: "INSERT_HEADER" });
     expect(getBlock(editor.document, editor.selection.focus.blockId)).toBeNull(); // caret outside main tree
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "INSERT_IMAGE", src: "a.png" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(editor.document).toBe(before.document);

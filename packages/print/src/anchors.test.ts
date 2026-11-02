@@ -112,6 +112,30 @@ describe("print — anchors and versions", () => {
     const late = m.controller.createAnchor(core.createPosition(id, 0), core.createPosition(id, 5), { basedOn: v0 });
     expect(late === null ? null : [late.from.offset, late.to.offset]).toEqual([0, 5]);
   });
+
+  it("a dispatch from a subscriber that runs before the controller's is laid out after it, each change in turn", () => {
+    const seeded = core.createEditor(cfg);
+    seeded.dispatch({ type: "INSERT_TEXT", text: "ab" });
+    seeded.dispatch({ type: "SPLIT_NODE" });
+    seeded.dispatch({ type: "INSERT_TEXT", text: "cd" });
+    const b = seeded.selection.focus.blockId;
+    const a = core.getBlock(seeded.document, b)?.prevSiblingId;
+    if (a == null) throw new Error("setup");
+    let pending = true;
+    seeded.subscribe(({ action }) => {
+      // Typing in the second paragraph deletes the first paragraph's "a" — a different block.
+      if (action.type !== "INSERT_TEXT" || !pending) return;
+      pending = false;
+      seeded.dispatch({ type: "DELETE_RANGE", span: core.createSpan(core.createPosition(a, 0), core.createPosition(a, 1)) });
+    });
+    const m = mount(seeded);
+    type(m.textarea, "X");
+    // The second paragraph is laid out with the typed "X": its end is three 8px glyphs in.
+    const start = m.controller.getCaretRect(core.createPosition(b, 0));
+    const end = m.controller.getCaretRect(core.createPosition(b, 3));
+    expect([textOf(m.get(), a), textOf(m.get(), b)]).toEqual(["b", "cdX"]);
+    expect(start !== null && end !== null ? end.left - start.left : null).toBe(24);
+  });
 });
 
 describe("print — collaboration", () => {

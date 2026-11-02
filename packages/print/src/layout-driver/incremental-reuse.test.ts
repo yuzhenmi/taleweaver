@@ -110,7 +110,7 @@ describe("layout-driver incremental reuse (perf guard)", () => {
     expect(blockIds.length).toBe(24);
 
     const driver = createLayoutDriver(LAYOUT_CONFIG);
-    const before = driver.rebuild({ ...editor, lastDirtyIds: null });
+    const before = driver.rebuild({ document: editor.document, config: editor.config, containerWidth: editor.containerWidth, lastDirtyIds: null });
     if (before.type !== "block") throw new Error("expected a non-paginated LayoutBox");
 
     const editedId = blockIds[12];
@@ -173,7 +173,7 @@ describe("layout-driver incremental reuse (perf guard)", () => {
     }
 
     const driver = createLayoutDriver(LAYOUT_CONFIG);
-    const before = driver.rebuild({ ...editor, lastDirtyIds: null });
+    const before = driver.rebuild({ document: editor.document, config: editor.config, containerWidth: editor.containerWidth, lastDirtyIds: null });
     if (before.type !== "virtual-root") throw new Error("expected a paginated tree");
     expect(before.plan.entries.length).toBeGreaterThan(1); // genuinely multi-page
 

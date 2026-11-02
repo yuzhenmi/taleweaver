@@ -4,6 +4,7 @@ import { isCollapsed } from "../cursor/selection";
 import { transitionMapping } from "../decorations/decoration-layers";
 import type { EditorAction } from "./editor-action";
 import type { Editor, EditorSnapshot } from "./editor";
+import { EDITOR_INTERNAL } from "./editor-internal";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import type { ComponentRegistry } from "../components/component-registry";
 import { isObjectSelection } from "../cursor/object-selection";
@@ -147,7 +148,7 @@ export function runTransaction(
     if (ok) editor.history.endBatch();
     else editor.history.abortBatch();
   }
-  editor.lastDirtyIds = editor.document === start || unknown ? null : dirty;
+  editor[EDITOR_INTERNAL].lastDirtyIds = editor.document === start || unknown ? null : dirty;
 }
 
 /** Union of two dirty sets (`null` = unknown wins). */
@@ -211,7 +212,7 @@ export function applyInputRules(editor: Editor, reduce: Reduce): void {
     const { document, selection, lastDirtyIds } = editor;
     reduce(editor, { type: "TRANSACTION", run: (tx) => actions.forEach((a) => tx.dispatch(a)) });
     if (editor.document === document && editor.selection === selection) continue;
-    editor.lastDirtyIds = unionDirty(lastDirtyIds, editor.lastDirtyIds);
+    editor[EDITOR_INTERNAL].lastDirtyIds = unionDirty(lastDirtyIds, editor.lastDirtyIds);
     return;
   }
 }
@@ -237,7 +238,7 @@ function hasAtomicMark(document: Document, blockId: BlockId, from: number, to: n
   return false;
 }
 
-function validTrigger(spec: TriggerSpec, editor: EditorSnapshot, from: Position, registry: AttrRegistry): ActiveTrigger | undefined {
+function validTrigger(spec: TriggerSpec, editor: Editor, from: Position, registry: AttrRegistry): ActiveTrigger | undefined {
   const { selection, document } = editor;
   if (!isCollapsed(selection)) return undefined;
   const caret = selection.focus;
@@ -282,7 +283,7 @@ export function updateActiveTrigger(
   // once, across the whole transaction, when the outer action finishes.
   // ESCAPE inside a transaction (e.g. the last step of a pick) still ends it at once.
   if (result.history.batching) {
-    if (action.type === "ESCAPE") result.activeTrigger = undefined;
+    if (action.type === "ESCAPE") result[EDITOR_INTERNAL].activeTrigger = undefined;
     return;
   }
   const specs = config.extensions?.triggers ?? [];
@@ -317,18 +318,16 @@ export function updateActiveTrigger(
     }
   }
   next = stable(prev, next);
-  if (next !== prev) result.activeTrigger = next;
+  if (next !== prev) result[EDITOR_INTERNAL].activeTrigger = next;
 }
 
-/** How the active trigger changed between two snapshots of the editor (for host pickers). */
+/** How the active trigger changed from `prev` to `next` (`Editor.activeTrigger`, for host pickers). */
 export type TriggerChange =
   | { readonly type: "start"; readonly trigger: ActiveTrigger }
   | { readonly type: "update"; readonly trigger: ActiveTrigger }
   | { readonly type: "exit"; readonly trigger: ActiveTrigger };
 
-export function triggerChange(prev: EditorSnapshot, next: EditorSnapshot): TriggerChange | null {
-  const a = prev.activeTrigger;
-  const b = next.activeTrigger;
+export function triggerChange(a: ActiveTrigger | undefined, b: ActiveTrigger | undefined): TriggerChange | null {
   if (a === b) return null;
   if (b === undefined) return a === undefined ? null : { type: "exit", trigger: a };
   if (a === undefined || a.id !== b.id) return { type: "start", trigger: b };

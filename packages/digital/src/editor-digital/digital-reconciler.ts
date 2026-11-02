@@ -3,6 +3,7 @@ import {
   getBlock,
   changedDecorationBlocks,
   EMPTY_DECORATION_SET,
+  type Editor,
   type EditorSnapshot,
   type ComponentRegistry,
   type AttrRegistry,
@@ -35,7 +36,7 @@ export interface DigitalReconciler {
    * DOM units whose styled node changed — or whose decorations changed — are rebuilt.
    * `prev` is accepted for API symmetry; the reconciler diffs against what it last rendered.
    */
-  reconcile(prev: EditorSnapshot | null, next: EditorSnapshot, isComposing: boolean, decorations?: DecorationSet): void;
+  reconcile(prev: EditorSnapshot | null, next: Pick<Editor, "document" | "selection" | "lastDirtyIds">, isComposing: boolean, decorations?: DecorationSet): void;
   /**
    * The selection bridge this reconciler owns (created on `mount`, cleared on `destroy`), or null
    * before mount. The controller reuses it for `domToPosition` / `readDomSelection` so there is ONE
@@ -433,7 +434,7 @@ export function createDigitalReconciler(
 
   function reconcile(
     _prev: EditorSnapshot | null,
-    next: EditorSnapshot,
+    next: Pick<Editor, "document" | "selection" | "lastDirtyIds">,
     isComposing: boolean,
     decorations: DecorationSet = rendered?.decorations ?? EMPTY_DECORATION_SET,
   ): void {

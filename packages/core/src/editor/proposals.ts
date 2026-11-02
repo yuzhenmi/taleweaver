@@ -30,7 +30,9 @@ import { nextSuggestionOrder } from "../state/suggestions";
 import { mappingAcross, type ChangeLink, type PositionMapping } from "../state/position-mapping";
 import { recordSample } from "../perf/perf-trace";
 import { type Editor } from "./editor";
+import { ACTION_FAILURES } from "./editor-internal";
 import type { Edit } from "./edit";
+import type { EditorAction } from "./editor-action";
 import { replacementAttrs } from "./typing-attrs";
 
 /**
@@ -296,7 +298,7 @@ export function applyProposal(
   return { change: steps, selection: "rebase", undoable: false, proposal: outcomeOf({ groupId: proposal.groupId, outcome: "applied" }) };
 }
 
-/** What `controller.propose()` reports (see `Editor.lastProposal` for print). */
+/** What `controller.propose()` reports (see `dispatchProposal`). */
 export type ProposeResult =
   | { readonly ok: true }
   /** Computed against a version whose edited ranges have since changed (or aged out). */
@@ -306,47 +308,47 @@ export type ProposeResult =
   /** The controller is halted on incompatible (legacy) document storage. */
   | { readonly ok: false; readonly reason: "halted" };
 
-/**
- * The reducer's verdict on the last `PROPOSE` (`Editor.lastProposal`). `proposal` is
- * the dispatched object; `seq` numbers the PROPOSEs of this editor (1, 2, …) — the
- * per-dispatch identity key, kept by every copy; `prior` links the verdicts of the earlier
- * PROPOSEs (newest first; `depth` = chain length, at least {@link MAX_PROPOSAL_CHAIN}
- * kept), so a host that batches several dispatches before one view update loses none.
- */
+/** The reducer's verdict on the last `PROPOSE` (`Editor.lastProposal`); `proposal` is the dispatched object. */
 export interface ProposalOutcome {
   readonly groupId: string;
   readonly outcome: "applied" | "stale" | "rejected";
   readonly problem?: ProposalProblem;
   readonly proposal: Proposal;
-  readonly seq: number;
-  readonly depth: number;
-  readonly prior?: ProposalOutcome;
 }
 
 export type Verdict = Pick<ProposalOutcome, "groupId" | "outcome" | "problem">;
 
-/** How many verdicts `ProposalOutcome.prior` is guaranteed to keep (the newest included). */
-export const MAX_PROPOSAL_CHAIN = 32;
-
 /**
- * `outcome` linked onto `prior`. Existing verdicts keep their identity; only once the
- * chain grows past 2 × {@link MAX_PROPOSAL_CHAIN} is it rebuilt to the newest MAX
- * (copies keep `seq`) — O(1) amortised, like `recordChange`.
+ * Dispatch `proposal` to `editor` and resolve with the reducer's verdict once it has run:
+ * at once, or — dispatched from inside a dispatch, which the editor queues — when it runs.
+ * `basedOn` (default: the document now) is the version its positions refer to, so a
+ * queued proposal is mapped through the queued edits that run before it. If the PROPOSE
+ * itself throws it resolves rejected ("not applied"); dispatched directly, the error is
+ * also rethrown. Owns its subscription and always releases it.
  */
-export function chainOutcome(prior: ProposalOutcome | undefined, outcome: Omit<ProposalOutcome, "prior" | "seq" | "depth">): ProposalOutcome {
-  const seq = (prior?.seq ?? 0) + 1;
-  if (prior === undefined) return { ...outcome, seq, depth: 1 };
-  if (prior.depth < 2 * MAX_PROPOSAL_CHAIN) return { ...outcome, seq, depth: prior.depth + 1, prior };
-  const kept: ProposalOutcome[] = [];
-  for (let o: ProposalOutcome | undefined = prior; o !== undefined && kept.length < MAX_PROPOSAL_CHAIN - 1; o = o.prior) kept.push(o);
-  let tail: ProposalOutcome | undefined;
-  for (let i = kept.length - 1; i >= 0; i--) {
-    const o = kept[i];
-    if (o === undefined) continue;
-    const { prior: _dropped, ...rest } = o;
-    tail = tail === undefined ? { ...rest, depth: 1 } : { ...rest, depth: tail.depth + 1, prior: tail };
+export function dispatchProposal(editor: Editor, proposal: Proposal, basedOn: Document = editor.document): Promise<ProposeResult> {
+  const action: EditorAction = { type: "PROPOSE", proposal, basedOn };
+  let resolve: (result: ProposeResult) => void = () => undefined;
+  const result = new Promise<ProposeResult>((r) => {
+    resolve = r;
+  });
+  const settle = (ours: ProposalOutcome | undefined): void => {
+    off();
+    ACTION_FAILURES.delete(action);
+    resolve(proposeResultOf(ours?.proposal === proposal ? ours : undefined));
+  };
+  // Our change: the verdict just recorded is ours.
+  const off = editor.subscribe((change) => {
+    if (change.action === action) settle(editor.lastProposal);
+  });
+  ACTION_FAILURES.set(action, () => settle(undefined));
+  try {
+    editor.dispatch(action);
+  } catch (error) {
+    settle(undefined);
+    throw error;
   }
-  return tail === undefined ? { ...outcome, seq, depth: 1 } : { ...outcome, seq, depth: tail.depth + 1, prior: tail };
+  return result;
 }
 
 /** A `ProposeResult` from the reducer's recorded outcome. */

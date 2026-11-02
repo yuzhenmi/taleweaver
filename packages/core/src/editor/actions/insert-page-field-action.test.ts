@@ -82,7 +82,7 @@ function bodyPageFields(document: Document, id: BlockId): InlineItem[] {
 describe("handleInsertPageField — INSERT_PAGE_NUMBER / INSERT_PAGE_COUNT (header/footer only)", () => {
   it("INSERT_PAGE_NUMBER in a header inserts a page-field at the caret and advances the caret by 1", () => {
     const editor = buildEditor(buildDocumentWithHeaderBody(), { blockId: HDR_P1, offset: 5 }); // after "Page "
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "INSERT_PAGE_NUMBER" });
 
     const fields = headerPageFields(editor.document, HDR_P1);
@@ -123,7 +123,7 @@ describe("handleInsertPageField — INSERT_PAGE_NUMBER / INSERT_PAGE_COUNT (head
 
   it("is a NO-OP in the main body (main-body page-fields are OUT of scope)", () => {
     const editor = buildEditor(buildDocumentWithHeaderBody(), { blockId: BODY_P, offset: 4 }); // inside "body text"
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "INSERT_PAGE_NUMBER" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection); // unchanged editor reference
@@ -134,7 +134,7 @@ describe("handleInsertPageField — INSERT_PAGE_NUMBER / INSERT_PAGE_COUNT (head
     // The gate rejects the embedContent kind, not just main-body: a footnote-body caret
     // resolves to a context root of kind "embedContent", which is NOT "templateContent".
     const editor = buildEditor(buildDocumentWithHeaderBody(), { blockId: FN_P, offset: 2 }); // inside "note"
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "INSERT_PAGE_COUNT" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection); // unchanged editor reference — same-ref no-op proves nothing was inserted

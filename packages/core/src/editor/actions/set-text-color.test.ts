@@ -54,7 +54,7 @@ describe("handleSetTextColor", () => {
     const initial = createEditor(config);
     initial.dispatch({ type: "INSERT_TEXT", text: "hello" });
     let editor = initial;
-    const before = { ...editor };
+    const before = editor.snapshot();
     // Collapsed at end.
     editor.dispatch({ type: "SET_TEXT_COLOR", color: "#ff0000" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -119,7 +119,7 @@ describe("handleSetTextTransform", () => {
     const initial = createEditor(config);
     initial.dispatch({ type: "INSERT_TEXT", text: "hello" });
     let editor = initial;
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_TEXT_TRANSFORM", value: "uppercase" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(editor.document).toBe(before.document);

@@ -1,5 +1,5 @@
 import type { Editor } from "../../editor";
-import { applyAttrsToRange, markFormatting, spanStart, type Span, type ReadonlyAttrs, type OperationResult } from "../../../state";
+import { applyAttrsToRange, markFormatting, spanStart, type Span, type ReadonlyAttrs, type OperationResult, type Document } from "../../../state";
 import { suggestionInputForBlock } from "./suggestion-input-for-block";
 
 /**
@@ -23,14 +23,17 @@ import { suggestionInputForBlock } from "./suggestion-input-for-block";
  *
  * It falls back to the direct `applyAttrsToRange` branch only when the span's
  * start block resolves to no editing context (see `suggestionInputForBlock`).
+ *
+ * `document` is the version to apply over: the editor's, or the running result of an
+ * earlier operation in the same edit.
  */
 export function applyAttrsOrSuggest(
   editor: Editor,
   span: Span,
   incoming: ReadonlyAttrs,
+  document: Document = editor.document,
 ): OperationResult {
-  const { document } = editor;
-  const input = suggestionInputForBlock(editor, spanStart(document, span).blockId);
+  const input = suggestionInputForBlock(editor, spanStart(document, span).blockId, document);
   return input === null
     ? applyAttrsToRange(document, span, incoming)
     : markFormatting(document, span, incoming, input);

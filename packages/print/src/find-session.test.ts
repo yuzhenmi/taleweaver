@@ -190,11 +190,9 @@ describe("find session + navigation (#433)", () => {
   it("findStart initial activeIndex = first match at/after a mid-document cursor", () => {
     // Move the caret to offset 4 (start of the 2nd word). The first "foo" match
     // at/after offset 4 is the 2nd occurrence (offset 8) → activeIndex 1.
-    const cfg = config();
     let editor = seededEditorState("foo bar foo baz foo");
     const blockId = finalSection(editor.document)?.firstChildId;
     if (blockId === null || blockId === undefined) throw new Error("no block");
-    editor.config = cfg;
     editor.dispatch({
         type: "SET_SELECTION",
         selection: core.createSpan(core.createPosition(blockId, 4), core.createPosition(blockId, 4)),
@@ -370,7 +368,6 @@ describe("find session + navigation (#433)", () => {
     // After an edit while find is active, the session re-queries in update():
     // the highlight set + match COUNT refresh and the activeIndex clamps into
     // the new range (here: still in range, so it's preserved).
-    const cfg = config();
     let editor = seededEditorState("foo bar foo baz foo"); // 3 matches
     const { container, lastCtx } = mount();
     const ctrl = createEditorController(container, { measurer, editor });
@@ -382,7 +379,6 @@ describe("find session + navigation (#433)", () => {
     // 4 matches; the preserved activeIndex (1) is still in range.
     const ctx0 = lastCtx();
     if (ctx0) ctx0._ops.length = 0;
-    editor.config = cfg;
     editor.dispatch({ type: "INSERT_TEXT", text: " foo" });
 
     // Highlights refreshed: 4 matched bands now paint (3 inactive + 1 active).
@@ -469,7 +465,6 @@ describe("find session + navigation (#433)", () => {
   });
 
   it("live recompute: deleting the active match lands the highlight on a surviving match (no throw)", () => {
-    const cfg = config();
     // "foo foo" → 2 matches. Active = index 1 (the 2nd). Delete the whole doc's
     // text down to "foo" → only 1 match survives; activeIndex clamps 1 → 0.
     let editor = seededEditorState("foo foo");
@@ -483,7 +478,6 @@ describe("find session + navigation (#433)", () => {
     expect(ctrl.findNext()).toEqual({ total: 2, activeIndex: 1 }); // active = 2nd "foo"
 
     // Delete " foo" (offsets 3..7) — removes the active (2nd) match.
-    editor.config = cfg;
     editor.dispatch({
         type: "SET_SELECTION",
         selection: core.createSpan(core.createPosition(blockId, 3), core.createPosition(blockId, 7)),

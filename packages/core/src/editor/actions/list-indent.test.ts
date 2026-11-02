@@ -69,7 +69,7 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
 
     expect(getBlock(editor.document, "l0" as BlockId)?.attrs.listLevel).toBeUndefined();
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "LIST_INDENT" });
 
     expect(getBlock(editor.document, "l0" as BlockId)?.attrs.listLevel).toBe(1);
@@ -113,7 +113,7 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
       focus: createPosition("l0" as BlockId, 0),
     });
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "LIST_OUTDENT" });
 
     expect(editor.document).toBe(before.document);
@@ -127,7 +127,7 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
       focus: createPosition("p" as BlockId, 0),
     });
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "LIST_INDENT" });
 
     expect(editor.document).toBe(before.document);
@@ -143,7 +143,7 @@ describe("handleListIndent — LIST_INDENT / LIST_OUTDENT actions", () => {
       createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 4)),
     );
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "LIST_INDENT" });
 
     expect(editor.document).toBe(before.document);

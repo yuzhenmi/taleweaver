@@ -72,9 +72,9 @@ const endMarkKind = (editor: Editor, id: BlockId): string | null =>
 const paste = (e: Editor, text: string): Editor =>
   { e.dispatch({ type: "PASTE", text }); return e; };
 const caretAt = (e: Editor, id: BlockId, off: number): Editor =>
-  { e.config = suggestingConfig; e.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(id, off), createPosition(id, off)) }); return e; };
+  { e.setConfig(suggestingConfig); e.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(id, off), createPosition(id, off)) }); return e; };
 const select = (e: Editor, a: [BlockId, number], f: [BlockId, number]): Editor =>
-  { e.config = suggestingConfig; e.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(a[0], a[1]), createPosition(f[0], f[1])) }); return e; };
+  { e.setConfig(suggestingConfig); e.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(a[0], a[1]), createPosition(f[0], f[1])) }); return e; };
 
 // A dispatch mutates the shared underlying Y.Doc in place, so accept and reject
 // CANNOT run off the same pasted editor — each independent resolution needs a FRESH

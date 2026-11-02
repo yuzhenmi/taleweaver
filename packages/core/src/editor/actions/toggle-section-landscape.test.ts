@@ -60,6 +60,10 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   return v;
 }
 
+// One editor's registries are fixed for its lifetime (`Editor.setConfig`): every config here shares them.
+const COMPONENT_REGISTRY = createDefaultComponentRegistry();
+const ATTR_REGISTRY = createDefaultAttrRegistry();
+
 /**
  * Doc-wide page geometry: PORTRAIT-ish (inline 480, block 800), 0 margins ⇒ a
  * one-line paragraph (16px) leaves ample leftover room per page. Landscape =
@@ -73,8 +77,8 @@ function makeConfig(): EditorConfig {
     pageGap: 24,
   };
   return {
-    componentRegistry: createDefaultComponentRegistry(),
-    attrRegistry: createDefaultAttrRegistry(),
+    componentRegistry: COMPONENT_REGISTRY,
+    attrRegistry: ATTR_REGISTRY,
     containerWidth: 480,
     pageConfig,
   };
@@ -83,8 +87,8 @@ function makeConfig(): EditorConfig {
 /** A config with NO pageConfig (unpaginated harness). */
 function makeUnpaginatedConfig(): EditorConfig {
   return {
-    componentRegistry: createDefaultComponentRegistry(),
-    attrRegistry: createDefaultAttrRegistry(),
+    componentRegistry: COMPONENT_REGISTRY,
+    attrRegistry: ATTR_REGISTRY,
     containerWidth: 480,
   };
 }
@@ -207,7 +211,7 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
     expect(sectionPageGeometry(initial, config, sectionA)).toEqual(docWide);
     expect(sectionPageGeometry(initial, config, sectionB)).toEqual(docWide);
 
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "TOGGLE_SECTION_LANDSCAPE" });
 
     // A real change produces a NEW state reference.
@@ -337,7 +341,7 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
     const finalSection = getBlock(editor.document, editor.document.rootId)?.lastChildId ?? null;
     if (finalSection === null) throw new Error("no final section");
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "TOGGLE_SECTION_LANDSCAPE" });
 
     expect(editor.document).not.toBe(before.document);
@@ -355,8 +359,8 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
     // ...then switch to an UNPAGINATED config (no pageConfig). Even though a
     // section exists, the handler can't determine landscape dims → no-op.
     const unpaginated = editor;
-    unpaginated.config = makeUnpaginatedConfig();
-    const before = { ...unpaginated };
+    unpaginated.setConfig(makeUnpaginatedConfig());
+    const before = unpaginated.snapshot();
     unpaginated.dispatch({ type: "TOGGLE_SECTION_LANDSCAPE" });
 
     expect(unpaginated.document).toBe(before.document);

@@ -259,7 +259,7 @@ describe("print — HALTED on an incompatible document", () => {
     c.setCommentHighlights([{ commentId: "c1" as core.CommentId, active: false }]);
     expect(fills).toContain(core.COMMENT_HIGHLIGHT_FILL);
     m.actions.length = 0;
-    const before = { ...m.get() };
+    const before = m.get().snapshot();
     // An OLD client writes a paragraph into the frozen legacy root: surfaced with its text.
     const legacyId = legacyWrite(m.docA, "old client");
     expect(m.reports).toEqual([{ reason: "legacy-write", legacyBlocks: [legacyId], legacyText: { [legacyId]: "old client" } }]);

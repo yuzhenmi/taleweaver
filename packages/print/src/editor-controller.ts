@@ -1,4 +1,4 @@
-import { inspectDocument, type IncompatibleDocumentReport, createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, selectParagraph, getBlock, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type EditorAction, type Editor, type EditorSnapshot, type Document, type TextMatch, type FindMatchesOptions, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, type Proposal, type ProposeResult, type ProposalOutcome, proposeResultOf, type SuggestionGroupStyle, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
+import { inspectDocument, type IncompatibleDocumentReport, createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, selectParagraph, getBlock, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type EditorAction, type Editor, type Document, type Selection, type CaretAffinity, type TextMatch, type FindMatchesOptions, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, type Proposal, type ProposeResult, dispatchProposal, type SuggestionGroupStyle, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
 import { resolvePixelPosition, type PixelPosition } from "./cursor/cursor-position";
 import { resolvePositionFromPixel } from "./cursor/hit-test";
 import { computeSelectionRects, computeSelectionRectsForPage, computeSelectionRectsAcrossPages, type SelectionRect } from "./cursor/selection-geometry";
@@ -35,10 +35,19 @@ const SCROLL_DURATION = 250;
  * emits no `/Lang`.
  */
 /** `editor`'s document is, or was reduced from, a forbidden Document (its change chain reaches one; bounded walk). */
-function descendsFrom(editor: EditorSnapshot, forbidden: (s: Document) => boolean): boolean {
+function descendsFrom(editor: Editor, forbidden: (s: Document) => boolean): boolean {
   if (forbidden(editor.document)) return true;
   for (let c = editor.lastChange; c !== null; c = c.prior) if (forbidden(c.from)) return true;
   return false;
+}
+
+/** The editor's fields a render painted: the document, the selection and the caret's view state. */
+interface RenderedView {
+  readonly document: Document;
+  readonly selection: Selection;
+  readonly caretPageHint: number | undefined;
+  readonly caretAffinity: CaretAffinity | undefined;
+  readonly anchorAffinity: CaretAffinity | undefined;
 }
 
 function firstBodyLanguage(box: LayoutBox): string | null {
@@ -217,10 +226,8 @@ export interface EditorController {
    * Offer `proposal` as ONE suggestion group, dispatched to the editor as `PROPOSE` (any
    * editing mode; the caret is only rebased). `basedOn`: the version its positions refer
    * to (default: the version this controller shows); the reducer maps it through the
-   * edits made since and validates it. Resolves with that TRUE verdict once a render
-   * carrying it happens (`editor.lastProposal`; normally inside the dispatch); "stale"
-   * when the editor is replaced before it applies; rejected ("controller destroyed")
-   * when the controller is destroyed first, or at once after `destroy`.
+   * edits made since and validates it. Resolves with that TRUE verdict once it has run
+   * (`dispatchProposal`); rejected ("controller destroyed") at once after `destroy`.
    */
   propose(proposal: Proposal, options?: { readonly basedOn?: Document }): Promise<ProposeResult>;
   /**
@@ -379,9 +386,9 @@ export function createEditorController(
 
   // The editor's fields as last rendered (null until the first render): what the layout
   // tree, caret and paint were computed from, and the `before` side of the next transition.
-  let state: EditorSnapshot | null = null;
+  let state: RenderedView | null = null;
   // The current layout tree, built by the backend layout-driver from
-  // `state.document` + `state.lastDirtyIds` in `render()`. In paginated mode
+  // `editor.document` + `editor.lastDirtyIds` in `render()`. In paginated mode
   // it is a `VirtualLayoutTree` (a `PagePlan` + lazily-materialized pages); in
   // unpaginated / unsupported-feature-fallback mode it is a fully-positioned
   // `LayoutBox`. The HOT PATH (paint visible pages, slot sizing, caret) reads
@@ -442,10 +449,6 @@ export function createEditorController(
   let tocNavDownY = 0;
   let isComposing = false;
   let destroyed = false;
-  // Proposals dispatched to the editor, awaiting the reducer's verdict on a later render
-  // (dispatch order). `seenProposal`: the newest verdict already settled.
-  let pendingProposals: Array<{ readonly proposal: Proposal; readonly resolve: (result: ProposeResult) => void }> = [];
-  let seenProposal: ProposalOutcome | undefined;
   const rejectedProposal = (message: string): ProposeResult => ({ ok: false, reason: "rejected", problem: { kind: "invalid", message } });
   const HALTED_RESULT: ProposeResult = { ok: false, reason: "halted" };
   const EMPTY_FIND: FindStatus = { total: 0, activeIndex: -1 };
@@ -477,8 +480,6 @@ export function createEditorController(
       textarea.blur();
       mirrorHost?.abandonComposition();
     }
-    for (const p of pendingProposals) p.resolve(HALTED_RESULT);
-    pendingProposals = [];
     options.onIncompatibleDocument?.(report);
   }
 
@@ -487,7 +488,7 @@ export function createEditorController(
    * is `"ignore"`), and EVERY controller shape-checks them — legacy storage halts it;
    * while halted, a document that became compatible again fires `onDocumentCompatible`.
    */
-  function watchDocument(watched: EditorSnapshot, startHalted: boolean): void {
+  function watchDocument(watched: Editor, startHalted: boolean): void {
     unsubscribeRemote?.();
     remoteDoc = getYDoc(watched.document);
     unsubscribeRemote = subscribeRemoteChanges(
@@ -503,48 +504,6 @@ export function createEditorController(
       },
       { startHalted },
     );
-  }
-
-  /**
-   * Settle the pending proposals whose verdicts arrived in `latest`'s chain (matched by
-   * the dispatched object, oldest first). Dispatches apply in order, so a pending proposal
-   * dispatched BEFORE a settled one with no verdict in the chain was never applied by the
-   * host ("proposal was not applied by the host") — or, when the chain was cut (more than
-   * MAX_PROPOSAL_CHAIN proposals between two updates), its verdict aged out. After a
-   * document replacement (`replaced`) the rest can no longer land on the document they
-   * were computed for: stale. A host that never updates again leaves the rest pending
-   * until the next update / replacement / destroy.
-   */
-  function settleProposals(latest: ProposalOutcome | undefined, replaced: boolean): void {
-    const fresh: ProposalOutcome[] = [];
-    // Walk back to the last verdict already seen — by its dispatch number, which copies of
-    // a trimmed chain keep (object identity does not survive a trim). A gap between the
-    // oldest verdict walked and the one seen means the chain was cut.
-    const seenSeq = seenProposal?.seq ?? 0;
-    for (let o = latest; o !== undefined && o.seq > seenSeq; o = o.prior) fresh.push(o);
-    const oldest = fresh.at(-1);
-    const cut = oldest !== undefined && oldest.seq > seenSeq + 1;
-    seenProposal = latest;
-    if (pendingProposals.length === 0) return;
-    const settled = new Set<number>();
-    let lastSettled = -1;
-    for (let k = fresh.length - 1; k >= 0; k--) {
-      const outcome = fresh[k];
-      const i = pendingProposals.findIndex((p, j) => !settled.has(j) && p.proposal === outcome?.proposal);
-      const entry = pendingProposals[i];
-      if (outcome === undefined || entry === undefined) continue;
-      settled.add(i);
-      lastSettled = Math.max(lastSettled, i);
-      entry.resolve(proposeResultOf(outcome));
-    }
-    pendingProposals.forEach((p, j) => {
-      if (settled.has(j)) return;
-      if (j < lastSettled) p.resolve(rejectedProposal(cut ? "verdict aged out" : "proposal was not applied by the host"));
-      else if (replaced) p.resolve({ ok: false, reason: "stale" });
-      else return;
-      settled.add(j);
-    });
-    pendingProposals = pendingProposals.filter((_p, j) => !settled.has(j));
   }
 
   // Image cache for rendering image blocks
@@ -1772,7 +1731,7 @@ export function createEditorController(
       coords.x,
       coords.y,
       coords.pageIndex,
-      state.config.componentRegistry,
+      editor.config.componentRegistry,
     );
     if (!hit) {
       dispatch({ type: "MOVE_DOCUMENT_BOUNDARY", boundary: "end" });
@@ -1884,7 +1843,7 @@ export function createEditorController(
       coords.x,
       coords.y,
       coords.pageIndex,
-      state.config.componentRegistry,
+      editor.config.componentRegistry,
     );
     if (hit) {
       // A drag builds a (usually non-collapsed) span — caret
@@ -2299,9 +2258,14 @@ export function createEditorController(
       find.close();
     }
     const prev = state;
-    const next: EditorSnapshot = { ...editor };
+    const next: RenderedView = {
+      document: editor.document,
+      selection: editor.selection,
+      caretPageHint: editor.caretPageHint,
+      caretAffinity: editor.caretAffinity,
+      anchorAffinity: editor.anchorAffinity,
+    };
     state = next;
-    let replaced = false;
 
     // Decoration layers: carry every layer through the transition (positions
     // mapped; comment / suggestion ranges re-scanned when the edit touched their
@@ -2310,16 +2274,13 @@ export function createEditorController(
     if (prev !== null) {
       if (prev.document !== next.document) {
         // One mapping for the transition, shared by the layers and the session.
-        const mapping = transitionMapping(prev, next);
+        const mapping = transitionMapping(prev, editor);
         // An unknown transition (document replaced) restarts the log: older Documents
         // can no longer be mapped. A host that batched several dispatches still maps
         // (transitionMapping walks the change chain).
         if (mapping !== UNKNOWN_MAPPING) mappingLog.record(prev.document, next.document, mapping);
-        else {
-          mappingLog.reset(next.document);
-          replaced = true;
-        }
-        layers.advance(prev, next, mapping);
+        else mappingLog.reset(next.document);
+        layers.advance(prev, editor, mapping);
         anchors.advance(prev.document, next.document, mapping);
         // Find live-recompute: an open session re-finds only in the edited
         // blocks (keeping its active occurrence; advancing past a replacement) and
@@ -2340,7 +2301,6 @@ export function createEditorController(
       for (const op of ops) op(next.document);
     }
     pendingHost = null;
-    settleProposals(next.lastProposal, replaced);
     // Fragments computed against the previous tree / document are dead.
     decoRectCache.clear();
     markEnd("ctrl.decorationLayers", tLayers);
@@ -2353,10 +2313,10 @@ export function createEditorController(
     // `nonPaginatedTree()`).
     // The backend layout-driver owns the render→cascade→layout
     // rebuild. Core's reducer is geometry-free — it records WHAT changed
-    // (`state.lastDirtyIds`); the driver consumes that to rebuild incrementally
+    // (`editor.lastDirtyIds`); the driver consumes that to rebuild incrementally
     // (reusing unchanged page subtrees by reference) and is the SOLE source of
     // the layout tree the controller paints / hit-tests / positions the caret on.
-    layoutTree = driver.rebuild(next);
+    layoutTree = driver.rebuild(editor);
 
     // Cursor position: resolved directly against the (virtual or positioned)
     // tree. In virtual mode `resolvePixelPosition` positions only the cursor's
@@ -2633,8 +2593,6 @@ export function createEditorController(
   function destroy() {
     destroyed = true;
     unsubscribeEditor();
-    for (const p of pendingProposals) p.resolve(rejectedProposal("controller destroyed"));
-    pendingProposals = [];
     unsubscribeRemote?.();
     unsubscribeRemote = null;
     layoutTree = null;
@@ -2754,13 +2712,8 @@ export function createEditorController(
       // The proposal is dispatched with the version its positions refer to (default: the
       // version this controller shows), and the reducer maps it through the change chain
       // and validates it — so it can never land on wrong text even if the editor holds
-      // edits this controller has not rendered yet. The promise resolves with the
-      // reducer's verdict when a render carrying it happens.
-      const basedOn = proposeOptions.basedOn ?? state.document;
-      return new Promise<ProposeResult>((resolve) => {
-        pendingProposals.push({ proposal, resolve });
-        dispatch({ type: "PROPOSE", proposal, basedOn });
-      });
+      // edits this controller has not rendered yet.
+      return dispatchProposal(editor, proposal, proposeOptions.basedOn ?? state.document);
     },
     setSuggestionStyles(styleOf: SuggestionGroupStyle | null): void {
       if (destroyed) return;

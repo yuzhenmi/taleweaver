@@ -65,7 +65,7 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
   it("is a no-op when the target is not an image block", () => {
     const { editor, paraId } = docWithImage();
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_IMAGE_WRAP", blockId: paraId, wrap: "left" });
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -75,7 +75,7 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
   it("is a no-op when the target block does not exist", () => {
     const { editor } = docWithImage();
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_IMAGE_WRAP", blockId: "missing-id" as BlockId, wrap: "left" });
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -85,7 +85,7 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
   it("is a no-op for an invalid wrap value", () => {
     const { editor, imageId } = docWithImage();
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "center" as unknown as "left" });
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -96,7 +96,7 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
     const { editor, imageId } = docWithImage();
     editor.dispatch({ type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "left" });
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "left" });
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -108,7 +108,7 @@ describe("handleSetImageWrap — SET_IMAGE_WRAP (image text-wrap)", () => {
     // The freshly-inserted image carries no wrap key, so break is identity.
     expect(getBlock(editor.document, imageId)?.attrs.wrap).toBeUndefined();
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_IMAGE_WRAP", blockId: imageId, wrap: "break" });
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).

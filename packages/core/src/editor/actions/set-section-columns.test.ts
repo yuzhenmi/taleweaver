@@ -163,7 +163,7 @@ describe("handleSetSectionColumns — SET_SECTION_COLUMNS action", () => {
     // Baseline: every page is single-column.
     expect(sectionPlanColumnCounts(initial, sectionB, config).every((n) => n === 1)).toBe(true);
 
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 });
 
     // A real change produces a NEW state reference.
@@ -230,7 +230,7 @@ describe("handleSetSectionColumns — SET_SECTION_COLUMNS action", () => {
     // identity is `document` reference equality — the editor OBJECT differs because
     // the dispatch entry-clear strips the prior mutating action's stale
     // `lastDirtyIds` hint (twoCol carries a non-null set; again clears it to null).
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 });
     expect(initial.document).toBe(before.document);
     expect(initial.selection).toBe(before.selection);

@@ -465,7 +465,7 @@ export { createAnchorSet, mapPositionFrom } from "./editor/anchors";
 export type { Anchor, AnchorSet, AnchorOptions } from "./editor/anchors";
 export { getYDoc, subscribeRemoteChanges, rebaseSelection } from "./editor/foreign-change";
 // Host proposals: suggestion groups with metadata.
-export { newSuggestionGroupId, validateProposal, proposeResultOf, MAX_PROPOSAL_CHAIN } from "./editor/proposals";
+export { newSuggestionGroupId, validateProposal, proposeResultOf, dispatchProposal } from "./editor/proposals";
 export type {
   Proposal,
   ProposedEdit,

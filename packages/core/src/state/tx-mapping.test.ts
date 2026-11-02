@@ -17,7 +17,8 @@ import { removeBlock } from "./ops/remove-block";
 import { setBlockAttrs } from "./ops/set-block-attrs";
 import { createPosition, createSpan, type Position } from "./block-position";
 import { createTestAllocator, type BlockId } from "./block-id";
-import { createPositionMapping, type PositionMapping } from "./position-mapping";
+import { createPositionMapping, mappingAcross, type PositionMapping } from "./position-mapping";
+import { reparentChildren } from "./ops/reparent-children";
 import { subscribeForeignChanges } from "./collab";
 import { TEST_RESOLVER, buildBlock, buildDocument, inlineContent, text } from "../test-utils/document-builders";
 
@@ -105,6 +106,15 @@ describe("exact mapping — never-cached blocks map exactly (local)", () => {
     expect(at(m, pos("C", 3)).position).toEqual(pos("C", 4));
     expect(at(m, pos("B", 2)).deleted).toBe(true);
     expect(at(m, pos("A", 1)).position).toEqual(pos("C", 1));
+  });
+  it("a chain orders a middle link's blocks from that version, never the since-changed live document", () => {
+    // v0: A → D → B → C. Link 1 edits D (inside A..B); link 2 moves D to the end. Ordering
+    // D against A and B for link 1 must not read the live order (where D is after B).
+    const v0 = docOf([{ id: "A", text: "aaaa" }, { id: "D", text: "dddd" }, { id: "B", text: "bbbb" }, { id: "C", text: "cccc" }]);
+    const r1 = insertText(v0, pos("D", 0), "X", {});
+    const r2 = reparentChildren(r1.document, [id("D")], id("doc"));
+    const m = mappingAcross([{ from: v0, dirtyIds: r1.dirtyIds }, { from: r1.document, dirtyIds: r2.dirtyIds }], r2.document);
+    expect(m.touches(pos("A", 1), pos("B", 1))).toBe(true);
   });
 });
 

@@ -56,7 +56,7 @@ const suggestingConfig: EditorConfig = { ...directConfig, suggestingAuthor: "ali
 
 /** Place a collapsed caret at `offset` of `paraId` (suggesting config). */
 function caretAt(editor: Editor, paraId: BlockId, offset: number): Editor {
-  editor.config = suggestingConfig;
+  editor.setConfig(suggestingConfig);
   editor.dispatch({
     type: "SET_SELECTION",
     selection: createSpan(createPosition(paraId, offset), createPosition(paraId, offset)),
@@ -71,7 +71,7 @@ function select(
   start: number,
   end: number,
 ): Editor {
-  editor.config = suggestingConfig;
+  editor.setConfig(suggestingConfig);
   editor.dispatch({
     type: "SET_SELECTION",
     selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
@@ -320,18 +320,18 @@ describe("caret-only outcomes (already struck runs / steps): nothing written, ca
     const aliceId = deletionIdAt(struck, p, 1);
     expect(typeof aliceId).toBe("string");
     // bob backspaces over the struck "b": untouched, caret before it.
-    struck.config = bob;
+    struck.setConfig(bob);
     struck.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(p, 2), createPosition(p, 2)) });
-    const before = { ...struck };
+    const before = struck.snapshot();
     struck.dispatch({ type: "DELETE_BACKWARD" });
     expect(struck.document).toBe(before.document);
     expect(deletionIdAt(struck, p, 1)).toBe(aliceId);
     expect(getSuggestions(struck.document)).toHaveLength(1);
     expect(struck.selection.focus).toEqual(createPosition(p, 1));
     // Delete forward from before "b": same, caret after it.
-    struck.config = bob;
+    struck.setConfig(bob);
     struck.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(p, 1), createPosition(p, 1)) });
-    const before2 = { ...struck };
+    const before2 = struck.snapshot();
     struck.dispatch({ type: "DELETE_FORWARD" });
     expect(struck.document).toBe(before2.document);
     expect(struck.selection.focus).toEqual(createPosition(p, 2));
@@ -343,15 +343,15 @@ describe("caret-only outcomes (already struck runs / steps): nothing written, ca
     joined.dispatch({ type: "DELETE_BACKWARD" });
     expect(joinTagged(joined, firstId)).toBe(true);
     // Second Backspace (another author): caret to (first, len), state unchanged.
-    joined.config = bob;
+    joined.setConfig(bob);
     joined.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(secondId, 0), createPosition(secondId, 0)) });
-    const before = { ...joined };
+    const before = joined.snapshot();
     joined.dispatch({ type: "DELETE_BACKWARD" });
     expect(joined.document).toBe(before.document);
     expect(joined.selection.focus).toEqual(createPosition(firstId, 3));
     // Delete at (first, len) over the joined step: caret to (second, 0).
     joined.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 3), createPosition(firstId, 3)) });
-    const before2 = { ...joined };
+    const before2 = joined.snapshot();
     joined.dispatch({ type: "DELETE_FORWARD" });
     expect(joined.document).toBe(before2.document);
     expect(joined.selection.focus).toEqual(createPosition(secondId, 0));

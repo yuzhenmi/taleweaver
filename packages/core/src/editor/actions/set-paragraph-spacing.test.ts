@@ -33,7 +33,7 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
     // Baseline: no marginBlockEnd attr (the component default em margin applies).
     expect(getBlock(initial.document, paraId)?.attrs.marginBlockEnd).toBeUndefined();
 
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "SET_PARAGRAPH_SPACING", edge: "after", value: 40 });
 
     expect(getBlock(initial.document, paraId)?.attrs.marginBlockEnd).toBe(40);
@@ -84,7 +84,7 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
     const initial = createEditor(config);
     initial.dispatch({ type: "INSERT_TEXT", text: "hi" });
 
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "SET_PARAGRAPH_SPACING", edge: "before", value: 16 });
 
     expect(initial.selection).toEqual(before.selection);
@@ -177,7 +177,7 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
     let editor = initial;
     editor.dispatch({ type: "SET_PARAGRAPH_SPACING", edge: "after", value: 40 });
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_PARAGRAPH_SPACING", edge: "after", value: 40 });
 
     // No commit, no state change (the identity-no-op contract). Phase 0b: the no-op

@@ -80,10 +80,14 @@ const H = 32; // image block-size (float height) = two line-heights.
 // (packages/print/src/nav/image-wrap-nav.test.ts).
 const measurer = createMockShaper(CHAR_W, LINE_H);
 
+// One editor's registries are fixed for its lifetime (`Editor.setConfig`): every config here shares them.
+const COMPONENT_REGISTRY = createDefaultComponentRegistry();
+const ATTR_REGISTRY = createDefaultAttrRegistry();
+
 function makeConfig(): EditorConfig {
   return {
-    componentRegistry: createDefaultComponentRegistry(),
-    attrRegistry: createDefaultAttrRegistry(),
+    componentRegistry: COMPONENT_REGISTRY,
+    attrRegistry: ATTR_REGISTRY,
     containerWidth: CONTAINER_W,
   };
 }
@@ -413,7 +417,7 @@ describe("image-wrap behavior — delete + undo restores the wrap attr", () => {
     const start = createPosition("pre" as BlockId, "PRE".length);
     const seeded = editorFrom(seedWithPredecessor("left"), createSpan(start, start));
 
-    seeded.config = config;
+    seeded.setConfig(config);
     seeded.dispatch({ type: "DELETE_FORWARD" });
     expect(getBlock(seeded.document, "img" as BlockId)).toBeNull();
     // With the float gone, the paragraph reflows full-width (no inset line).
@@ -448,7 +452,7 @@ describe("image-wrap behavior — delete + undo restores the wrap attr", () => {
     const config = makeConfig();
     const seeded = editorFrom(seedWithPredecessor("left"), createSpan(para(0), para(0)));
 
-    seeded.config = config;
+    seeded.setConfig(config);
     seeded.dispatch({ type: "DELETE_BACKWARD" });
     expect(getBlock(seeded.document, "img" as BlockId)).toBeNull();
     expect(getBlock(seeded.document, "para" as BlockId)?.type).toBe("paragraph");

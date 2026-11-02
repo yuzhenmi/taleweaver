@@ -1,6 +1,6 @@
 import { finalSectionOf } from "../test-utils/document-builders";
 import { TEST_RESOLVER } from "../test-utils/document-builders";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import * as Y from "yjs";
 import {
   createEditor,
@@ -15,7 +15,6 @@ import {
   resetPerfTrace,
   report,
   newSuggestionGroupId,
-  MAX_PROPOSAL_CHAIN,
   createPosition,
   createSpan,
   getYDoc,
@@ -31,6 +30,8 @@ import {
   BINARY_FORMAT,
   JSON_FORMAT,
   formattingSuggestionIds,
+  dispatchProposal,
+  type ProposeResult,
   type EditorAction,
   type EditorConfig,
   type Editor,
@@ -47,7 +48,7 @@ const config: EditorConfig = {
 
 function run(editor: Editor, cfg: EditorConfig, ...actions: EditorAction[]): Editor {
   let s = editor;
-  s.config = cfg;
+  s.setConfig(cfg);
   for (const a of actions) s.dispatch(a);
   return s;
 }
@@ -366,23 +367,6 @@ describe("proposal overlaps and staleness", () => {
     expect(run(c.typed, config, { type: "PROPOSE", proposal: c.proposal, basedOn: foreign }).lastProposal?.outcome).toBe("stale");
   });
 
-  it("the verdict chain keeps existing verdict objects (identity) until it is trimmed; copies keep their dispatch number", () => {
-    let e = twoParagraphs().s;
-    const empty = (): Proposal => ({ groupId: newSuggestionGroupId(), author: "a", edits: [] });
-    e = run(e, config, { type: "PROPOSE", proposal: empty() });
-    const first = e.lastProposal;
-    e = run(e, config, { type: "PROPOSE", proposal: empty() });
-    expect(e.lastProposal?.prior).toBe(first); // the SAME object, not a copy
-    expect(e.lastProposal?.seq).toBe(2);
-    for (let k = 0; k < 2 * MAX_PROPOSAL_CHAIN; k++) e = run(e, config, { type: "PROPOSE", proposal: empty() });
-    const chain: number[] = [];
-    for (let o = e.lastProposal; o !== undefined; o = o.prior) chain.push(o.seq);
-    expect(chain.length).toBeGreaterThanOrEqual(MAX_PROPOSAL_CHAIN);
-    expect(chain.length).toBeLessThanOrEqual(2 * MAX_PROPOSAL_CHAIN);
-    expect(chain[0]).toBe(2 + 2 * MAX_PROPOSAL_CHAIN);
-    expect(chain.every((seq, i) => i === 0 || seq === (chain[i - 1] ?? 0) - 1)).toBe(true); // consecutive
-  });
-
   it("validation is O(n log n): ~1,000 edits cost ~n·log2(n) comparisons, not n²", () => {
     const text = "ab ".repeat(1000);
     const s = run(createEditor(config), config, { type: "INSERT_TEXT", text });
@@ -447,5 +431,109 @@ describe("rendering hook and compatibility", () => {
     const orders = (st: typeof back) => new Map(getSuggestions(st).map((x) => [x.id, x.order]));
     expect(orders(back)).toEqual(orders(proposed.document));
     expect([...orders(back).values()].every((o) => typeof o === "number")).toBe(true);
+  });
+});
+
+describe("dispatchProposal — the verdict a host's propose() resolves with", () => {
+  const NOT_APPLIED = { ok: false, reason: "rejected", problem: { kind: "invalid", message: "not applied" } };
+  const replaceIn = (id: BlockId, from: number, to: number, text = "x"): Proposal => ({
+    groupId: newSuggestionGroupId(),
+    author: "assistant",
+    edits: [{ kind: "replace", from: at(id, from), to: at(id, to), text }],
+  });
+  /** Count `editor`'s live subscriptions. */
+  const countSubscriptions = (editor: Editor): (() => number) => {
+    let live = 0;
+    const subscribe = editor.subscribe.bind(editor);
+    editor.subscribe = (listener) => {
+      live++;
+      const off = subscribe(listener);
+      return () => {
+        live--;
+        off();
+      };
+    };
+    return () => live;
+  };
+  const failingNow = (editor: Editor): EditorConfig => ({
+    ...editor.config,
+    now: () => {
+      throw new Error("clock failed");
+    },
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("dispatched directly: resolves with the verdict", async () => {
+    const { s, p1 } = twoParagraphs();
+    expect(await dispatchProposal(s, replaceIn(p1, 0, 3))).toEqual({ ok: true });
+    expect(getSuggestionGroups(s.document)).toHaveLength(1);
+  });
+
+  it("queued (from a subscriber): each resolves with its own verdict once it runs — the same object twice too", async () => {
+    const { s, p1 } = twoParagraphs();
+    const same = replaceIn(p1, 0, 3);
+    const pending: Promise<ProposeResult>[] = [];
+    const off = s.subscribe(() => {
+      off();
+      pending.push(dispatchProposal(s, same), dispatchProposal(s, replaceIn(p1, 1, 4)), dispatchProposal(s, same));
+    });
+    s.dispatch(caret(p1, 0));
+    const [a, b, c] = await Promise.all(pending);
+    expect(a).toEqual({ ok: true });
+    expect(b?.ok === false && b.reason === "rejected" ? b.problem.kind : null).toBe("conflict");
+    expect(c?.ok === false && c.reason === "rejected" ? c.problem.kind : null).toBe("conflict");
+  });
+
+  it("queued behind edits: its positions refer to the document when it was proposed", async () => {
+    const { s, p1 } = twoParagraphs();
+    let queued: Promise<ProposeResult> | undefined;
+    const off = s.subscribe(() => {
+      off();
+      s.dispatch(caret(p1, 0));
+      s.dispatch({ type: "INSERT_TEXT", text: "XYZ " });
+      queued = dispatchProposal(s, replaceIn(p1, 5, 10, "swift")); // "quick" before the queued edits
+    });
+    s.dispatch(caret(p1, 1));
+    expect(await queued).toEqual({ ok: true });
+    const [group] = getSuggestionGroups(s.document);
+    if (group === undefined) throw new Error("no group");
+    s.dispatch({ type: "ACCEPT_SUGGESTION_GROUP", groupId: group.id });
+    expect(textOf(s, p1)).toBe("XYZ The  swift fox");
+  });
+
+  it("a subscriber that throws on its change does not stop it: resolves with the verdict", async () => {
+    vi.stubGlobal("queueMicrotask", () => undefined); // the subscriber's error report
+    const { s, p1 } = twoParagraphs();
+    const off = s.subscribe(({ action }) => {
+      if (action.type !== "PROPOSE") return;
+      off();
+      throw new Error("host failed");
+    });
+    expect(await dispatchProposal(s, replaceIn(p1, 0, 3))).toEqual({ ok: true });
+    expect(getSuggestionGroups(s.document)).toHaveLength(1);
+  });
+
+  it("a PROPOSE that throws: rejected — rethrown when dispatched directly, reported when queued; nothing stays subscribed", async () => {
+    vi.stubGlobal("queueMicrotask", () => undefined); // the queued action's error report
+    const { s, p1 } = twoParagraphs();
+    const live = countSubscriptions(s);
+    const working = s.config;
+    s.setConfig(failingNow(s));
+    expect(() => dispatchProposal(s, replaceIn(p1, 0, 3))).toThrow("clock failed");
+    expect(live()).toBe(0);
+    s.setConfig(working);
+    let queued: Promise<ProposeResult> | undefined;
+    const off = s.subscribe(() => {
+      off();
+      s.setConfig(failingNow(s));
+      queued = dispatchProposal(s, replaceIn(p1, 0, 3));
+    });
+    s.dispatch(caret(p1, 0));
+    expect(await queued).toEqual(NOT_APPLIED);
+    expect(live()).toBe(0);
+    expect(getSuggestionGroups(s.document)).toEqual([]);
   });
 });

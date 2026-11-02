@@ -33,6 +33,7 @@ import {
   caretAt,
   nav,
   layoutOf,
+  setAffinity,
   type NavCtx,
 } from "./nav-test-helpers";
 import { finalSection } from "../test-utils/final-section"; // body blocks live in the final section
@@ -83,8 +84,7 @@ function paragraphId(ctx: NavCtx): BlockId {
 
 /** Force `caretAffinity` onto the context's editor (the prior-action caret side). */
 function withCaretAffinity(ctx: NavCtx, affinity: "before" | "after"): NavCtx {
-  ctx.editor.caretAffinity = affinity;
-  return ctx;
+  return setAffinity(ctx, { caretAffinity: affinity });
 }
 
 function expandBack(ctx: NavCtx): NavCtx {

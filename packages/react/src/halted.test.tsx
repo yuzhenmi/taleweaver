@@ -181,7 +181,7 @@ describe("useEditor — HALTED", () => {
     expect(m.hook).toHaveBeenCalledWith({ reason: "legacy-write", legacyBlocks: [m.id], legacyText: { [m.id]: "old" } });
 
     // dispatch is ignored while halted.
-    const halted = { ...m.api().editor };
+    const halted = m.api().editor.snapshot();
     act(() => m.api().dispatch({ type: "INSERT_TEXT", text: "x" }));
     expect(m.api().editor.document).toBe(halted.document);
 

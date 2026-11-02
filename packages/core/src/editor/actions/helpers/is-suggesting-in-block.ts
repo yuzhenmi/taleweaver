@@ -1,4 +1,4 @@
-import type { EditorSnapshot } from "../../editor";
+import type { Editor } from "../../editor";
 import { selectionContextOf, type BlockId } from "../../../state";
 
 /** True iff an edit at `blockId` is in suggesting mode AND resolves to a valid
@@ -6,7 +6,7 @@ import { selectionContextOf, type BlockId } from "../../../state";
  *  caret-placement decisions that depend on whether a delete was a soft-delete
  *  (text kept, caret skips it) vs a direct delete (text removed).
  *  (See `suggestionInputForBlock` for the all-context tracking rule.) */
-export function isSuggestingInBlock(editor: EditorSnapshot, blockId: BlockId): boolean {
+export function isSuggestingInBlock(editor: Editor, blockId: BlockId): boolean {
   if ((editor.config.suggestingAuthor ?? null) === null) return false;
   return selectionContextOf(editor.document, blockId) !== null;
 }

@@ -181,7 +181,7 @@ describe("same-block resolve then undo (S1 — identity-preserving, #484)", () =
     const paraId = bodyParaId(initial.document);
 
     // Type "hi" in suggesting mode → one insertion suggestion in THIS block.
-    initial.config = suggesting;
+    initial.setConfig(suggesting);
     initial.dispatch({ type: "INSERT_TEXT", text: "hi" });
     const sugg = getSuggestions(initial.document);
     expect(sugg).toHaveLength(1);
@@ -208,7 +208,7 @@ describe("absent-id resolve is a safe no-op", () => {
     const seeded = seedFormatting(document, paraId, 1, 4, { bold: true }, SID);
     const editor = createEditor(config, { document: seeded, selection: caretAt(paraId, 0) });
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "ACCEPT_SUGGESTION", id: "nope" as SuggestionId });
 
     // The one seeded suggestion is unchanged; the doc is intact.

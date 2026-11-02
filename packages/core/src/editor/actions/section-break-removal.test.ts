@@ -174,7 +174,7 @@ describe("section-break removal — Backspace at the section boundary", () => {
       offset: 0,
     });
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_BACKWARD" });
 
     // The break is gone in ONE step: its item (¶H) is deleted, H's empty content
@@ -238,7 +238,7 @@ describe("section-break removal — Delete (forward) at the section boundary", (
     const cursor = { blockId: head, offset: 0 };
     editor.dispatch({ type: "SET_SELECTION", selection: { anchor: cursor, focus: cursor } });
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_FORWARD" });
 
     // Same one-step result as Backspace: one (final) section, H merged into p3.
@@ -287,7 +287,7 @@ describe("section-break removal — non-section-boundary cases unchanged", () =>
     const cursor = { blockId: firstBlock, offset: 0 };
     editor.dispatch({ type: "SET_SELECTION", selection: { anchor: cursor, focus: cursor } });
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_BACKWARD" });
 
     // No change: state reference unchanged (start of doc, no prev section).
@@ -360,7 +360,7 @@ describe("section-break removal — section-less doc unaffected", () => {
 
   it("Backspace at the start of the doc's first block is a no-op (no section)", () => {
     const editor = makeEditor("p1" as BlockId, 0);
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_BACKWARD" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);

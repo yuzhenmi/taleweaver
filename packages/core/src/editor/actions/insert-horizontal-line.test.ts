@@ -88,7 +88,7 @@ describe("handleInsertHorizontalLine — INSERT_HORIZONTAL_LINE (#L11.1)", () =>
     const inHeaderBody = getBlock(editor.document, editor.selection.focus.blockId) === null;
     expect(inHeaderBody).toBe(true); // precondition: caret is outside the main tree
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "INSERT_HORIZONTAL_LINE" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(editor.document).toBe(before.document);

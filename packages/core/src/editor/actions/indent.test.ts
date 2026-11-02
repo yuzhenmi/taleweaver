@@ -48,7 +48,7 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
     // Baseline: no marginInlineStart attr.
     expect(getBlock(initial.document, paraId)?.attrs.marginInlineStart).toBeUndefined();
 
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "INDENT" });
 
     expect(getBlock(initial.document, paraId)?.attrs.marginInlineStart).toBe(INDENT_STEP);
@@ -112,7 +112,7 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
 
     expect(getBlock(initial.document, paraId)?.attrs.marginInlineStart).toBeUndefined();
 
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "OUTDENT" });
 
     // Already at 0 → clamped → nothing changed. Phase 0b: the no-op identity is
@@ -201,7 +201,7 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
       focus: createPosition("li" as BlockId, 0),
     });
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "INDENT" });
 
     // Skipped → no marginInlineStart written, same editor reference (identity guard).
@@ -217,7 +217,7 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
     const selection = createSpan(createPosition(paraId, 0), createPosition(paraId, 2));
     initial.dispatch({ type: "SET_SELECTION", selection });
 
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "INDENT" });
 
     expect(initial.selection).toEqual(before.selection);

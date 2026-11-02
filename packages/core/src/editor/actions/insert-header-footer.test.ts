@@ -116,7 +116,7 @@ describe("handleInsertHeaderFooter — INSERT_HEADER", () => {
     const initial = createEditor(config);
     expect(templateRootCount(initial)).toBe(0);
 
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "INSERT_HEADER" });
 
     // A new state (real change).
@@ -340,7 +340,7 @@ describe("handleInsertHeaderFooter — per-section (#485)", () => {
     withHeader.dispatch({ type: "INSERT_HEADER" });
     // The caret now sits in the header body's paragraph.
     expect(resolveActiveSection(withHeader, withHeader.selection.focus.blockId)).toBeNull();
-    const before = { ...withHeader };
+    const before = withHeader.snapshot();
     withHeader.dispatch({ type: "INSERT_FOOTER" });
     expect(withHeader.document).toBe(before.document);
     expect(withHeader.selection).toBe(before.selection);

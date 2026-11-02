@@ -15,7 +15,7 @@ import { DOCUMENT_INTERNAL } from "../state/document-internal";
 
 /** The attr registry bound to the editor's doc (the editor binds `EditorConfig.attrRegistry`). */
 const registryOf = (document: Document): AttrRegistry => requireAttrRegistry(document[DOCUMENT_INTERNAL].doc);
-import type { Editor, EditorSnapshot } from "./editor";
+import type { Editor } from "./editor";
 import type { Edit } from "./edit";
 
 /**
@@ -123,7 +123,7 @@ function typeOverAttrs(document: Document, start: Position, registry: AttrRegist
  * command at a collapsed caret) if any, else the attrs inherited at the caret
  * (or, over a selection, those of its first character).
  */
-export function getTypingAttrs(editor: EditorSnapshot): ReadonlyAttrs {
+export function getTypingAttrs(editor: Editor): ReadonlyAttrs {
   if (editor.storedAttrs !== undefined) return editor.storedAttrs;
   const { document, selection } = editor;
   return isCollapsed(selection)

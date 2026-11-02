@@ -54,7 +54,7 @@ describe("handleSetFontFamily", () => {
     const initial = createEditor(config);
     initial.dispatch({ type: "INSERT_TEXT", text: "hello" });
     let editor = initial;
-    const before = { ...editor };
+    const before = editor.snapshot();
     // Collapsed at end.
     editor.dispatch({ type: "SET_FONT_FAMILY", family: "Courier New" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).

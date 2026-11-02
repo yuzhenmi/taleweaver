@@ -115,7 +115,7 @@ function footnoteBodyFixture(): { editor: Editor; bodyParaId: BlockId } {
 
 /** Place a collapsed caret at `offset` of `blockId` (suggesting config). */
 function caretAt(editor: Editor, blockId: BlockId, offset: number): Editor {
-  editor.config = suggestingConfig;
+  editor.setConfig(suggestingConfig);
   editor.dispatch({
     type: "SET_SELECTION",
     selection: createSpan(createPosition(blockId, offset), createPosition(blockId, offset)),
@@ -125,7 +125,7 @@ function caretAt(editor: Editor, blockId: BlockId, offset: number): Editor {
 
 /** Select `[start, end)` of `blockId` (suggesting config). */
 function selectIn(editor: Editor, blockId: BlockId, start: number, end: number): Editor {
-  editor.config = suggestingConfig;
+  editor.setConfig(suggestingConfig);
   editor.dispatch({
     type: "SET_SELECTION",
     selection: createSpan(createPosition(blockId, start), createPosition(blockId, end)),

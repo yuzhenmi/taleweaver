@@ -36,15 +36,18 @@ const extensions: EditorExtensions = {
   ],
 };
 
+// One editor's registries are fixed for its lifetime (`Editor.setConfig`): every config here shares them.
+const attrRegistry = createDefaultAttrRegistry();
+registerMark(attrRegistry, "mention", { atomic: true });
+const componentRegistry = createDefaultComponentRegistry();
+
 function makeConfig(extra?: Partial<EditorConfig>): EditorConfig {
-  const attrRegistry = createDefaultAttrRegistry();
-  registerMark(attrRegistry, "mention", { atomic: true });
-  return { componentRegistry: createDefaultComponentRegistry(), attrRegistry, containerWidth: 800, extensions, ...extra };
+  return { componentRegistry, attrRegistry, containerWidth: 800, extensions, ...extra };
 }
 
 function run(editor: Editor, config: EditorConfig, ...actions: EditorAction[]): Editor {
   const s = editor;
-  s.config = config;
+  s.setConfig(config);
   for (const a of actions) s.dispatch(a);
   return s;
 }
@@ -137,19 +140,19 @@ describe("triggers", () => {
     const s = type(createEditor(config), "hi @");
     const id = s.selection.focus.blockId;
     expect(s.activeTrigger).toEqual({ id: "mention", from: createPosition(id, 3), to: createPosition(id, 4), query: "" });
-    const started = { ...s };
+    const started = s.activeTrigger;
     type(s, "an");
     expect(s.activeTrigger?.query).toBe("an");
-    expect(triggerChange(started, s)).toEqual({ type: "update", trigger: s.activeTrigger });
-    expect(triggerChange(createEditor(config), started)?.type).toBe("start");
+    expect(triggerChange(started, s.activeTrigger)).toEqual({ type: "update", trigger: s.activeTrigger });
+    expect(triggerChange(createEditor(config).activeTrigger, started)?.type).toBe("start");
     // Each continuation from "hi @an" on a fresh editor (a dispatch changes the editor in place).
     const typedAn = (): Editor => type(createEditor(config), "hi @an");
     expect(type(typedAn(), " ").activeTrigger).toBeUndefined();
     const esc = typedAn();
-    const beforeEsc = { ...esc };
+    const beforeEsc = esc.activeTrigger;
     run(esc, config, { type: "ESCAPE" });
     expect(esc.activeTrigger).toBeUndefined();
-    expect(triggerChange(beforeEsc, esc)?.type).toBe("exit");
+    expect(triggerChange(beforeEsc, esc.activeTrigger)?.type).toBe("exit");
     expect(type(esc, "n").activeTrigger).toBeUndefined(); // dismissed: not restarted by more typing
     const away = typedAn();
     expect(run(away, config, caret(away.selection.focus.blockId, 1)).activeTrigger).toBeUndefined();
@@ -242,13 +245,14 @@ describe("TRANSACTION rollback", () => {
   it("a throwing transaction rolls back every applied step and leaves history intact", () => {
     const config = makeConfig();
     let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "abc" });
-    const before = { ...s };
+    const before = s.snapshot();
     expect(() =>
       run(s, config, {
         type: "TRANSACTION",
         run: (tx) => {
           tx.dispatch({ type: "INSERT_TEXT", text: "X" });
           tx.dispatch({ type: "SPLIT_NODE" });
+          tx.dispatch({ type: "TOGGLE_STYLE", style: "bold" }); // sets typing attrs at the caret
           throw new Error("boom");
         },
       }),
@@ -256,6 +260,8 @@ describe("TRANSACTION rollback", () => {
     // The throw restored the editor in place to its pre-transaction fields.
     expect(s.document).toBe(before.document);
     expect(s.selection).toBe(before.selection);
+    // A field first set inside the failed transaction is gone again, not left behind.
+    expect(s.storedAttrs).toBeUndefined();
     expect(textOf(s)).toBe("abc");
     s = run(s, config, { type: "INSERT_TEXT", text: "!" });
     expect(textOf(s)).toBe("abc!");
@@ -306,12 +312,16 @@ describe("review round 1", () => {
     expect(type(createEditor(config), "x@a").activeTrigger).toBeUndefined();
   });
 
-  it("non-Latin layouts match the physical key; a malformed keymap fails when compiled — at editor creation", () => {
+  it("non-Latin layouts match the physical key; a malformed keymap fails when compiled — at editor creation and setConfig", () => {
     const e = { key: "и", code: "KeyB", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false };
     expect(matchKeyBinding({ "Mod-b": null }, e, "ctrl")?.name).toBe("Mod-b");
     expect(matchKeyBinding({ "Mod-1": null }, { ...e, key: "&", code: "Digit1" }, "ctrl")).toBeUndefined(); // ASCII key wins
     expect(() => compileKeymap({ "Hyper-x": null })).toThrow(/unknown modifier/);
     expect(() => createEditor(makeConfig({ extensions: { keymap: { "Hyper-x": null } } }))).toThrow(/unknown modifier/);
+    const live = createEditor(makeConfig());
+    const config = live.config;
+    expect(() => live.setConfig({ ...config, extensions: { keymap: { "Hyper-x": null } } })).toThrow(/unknown modifier/);
+    expect(live.config).toBe(config);
     const km = { "Mod-b": null };
     expect(compileKeymap(km)).toBe(compileKeymap(km)); // parsed once per keymap object
   });
@@ -369,7 +379,7 @@ describe("round 2", () => {
   it("a swallowed nested-transaction failure rolls back the whole outer transaction and throws", () => {
     const config = makeConfig();
     let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "abc" });
-    const before = { ...s };
+    const before = s.snapshot();
     expect(() =>
       run(s, config, {
         type: "TRANSACTION",
@@ -391,6 +401,8 @@ describe("round 2", () => {
     ).toThrow(/nested transaction failed/);
     expect(s.document).toBe(before.document);
     expect(s.selection).toBe(before.selection);
+    // A field first set inside the failed transaction is gone again, not left behind.
+    expect(s.storedAttrs).toBeUndefined();
     expect(textOf(s)).toBe("abc");
     s = run(s, config, { type: "INSERT_TEXT", text: "!" });
     expect(textOf(s)).toBe("abc!");

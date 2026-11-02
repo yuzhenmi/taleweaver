@@ -318,6 +318,52 @@ describe("DigitalController — host subscription", () => {
     controller.destroy();
   });
 
+  it("a dispatch from a subscriber that runs before the controller's is rendered after it, each change in turn", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const editor = createEditor({ componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, htmlParser: browserHtmlParser });
+    editor.dispatch({ type: "INSERT_TEXT", text: "ab" });
+    editor.dispatch({ type: "SPLIT_NODE" });
+    editor.dispatch({ type: "INSERT_TEXT", text: "cd" });
+    let first: core.Position | null = null;
+    editor.subscribe(({ action }) => {
+      // Typing in the second paragraph deletes the first paragraph's "a" — a different block.
+      if (action.type === "INSERT_TEXT" && first !== null) {
+        const from = first;
+        first = null;
+        editor.dispatch({ type: "DELETE_RANGE", span: createSpan(from, createPosition(from.blockId, 1)) });
+      }
+    });
+    const controller = createDigitalController({ container, doc: document, editor });
+    first = createPosition(asBlockId(leafIdAt(container, 0)), 0);
+    controller.dispatch({ type: "INSERT_TEXT", text: "X" });
+    expect(leafTexts(container)).toEqual(["b", "cdX"]);
+    controller.destroy();
+  });
+
+  it("setEditor rebuilds the view in full: the handed-over editor's dirty set says nothing about what was shown", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const config = { componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, htmlParser: browserHtmlParser };
+    const first = createEditor(config);
+    first.dispatch({ type: "INSERT_TEXT", text: "ab" });
+    first.dispatch({ type: "SPLIT_NODE" });
+    first.dispatch({ type: "INSERT_TEXT", text: "cd" });
+    const controller = createDigitalController({ container, doc: document, editor: first });
+    // Another editor over a copy of the Y.Doc (same block ids): it edits the first
+    // paragraph, then the second — its last dirty set names only the second.
+    const docB = new Y.Doc();
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(core.getYDoc(first.document)));
+    const second = createEditor(config, { document: core.createDocument({ resolver: config.componentRegistry, rootId: first.document.rootId, doc: docB }) });
+    second.dispatch({ type: "MOVE_DOCUMENT_BOUNDARY", boundary: "start" });
+    second.dispatch({ type: "INSERT_TEXT", text: "X" });
+    second.dispatch({ type: "MOVE_DOCUMENT_BOUNDARY", boundary: "end" });
+    second.dispatch({ type: "INSERT_TEXT", text: "Y" });
+    controller.setEditor(second);
+    expect(leafTexts(container)).toEqual(["Xab", "cdY"]);
+    controller.destroy();
+  });
+
   it("with no host subscriber, dispatch does not throw", () => {
     const { controller } = makeController();
     expect(() => controller.dispatch({ type: "INSERT_TEXT", text: "x" })).not.toThrow();
@@ -1249,35 +1295,6 @@ describe("DigitalController — host proposals (suggestion groups)", async () =>
     ctrlShiftZ(container);
     expect(leafBlock(container).textContent).toBe("jumps high over!");
     expect(core.getSuggestionGroups(controller.editor.document).map((g) => g.id)).toEqual([groupId]);
-    controller.destroy();
-  });
-
-  it("a PROPOSE nested inside propose() (from a host subscriber) does not hide the outer verdict; each gets its own", async () => {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const box: { started: boolean; nested?: Promise<core.ProposeResult> } = { started: false };
-    const editor = createEditor({ componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800, htmlParser: browserHtmlParser });
-    const controller = createDigitalController({ container, doc: document, editor });
-    editor.subscribe(() => {
-      if (box.started || editor.lastProposal === undefined) return;
-      box.started = true;
-      box.nested = controller.propose({
-        groupId: core.newSuggestionGroupId(),
-        author: "b",
-        edits: [{ kind: "replace", from: createPosition(id, 0), to: createPosition(id, 2), text: "x" }], // overlaps the outer one
-      });
-    });
-    controller.dispatch({ type: "INSERT_TEXT", text: "hello world" });
-    const id = asBlockId(leafBlockId(container));
-    const outer = await controller.propose({
-      groupId: core.newSuggestionGroupId(),
-      author: "a",
-      edits: [{ kind: "replace", from: createPosition(id, 0), to: createPosition(id, 5), text: "howdy" }],
-    });
-    expect(outer).toEqual({ ok: true });
-    if (box.nested === undefined) throw new Error("nested propose did not run");
-    const inner = await box.nested;
-    expect(inner.ok === false && inner.reason === "rejected" ? inner.problem.kind : null).toBe("conflict");
     controller.destroy();
   });
 

@@ -63,7 +63,7 @@ const selectInto = (editor: Editor, blockId: BlockId): Editor => {
 describe("handleInsertTableRow — INSERT_TABLE_ROW (P15a.S2)", () => {
   it("no-ops (same editor ref) when the caret is not inside a table", () => {
     const editor = createEditor(config); // caret in a plain paragraph
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "INSERT_TABLE_ROW", position: "below" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -84,7 +84,7 @@ describe("handleInsertTableRow — INSERT_TABLE_ROW (P15a.S2)", () => {
     const tableId = findTableId(editor.document);
     editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "INSERT_TABLE_ROW", position: "below" });
     expect(editor.document).not.toBe(before.document);
     const rows = getChildIds(editor.document, tableId);
@@ -147,7 +147,7 @@ describe("handleInsertTableRow — INSERT_TABLE_ROW (P15a.S2)", () => {
     const caret = createPosition("Bp" as BlockId, 0);
     let editor = createEditor(config, { document, selection: createSpan(caret, caret) });
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "INSERT_TABLE_ROW", position: "below" });
     expect(editor.document).not.toBe(before.document);
     expect(getBlock(editor.document, "A" as BlockId)?.attrs.rowSpan).toBe(3);
@@ -159,7 +159,7 @@ describe("handleInsertTableRow — INSERT_TABLE_ROW (P15a.S2)", () => {
 describe("handleDeleteTable — DELETE_TABLE (P15a.S3)", () => {
   it("no-ops (same editor ref) when the caret is not inside a table", () => {
     const editor = createEditor(config);
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_TABLE" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -193,7 +193,7 @@ describe("handleDeleteTable — DELETE_TABLE (P15a.S3)", () => {
     const tableId = findTableId(editor.document);
     editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_TABLE" });
     expect(editor.document).not.toBe(before.document);
     expect(getBlock(editor.document, tableId)).toBeNull();
@@ -251,7 +251,7 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
 
   it("no-ops (same editor ref) when the caret is not inside a table", () => {
     const editor = createEditor(config);
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_TABLE_ROW" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -272,7 +272,7 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
     const tableId = findTableId(editor.document);
     editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_TABLE_ROW" });
     expect(editor.document).not.toBe(before.document);
     expect(getChildIds(editor.document, tableId).length).toBe(1);
@@ -299,7 +299,7 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
     const caret = createPosition("Cp" as BlockId, 0);
     const editor = createEditor(config, { document, selection: createSpan(caret, caret) });
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_TABLE_ROW" });
     expect(editor.document).not.toBe(before.document);
     expect(getBlock(editor.document, "A" as BlockId)?.attrs.rowSpan).toBeUndefined(); // 2→1
@@ -452,7 +452,7 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
 describe("handleInsertTableColumn — INSERT_TABLE_COLUMN (P15a.S5)", () => {
   it("no-ops (same editor ref) when the caret is not inside a table", () => {
     const editor = createEditor(config);
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "INSERT_TABLE_COLUMN", position: "right" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -473,7 +473,7 @@ describe("handleInsertTableColumn — INSERT_TABLE_COLUMN (P15a.S5)", () => {
     const tableId = findTableId(editor.document);
     editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "INSERT_TABLE_COLUMN", position: "right" });
     expect(editor.document).not.toBe(before.document);
     for (const row of getChildIds(editor.document, tableId)) expect(getChildIds(editor.document, row).length).toBe(3);
@@ -499,7 +499,7 @@ describe("handleInsertTableColumn — INSERT_TABLE_COLUMN (P15a.S5)", () => {
     const caret = createPosition("Cp" as BlockId, 0);
     const editor = createEditor(config, { document, selection: createSpan(caret, caret) });
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "INSERT_TABLE_COLUMN", position: "right" });
     expect(editor.document).not.toBe(before.document);
     expect(getBlock(editor.document, "A" as BlockId)?.attrs.colSpan).toBe(3);
@@ -552,7 +552,7 @@ describe("handleDeleteTableColumn — DELETE_TABLE_COLUMN (P15a.S6)", () => {
 
   it("no-ops (same editor ref) when the caret is not inside a table", () => {
     const editor = createEditor(config);
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_TABLE_COLUMN" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -573,7 +573,7 @@ describe("handleDeleteTableColumn — DELETE_TABLE_COLUMN (P15a.S6)", () => {
     const tableId = findTableId(editor.document);
     editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_TABLE_COLUMN" });
     expect(editor.document).not.toBe(before.document);
     for (const row of getChildIds(editor.document, tableId)) expect(getChildIds(editor.document, row).length).toBe(1);
@@ -599,7 +599,7 @@ describe("handleDeleteTableColumn — DELETE_TABLE_COLUMN (P15a.S6)", () => {
     const caret = createPosition("Dp" as BlockId, 0);
     const editor = createEditor(config, { document, selection: createSpan(caret, caret) });
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_TABLE_COLUMN" });
     expect(editor.document).not.toBe(before.document);
     expect(getBlock(editor.document, "A" as BlockId)?.attrs.colSpan).toBeUndefined(); // 2→1
@@ -699,7 +699,7 @@ describe("handleSplitCell — SPLIT_CELL (P15b.S2)", () => {
 
   it("no-ops (same editor ref) when the caret is not inside a table", () => {
     const editor = createEditor(config);
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SPLIT_CELL" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -709,7 +709,7 @@ describe("handleSplitCell — SPLIT_CELL (P15b.S2)", () => {
     let editor = editorWithTable(); // uniform 2×2, no spans
     const tableId = findTableId(editor.document);
     editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SPLIT_CELL" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -735,7 +735,7 @@ describe("handleSplitCell — SPLIT_CELL (P15b.S2)", () => {
     const document = buildDocument({ rootId: "doc", blocks });
     const caret = createPosition("Ap" as BlockId, 0);
     const editor = createEditor(config, { document, selection: createSpan(caret, caret) });
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SPLIT_CELL" });
     expect(editor.document).not.toBe(before.document);
     expect(getBlock(editor.document, "A" as BlockId)?.attrs.colSpan).toBeUndefined();
@@ -744,7 +744,7 @@ describe("handleSplitCell — SPLIT_CELL (P15b.S2)", () => {
 
   it("unmerges a colSpan-2 cell: row0 grows to 2 cells, the survivor drops its span, caret stays", () => {
     const editor = editorWithSpannedTable();
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SPLIT_CELL" });
     expect(editor.document).not.toBe(before.document);
 
@@ -774,7 +774,7 @@ describe("handleMergeCells — MERGE_CELLS (P15b.S3)", () => {
 
   it("no-ops (same editor ref) when the caret is not inside a table", () => {
     const editor = createEditor(config);
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "MERGE_CELLS" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -784,7 +784,7 @@ describe("handleMergeCells — MERGE_CELLS (P15b.S3)", () => {
     let editor = editorWithTable();
     const tableId = findTableId(editor.document);
     editor = selectInto(editor, firstCellParagraph(editor.document, tableId));
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "MERGE_CELLS" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -804,7 +804,7 @@ describe("handleMergeCells — MERGE_CELLS (P15b.S3)", () => {
     expect(editor.selection.anchor.blockId).toBe(p00);
     expect(editor.selection.focus.blockId).toBe(p11);
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "MERGE_CELLS" });
     expect(editor.document).not.toBe(before.document);
 
@@ -852,7 +852,7 @@ describe("handleMergeCells — MERGE_CELLS (P15b.S3)", () => {
     ];
     const document = buildDocument({ rootId: "doc", blocks });
     const editor = createEditor(config, { document, selection: createSpan(createPosition("Ap" as BlockId, 0), createPosition("Dp" as BlockId, 0)) });
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "MERGE_CELLS" });
     expect(editor.document).not.toBe(before.document);
     expect(getBlock(editor.document, "A" as BlockId)?.attrs.colSpan).toBe(2);

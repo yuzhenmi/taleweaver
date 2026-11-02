@@ -151,7 +151,7 @@ describe("C.2c T7e — cross-context selection is REFUSED (no-op)", () => {
   it("DELETE_BACKWARD over a cross-context selection no-ops (document byte-identical)", () => {
     const editor = buildEditorWithSelection(buildDocumentWithHeaderBody(), crossAnchor(), crossFocus());
     const before = docSnapshot(editor.document);
-    const before2 = { ...editor };
+    const before2 = editor.snapshot();
     editor.dispatch({ type: "DELETE_BACKWARD" });
 
     expect(editor.document).toBe(before2.document); // identity: state object unchanged
@@ -162,7 +162,7 @@ describe("C.2c T7e — cross-context selection is REFUSED (no-op)", () => {
   it("DELETE_FORWARD over a cross-context selection no-ops (document byte-identical)", () => {
     const editor = buildEditorWithSelection(buildDocumentWithHeaderBody(), crossAnchor(), crossFocus());
     const before = docSnapshot(editor.document);
-    const before2 = { ...editor };
+    const before2 = editor.snapshot();
     editor.dispatch({ type: "DELETE_FORWARD" });
 
     expect(editor.document).toBe(before2.document);
@@ -172,7 +172,7 @@ describe("C.2c T7e — cross-context selection is REFUSED (no-op)", () => {
   it("SPLIT_NODE (Enter) over a cross-context selection no-ops (document byte-identical)", () => {
     const editor = buildEditorWithSelection(buildDocumentWithHeaderBody(), crossAnchor(), crossFocus());
     const before = docSnapshot(editor.document);
-    const before2 = { ...editor };
+    const before2 = editor.snapshot();
     editor.dispatch({ type: "SPLIT_NODE" });
 
     expect(editor.document).toBe(before2.document);
@@ -182,7 +182,7 @@ describe("C.2c T7e — cross-context selection is REFUSED (no-op)", () => {
   it("INSERT_TEXT (typing over a cross-context selection) no-ops (document byte-identical)", () => {
     const editor = buildEditorWithSelection(buildDocumentWithHeaderBody(), crossAnchor(), crossFocus());
     const before = docSnapshot(editor.document);
-    const before2 = { ...editor };
+    const before2 = editor.snapshot();
     editor.dispatch({ type: "INSERT_TEXT", text: "X" });
 
     expect(editor.document).toBe(before2.document);
@@ -197,7 +197,7 @@ describe("C.2c T7e — cross-context selection is REFUSED (no-op)", () => {
       createPosition(HDR_P1, 2),
     );
     const before = docSnapshot(editor.document);
-    const before2 = { ...editor };
+    const before2 = editor.snapshot();
     editor.dispatch({ type: "DELETE_BACKWARD" });
 
     expect(editor.document).toBe(before2.document);
@@ -216,7 +216,7 @@ describe("C.2c T7e — same-context expanded selections are NOT refused", () => 
       createPosition(HDR_P1, 2),
       createPosition(HDR_P2, 2),
     );
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_BACKWARD" });
 
     // The selected range across the two header paragraphs is deleted and they
@@ -237,7 +237,7 @@ describe("C.2c T7e — same-context expanded selections are NOT refused", () => 
       createPosition(HDR_P1, 4),
     );
     // "alpha", replace offsets 1..4 ("lph") with "X" → "aXa".
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "INSERT_TEXT", text: "X" });
     expect(headerText(editor.document, HDR_P1)).toBe("aXa");
     expect(editor.document).not.toBe(before.document);
@@ -250,7 +250,7 @@ describe("C.2c T7e — same-context expanded selections are NOT refused", () => 
       createPosition(BODY_P1, 5),
       createPosition(BODY_P2, 4),
     );
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_BACKWARD" });
 
     // Cross-block delete + merge: "body " + " body" = "body  body"; the focus
@@ -271,7 +271,7 @@ describe("C.2c T7e — header-body boundary collapses are no-ops", () => {
   it("Backspace at offset 0 of the header body's FIRST block is a no-op (no merge into main)", () => {
     const editor = buildEditor(buildDocumentWithHeaderBody(), createPosition(HDR_P1, 0));
     const before = docSnapshot(editor.document);
-    const before2 = { ...editor };
+    const before2 = editor.snapshot();
     editor.dispatch({ type: "DELETE_BACKWARD" });
 
     expect(editor.document).toBe(before2.document);
@@ -286,7 +286,7 @@ describe("C.2c T7e — header-body boundary collapses are no-ops", () => {
     // caret at end of "beta" (offset 4 of c2).
     const editor = buildEditor(buildDocumentWithHeaderBody(), createPosition(HDR_P2, 4));
     const before = docSnapshot(editor.document);
-    const before2 = { ...editor };
+    const before2 = editor.snapshot();
     editor.dispatch({ type: "DELETE_FORWARD" });
 
     expect(editor.document).toBe(before2.document);
@@ -304,7 +304,7 @@ describe("C.2c T7e — main-tree boundary no-regression", () => {
   it("Backspace at offset 0 of the main doc's FIRST block is a no-op", () => {
     const editor = buildEditor(buildDocumentWithHeaderBody(), createPosition(BODY_P1, 0));
     const before = docSnapshot(editor.document);
-    const before2 = { ...editor };
+    const before2 = editor.snapshot();
     editor.dispatch({ type: "DELETE_BACKWARD" });
 
     expect(editor.document).toBe(before2.document);

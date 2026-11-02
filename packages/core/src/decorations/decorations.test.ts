@@ -21,7 +21,7 @@ import { MAX_CHANGE_CHAIN } from "../editor/document-change";
 
 function step(editor: Editor, action: EditorAction, set: DecorationSet) {
   for (const b of iterateLeafBlocksInDocumentOrder(editor.document)) void b; // a render warms the cache
-  const before = { ...editor };
+  const before = editor.snapshot();
   editor.dispatch(action);
   const mapping =
     editor.lastDirtyIds === null ? IDENTITY_MAPPING : createPositionMapping(before.document, editor.document, editor.lastDirtyIds, before.selection.focus);
@@ -162,11 +162,11 @@ describe("DecorationSet", () => {
     // Type inside the commented word: the comment grows. (At its END — before the end
     // marker — the text lands after the marker, outside: caret affinity, Word.)
     for (const b of iterateLeafBlocksInDocumentOrder(ed.document)) void b;
-    const beforeTyping = { ...at(ed, p1, 3) };
+    const beforeTyping = at(ed, p1, 3).snapshot();
     ed.dispatch({ type: "INSERT_TEXT", text: "a" });
     layers.advance(beforeTyping, ed);
     expect(range()).toEqual([[0, 6]]);
-    const beforeEnd = { ...at(ed, p1, 6) };
+    const beforeEnd = at(ed, p1, 6).snapshot();
     ed.dispatch({ type: "INSERT_TEXT", text: "b" });
     layers.advance(beforeEnd, ed);
     expect(range()).toEqual([[0, 6]]);
@@ -174,8 +174,8 @@ describe("DecorationSet", () => {
 
   it("transitionMapping composes batched edits (and caret moves) and is conservative past the change chain", () => {
     const { editor, p1 } = twoParas();
-    const start = { ...at(editor, p1, 0) };
-    for (const b of iterateLeafBlocksInDocumentOrder(start.document)) void b;
+    const start = at(editor, p1, 0).snapshot();
+    for (const b of iterateLeafBlocksInDocumentOrder(editor.document)) void b;
     editor.dispatch({ type: "INSERT_TEXT", text: "So " });
     const moved = at(editor, p1, 9);
     expect(transitionMapping(start, moved).map(createPosition(p1, 0), 1).position).toEqual(createPosition(p1, 3));
@@ -192,7 +192,7 @@ describe("DecorationSet", () => {
     const { editor, p1 } = twoParas();
     const suggesting = { ...config, suggestingAuthor: "alice" };
     const typed = at(editor, p1, 4);
-    typed.config = suggesting;
+    typed.setConfig(suggesting);
     typed.dispatch({ type: "INSERT_TEXT", text: "a" });
     const id = getSuggestions(typed.document)[0]?.id;
     if (id === undefined) throw new Error("no suggestion");
@@ -200,8 +200,8 @@ describe("DecorationSet", () => {
     layers.setSuggestions(typed.document, [{ suggestionId: id, active: false }]);
     expect(layers.merged.forBlock(p1).inline.length).toBe(1);
     for (const b of iterateLeafBlocksInDocumentOrder(typed.document)) void b;
-    const beforeAccept = { ...typed };
-    typed.config = config;
+    const beforeAccept = typed.snapshot();
+    typed.setConfig(config);
     typed.dispatch({ type: "ACCEPT_SUGGESTION", id });
     layers.advance(beforeAccept, typed);
     expect(layers.merged.forBlock(p1).inline.length).toBe(0);
@@ -210,7 +210,7 @@ describe("DecorationSet", () => {
   it("stacked formatting suggestions each keep their own highlight; accepting one drops only its highlight", () => {
     const { editor, p1 } = twoParas();
     const select = (e: Editor, a: number, b: number, cfg: typeof config): Editor =>
-      { e.config = cfg; e.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(p1, a), createPosition(p1, b)) }); return e; };
+      { e.setConfig(cfg); e.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(p1, a), createPosition(p1, b)) }); return e; };
     const alice = { ...config, suggestingAuthor: "alice", now: () => 1 };
     const bob = { ...config, suggestingAuthor: "bob", now: () => 2 };
     const bold = select(editor, 0, 8, alice);
@@ -223,8 +223,8 @@ describe("DecorationSet", () => {
     layers.setSuggestions(both.document, [{ suggestionId: a, active: false }, { suggestionId: b, active: false }]);
     expect(inlineText(layers.merged, p1)).toEqual([[`tw-suggestion:${a}`, 0, 8], [`tw-suggestion:${b}`, 5, 13]]);
     for (const blk of iterateLeafBlocksInDocumentOrder(both.document)) void blk;
-    const beforeAccept = { ...both };
-    both.config = config;
+    const beforeAccept = both.snapshot();
+    both.setConfig(config);
     both.dispatch({ type: "ACCEPT_SUGGESTION", id: b });
     layers.advance(beforeAccept, both);
     expect(inlineText(layers.merged, p1)).toEqual([[`tw-suggestion:${a}`, 0, 8]]);
@@ -238,7 +238,7 @@ describe("DecorationSet", () => {
       [p1, p2].reduce((n, b) => n + layers.merged.forBlock(b).inline.filter((s) => s.decoration.class === "by-bot").length, 0);
     const advance = (prev: Editor, action: EditorAction): Editor => {
       for (const b of iterateLeafBlocksInDocumentOrder(prev.document)) void b;
-      const before = { ...prev };
+      const before = prev.snapshot();
       prev.dispatch(action);
       layers.advance(before, prev);
       return prev;
@@ -270,7 +270,7 @@ describe("DecorationSet", () => {
     const { editor, p1 } = twoParas();
     const suggesting = { ...config, suggestingAuthor: "alice" };
     const typed = at(editor, p1, 4);
-    typed.config = suggesting;
+    typed.setConfig(suggesting);
     typed.dispatch({ type: "INSERT_TEXT", text: "a" });
     const id = getSuggestions(typed.document)[0]?.id;
     if (id === undefined) throw new Error("no suggestion");
@@ -329,8 +329,8 @@ describe("DecorationSet", () => {
 
   it("a batch mixing a local edit and a foreign change to the same block maps from its endpoints", () => {
     const { editor, p1 } = twoParas();
-    const start = { ...at(editor, p1, 0) };
-    for (const b of iterateLeafBlocksInDocumentOrder(start.document)) void b;
+    const start = at(editor, p1, 0).snapshot();
+    for (const b of iterateLeafBlocksInDocumentOrder(editor.document)) void b;
     editor.dispatch({ type: "INSERT_TEXT", text: "So " }); // "So Anna met Rosa"
     // A peer then edits the same block (applied to the doc, reconciled as foreign).
     const op = insertText(editor.document, createPosition(p1, 16), "!", {});
@@ -362,7 +362,7 @@ describe("DecorationSet", () => {
     const layers = createDecorationLayers();
     layers.setHost(b.e.document, [mention("berlin", b.p, 13, 19)]);
     for (const blk of iterateLeafBlocksInDocumentOrder(b.e.document)) void blk;
-    const before = { ...b.e };
+    const before = b.e.snapshot();
     const e = b.e;
     e.dispatch({ type: "SPLIT_NODE" });
     e.dispatch({ type: "INSERT_TEXT", text: "x" });

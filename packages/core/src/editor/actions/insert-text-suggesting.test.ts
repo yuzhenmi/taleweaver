@@ -53,7 +53,7 @@ const suggestingConfig: EditorConfig = { ...directConfig, suggestingAuthor: "ali
 
 /** Place a collapsed caret at `offset` of `paraId`. */
 function caretAt(editor: Editor, paraId: BlockId, offset: number): Editor {
-  editor.config = suggestingConfig;
+  editor.setConfig(suggestingConfig);
   editor.dispatch({
     type: "SET_SELECTION",
     selection: createSpan(createPosition(paraId, offset), createPosition(paraId, offset)),
@@ -141,7 +141,7 @@ function selectIn(
   start: number,
   end: number,
 ): Editor {
-  editor.config = suggestingConfig;
+  editor.setConfig(suggestingConfig);
   editor.dispatch({
     type: "SET_SELECTION",
     selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
@@ -259,7 +259,7 @@ describe("handleInsertText — type over a selection, suggesting mode (slice 4d-
     }
 
     // Select from offset 1 of p1 ("a|bc") through offset 2 of p2 ("de|f").
-    s.config = suggestingConfig;
+    s.setConfig(suggestingConfig);
     s.dispatch({
         type: "SET_SELECTION",
         selection: createSpan(createPosition(p1, 1), createPosition(p2, 2)),
@@ -303,7 +303,7 @@ describe("suggesting typing keeps ¶P's markAttrs", () => {
     editor.dispatch({ type: "INSERT_TEXT", text: "ab" });
     const p = bodyParaId(editor);
     expect(getBlock(editor.document, p)?.markAttrs).toBeUndefined();
-    editor.config = suggesting;
+    editor.setConfig(suggesting);
     editor.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
     editor.dispatch({ type: "INSERT_TEXT", text: "c" });
     // The registry reached the suggesting writer: ¶P carries bold, never the provenance id.

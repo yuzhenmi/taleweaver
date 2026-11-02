@@ -135,9 +135,7 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
     // matches. The activeIndex was 0 and stays numerically 0 (no manual advance)
     // → it now points at what was the 2nd "foo" (Google Docs "advance after
     // replace"). The match COUNT drops 3 → 2.
-    const cfg = config();
     const editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
-    editor.config = cfg;
     const ctrl = createEditorController(mount(), { measurer, editor });
 
     ctrl.findStart("foo");
@@ -172,9 +170,7 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
     // activates the first match AFTER the replacement, wrapping (Google Docs) —
     // there is none after it, so the active match wraps to index 0 (never stuck
     // out of range, never -1).
-    const cfg = config();
     const editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
-    editor.config = cfg;
     const ctrl = createEditorController(mount(), { measurer, editor });
 
     ctrl.findStart("foo");
@@ -254,9 +250,7 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
   });
 
   it("replaceAll: after the dispatched state is fed back, the match count drops to 0", () => {
-    const cfg = config();
     const editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
-    editor.config = cfg;
     const ctrl = createEditorController(mount(), { measurer, editor });
 
     ctrl.findStart("foo");

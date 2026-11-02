@@ -12,8 +12,7 @@ import {
   resolveCommand,
   modConventionFor,
   createAnchorSet,
-  proposeResultOf,
-  type ProposalOutcome,
+  dispatchProposal,
   type SuggestionGroupStyle,
   type Proposal,
   type ProposeResult,
@@ -183,8 +182,8 @@ export interface DigitalController {
    * only rebased). `basedOn`: the version its positions refer to — mapped through the
    * edits made since; `{ ok: false, reason: "stale" }` when its ranges changed meanwhile,
    * `"rejected"` when it overlaps pending suggestions / itself or is invalid ("controller
-   * destroyed" after `destroy`). Resolves at once with the reducer's verdict (same
-   * promise shape as the print controller, whose host owns the state).
+   * destroyed" after `destroy`). Resolves with the reducer's verdict once the PROPOSE has
+   * run (`dispatchProposal`, shared with the print controller).
    */
   propose(proposal: Proposal, options?: { readonly basedOn?: Document }): Promise<ProposeResult>;
   /**
@@ -208,7 +207,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   // The editor shown (live), and its fields as last rendered — the `before` side of the
   // next transition (edits made while halted are never rendered).
   let editor: Editor = options.editor;
-  let rendered: EditorSnapshot = { ...editor };
+  let rendered: EditorSnapshot = editor.snapshot();
   const { componentRegistry, attrRegistry } = editor.config;
 
   let isComposing = false;
@@ -286,12 +285,12 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   function render(): void {
     if (halted || destroyed) return;
     const prev = rendered;
-    const next: EditorSnapshot = { ...editor };
-    rendered = next;
+    rendered = editor.snapshot();
+    const next = rendered;
     if (prev.document !== next.document) {
-      const mapping = transitionMapping(prev, next);
+      const mapping = transitionMapping(prev, editor);
       log.record(prev.document, next.document, mapping);
-      layers.advance(prev, next, mapping);
+      layers.advance(prev, editor, mapping);
       anchors.advance(prev.document, next.document, mapping);
       if (find.active) {
         // Re-find only in the edited blocks; redraw only the blocks whose matches changed.
@@ -301,16 +300,17 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
       }
       followRemoteDoc();
     }
-    reconciler.reconcile(prev, next, isComposing, layers.merged);
-    selected.sync(next);
+    reconciler.reconcile(prev, editor, isComposing, layers.merged);
+    selected.sync(editor);
     pointer?.sync();
   }
   let unsubscribeEditor = editor.subscribe(render);
 
   /** Re-draw after a decoration-only change (no state transition). */
   function redraw(): void {
-    reconciler.reconcile(rendered, rendered, isComposing, layers.merged);
-    selected.sync(rendered);
+    // No transition: the rendered version again (unknown extent, should it differ).
+    reconciler.reconcile(rendered, { ...rendered, lastDirtyIds: null }, isComposing, layers.merged);
+    selected.sync({ ...rendered, lastChange: null });
     pointer?.sync();
   }
 
@@ -510,7 +510,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
 
   container.contentEditable = "true";
   reconciler.mount(container, rendered, layers.merged);
-  selected.sync(rendered);
+  selected.sync(editor);
   const pointer =
     options.onDecorationPointer !== undefined
       ? createDecorationPointer(container, () => layers.merged, options.onDecorationPointer, (id) => reconciler.blockElement(id))
@@ -564,7 +564,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     unsubscribeEditor();
     editor = nextEditor;
     unsubscribeEditor = editor.subscribe(render);
-    rendered = { ...editor };
+    rendered = editor.snapshot();
     halted = false;
     toldCompatible = false;
     container.contentEditable = "true";
@@ -575,8 +575,10 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     layers = createDecorationLayers();
     find.close();
     followRemoteDoc(true); // afresh, even on the same Y.Doc
-    reconciler.reconcile(prev, rendered, isComposing, layers.merged);
-    selected.sync(rendered);
+    // Another editor (perhaps over another Y.Doc): its dirty set is not relative to what
+    // was rendered, so rebuild in full.
+    reconciler.reconcile(prev, { ...rendered, lastDirtyIds: null }, isComposing, layers.merged);
+    selected.sync(editor);
     pointer?.sync();
   }
 
@@ -722,21 +724,8 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     propose(proposal, proposeOptions = {}) {
       if (destroyed) return Promise.resolve({ ok: false, reason: "rejected", problem: { kind: "invalid", message: "controller destroyed" } });
       if (halted) return Promise.resolve({ ok: false, reason: "halted" });
-      // The reducer maps (from `basedOn`) and validates authoritatively; this controller
-      // owns the state, so its verdict is already known — resolve with it. Another PROPOSE
-      // may land before we read (e.g. from onChange), so find OUR verdict in the chain: the
-      // oldest one for this object dispatched after `before`.
-      const before = editor.lastProposal?.seq ?? 0;
-      dispatch({
-        type: "PROPOSE",
-        proposal,
-        ...(proposeOptions.basedOn !== undefined ? { basedOn: proposeOptions.basedOn } : {}),
-      });
-      let ours: ProposalOutcome | undefined;
-      for (let o = editor.lastProposal; o !== undefined && o.seq > before; o = o.prior) {
-        if (o.proposal === proposal) ours = o;
-      }
-      return Promise.resolve(proposeResultOf(ours));
+      // The reducer maps (from `basedOn`) and validates authoritatively.
+      return dispatchProposal(editor, proposal, proposeOptions.basedOn);
     },
     setSuggestionStyles(styleOf) {
       layerOp((s) => layers.setSuggestionStyles(s, styleOf));

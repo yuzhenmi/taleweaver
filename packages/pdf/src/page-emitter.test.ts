@@ -478,7 +478,7 @@ describe("emitPageContent — suggested-boundary ¶ mark (change tracking)", () 
     e.dispatch({ type: "SPLIT_NODE" });
     e.dispatch({ type: "INSERT_TEXT", text: "Rosa" });
     const second = e.selection.focus.blockId;
-    e.config = alice;
+    e.setConfig(alice);
     e.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(second, 0), createPosition(second, 0)) });
     e.dispatch({ type: "DELETE_BACKWARD" }); // a pending join, drawn at the end of "Anna"
     const pageConfig = { pageInlineSize: 200, pageBlockSize: 100, pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 }, pageGap: 10 };

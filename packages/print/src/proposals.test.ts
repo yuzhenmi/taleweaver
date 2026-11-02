@@ -241,101 +241,15 @@ describe("print — host proposals", () => {
     m.controller.destroy();
   });
 
-  it("several proposals batched before ONE update each resolve with their own verdict", async () => {
-    const m = mount("hello world", true);
-    const p = (from: number, to: number): core.Proposal => ({
-      groupId: core.newSuggestionGroupId(),
-      author: "assistant",
-      edits: [{ kind: "replace", from: at(m.id, from), to: at(m.id, to), text: "x" }],
-    });
-    const same = p(0, 2);
-    const results = Promise.all([
-      m.controller.propose(same),
-      m.controller.propose(p(1, 3)), // overlaps the first → conflict
-      m.controller.propose(p(6, 11)),
-      m.controller.propose(same), // the SAME object again: its own verdict (now a conflict)
-    ]);
-    m.flush();
-    const [a, b, c, d] = await results;
-    expect(a).toEqual({ ok: true });
-    expect(b.ok === false && b.reason === "rejected" ? b.problem.kind : null).toBe("conflict");
-    expect(c).toEqual({ ok: true });
-    expect(d.ok === false && d.reason === "rejected" ? d.problem.kind : null).toBe("conflict");
-    // More proposals between two updates than the verdict chain keeps: the oldest report
-    // that their verdict aged out, every later one still gets its own.
-    const many = Array.from({ length: 2 * core.MAX_PROPOSAL_CHAIN + 2 }, () =>
-      m.controller.propose({ groupId: core.newSuggestionGroupId(), author: "a", edits: [] }),
-    );
-    m.flush();
-    const verdicts = (await Promise.all(many)).map((r) => (r.ok ? "ok" : r.reason === "rejected" && r.problem.kind === "invalid" ? r.problem.message : r.reason));
-    const aged = verdicts.filter((v) => v === "verdict aged out").length;
-    expect(aged).toBeGreaterThan(0);
-    expect(verdicts.slice(0, aged).every((v) => v === "verdict aged out")).toBe(true); // a prefix
-    expect(verdicts.length - aged).toBeGreaterThanOrEqual(core.MAX_PROPOSAL_CHAIN); // at least MAX kept
-    expect(verdicts.slice(aged).every((v) => /at least one/.test(v))).toBe(true); // the reducer's own verdicts
+  it("propose() after destroy is rejected without dispatching", async () => {
+    const m = mount("hello");
     m.controller.destroy();
-  });
-
-  it("a proposal the host dropped settles as not applied once a LATER proposal's verdict arrives", async () => {
-    const editor = core.createEditor(cfg);
-    editor.dispatch({ type: "INSERT_TEXT", text: "hello world" });
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    let drop = true;
-    const apply = editor.dispatch.bind(editor);
-    editor.dispatch = (a) => {
-      if (a.type === "PROPOSE" && drop) return; // the host loses this one
-      apply(a);
-    };
-    const controller = createEditorController(container, {
-      measurer: core.createMockMeasurer(8, 16),
-      editor,
+    const dispatch = vi.spyOn(m.get(), "dispatch");
+    expect(await m.controller.propose({ groupId: core.newSuggestionGroupId(), author: "a", edits: [] })).toEqual({
+      ok: false,
+      reason: "rejected",
+      problem: { kind: "invalid", message: "controller destroyed" },
     });
-    const id = editor.selection.focus.blockId;
-    const p = (from: number, to: number): core.Proposal => ({
-      groupId: core.newSuggestionGroupId(),
-      author: "assistant",
-      edits: [{ kind: "replace", from: at(id, from), to: at(id, to), text: "x" }],
-    });
-    // Well past the verdict chain's trim point first (copies of trimmed verdicts must
-    // still be recognised as already seen).
-    drop = false;
-    for (let k = 0; k < 3 * core.MAX_PROPOSAL_CHAIN; k++) {
-      const pending = controller.propose({ groupId: core.newSuggestionGroupId(), author: "a", edits: [] });
-      expect((await pending).ok).toBe(false);
-    }
-    drop = true;
-    const a = controller.propose(p(0, 2));
-    drop = false;
-    const b = controller.propose(p(6, 11));
-    expect(await a).toEqual({ ok: false, reason: "rejected", problem: { kind: "invalid", message: "proposal was not applied by the host" } });
-    expect(await b).toEqual({ ok: true });
-    controller.destroy();
-  });
-
-  it("destroyed / document replaced: rejected or stale, never left hanging", async () => {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const dispatch = vi.fn(); // editors that never apply anything
-    const inert = (): core.Editor => {
-      const e = core.createEditor(cfg);
-      e.dispatch = dispatch;
-      return e;
-    };
-    const controller = createEditorController(container, { measurer: core.createMockMeasurer(8, 16), editor: inert() });
-    const proposal: core.Proposal = { groupId: core.newSuggestionGroupId(), author: "a", edits: [] };
-    const invalid = (message: string) => ({ ok: false, reason: "rejected", problem: { kind: "invalid", message } });
-    // Dispatched, but the document is replaced before it applies → stale.
-    const replacedFirst = controller.propose(proposal);
-    expect(dispatch).toHaveBeenCalledTimes(1);
-    controller.setEditor(inert());
-    expect(await replacedFirst).toEqual({ ok: false, reason: "stale" });
-    // Pending when the controller is destroyed → rejected.
-    const pending = controller.propose(proposal);
-    controller.destroy();
-    expect(await pending).toEqual(invalid("controller destroyed"));
-    const calls = dispatch.mock.calls.length;
-    expect(await controller.propose(proposal)).toEqual(invalid("controller destroyed"));
-    expect(dispatch.mock.calls.length).toBe(calls);
+    expect(dispatch).not.toHaveBeenCalled();
   });
 });

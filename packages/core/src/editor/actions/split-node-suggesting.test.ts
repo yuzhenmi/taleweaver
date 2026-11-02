@@ -68,7 +68,7 @@ function caretAt(
   offset: number,
   cfg: EditorConfig,
 ): Editor {
-  editor.config = cfg;
+  editor.setConfig(cfg);
   editor.dispatch({
     type: "SET_SELECTION",
     selection: createSpan(createPosition(paraId, offset), createPosition(paraId, offset)),
@@ -84,7 +84,7 @@ function select(
   end: number,
   cfg: EditorConfig,
 ): Editor {
-  editor.config = cfg;
+  editor.setConfig(cfg);
   editor.dispatch({
     type: "SET_SELECTION",
     selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
@@ -263,7 +263,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
       const para2 = para1;
       const head1 = getBlock(editor.document, para2)?.prevSiblingId ?? null;
       if (head1 === null) throw new Error("expected a second paragraph");
-      editor.config = suggestingConfig;
+      editor.setConfig(suggestingConfig);
       editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(head1, 1), createPosition(para2, 2)) });
       editor.dispatch({ type: "SPLIT_NODE" });
       return { editor, para1: head1 };
@@ -307,7 +307,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
         for (const ch of "Sub") editor.dispatch({ type: "INSERT_TEXT", text: ch });
         const s = getBlock(editor.document, e)?.prevSiblingId ?? null;
         if (s === null) throw new Error("expected two headings");
-        editor.config = suggestingConfig;
+        editor.setConfig(suggestingConfig);
         editor.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(s, 2), createPosition(e, 3)) });
         editor.dispatch({ type: "SPLIT_NODE" });
         return { editor, tail: e };

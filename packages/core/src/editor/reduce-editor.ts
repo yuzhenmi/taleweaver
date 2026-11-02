@@ -1,10 +1,13 @@
 import { positionsEqual, resolveBlock, createSpan } from "../state";
 import { caretAfterMarkers } from "../cursor/cursor-ops";
 import { getTypingAttrs } from "./typing-attrs";
+import { isCrossContextSelection } from "./actions/helpers/is-cross-context-selection";
 import { normalizeSelectionForAtomicMarks } from "./atomic-marks";
 import { normalizeSelectionForObjects } from "../cursor/object-range";
 import { runTransaction, applyInputRules, updateActiveTrigger } from "./extensions";
 import { clearTransientViewState, type Editor, type EditorSnapshot } from "./editor";
+import { EDITOR_INTERNAL } from "./editor-internal";
+import type { ReadonlyAttrs } from "../state";
 import type { EditorAction, ActionOf } from "./editor-action";
 import { applyEdit, type Edit } from "./edit";
 import {
@@ -250,7 +253,7 @@ function placeCaretAfterMarkers(editor: Editor): void {
   const { anchor, focus } = editor.selection;
   if (!positionsEqual(anchor, focus)) return;
   const caret = caretAfterMarkers(editor.document, focus);
-  if (caret !== focus) editor.selection = createSpan(caret, caret);
+  if (caret !== focus) editor[EDITOR_INTERNAL].selection = createSpan(caret, caret);
 }
 
 /**
@@ -258,29 +261,42 @@ function placeCaretAfterMarkers(editor: Editor): void {
  * subscribers). An action that throws leaves the editor as it was.
  */
 export function reduceEditor(editor: Editor, action: EditorAction): void {
-  const saved: EditorSnapshot = { ...editor };
+  // The fields to restore on a throw (an internal copy — not a snapshot to read old content from).
+  const saved = { ...editor[EDITOR_INTERNAL] };
   try {
     reduceInPlace(editor, action);
   } catch (error) {
-    Object.assign(editor, saved);
+    // Exactly the saved fields: one first set by the failed action is removed again.
+    const fields = editor[EDITOR_INTERNAL];
+    for (const key of Object.keys(fields)) if (!(key in saved)) Reflect.deleteProperty(fields, key);
+    Object.assign(fields, saved);
     throw error;
   }
 }
 
 function reduceInPlace(editor: Editor, action: EditorAction): void {
   const traits = traitsOf(action.type);
+  const fields = editor[EDITOR_INTERNAL];
   // ENTRY-CLEAR: `lastDirtyIds` is the layout-driver's per-dispatch
   // incremental hint, written ONLY by `applyEdit` for a changing action. Clear
   // it at the entry of every dispatch so a prior mutating action's dirty ids
   // never leak forward onto a later selection-only / inert action (which would
   // make the driver wrongly rebuild only those blocks). A changing action's
   // `applyEdit` re-sets a fresh non-null set; everything else leaves it null.
-  editor.lastDirtyIds = null;
+  fields.lastDirtyIds = null;
   // Markers are not caret stops: every insertion at a collapsed caret goes after the
   // markers adjacent on its right — inside a bookmark / comment at its start, outside
   // at its end. Normalized once here, so no insertion handler repeats it (block-local).
   if (traits.insertsAtCaret === true) placeCaretAfterMarkers(editor);
-  const before: EditorSnapshot = { ...editor };
+  const before = editor.snapshot();
+  const storedBefore = editor.storedAttrs;
+  const anchorBeforeLift = fields.anchorBeforeLift;
+  // The typing attrs `updateStoredAttrs` may carry, read now: after the edit `before.document`
+  // is superseded. Every carrying action refuses a cross-context selection, so it needs none.
+  const typingBefore =
+    traits.carriesTypingAttrs === true && !isCrossContextSelection(editor.document, editor.selection)
+      ? getTypingAttrs(editor)
+      : undefined;
 
   // Undo-group coalescing. Decide the undo boundary BEFORE the operation
   // runs (with `captureTimeout: MAX`, a transaction merges into the open group
@@ -332,15 +348,15 @@ function reduceInPlace(editor: Editor, action: EditorAction): void {
   // extending from a lifted anchor restarts from the user's own (`anchorBeforeLift`).
   if (editor.document !== before.document || editor.selection !== before.selection) {
     let marked = normalizeSelectionForAtomicMarks(editor.document, editor.selection, before.selection);
-    const raw = editor.document === before.document ? before.anchorBeforeLift : undefined;
+    const raw = editor.document === before.document ? anchorBeforeLift : undefined;
     if (raw !== undefined && positionsEqual(marked.anchor, before.selection.anchor)) marked = createSpan(raw, marked.focus);
     const selection = normalizeSelectionForObjects(editor.document, marked);
     const lifted = !positionsEqual(selection.anchor, marked.anchor) && !positionsEqual(selection.anchor, selection.focus);
-    editor.selection = selection;
-    editor.anchorBeforeLift = lifted ? marked.anchor : undefined;
+    fields.selection = selection;
+    fields.anchorBeforeLift = lifted ? marked.anchor : undefined;
   }
 
-  updateStoredAttrs(before, editor, traits);
+  updateStoredAttrs(before, storedBefore, typingBefore, editor, traits);
   updateActiveTrigger(before, editor, action);
   // Keep the selection's blocks snapshotted in the current document: a later foreign
   // change maps the caret from that snapshot (the Y.Doc has changed by then). O(1).
@@ -357,19 +373,26 @@ function reduceInPlace(editor: Editor, action: EditorAction): void {
  * block, carry the INCLUSIVE typing attrs from before the edit so typing there
  * continues in the same formatting (Google Docs / Word) — never a link or mark.
  */
-function updateStoredAttrs(before: EditorSnapshot, editor: Editor, traits: ActionTraits): void {
-  if (editor.storedAttrs !== undefined && editor.storedAttrs === before.storedAttrs) {
+function updateStoredAttrs(
+  before: EditorSnapshot,
+  storedBefore: ReadonlyAttrs | undefined,
+  typingBefore: ReadonlyAttrs | undefined,
+  editor: Editor,
+  traits: ActionTraits,
+): void {
+  const fields = editor[EDITOR_INTERNAL];
+  if (editor.storedAttrs !== undefined && editor.storedAttrs === storedBefore) {
     const keep =
       traits.coalesce === "inert" ||
       (traits.placesSelection === true &&
         positionsEqual(editor.selection.anchor, before.selection.anchor) &&
         positionsEqual(editor.selection.focus, before.selection.focus));
-    if (!keep) editor.storedAttrs = undefined;
+    if (!keep) fields.storedAttrs = undefined;
   }
   if (
     editor.storedAttrs === undefined &&
     editor.document !== before.document &&
-    traits.carriesTypingAttrs === true &&
+    typingBefore !== undefined &&
     positionsEqual(editor.selection.anchor, editor.selection.focus)
   ) {
     const content = resolveBlock(editor.document, editor.selection.focus.blockId)?.block.inlineContent ?? null;
@@ -378,10 +401,10 @@ function updateStoredAttrs(before: EditorSnapshot, editor: Editor, traits: Actio
       // non-inclusive or atomic mark — and change-tracking ids — must not
       // resurrect on the next keystroke.
       const carried: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(getTypingAttrs(before))) {
-        if (before.config.attrRegistry.isInclusive(key)) carried[key] = value;
+      for (const [key, value] of Object.entries(typingBefore)) {
+        if (editor.config.attrRegistry.isInclusive(key)) carried[key] = value;
       }
-      if (Object.keys(carried).length > 0) editor.storedAttrs = Object.freeze(carried);
+      if (Object.keys(carried).length > 0) fields.storedAttrs = Object.freeze(carried);
     }
   }
 }

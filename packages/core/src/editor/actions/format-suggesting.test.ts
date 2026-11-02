@@ -67,7 +67,7 @@ function selectIn(
   end: number,
   config: EditorConfig,
 ): Editor {
-  editor.config = config;
+  editor.setConfig(config);
   editor.dispatch({
     type: "SET_SELECTION",
     selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),

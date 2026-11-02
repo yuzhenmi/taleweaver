@@ -22,6 +22,7 @@ import {
   nav,
   layoutOf,
   firstBlockId,
+  setAffinity,
   type NavCtx,
 } from "./nav-test-helpers";
 
@@ -73,7 +74,7 @@ describe("MOVE_CURSOR — RTL run inside LTR paragraph (#502)", () => {
     let ctx = typeText(makeNavEditor(), "ab זאב cd");
     const pid = firstBlockId(ctx);
     ctx = caretAt(ctx, pid, 3);
-    ctx.editor.caretAffinity = "after";
+    ctx = setAffinity(ctx, { caretAffinity: "after" });
 
     const xs: number[] = [caretX(ctx)];
     for (let i = 0; i < 7; i++) {

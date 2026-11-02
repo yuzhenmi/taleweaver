@@ -269,15 +269,15 @@ describe("cross-references target bookmarks (Word's model)", () => {
     return found;
   }
   const at = (e: Editor, id: BlockId, a: number, b = a): Editor =>
-    { e.config = config; e.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(id, a), createPosition(id, b)) }); return e; };
+    { e.setConfig(config); e.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(id, a), createPosition(id, b)) }); return e; };
   /** "Title" (heading T) | "x" (host, holding a text-mode field to T). */
   function withRef(refMode: "text" | "number" = "text", refConfig = config, textConfig = config): { e: Editor; t: BlockId } {
     let e = createEditor(config);
     if (refMode === "number") e.dispatch({ type: "TOGGLE_LIST", listType: "ordered" });
     else e.dispatch({ type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } });
-    e.config = textConfig;
+    e.setConfig(textConfig);
     e.dispatch({ type: "INSERT_TEXT", text: "Title" });
-    e.config = config;
+    e.setConfig(config);
     e.dispatch({ type: "SPLIT_NODE" });
     const t = bodyBlockIds(e.document)[0];
     if (t === undefined) throw new Error("no target");
@@ -285,7 +285,7 @@ describe("cross-references target bookmarks (Word's model)", () => {
     if (host === undefined) throw new Error("no host");
     e = at(e, host, 0);
     e.dispatch({ type: "SET_BLOCK_TYPE", blockType: "paragraph" });
-    e.config = refConfig;
+    e.setConfig(refConfig);
     e.dispatch({ type: "INSERT_CROSS_REFERENCE", targetId: t, refMode });
     return { e, t };
   }
@@ -500,7 +500,7 @@ describe("cross-references target bookmarks (Word's model)", () => {
     // direct deletion does: the reference is broken.
     const s = withRef();
     const struck = at(s.e, s.t, 1, 6);
-    struck.config = suggesting;
+    struck.setConfig(suggesting);
     struck.dispatch({ type: "DELETE_BACKWARD" });
     expect(collectBookmarks(struck.document).has(bookmarkIdIn(s.e, s.t))).toBe(true);
     struck.dispatch({ type: "ACCEPT_ALL_SUGGESTIONS" });
@@ -510,7 +510,7 @@ describe("cross-references target bookmarks (Word's model)", () => {
     // for real — the bookmark goes as on a direct deletion.
     const own = withRef("text", config, suggesting);
     const ownGone = at(own.e, own.t, 1, 6);
-    ownGone.config = suggesting;
+    ownGone.setConfig(suggesting);
     ownGone.dispatch({ type: "DELETE_BACKWARD" });
     expect(fieldText(ownGone)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
     expect(getBlock(ownGone.document, own.t)?.inlineContent?.items).toEqual([]);
@@ -518,14 +518,14 @@ describe("cross-references target bookmarks (Word's model)", () => {
     // was) and the caret right after it.
     const ty = withRef("text", config, suggesting);
     const typed = at(ty.e, ty.t, 1, 6);
-    typed.config = suggesting;
+    typed.setConfig(suggesting);
     typed.dispatch({ type: "INSERT_TEXT", text: "New" });
     expect(getTextOf(typed.document, ty.t)).toBe("New");
     expect(fieldText(typed)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
     expect(typed.selection.focus).toEqual(createPosition(ty.t, 3));
     const pa = withRef("text", config, suggesting);
     const pasted = at(pa.e, pa.t, 1, 6);
-    pasted.config = suggesting;
+    pasted.setConfig(suggesting);
     pasted.dispatch({ type: "PASTE", text: "New" });
     expect(getTextOf(pasted.document, pa.t)).toBe("New");
     expect(pasted.selection.focus).toEqual(createPosition(pa.t, 3));
@@ -534,17 +534,17 @@ describe("cross-references target bookmarks (Word's model)", () => {
     const withTail = at(en.e, en.t, 7);
     withTail.dispatch({ type: "INSERT_TEXT", text: "Z" }); // [Title]Z
     const entered = at(withTail, en.t, 1, 6);
-    entered.config = suggesting;
+    entered.setConfig(suggesting);
     entered.dispatch({ type: "SPLIT_NODE" });
     expect(fieldText(entered)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
     expect(getTextOf(entered.document, en.t)).toBe("Z");
     // Two tracked deletions with kept text between them do not cover all of it: the bookmark stays.
     const g = withRef();
     const first = at(g.e, g.t, 1, 2);
-    first.config = suggesting;
+    first.setConfig(suggesting);
     first.dispatch({ type: "DELETE_BACKWARD" });
     const both = at(first, g.t, 4, 6);
-    both.config = suggesting;
+    both.setConfig(suggesting);
     both.dispatch({ type: "DELETE_BACKWARD" });
     both.dispatch({ type: "ACCEPT_ALL_SUGGESTIONS" });
     expect(fieldText(both)).toBe("it");
@@ -624,7 +624,7 @@ describe("cross-references target bookmarks (Word's model)", () => {
     const b = build();
     const sel = b.e;
     sel.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(b.a, 1), createPosition(b.t, 3)) });
-    sel.config = suggesting;
+    sel.setConfig(suggesting);
     sel.dispatch({ type: "DELETE_BACKWARD" });
     sel.dispatch({ type: "ACCEPT_ALL_SUGGESTIONS" });
     expect(fieldText(sel)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
@@ -635,11 +635,11 @@ describe("cross-references target bookmarks (Word's model)", () => {
     const [h, mid, tl] = bodyBlockIds(split.document).slice(1, 4);
     if (h === undefined || mid === undefined || tl === undefined) throw new Error("no blocks");
     split.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(h, 1), createPosition(h, 3)) });
-    split.config = suggesting;
+    split.setConfig(suggesting);
     split.dispatch({ type: "DELETE_BACKWARD" });
-    split.config = config;
+    split.setConfig(config);
     split.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(tl, 0), createPosition(tl, 2)) });
-    split.config = suggesting;
+    split.setConfig(suggesting);
     split.dispatch({ type: "DELETE_BACKWARD" });
     split.dispatch({ type: "ACCEPT_ALL_SUGGESTIONS" });
     expect(fieldText(split)).toBe("\nt\n");

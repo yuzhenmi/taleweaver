@@ -3,7 +3,7 @@
 // #323 Cycle A: lifecycle of the NON-undoable `caretPageHint` view state on
 // `Editor` (mirrors `targetX`). The hint records which page's header/footer
 // slot instance the caret is visually on. It is set by `SET_SELECTION`,
-// PRESERVED by other handlers' `{...editor}` spread (NOT centrally cleared like
+// PRESERVED by other handlers (NOT centrally cleared like
 // `targetX`), and explicitly cleared by undo/redo + a body `SET_SELECTION`
 // (which passes no hint).
 
@@ -54,12 +54,12 @@ describe("#323 Cycle A — caretPageHint lifecycle", () => {
   it("a caret-only Backspace (over a struck character, suggesting mode) preserves caretPageHint", () => {
     let editor = createEditor(config);
     editor.dispatch({ type: "INSERT_TEXT", text: "abc" });
-    editor.config = { ...config, suggestingAuthor: "alice" };
+    editor.setConfig({ ...config, suggestingAuthor: "alice" });
     editor.dispatch({ type: "DELETE_BACKWARD" }); // strikes "c"; the caret goes before it
     const { blockId, offset } = editor.selection.focus;
     const afterStruck = createSpan(createPosition(blockId, offset + 1), createPosition(blockId, offset + 1));
     editor.dispatch({ type: "SET_SELECTION", selection: afterStruck, caretPageHint: 1 });
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_BACKWARD" });
     expect(editor.document).toBe(before.document); // nothing written: the caret only moves across the struck "c"
     expect(editor.selection.focus.offset).toBe(offset);

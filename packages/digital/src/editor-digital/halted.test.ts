@@ -199,7 +199,7 @@ describe("digital — HALTED on an incompatible document", () => {
     const c = m.controller;
     c.setDecorations([kept(m.id)]);
     const shownEditor = c.editor;
-    const before = { ...shownEditor };
+    const before = shownEditor.snapshot();
     const dispatched = vi.spyOn(shownEditor, "dispatch");
     const shown = m.container.textContent;
     // An OLD client writes a paragraph into the frozen legacy root: surfaced with its text.

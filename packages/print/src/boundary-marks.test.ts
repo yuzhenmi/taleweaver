@@ -299,7 +299,7 @@ describe("print ¶ — placement", () => {
     let e = run(doc(["A", "B"]), id("p1"), 0, base, { type: "INSERT_TABLE", rows: 1, cols: 2 });
     const cellPara = e.selection.focus.blockId;
     e.dispatch({ type: "INSERT_TEXT", text: `a${" ".repeat(60)}` });
-    e.config = alice;
+    e.setConfig(alice);
     e.dispatch({ type: "SPLIT_NODE" });
     const cellHead = headOf(e.document, cellPara); // Enter at the end — the head holds the text
     const tree = lay(e.document, WIDTH, wideGlyph);
@@ -397,11 +397,11 @@ describe("print ¶ — incremental + paginated layout", () => {
     };
     expect(marks()).toEqual([]); // warm the layout cache
     const suggesting = { ...ctx.config, suggestingAuthor: "alice" };
-    ctx.editor.config = suggesting;
+    ctx.editor.setConfig(suggesting);
     ctx.editor.dispatch(caret(id("p1"), 0));
     ctx.editor.dispatch({ type: "DELETE_BACKWARD" });
     expect(marks().map((m) => [m.box.boundaryMark.blockId, m.box.boundaryMark.offset, m.x, m.pageIndex])).toEqual([[id("p0"), 4, 32, 0]]);
-    ctx.editor.config = ctx.config;
+    ctx.editor.setConfig(ctx.config);
     ctx.editor.dispatch({ type: "UNDO" });
     expect(marks()).toEqual([]);
   });
@@ -477,7 +477,7 @@ describe("print ¶ — interaction", () => {
     let e = run(doc(["A", "B"]), id("p1"), 0, base, { type: "INSERT_TABLE", rows: 1, cols: 2 });
     const cellPara = e.selection.focus.blockId;
     e.dispatch({ type: "INSERT_TEXT", text: `a${" ".repeat(60)}` });
-    e.config = alice;
+    e.setConfig(alice);
     e.dispatch({ type: "SPLIT_NODE" });
     const cellHead = headOf(e.document, cellPara); // the head holds the text and the keyed ¶
     const document = setBlockAttrs(e.document, cellHead, { shift: true }).document;
@@ -677,7 +677,7 @@ describe("print section-break label (a tracked section-end item)", () => {
 
   it("section-join: struck; vertical-rl: the label runs down the line from the caret", () => {
     const split = run(doc(["A", "B"]), id("p1"), 0, base, { type: "SECTION_BREAK" });
-    split.config = alice;
+    split.setConfig(alice);
     split.dispatch(caret(id("p1"), 0));
     split.dispatch({ type: "DELETE_BACKWARD" });
     const jm = sectionMarkOf(lay(split.document));
@@ -725,11 +725,11 @@ describe("print section-break label (a tracked section-end item)", () => {
     };
     expect(view()).toEqual({ marks: 0, p1: 0 });
     const suggesting = { ...ctx.config, suggestingAuthor: "alice" };
-    ctx.editor.config = suggesting;
+    ctx.editor.setConfig(suggesting);
     ctx.editor.dispatch(caret(id("p1"), 0));
     ctx.editor.dispatch({ type: "SECTION_BREAK" });
     expect(view()).toEqual({ marks: 1, p1: 1 });
-    ctx.editor.config = ctx.config;
+    ctx.editor.setConfig(ctx.config);
     ctx.editor.dispatch({ type: "UNDO" });
     expect(view()).toEqual({ marks: 0, p1: 0 });
   });

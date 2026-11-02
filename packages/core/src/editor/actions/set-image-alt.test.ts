@@ -83,7 +83,7 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
   it("is a no-op when the target is not an image block", () => {
     const { editor, paraId } = docWithImage();
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_IMAGE_ALT", blockId: paraId, alt: "A red barn" });
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -93,7 +93,7 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
   it("is a no-op when the target block does not exist", () => {
     const { editor } = docWithImage();
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_IMAGE_ALT", blockId: "missing-id" as BlockId, alt: "x" });
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -104,7 +104,7 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
     const { editor, imageId } = docWithImage();
     editor.dispatch({ type: "SET_IMAGE_ALT", blockId: imageId, alt: "Cat" });
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_IMAGE_ALT", blockId: imageId, alt: "Cat" });
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -116,7 +116,7 @@ describe("handleSetImageAlt — SET_IMAGE_ALT (accessible image name)", () => {
     // The freshly-inserted image carries no alt key, so null is identity.
     expect(getBlock(editor.document, imageId)?.attrs.alt).toBeUndefined();
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_IMAGE_ALT", blockId: imageId, alt: null });
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).

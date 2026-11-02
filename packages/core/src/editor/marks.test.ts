@@ -58,7 +58,7 @@ function makeConfig(extra?: Partial<EditorConfig>): EditorConfig {
 
 function run(editor: Editor, config: EditorConfig, ...actions: EditorAction[]): Editor {
   const s = editor;
-  s.config = config;
+  s.setConfig(config);
   for (const a of actions) s.dispatch(a);
   return s;
 }
@@ -129,8 +129,8 @@ describe("typing attributes", () => {
   });
 
   it("never inherits change-tracking provenance (direct typing inside a suggested insertion / formatting suggestion)", () => {
-    const suggest = makeConfig({ suggestingAuthor: "A" });
     const direct = makeConfig();
+    const suggest: EditorConfig = { ...direct, suggestingAuthor: "A" };
     let s = run(createEditor(suggest), suggest, { type: "INSERT_TEXT", text: "abc" });
     expect(runs(s)[0]?.[1][INSERTION_SUGGESTION_ATTR]).toBeDefined();
     s = run(s, direct, caret(blockId(s), 1), { type: "INSERT_TEXT", text: "X" });
@@ -306,7 +306,7 @@ describe("mark semantics", () => {
     s = run(s, config, { type: "UNDO" });
     expect(getMarkRanges(s.document, "note").map((r) => r.value)).toEqual([{ id: 1 }]);
 
-    const sug = makeConfig({ suggestingAuthor: "A" });
+    const sug: EditorConfig = { ...config, suggestingAuthor: "A" };
     let t = make();
     const tid = blockId(t);
     t = run(t, sug, { type: "SET_MARK", key: "note", value: { id: 2 }, replace: { id: 1 }, span: createSpan(createPosition(tid, 0), createPosition(tid, 4)) });
@@ -416,7 +416,7 @@ describe("mark semantics", () => {
   it("atomic delete in suggesting mode suggests deleting the whole mention", () => {
     const config = makeConfig();
     const s = withMention(config);
-    const sug = run(s, makeConfig({ suggestingAuthor: "B" }), caret(blockId(s), 7), { type: "DELETE_BACKWARD" });
+    const sug = run(s, { ...config, suggestingAuthor: "B" }, caret(blockId(s), 7), { type: "DELETE_BACKWARD" });
     const deleted = runs(sug).filter(([, a]) => a.deletionSuggestionId !== undefined).map(([t]) => t);
     expect(deleted).toEqual(["Anna"]);
   });
@@ -450,6 +450,15 @@ describe("mark semantics", () => {
     expect(getMarkRanges(s.document, "mention").map((r) => r.value)).toEqual([{ ref: "a" }]);
     s = run(s, config, { type: "REMOVE_MARK", key: "mention" });
     expect(getMarkRanges(s.document, "mention")).toEqual([]);
+  });
+
+  it("REMOVE_MARK across paragraphs unmarks every paragraph in editor.document", () => {
+    const config = makeConfig();
+    const s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "ab" }, { type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "cd" }, { type: "SELECT_ALL" });
+    run(s, config, { type: "SET_MARK", key: "tag", value: 1 });
+    expect(getMarkRanges(s.document, "tag")).toHaveLength(2);
+    run(s, config, { type: "REMOVE_MARK", key: "tag" });
+    expect(getMarkRanges(s.document, "tag")).toEqual([]);
   });
 
   it("survives undo / redo", () => {
@@ -509,7 +518,7 @@ describe("mark semantics", () => {
     const config = makeConfig();
     let s = run(createEditor(config), config, { type: "INSERT_TEXT", text: "Hi Anna" });
     const id = blockId(s);
-    const sug = makeConfig({ suggestingAuthor: "A" });
+    const sug: EditorConfig = { ...config, suggestingAuthor: "A" };
     s = run(s, sug, select(id, 3, 7), { type: "SET_MARK", key: "mention", value: { ref: "a" } });
     expect(getMarkRanges(s.document, "mention")).toEqual([]);
     const [suggestion] = getSuggestions(s.document);

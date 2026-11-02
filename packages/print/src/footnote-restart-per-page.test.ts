@@ -77,7 +77,7 @@ function twoFootnotes(config: EditorConfig, filler: number): Editor {
 
 /** Build the driver-produced layout tree for an editor (full rebuild). */
 function driverLayout(editor: Editor): LayoutBox | VirtualLayoutTree {
-  return createLayoutDriver({ measurer }).rebuild({ ...editor, containerWidth: 600, lastDirtyIds: null });
+  return createLayoutDriver({ measurer }).rebuild({ document: editor.document, config: editor.config, containerWidth: 600, lastDirtyIds: null });
 }
 
 /**

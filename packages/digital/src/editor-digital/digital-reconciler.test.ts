@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   createEditor,
   type Editor,
-  type EditorSnapshot,
   type EditorConfig, createDefaultComponentRegistry, createDefaultAttrRegistry, asBlockId, createPosition, createSpan, setBlockAttrs, paragraphComponent, createElementBox, getBlock } from "@taleweaver/core";
 import { createDigitalReconciler } from "./digital-reconciler";
 
@@ -211,7 +210,7 @@ describe("DigitalReconciler.reconcile — selection-only no-op (full-rebuild pat
 
     // Move the caret only: SET_SELECTION yields a null dirty set with the state object unchanged.
     const caret = createPosition(asBlockId(blockId), 1);
-    const prev = { ...st };
+    const prev = st.snapshot();
     st.dispatch({ type: "SET_SELECTION", selection: createSpan(caret, caret) });
     expect(st.lastDirtyIds).toBeNull();
     expect(st.document).toBe(prev.document);
@@ -247,7 +246,7 @@ describe("DigitalReconciler.reconcile — host-hidden blocks", () => {
     const second = getBlock(st.document, root?.lastChildId ?? st.document.rootId)?.lastChildId; // root → final section → paragraphs
     if (second == null) throw new Error("setup");
     const hide = setBlockAttrs(st.document, second, { hidden: true });
-    const hidden: EditorSnapshot = { ...st, document: hide.document, lastDirtyIds: hide.dirtyIds };
+    const hidden = { selection: st.selection, document: hide.document, lastDirtyIds: hide.dirtyIds };
     const container = document.createElement("div");
     document.body.appendChild(container);
     const r = createDigitalReconciler(config.componentRegistry, config.attrRegistry, document);

@@ -24,7 +24,7 @@ function at(document: Document, blockId: string, offset: number): Editor {
 describe("Delete / Backspace next to a table", () => {
   it("Delete at the end of a NON-empty paragraph above a table is a no-op", () => {
     const editor = at(buildFlowDoc([{ p: "a", t: "xy" }, { table: "T", cells: ["c1", "c2"] }, { p: "z" }]), "a", 2);
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_FORWARD" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -41,7 +41,7 @@ describe("Delete / Backspace next to a table", () => {
 
   it("Backspace at the start of a NON-empty paragraph below a table is a no-op", () => {
     const editor = at(buildFlowDoc([{ p: "a" }, { table: "T", cells: ["c1", "c2"] }, { p: "z", t: "zz" }]), "z", 0);
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_BACKWARD" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -58,7 +58,7 @@ describe("Delete / Backspace next to a table", () => {
 
   it("Backspace in the EMPTY paragraph invariant I needs after a table (the flow's last) is a no-op", () => {
     const editor = at(buildFlowDoc([{ p: "a" }, { table: "T", cells: ["c1"] }, { p: "e" }]), "e", 0);
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_BACKWARD" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -68,7 +68,7 @@ describe("Delete / Backspace next to a table", () => {
 describe("Delete / Backspace at a flow's ends and between paragraphs", () => {
   it("Delete at the final ¶ of the flow is a no-op", () => {
     const editor = at(buildFlowDoc([{ p: "a", t: "xy" }, { p: "b", t: "q" }]), "b", 1);
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "DELETE_FORWARD" });
     expect(editor.document).toBe(before.document);
     expect(editor.selection).toBe(before.selection);
@@ -113,7 +113,7 @@ describe("suggesting mode next to objects: a tracked ¶ deletion", () => {
   it("Delete in an EMPTY paragraph above a table keys its ¶ (no removal yet); accept removes it, reject keeps it", () => {
     const mk = (): Editor => at(buildFlowDoc([{ p: "a", t: "xy" }, { p: "e" }, { table: "T", cells: ["c1", "c2"] }, { p: "z" }]), "e", 0);
     const next = mk();
-    next.config = suggesting;
+    next.setConfig(suggesting);
     next.dispatch({ type: "DELETE_FORWARD" });
     expect(getBlock(next.document, "e" as BlockId)?.breakSuggestion?.deletionId).toEqual(expect.any(String));
     expect(topLevelBlockIds(next.document)).toEqual(["a", "e", "T", "z"]);
@@ -121,7 +121,7 @@ describe("suggesting mode next to objects: a tracked ¶ deletion", () => {
     next.dispatch({ type: "ACCEPT_ALL_SUGGESTIONS" });
     expect(topLevelBlockIds(next.document)).toEqual(["a", "T", "z"]);
     const again = mk();
-    again.config = suggesting;
+    again.setConfig(suggesting);
     again.dispatch({ type: "DELETE_FORWARD" });
     again.dispatch({ type: "REJECT_ALL_SUGGESTIONS" });
     expect(topLevelBlockIds(again.document)).toEqual(["a", "e", "T", "z"]);
@@ -130,19 +130,19 @@ describe("suggesting mode next to objects: a tracked ¶ deletion", () => {
 
   it("Backspace in an EMPTY paragraph below a table keys its own ¶; the required one (the flow's last) is a no-op", () => {
     const editor = at(buildFlowDoc([{ p: "a" }, { table: "T", cells: ["c1", "c2"] }, { p: "e" }, { p: "z", t: "zz" }]), "e", 0);
-    editor.config = suggesting;
+    editor.setConfig(suggesting);
     editor.dispatch({ type: "DELETE_BACKWARD" });
     expect(getBlock(editor.document, "e" as BlockId)?.breakSuggestion?.deletionId).toEqual(expect.any(String));
     const required = at(buildFlowDoc([{ p: "a" }, { table: "T", cells: ["c1"] }, { p: "e" }]), "e", 0);
     const requiredDoc = required.document;
-    required.config = suggesting;
+    required.setConfig(suggesting);
     required.dispatch({ type: "DELETE_BACKWARD" });
     expect(required.document).toBe(requiredDoc);
   });
 
   it("Delete in an EMPTY paragraph above an image keys its ¶", () => {
     const editor = at(buildFlowDoc([{ p: "a", t: "x" }, { p: "e" }, { img: "img" }, { p: "z" }]), "e", 0);
-    editor.config = suggesting;
+    editor.setConfig(suggesting);
     editor.dispatch({ type: "DELETE_FORWARD" });
     expect(getBlock(editor.document, "e" as BlockId)?.breakSuggestion?.deletionId).toEqual(expect.any(String));
   });

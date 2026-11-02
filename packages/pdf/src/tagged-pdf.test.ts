@@ -121,7 +121,7 @@ function buildTaggedInput(): {
   // Run the print backend's render → cascade → layout pipeline (the geometric
   // half that left core in the dual-mode split) to get the paginated tree.
   const layoutConfig: LayoutConfig = { measurer: core.createMockMeasurer(8, 16) };
-  const layoutTree = createLayoutDriver(layoutConfig).rebuild({ ...editor, containerWidth, lastDirtyIds: null });
+  const layoutTree = createLayoutDriver(layoutConfig).rebuild({ document: editor.document, config: editor.config, containerWidth, lastDirtyIds: null });
   if (layoutTree.type !== "virtual-root") {
     throw new Error("tagged-pdf test: expected a paginated VirtualLayoutTree");
   }

@@ -409,7 +409,7 @@ describe("R-D incremental pipeline (end-to-end)", () => {
     // Now editor has two paragraphs. Capture the first paragraph's RenderNode
     // reference, then insert text in the SECOND paragraph and verify the first
     // paragraph's RenderNode is ref-equal across the keystroke's incremental render.
-    const beforeEditor = { ...ctx.editor };
+    const beforeEditor = ctx.editor.snapshot();
     const before = renderFull(beforeEditor, ctx.config);
     const beforeRoot = before.root;
     if (beforeRoot.type !== "element") throw new Error("expected element root");
@@ -451,7 +451,7 @@ describe("R-D incremental pipeline (end-to-end)", () => {
     // Type "X" in the SECOND paragraph.
     ctx = dispatch(ctx, { type: "INSERT_TEXT", text: "X" });
 
-    const beforeEditor = { ...ctx.editor };
+    const beforeEditor = ctx.editor.snapshot();
     const before = renderFull(beforeEditor, ctx.config);
     const beforeRoot = before.root;
     if (beforeRoot.type !== "element") throw new Error("expected element root");

@@ -206,14 +206,16 @@ const fakeEditorBase: core.Editor = core.createEditor({
   containerWidth: 600,
 });
 
-// A fixture-override shape that mirrors the pre-Phase-0b `Partial<Editor>`
-// API: callers still pass `{ layoutTree }` to inject a synthetic tree. Geometry
-// (`layoutTree`) is no longer an `Editor` field, so it is split out here and
-// staged into the mocked driver instead (consumed in the next `update()`); the
-// remaining overrides spread onto the real geometry-free base.
-type FakeEditorOverrides = Partial<core.EditorSnapshot> & {
+// A fixture-override shape: `{ layoutTree }` injects a synthetic tree. Geometry
+// (`layoutTree`) is not an `Editor` field, so it is staged into the mocked driver
+// instead (consumed in the next `update()`); the selection overrides are set through a
+// real SET_SELECTION.
+interface FakeEditorOverrides {
   layoutTree?: printPkg.LayoutBox | printPkg.VirtualLayoutTree;
-};
+  selection?: core.Selection;
+  caretPageHint?: number;
+  caretAffinity?: core.CaretAffinity;
+}
 
 // The controller's input dispatches to its editor. These tests assert WHAT it dispatches
 // (the action is not applied): every fake editor's `dispatch` forwards to the current
@@ -224,16 +226,18 @@ function stubDispatch(editor: core.Editor): core.Editor {
   return editor;
 }
 
-/** A new editor over `fakeEditorBase`'s document with `overrides` written onto its fields. */
+/** A new editor over `fakeEditorBase`'s document with `overrides`' selection fields set. */
 function makeFakeEditorState(
   overrides?: FakeEditorOverrides,
 ): core.Editor {
-  const { layoutTree, ...stateOverrides } = overrides ?? {};
+  const { layoutTree, selection, caretPageHint, caretAffinity } = overrides ?? {};
   // Stage the injected tree for the mocked driver (null clears any prior stage,
   // so a plain `makeFakeEditorState()` resets to the real-driver delegation).
   driverState.pendingLayoutTree = layoutTree ?? null;
   const editor = core.createEditor(fakeEditorBase.config, { document: fakeEditorBase.document });
-  Object.assign(editor, stateOverrides);
+  if (selection !== undefined || caretPageHint !== undefined || caretAffinity !== undefined) {
+    editor.dispatch({ type: "SET_SELECTION", selection: selection ?? editor.selection, caretPageHint, caretAffinity });
+  }
   return stubDispatch(editor);
 }
 
@@ -1040,8 +1044,8 @@ describe("createEditorController", () => {
 
       // A non-collapsed selection. The spy tree's `pageSpanOfBlock` returns null
       // (non-spanning), so the per-page selection-rect path is taken.
-      const anchor = core.createPosition("doc" as core.BlockId, 0);
-      const focus = core.createPosition("doc" as core.BlockId, 1);
+      const anchor = core.createPosition(fakeEditorBase.selection.focus.blockId, 0);
+      const focus = core.createPosition(fakeEditorBase.selection.focus.blockId, 1);
       ctrl.setEditor(
         makeFakeEditorState({
           layoutTree: tree,
@@ -1059,8 +1063,8 @@ describe("createEditorController", () => {
       const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
       const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
 
-      const anchor = core.createPosition("doc" as core.BlockId, 0);
-      const focus = core.createPosition("doc" as core.BlockId, 1);
+      const anchor = core.createPosition(fakeEditorBase.selection.focus.blockId, 0);
+      const focus = core.createPosition(fakeEditorBase.selection.focus.blockId, 1);
       ctrl.setEditor(
         makeFakeEditorState({ layoutTree: tree, selection: core.createSpan(anchor, focus) }),
       );
@@ -1085,8 +1089,8 @@ describe("createEditorController", () => {
         .pageSpanOfBlock = () => ({ first: 0, last: 1 });
       getPage.mockClear();
 
-      const anchor = core.createPosition("doc" as core.BlockId, 0);
-      const focus = core.createPosition("doc" as core.BlockId, 1);
+      const anchor = core.createPosition(fakeEditorBase.selection.focus.blockId, 0);
+      const focus = core.createPosition(fakeEditorBase.selection.focus.blockId, 1);
       ctrl.setEditor(
         makeFakeEditorState({ layoutTree: tree, selection: core.createSpan(anchor, focus) }),
       );
@@ -1860,7 +1864,8 @@ describe("createEditorController", () => {
     // Build a real Editor with a footnote so there are two selection
     // contexts. Returns the editor state plus a main-body position and a
     // footnote-body position that live in DIFFERENT contexts.
-    function makeFootnoteEditor(): {
+    /** `caretInBody`: the selection is a caret at the body paragraph's start (else in the footnote body). */
+    function makeFootnoteEditor(caretInBody = false): {
       editor: core.Editor;
       bodyPos: core.Position;
       footnotePos: core.Position;
@@ -1881,9 +1886,11 @@ describe("createEditorController", () => {
       expect(core.selectionContextOf(initial.document, bodyBlockId)).not.toBe(
         core.selectionContextOf(initial.document, footnoteBlockId),
       );
+      const bodyPos = core.createPosition(bodyBlockId, 0);
+      if (caretInBody) initial.dispatch({ type: "SET_SELECTION", selection: core.createSpan(bodyPos, bodyPos) });
       return {
         editor: stubDispatch(initial),
-        bodyPos: core.createPosition(bodyBlockId, 0),
+        bodyPos,
         footnotePos: core.createPosition(footnoteBlockId, 0),
       };
     }
@@ -1935,11 +1942,10 @@ describe("createEditorController", () => {
     });
 
     it("shift-click from body into footnote slot does NOT dispatch a cross-context span", () => {
-      const { editor, bodyPos, footnotePos } = makeFootnoteEditor();
+      // Anchor the current selection in the BODY (context A).
+      const { editor, footnotePos } = makeFootnoteEditor(true);
       const dispatch = vi.fn();
       const { container, ctrl } = makeContainer(dispatch);
-      // Anchor the current selection in the BODY (context A).
-      editor.selection = core.createSpan(bodyPos, bodyPos);
       ctrl.setEditor(editor);
 
       // shift-click resolves into the FOOTNOTE body (context B).
@@ -1991,10 +1997,9 @@ describe("createEditorController", () => {
       // and two unknown contexts can never `null === null` false-pass into an
       // extension. Anchor is a real body block; the shift-click target is a
       // freshly-allocated id never inserted into the document.
-      const { editor, bodyPos } = makeFootnoteEditor();
+      const { editor } = makeFootnoteEditor(true);
       const dispatch = vi.fn();
       const { container, ctrl } = makeContainer(dispatch);
-      editor.selection = core.createSpan(bodyPos, bodyPos);
       ctrl.setEditor(editor);
 
       const ghostId = core.createTestAllocator().allocate();

@@ -8,6 +8,7 @@
  * via the marker embeds in the affected blocks' inline content.
  */
 import { finalSectionOf } from "../../test-utils/document-builders";
+import { EDITOR_INTERNAL } from "../editor-internal";
 import { describe, it, expect } from "vitest";
 import {
   config,
@@ -88,7 +89,7 @@ describe("handleAddComment — ADD_COMMENT", () => {
   it("adds a comment over an expanded main-body range; record live, markers present", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4); // select "bcd"
-    const before = { ...placed };
+    const before = placed.snapshot();
     placed.dispatch(addCommentAction(CID));
 
     expect(placed.document).not.toBe(before.document);
@@ -105,7 +106,7 @@ describe("handleAddComment — ADD_COMMENT", () => {
   it("no-ops on a COLLAPSED selection (returns the same editor reference; no comment)", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 2, 2); // collapsed caret
-    const before = { ...placed };
+    const before = placed.snapshot();
     placed.dispatch(addCommentAction(CID));
 
     expect(placed.document).toBe(before.document);
@@ -125,7 +126,7 @@ describe("handleAddComment — ADD_COMMENT", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(fnPara, 0), createPosition(fnPara, 4)),
       });
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch(addCommentAction(CID));
 
     expect(editor.document).toBe(before.document);
@@ -201,8 +202,8 @@ describe("handleAddComment — ADD_COMMENT", () => {
     // in footnote). This bypasses the SET_SELECTION chokepoint deliberately to
     // exercise the handler's own isCrossContextSelection guard.
     const crossEditor = editor;
-    crossEditor.selection = createSpan(createPosition(bodyId, 0), createPosition(fnPara, 0));
-    const before = { ...crossEditor };
+    crossEditor[EDITOR_INTERNAL].selection = createSpan(createPosition(bodyId, 0), createPosition(fnPara, 0));
+    const before = crossEditor.snapshot();
     crossEditor.dispatch(addCommentAction(CID));
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -270,7 +271,7 @@ describe("handleResolveComment / handleReopenComment", () => {
   it("RESOLVE on an already-resolved comment is an identity no-op (same state ref)", () => {
     const added = withComment();
     added.dispatch({ type: "RESOLVE_COMMENT", id: CID });
-    const before = { ...added };
+    const before = added.snapshot();
     added.dispatch({ type: "RESOLVE_COMMENT", id: CID });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(added.document).toBe(before.document);
@@ -279,7 +280,7 @@ describe("handleResolveComment / handleReopenComment", () => {
   it("RESOLVE on an absent comment is an identity no-op (same editor ref)", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4); // an editor with NO comment
-    const before = { ...placed };
+    const before = placed.snapshot();
     placed.dispatch({ type: "RESOLVE_COMMENT", id: "nope" as CommentId });
     expect(placed.document).toBe(before.document);
     expect(placed.selection).toBe(before.selection);
@@ -287,7 +288,7 @@ describe("handleResolveComment / handleReopenComment", () => {
 
   it("REOPEN on an already-open comment is an identity no-op (same state ref)", () => {
     const added = withComment(); // open by default
-    const before = { ...added };
+    const before = added.snapshot();
     added.dispatch({ type: "REOPEN_COMMENT", id: CID });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(added.document).toBe(before.document);
@@ -318,7 +319,7 @@ describe("handleDeleteComment — DELETE_COMMENT", () => {
   it("no-ops when the id is absent (same editor reference)", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4);
-    const before = { ...placed };
+    const before = placed.snapshot();
     placed.dispatch({ type: "DELETE_COMMENT", id: "nope" as CommentId });
     expect(placed.document).toBe(before.document);
     expect(placed.selection).toBe(before.selection);
@@ -422,7 +423,7 @@ describe("handleAddReply — ADD_REPLY", () => {
   it("no-ops when the comment is absent (same editor reference)", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4); // no comment exists
-    const before = { ...placed };
+    const before = placed.snapshot();
     placed.dispatch({
         type: "ADD_REPLY",
         commentId: "nope" as CommentId,

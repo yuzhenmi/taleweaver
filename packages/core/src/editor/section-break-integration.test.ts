@@ -206,7 +206,7 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
     expect(p4Geom.y).toBeGreaterThan(p1Geom.y);
 
     // ----- 1. Dispatch SECTION_BREAK -----
-    const before2 = { ...before };
+    const before2 = before.snapshot();
     before.dispatch({ type: "SECTION_BREAK" });
 
     // A real break produced a new state reference.

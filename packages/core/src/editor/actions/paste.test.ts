@@ -529,7 +529,7 @@ describe("handlePaste — T10 rich routing: priority clip→html→text", () => 
   it("no usable payload → no-op (returns same editor reference)", () => {
     const initial = createEditor(richConfig);
     // PASTE with nothing usable: empty text, no html, no clip.
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "PASTE" });
     expect(initial.document).toBe(before.document);
     expect(initial.selection).toBe(before.selection);

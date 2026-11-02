@@ -14,7 +14,7 @@ import {
   type RenderNode,
   type ElementBox,
   type FootnoteNumber,
-  type EditorSnapshot,
+  type Editor,
   type EditorConfig,
 } from "@taleweaver/core";
 import { layoutTreeIncremental } from "../layout/layout-incremental";
@@ -48,7 +48,7 @@ export interface LayoutDriver {
    *    against the prior cascaded tree when one exists (so a tall-header doc
    *    re-paginates with the grown insets), else a fresh full build.
    */
-  rebuild(editor: EditorSnapshot): LayoutBox | VirtualLayoutTree;
+  rebuild(editor: Pick<Editor, "document" | "containerWidth" | "lastDirtyIds" | "config">): LayoutBox | VirtualLayoutTree;
 }
 
 /**
@@ -255,7 +255,7 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
     return current;
   }
 
-  function rebuild(editor: EditorSnapshot): LayoutBox | VirtualLayoutTree {
+  function rebuild(editor: Pick<Editor, "document" | "containerWidth" | "lastDirtyIds" | "config">): LayoutBox | VirtualLayoutTree {
     const { document, containerWidth, lastDirtyIds, config } = editor;
     // The retained trees were built with the previous registries / page setup: a change
     // to any of them invalidates all of it.

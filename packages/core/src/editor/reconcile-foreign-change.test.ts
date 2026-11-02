@@ -14,6 +14,7 @@
 import { describe, it, expect } from "vitest";
 import { reconcileForeignChange } from "./reconcile-foreign-change";
 import { createEditor, clearTransientViewState } from "./editor";
+import { EDITOR_INTERNAL } from "./editor-internal";
 import { config } from "./actions/test-helpers";
 import { applyOperation, getBlock, createPosition, createSpan } from "../state";
 import { subscribeForeignChanges } from "../state";
@@ -114,7 +115,7 @@ describe("reconcileForeignChange (live-collab P1)", () => {
     const editor = createEditor(config, { document, selection: collapsedAtP1Start() });
     const dirtyIds = new Set([asBlockId("p1")]);
 
-    const before = { ...editor };
+    const before = { ...editor[EDITOR_INTERNAL] };
     reconcileForeignChange(editor, dirtyIds);
 
     expect(editor.lastDirtyIds).toBe(dirtyIds);
@@ -128,9 +129,8 @@ describe("reconcileForeignChange (live-collab P1)", () => {
     const editor = createEditor(config, { document, selection: collapsedAtP1Start() });
     // Seed the view fields a prior vertical-nav / bidi-boundary caret would leave;
     // a foreign edit invalidates all three (resolved against the pre-edit structure).
-    editor.targetX = 42;
-    editor.caretAffinity = "after";
-    editor.anchorAffinity = "before";
+    editor.dispatch({ type: "SET_SELECTION", selection: editor.selection, targetX: 42, caretAffinity: "after", anchorAffinity: "before" });
+    expect([editor.targetX, editor.caretAffinity, editor.anchorAffinity]).toEqual([42, "after", "before"]);
 
     reconcileForeignChange(editor, new Set([asBlockId("p1")]));
 
@@ -144,10 +144,9 @@ describe("clearTransientViewState (shared stale-on-mutation home)", () => {
   it("clears targetX + bidi affinities, leaving other fields intact", () => {
     const document = makeDocument();
     const base = createEditor(config, { document, selection: collapsedAtP1Start() });
-    base.targetX = 42;
-    base.caretAffinity = "after";
-    base.anchorAffinity = "before";
-    const before = { ...base };
+    base.dispatch({ type: "SET_SELECTION", selection: base.selection, targetX: 42, caretAffinity: "after", anchorAffinity: "before" });
+    expect([base.targetX, base.caretAffinity, base.anchorAffinity]).toEqual([42, "after", "before"]);
+    const before = { ...base[EDITOR_INTERNAL] };
 
     clearTransientViewState(base);
 
@@ -162,8 +161,8 @@ describe("clearTransientViewState (shared stale-on-mutation home)", () => {
     const document = makeDocument();
     const base = createEditor(config, { document, selection: collapsedAtP1Start() });
     // A fresh editor has targetX null + both affinities undefined already.
-    const before = { ...base };
+    const before = { ...base[EDITOR_INTERNAL] };
     clearTransientViewState(base);
-    expect({ ...base }).toEqual(before);
+    expect({ ...base[EDITOR_INTERNAL] }).toEqual(before);
   });
 });

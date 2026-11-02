@@ -85,7 +85,7 @@ function joined(): { document: Document; l: BlockId; r: BlockId } {
   const e0 = paras(["Anna", "Rosa"]);
   const [l, r] = leaves(e0.document);
   if (l === undefined || r === undefined) throw new Error("setup");
-  e0.config = alice;
+  e0.setConfig(alice);
     e0.dispatch(caret(r, 0));
     e0.dispatch({ type: "DELETE_BACKWARD" });
   return { document: e0.document, l, r };
@@ -96,7 +96,7 @@ function sectioned(): { document: Document; h: BlockId; b: BlockId } {
   const e0 = paras(["Ax", "B"]);
   const [, b] = leaves(e0.document);
   if (b === undefined) throw new Error("setup");
-  e0.config = alice;
+  e0.setConfig(alice);
     e0.dispatch(caret(b, 0));
     e0.dispatch({ type: "SECTION_BREAK" });
   const [, h, b2] = leaves(e0.document);
@@ -109,7 +109,7 @@ describe("digital boundary ¶ marks", () => {
     const e0 = paras(["Hello"]);
     const [h] = leaves(e0.document);
     if (h === undefined) throw new Error("setup");
-    e0.config = alice;
+    e0.setConfig(alice);
     e0.dispatch(caret(h, 0));
     e0.dispatch({ type: "SPLIT_NODE" }); // Enter at 0: the first block empties
     const [n] = leaves(e0.document);

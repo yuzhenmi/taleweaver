@@ -62,7 +62,7 @@ function selectIn(
   end: number,
   config: EditorConfig,
 ): Editor {
-  editor.config = config;
+  editor.setConfig(config);
   editor.dispatch({
     type: "SET_SELECTION",
     selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
@@ -251,7 +251,7 @@ describe("handleToggleStyle — suggesting over another formatting suggestion", 
     const bobId = byAuthor(both, "bob")?.id;
     if (aliceId === undefined || bobId === undefined) throw new Error("expected both suggestions");
     // Reject alice's, accept bob's: only bob's italic lands, only on [2,6).
-    both.config = directConfig;
+    both.setConfig(directConfig);
     both.dispatch({ type: "REJECT_SUGGESTION", id: aliceId });
     expect(range(both, "bob")).toEqual([2, 6]);
     both.dispatch({ type: "ACCEPT_SUGGESTION", id: bobId });
@@ -278,7 +278,7 @@ describe("handleToggleStyle — suggesting over another formatting suggestion", 
         const blue = selectIn(red, paraId, 2, 4, bob);
         blue.dispatch({ type: "SET_TEXT_COLOR", color: "blue" });
         expect(getSuggestions(blue.document).map((x) => x.id).sort()).toEqual([...ids].sort());
-        blue.config = directConfig;
+        blue.setConfig(directConfig);
         blue.dispatch({ type: "ACCEPT_ALL_SUGGESTIONS" });
         expect(textItems(blue, paraId).find((r) => r.text.includes("c"))?.attrs.color).toBe("blue");
       } finally {

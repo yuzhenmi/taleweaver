@@ -91,8 +91,10 @@ export function useSuggestEdit(editor: Editor, propose: Propose): SuggestEdit {
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), []);
 
   const run = useCallback(() => {
-    const snapshot = latest.current;
-    const edits = draftEdits(snapshot);
+    const current = latest.current;
+    // The version the edits are drafted against: the editor is live, so read it now.
+    const basedOn = current.document;
+    const edits = draftEdits(current);
     if (edits.length === 0) {
       setStatus("Nothing to suggest in this paragraph.");
       return;
@@ -109,9 +111,9 @@ export function useSuggestEdit(editor: Editor, propose: Propose): SuggestEdit {
             metadata: { source: SOURCE, reason: "Tidy spacing, a stronger word, emphasise the opening" },
             edits,
           },
-          { basedOn: snapshot.document },
+          { basedOn },
         ).then((result) => {
-          // The editor's TRUE verdict (print: once the host has applied the dispatch).
+          // The editor's TRUE verdict, once the PROPOSE has run (`dispatchProposal`).
           if (result.ok) setStatus("Suggested — review it in the panel.");
           else if (result.reason === "stale") setStatus("Discarded: the paragraph changed while the suggestion was being made.");
           else if (result.reason === "halted") setStatus("Not proposed: the editor is halted (the document needs an upgrade).");

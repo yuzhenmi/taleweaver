@@ -122,7 +122,7 @@ describe("REPLACE_ALL", () => {
 
   it("empty matches → no-op (same state reference)", () => {
     const editor = withText("hello");
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "REPLACE_ALL", matches: [], replacement: "x" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(editor.document).toBe(before.document);

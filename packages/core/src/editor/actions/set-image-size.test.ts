@@ -53,7 +53,7 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
   it("is a no-op when the target is not an image block", () => {
     const { editor, paraId } = docWithImage();
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_IMAGE_SIZE", blockId: paraId, width: 200, height: 100 });
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -63,7 +63,7 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
   it("is a no-op when the target block does not exist", () => {
     const { editor } = docWithImage();
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_IMAGE_SIZE", blockId: "missing-id" as BlockId, width: 50, height: 50 });
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -73,7 +73,7 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
   it("is a no-op when width/height are unchanged", () => {
     const { editor, imageId } = docWithImage();
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_IMAGE_SIZE", blockId: imageId, width: 120, height: 80 });
 
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
@@ -83,7 +83,7 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
   it("rejects non-positive / non-finite dimensions (no-op)", () => {
     const { editor, imageId } = docWithImage();
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     const invalid: [number, number][] = [
       [0, 100],
       [200, -5],

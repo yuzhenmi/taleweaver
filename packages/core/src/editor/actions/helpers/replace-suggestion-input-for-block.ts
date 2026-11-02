@@ -1,4 +1,4 @@
-import type { EditorSnapshot } from "../../editor";
+import type { Editor } from "../../editor";
 import { selectionContextOf, type ReplaceSuggestionInput, type BlockId } from "../../../state";
 import { newReplaceSuggestionInput } from "./new-replace-suggestion-input";
 
@@ -8,7 +8,7 @@ import { newReplaceSuggestionInput } from "./new-replace-suggestion-input";
  * rule as `suggestionInputForBlock`).
  */
 export function replaceSuggestionInputForBlock(
-  editor: EditorSnapshot,
+  editor: Editor,
   blockId: BlockId,
 ): ReplaceSuggestionInput | null {
   if (selectionContextOf(editor.document, blockId) === null) return null;

@@ -31,7 +31,7 @@ describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
     // Baseline: default (no lineHeight attr).
     expect(getBlock(initial.document, paraId)?.attrs.lineHeight).toBeUndefined();
 
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "SET_LINE_SPACING", spacing: 2 });
 
     expect(getBlock(initial.document, paraId)?.attrs.lineHeight).toBe(2);
@@ -43,7 +43,7 @@ describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
     const initial = createEditor(config);
     initial.dispatch({ type: "INSERT_TEXT", text: "hi" });
 
-    const before = { ...initial };
+    const before = initial.snapshot();
     initial.dispatch({ type: "SET_LINE_SPACING", spacing: 1.5 });
 
     expect(initial.selection).toEqual(before.selection);
@@ -135,7 +135,7 @@ describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
     let editor = initial;
     editor.dispatch({ type: "SET_LINE_SPACING", spacing: 2 });
 
-    const before = { ...editor };
+    const before = editor.snapshot();
     editor.dispatch({ type: "SET_LINE_SPACING", spacing: 2 });
 
     // No commit, no state change (the identity-no-op contract). Phase 0b: the no-op

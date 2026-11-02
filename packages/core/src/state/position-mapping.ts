@@ -84,16 +84,19 @@ export function txMappingsOf(dirtyIds: ReadonlySet<BlockId>): readonly TxMapping
   return exactBySet.get(dirtyIds);
 }
 
-/** Document order of two blocks: in `prev`'s cache, else in `next`'s live read model; null = unknown. */
-function orderIn(prev: Document, next: Document, a: BlockId, b: BlockId): number | null {
+/** Reads one block of a document version (see {@link exactPositionMapping}'s `readNext`). */
+type ReadBlock = (id: BlockId) => Block | undefined;
+
+/** Document order of two blocks: from `prev`'s cache, else through `readNext`; null = unknown. */
+function orderIn(prev: ReadBlock, readNext: ReadBlock, a: BlockId, b: BlockId): number | null {
   if (a === b) return 0;
   try {
-    return compareWith((id) => peekBlock(prev, id), a, b);
+    return compareWith(prev, a, b);
   } catch (e) {
     if (!(e instanceof UnknownBlock)) throw e;
   }
   try {
-    return compareWith((id) => resolveBlock(next, id)?.block, a, b);
+    return compareWith(readNext, a, b);
   } catch (e) {
     if (e instanceof UnknownBlock) return null;
     throw e;
@@ -113,17 +116,20 @@ function txIdentity(m: TxMapping): boolean {
 /**
  * The EXACT mapping `prev → next` from the transactions' own structure changes
  * (`tx-mapping.ts`): no text diff, no previous-content cache — a block the previous
- * Document never read maps exactly. `prev` / `next` only order blocks for `touches`
- * across blocks.
+ * Document never read maps exactly. `prev` / `readNext` only order blocks for `touches`
+ * across blocks. `readNext` reads the NEXT version: live (`resolveBlock`) when it is the
+ * current Document, cache-only (`peekBlock`) when a later change superseded it — an old
+ * handle's uncached reads would see the current Y.Doc, not that version.
  */
 export function exactPositionMapping(
   prev: Document,
-  next: Document,
+  readNext: ReadBlock,
   dirtyIds: ReadonlySet<BlockId>,
   maps: readonly TxMapping[],
 ): PositionMapping {
   const live = maps.filter((m) => !txIdentity(m));
   if (live.length === 0) return IDENTITY_MAPPING;
+  const readPrev: ReadBlock = (id) => peekBlock(prev, id);
   const map = (position: Position, assoc: Assoc = 1): MappedPosition => {
     let pos: Position | null = position;
     let deleted = false;
@@ -142,8 +148,8 @@ export function exactPositionMapping(
     for (const z of changedBlocks(m)) {
       if (z === from.blockId || z === to.blockId) continue;
       const zid = asBlockIdLocal(z);
-      const lo = first ? orderIn(prev, next, from.blockId, zid) : orderIn(next, next, from.blockId, zid);
-      const hi = first ? orderIn(prev, next, zid, to.blockId) : orderIn(next, next, zid, to.blockId);
+      const lo = orderIn(first ? readPrev : readNext, readNext, from.blockId, zid);
+      const hi = orderIn(first ? readPrev : readNext, readNext, zid, to.blockId);
       if (lo === null || hi === null || (lo <= 0 && hi <= 0)) return true;
     }
     return false;
@@ -241,7 +247,9 @@ export function mappingAcross(links: readonly ChangeLink[], next: Document, hint
     if (link === undefined) continue;
     const maps = txMappingsOf(link.dirtyIds);
     if (maps === undefined) break;
-    exact.push(exactPositionMapping(link.from, links[i + 1]?.from ?? next, link.dirtyIds, maps));
+    const after = links[i + 1]?.from;
+    const readNext: ReadBlock = after === undefined ? (id) => resolveBlock(next, id)?.block : (id) => peekBlock(after, id);
+    exact.push(exactPositionMapping(link.from, readNext, link.dirtyIds, maps));
   }
   if (exact.length === links.length) return composeMappings(exact);
   const dirty = new Set<BlockId>();
@@ -307,7 +315,7 @@ export function createPositionMapping(
 ): PositionMapping {
   if (prev === next || dirtyIds.size === 0) return IDENTITY_MAPPING;
   const exact = txMappingsOf(dirtyIds);
-  if (exact !== undefined) return exactPositionMapping(prev, next, dirtyIds, exact);
+  if (exact !== undefined) return exactPositionMapping(prev, (id) => resolveBlock(next, id)?.block, dirtyIds, exact);
 
   const prevGet = (id: BlockId): Block | undefined => peekBlock(prev, id);
   const nextGet = (id: BlockId): Block | undefined => resolveBlock(next, id)?.block;

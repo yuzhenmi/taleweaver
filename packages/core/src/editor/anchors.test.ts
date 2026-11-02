@@ -51,7 +51,7 @@ function harness(editor = createEditor(config)) {
     anchors,
     run(...actions: EditorAction[]) {
       for (const a of actions) {
-        const prev = { ...editor };
+        const prev = editor.snapshot();
         editor.dispatch(a);
         advance(prev);
       }

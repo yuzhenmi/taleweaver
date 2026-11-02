@@ -5,7 +5,7 @@ import {
   recordSample,
   selectionContextOf,
   type BlockId,
-  type EditorSnapshot,
+  type Editor,
   type Document,
 } from "@taleweaver/core";
 import { endAnchor } from "../dom-view/render-to-dom";
@@ -31,7 +31,7 @@ import type { BlockElementLookup } from "./digital-selection-bridge";
  */
 export interface SelectedParagraphs {
   /** Bring the drawn indicators in line with the editor's selection over its state. */
-  sync(editor: EditorSnapshot): void;
+  sync(editor: Pick<Editor, "document" | "selection" | "lastChange">): void;
   /** A block element was (re)mounted: draw its indicator again if its ¶ is selected. */
   mounted(id: BlockId, el: HTMLElement): void;
 }
@@ -76,7 +76,7 @@ export function createSelectedParagraphs(
     if (el !== null) paint(el, on);
   }
 
-  function sync(editor: EditorSnapshot): void {
+  function sync(editor: Pick<Editor, "document" | "selection" | "lastChange">): void {
     const { document, selection } = editor;
     const anchor = selection.anchor.blockId;
     const focus = selection.focus.blockId;

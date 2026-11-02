@@ -23,6 +23,7 @@ import {
   dispatch,
   nav,
   firstBlockId,
+  setAffinity,
   type NavCtx,
 } from "./nav-test-helpers";
 
@@ -43,14 +44,12 @@ function snap(ctx: NavCtx): string {
 
 /** Overwrite the context's editor's anchorAffinity (slice-3 plumbing helper). */
 function withAnchorAffinity(ctx: NavCtx, value: "before" | "after"): NavCtx {
-  ctx.editor.anchorAffinity = value;
-  return ctx;
+  return setAffinity(ctx, { anchorAffinity: value });
 }
 
 /** Overwrite the context's editor's caretAffinity (collapse→extend seed setup). */
 function withCaretAffinity(ctx: NavCtx, value: "before" | "after"): NavCtx {
-  ctx.editor.caretAffinity = value;
-  return ctx;
+  return setAffinity(ctx, { caretAffinity: value });
 }
 
 describe("EXPAND_SELECTION — pure-LTR (byte-identical to logical focus motion)", () => {
