@@ -20,3 +20,11 @@ export const canPlace = (d: Document, k: FlowKind, a: At): boolean => allowedIn(
 
 /** The position is in the body, the only container with sections (header / footer links, R5). */
 export const inSections = (d: Document, a: At): boolean => containerOf(d, a) === "body";
+
+/** The number of tables around position `a`, one per cell it is in (a table inserted there is at this depth). */
+export function tableDepthOf(d: Document, a: At): number {
+  const tree = d.trees[a.L.tree];
+  let n = 0;
+  for (let id = a.L.block.parentId; id !== null; id = tree.get(id)?.parentId ?? null) if (tree.get(id)?.type === BLOCK_TYPES.tableCell) n++;
+  return n;
+}

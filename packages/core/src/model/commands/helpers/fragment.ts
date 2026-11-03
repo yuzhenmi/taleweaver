@@ -3,6 +3,7 @@ import { type InsertUnit, chunked } from "../../plan";
 import { type Container, allowedIn, isBlockObject, isParagraphBreak, isStructural } from "../../scan/kinds";
 import { type ObjectProps, newField, newFootnoteOf, newHorizontalRule, newLineBreak, newObject, newParagraphMark, newSectionBreak, newTableOfContents } from "../../storage/new-items";
 import type { FlatKeys } from "../../storage/scalar";
+import { newCellMark, newRowMark, newTableEnd, newTableStart } from "../../storage/table-marks";
 import type { CommandContext } from "../command-context";
 import { checkKeys, checkScalars, validField, validObject } from "./validate";
 
@@ -25,7 +26,9 @@ export type FragmentItem =
   /** A TOC block object (`a:*` keys). */
   | { readonly k: "toc"; readonly keys?: FlatKeys }
   /** A section break (`s:*` keys; a pasted `[S]` never carries `h:*`). */
-  | { readonly k: "S"; readonly keys?: FlatKeys };
+  | { readonly k: "S"; readonly keys?: FlatKeys }
+  /** A table of `rows` × `cols` empty cells, columns of equal weight (integers ≥ 1). */
+  | { readonly k: "table"; readonly rows: number; readonly cols: number };
 
 /** Read units of a fragment item that is neither a ¶ nor structural. */
 export const fragmentUnits = (i: FragmentItem): number => ("text" in i ? i.text.length : 1);
@@ -34,8 +37,28 @@ export const fragmentUnits = (i: FragmentItem): number => ("text" in i ? i.text.
 export const placeable = (items: readonly FragmentItem[], container: Container): boolean =>
   items.every((i) => allowedIn(i.k, container) && (!("body" in i) || placeable(i.body, "footnote")));
 
-/** The payload as insert units (its placement checked first, {@link placeable}). Throws on a payload that breaks W1 / W2. */
-export function units(ctx: CommandContext, items: readonly FragmentItem[]): InsertUnit[] {
+/** Throws unless a table's row and column counts are integers ≥ 1. */
+export function checkTableSize(rows: number, cols: number): void {
+  if (!Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) throw new Error("model: a table needs integer rows and columns ≥ 1");
+}
+
+/** `⟦ (⟨r⟩ (⟨c⟩ ¶)×C)×R ⟧` at depth `d`, `cols` holding C weights of 1. Throws unless both counts are integers ≥ 1. */
+function tableUnits(rows: number, cols: number, d: number): InsertUnit[] {
+  checkTableSize(rows, cols);
+  const out: InsertUnit[] = [{ embed: newTableStart(d, Array.from({ length: cols }, () => 1)), attrs: {} }];
+  for (let r = 0; r < rows; r++) {
+    out.push({ embed: newRowMark(d), attrs: {} });
+    for (let c = 0; c < cols; c++) out.push({ embed: newCellMark(d), attrs: {} }, { embed: newParagraphMark(), attrs: {} });
+  }
+  out.push({ embed: newTableEnd(d), attrs: {} });
+  return out;
+}
+
+/**
+ * The payload as insert units (its placement checked first, {@link placeable}); `depth`: the number of tables around
+ * the insertion point (a pasted table's marks store it). Throws on a payload that breaks W1 / W2.
+ */
+export function units(ctx: CommandContext, items: readonly FragmentItem[], depth = 0): InsertUnit[] {
   const out: InsertUnit[] = [];
   let prev: FragmentItem | null = null;
   for (const i of items) {
@@ -74,6 +97,9 @@ export function units(ctx: CommandContext, items: readonly FragmentItem[]): Inse
       }
       case "toc":
         out.push({ embed: newTableOfContents(checkKeys(i.keys ?? {}, ["a:"], "TOC")), attrs: {} });
+        break;
+      case "table":
+        out.push(...tableUnits(i.rows, i.cols, depth));
         break;
       case "S": {
         const keys = Object.fromEntries(Object.entries(i.keys ?? {}).filter(([k]) => !k.startsWith("h:")));

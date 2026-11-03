@@ -5,7 +5,7 @@ import type { BlockObject } from "../position/block-object";
 import type { StoragePoint } from "../position/paragraph-layout";
 import { comparePoints, pointAfter } from "../position/storage-points";
 import { unitsBefore } from "../position/terminator-neighbours";
-import { isBlockObject, isParagraphBreak, isSectionBreak, isStructural } from "../scan/kinds";
+import { holdsFlows, isBlockObject, isParagraphBreak, isSectionBreak, isStructural } from "../scan/kinds";
 import { typeId } from "../storage/item-id";
 import { newParagraphMark } from "../storage/new-items";
 import type { CommandContext } from "./command-context";
@@ -14,7 +14,8 @@ import { plan } from "./helpers/build-plan";
 import { deleteRange } from "./helpers/delete-range";
 import { type FragmentItem, fragmentUnits, placeable, units } from "./helpers/fragment";
 import { overObject, withWrites } from "./helpers/over-object";
-import { containerOf } from "./helpers/placement";
+import { containerOf, tableDepthOf } from "./helpers/placement";
+import { TABLE_DEPTH_CAP } from "../storage/limits";
 import { replaceSelection } from "./helpers/replace-selection";
 import { splitWrites } from "./helpers/split-writes";
 import { idAfter, insertAt, materialize } from "./helpers/writes";
@@ -40,8 +41,10 @@ function pasteAt(ctx: CommandContext, fragment: readonly FragmentItem[], replace
   const r = rangeOf(ctx);
   if (r === null) return null;
   // Placement: a payload holding a kind the target container does not take (a footnote body's included) is not pasted (as today).
-  if (!placeable(fragment, containerOf(ctx.version, r.start))) return null;
-  const us = units(ctx, fragment);
+  // A table is not placed past the nesting cap (its marks would be inert).
+  const depth = tableDepthOf(ctx.version, r.start);
+  if (!placeable(fragment, containerOf(ctx.version, r.start)) || (depth >= TABLE_DEPTH_CAP && fragment.some((i) => holdsFlows(i.k)))) return null;
+  const us = units(ctx, fragment, depth);
   const breaks = (i: FragmentItem): boolean => isParagraphBreak(i.k) || isStructural(i.k);
   const structural = fragment.some(breaks);
   // Read units after the payload's last ¶ / block object: the caret's offset in the tail.

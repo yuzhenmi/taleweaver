@@ -97,7 +97,7 @@ describe("kind table", () => {
  * about one kind's own data, not a category rule); each entry is `file: count`.
  */
 const ALLOWED: Readonly<Record<string, { readonly count: number; readonly why: string }>> = {
-  "commands/helpers/fragment.ts": { count: 9, why: "each fragment kind's storage constructor (kind-internal shape)" },
+  "commands/helpers/fragment.ts": { count: 10, why: "each fragment kind's storage constructor (kind-internal shape)" },
   "commands/set-object-props.ts": { count: 2, why: "C12 wrap / size / kind props exist only on the generic object" },
   "commands/remove-marker.ts": { count: 1, why: "a marker's ns / id identity (kind-internal)" },
   "derive/derive-flow.ts": { count: 3, why: "the TableEntity discriminant (its records, its cells' paragraphs) and footnote body ownership (X20)" },
