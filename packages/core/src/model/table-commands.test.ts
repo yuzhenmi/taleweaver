@@ -1,12 +1,17 @@
 /** N3 table commands: insertTable, E2, C5 / C8 next to tables, cell edges, container-scoped ranges, cell select-all, C10. */
 import { describe, expect, it } from "vitest";
+import { wellFormed } from "./oracle/document-probes";
+import { firingsOf } from "./oracle/firings";
 import { BLOCK_TYPES, type Block } from "./block";
 import { insertTable } from "./commands/insert-table";
 import { deleteBackward } from "./commands/delete-backward";
+import { deleteBlockObject } from "./commands/delete-block-object";
+import { deleteSelection } from "./commands/delete-selection";
+import { selectAll } from "./commands/selections";
 import { deleteForward } from "./commands/delete-forward";
 import { insertText } from "./commands/insert-text";
 import { splitParagraph } from "./commands/split-paragraph";
-import { caretAt, isTextSelection } from "./position/model-position";
+import { type ModelPosition, caretAt, isTextSelection } from "./position/model-position";
 import { TABLE_DEPTH_CAP } from "./storage/limits";
 import { childrenOf } from "./test-helpers/fixture";
 import { Harness, typeLines } from "./test-helpers/harness";
@@ -41,6 +46,9 @@ const cellPara = (h: Harness, table: Block, r: number, c: number, k = 0): Block 
   if (p === undefined) throw new Error(`no paragraph ${r},${c},${k}`);
   return p;
 };
+const fail = (): never => {
+  throw new Error("no flow");
+};
 const focusId = (h: Harness): string => (isTextSelection(h.selection) ? h.selection.focus.blockId : "");
 
 describe("insertTable (C14)", () => {
@@ -74,6 +82,14 @@ describe("insertTable (C14)", () => {
     g.select([0, 1], [1, 2]);
     g.run(insertTable, 1, 1);
     expect(g.dump()).toEqual(["paragraph:a", "table", "paragraph:f"]);
+  });
+
+  it("at a cell's start no ¶ goes first (a cell start is no block object)", () => {
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟧ q¶");
+    const t = tableOf(h);
+    h.selection = caretAt(cellPara(h, t, 0, 0).id, 0);
+    h.run(insertTable, 1, 1);
+    expect(shape(h.version, t.id)).toEqual([["T|a"]]);
   });
 
   it("nests in a cell at depth + 1, and is a no-op at the depth cap; bad counts throw", () => {
@@ -227,5 +243,109 @@ describe("an unclosed table (concurrency only)", () => {
     expect(h.dump()).toEqual(["paragraph:p", "table", "paragraph:x"]);
     expect(shape(h.version, tableOf(h).id)).toEqual([["a|"]]);
     expect(h.undo()).toBe(true);
+  });
+
+  it("a range that deletes it writes no ⟧ for it", () => {
+    const h = raw("p¶ ⟦ ⟨r⟩ ⟨c⟩ a¶");
+    const n = h.paragraphs().length;
+    h.select([0, 0], [n - 1, 0]);
+    h.run(insertText, "x");
+    expect(h.dump()).toEqual(["paragraph:x"]);
+    // A stray `⟧` would read as inert (invisible to the read): the storage walk sees it.
+    expect(firingsOf(h.version.flows.get(h.version.rootId) ?? fail())).toEqual([]);
+  });
+});
+
+describe("container-scoped ranges and select-all", () => {
+  it("a range from the body into a cell, or across two cells, is refused; one across a whole table deletes it (C9)", () => {
+    const h = raw("p¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟧ q¶");
+    const t = tableOf(h);
+    const before = h.read();
+    const a = cellPara(h, t, 0, 0);
+    const b = cellPara(h, t, 0, 1);
+    const ranges: [ModelPosition, ModelPosition][] = [
+      [h.at(0, 1), { blockId: a.id, offset: 1 }],
+      [{ blockId: a.id, offset: 0 }, { blockId: b.id, offset: 1 }],
+      [{ blockId: b.id, offset: 1 }, h.at(2, 0)],
+    ];
+    for (const [x, y] of ranges) {
+      h.selection = { anchor: x, focus: y };
+      expect(h.run(deleteSelection)).toBe(false);
+      expect(h.run(insertText, "z")).toBe(false);
+    }
+    expect(h.read()).toEqual(before);
+    h.select([0, 1], [2, 0]);
+    expect(h.run(deleteSelection)).toBe(true);
+    expect(h.dump()).toEqual(["paragraph:pq", "paragraph:"]);
+    // Within one cell, an ordinary range.
+    const g = raw("⟦ ⟨r⟩ ⟨c⟩ ab¶ cd¶ ⟧ q¶");
+    const gt = tableOf(g);
+    g.selection = { anchor: { blockId: cellPara(g, gt, 0, 0).id, offset: 1 }, focus: { blockId: cellPara(g, gt, 0, 0, 1).id, offset: 1 } };
+    expect(g.run(deleteSelection)).toBe(true);
+    expect(shape(g.version, gt.id)).toEqual([["ad"]]);
+  });
+
+  it("select-all in a cell takes the cell's content (a nested table at its start too); typing replaces it; undo restores", () => {
+    const h = raw("p¶ ⟦ ⟨r⟩ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 n¶ ⟧@1 a¶ b¶ ⟨c⟩ c¶ ⟧ q¶");
+    const t = tableOf(h);
+    const cell = childrenOf(h.version, "block", childrenOf(h.version, "block", t.id)[0]?.id ?? "")[0];
+    const all = cell === undefined ? null : selectAll(h.version, cell.id);
+    expect(all).not.toBeNull();
+    if (all === null) return;
+    h.selection = all;
+    const before = h.read();
+    expect(h.run(insertText, "z")).toBe(true);
+    expect(shape(h.version, t.id)).toEqual([["z", "c"]]);
+    expect(h.dump()).toEqual(["paragraph:p", "table", "paragraph:q", "paragraph:"]);
+    expect(h.undo()).toBe(true);
+    expect(h.read()).toEqual(before);
+    expect(h.selection).toEqual(all);
+    // Not a container: a row, a paragraph.
+    expect(selectAll(h.version, childrenOf(h.version, "block", t.id)[0]?.id ?? "")).toBeNull();
+    expect(selectAll(h.version, h.blockId(0))).toBeNull();
+  });
+
+  it("select-all in an empty and a virtual cell", () => {
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ ⟧ q¶"); // row 2: an /empty cell, then a virtual one
+    const t = tableOf(h);
+    const row = childrenOf(h.version, "block", t.id)[1];
+    const cells = childrenOf(h.version, "block", row?.id ?? "");
+    expect(cells.length).toBe(2);
+    for (const c of cells) {
+      const all = selectAll(h.version, c.id);
+      expect(all).not.toBeNull();
+      if (all === null) return;
+      h.selection = all;
+      expect(h.run(insertText, "z")).toBe(true);
+      expect(h.run(insertText, "y")).toBe(true); // the caret resolves
+    }
+    expect(shape(h.version, t.id)).toEqual([["a", "b"], ["zy", "zy"]]);
+    expect(wellFormed(h.version.flows.get(h.version.rootId) ?? fail())).toBe(true);
+    // A cell holding only a nested table (and its implicit paragraph): select-all and type leaves no debris.
+    const g = raw("⟦ ⟨r⟩ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 n¶ ⟧@1 ⟧ q¶");
+    const gc = childrenOf(g.version, "block", childrenOf(g.version, "block", tableOf(g).id)[0]?.id ?? "")[0];
+    const ga = gc === undefined ? null : selectAll(g.version, gc.id);
+    if (ga === null) throw new Error("no select-all");
+    g.selection = ga;
+    expect(g.run(insertText, "z") && g.run(insertText, "y")).toBe(true);
+    expect(shape(g.version, tableOf(g).id)).toEqual([["zy"]]);
+    expect(wellFormed(g.version.flows.get(g.version.rootId) ?? fail())).toBe(true);
+  });
+});
+
+describe("C10 of a table", () => {
+  it("deletes the whole bracket (nested too); the caret where it was; undo restores", () => {
+    const h = raw("p¶ ⟦ ⟨r⟩ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 n¶ ⟧@1 a¶ ⟧ q¶");
+    const t = tableOf(h);
+    const before = h.read();
+    const inner = childrenOf(h.version, "block", childrenOf(h.version, "block", childrenOf(h.version, "block", t.id)[0]?.id ?? "")[0]?.id ?? "")[0];
+    expect(h.run(deleteBlockObject, inner?.id ?? "")).toBe(true);
+    expect(shape(h.version, t.id)).toEqual([["a"]]);
+    expect(h.selection).toEqual(caretAt(cellPara(h, t, 0, 0).id, 0));
+    h.run(deleteBlockObject, t.id);
+    expect(h.dump()).toEqual(["paragraph:p", "paragraph:q", "paragraph:"]);
+    expect(h.sel()).toBe("1:0");
+    expect(h.undo() && h.undo()).toBe(true);
+    expect(h.read()).toEqual(before);
   });
 });

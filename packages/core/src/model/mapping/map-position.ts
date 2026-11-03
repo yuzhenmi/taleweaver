@@ -1,3 +1,4 @@
+import { holdsAll } from "../document/blocks";
 /**
  * Exact position mapping between versions (core-architecture D6 / D8), built from
  * the same Yjs deltas that drive change detection — no text diff, no heuristic.
@@ -134,7 +135,7 @@ function mapPoint(from: Document, to: Document, piece: Y.Text, index: number, as
  * where the object was (`assoc` 1); a select-all stays while its flow exists.
  */
 export function mapSelection(from: Document, to: Document, sel: ModelSelection): ModelSelection | null {
-  if (isAllSelection(sel)) return to.flows.has(sel.flow) ? sel : null;
+  if (isAllSelection(sel)) return holdsAll(to, sel.container) ? sel : null;
   if (isObjectSelection(sel)) {
     const o = blockObjectAt(from, sel.object);
     const m = o === null ? null : mapPoint(from, to, o.point.piece, o.point.index, 1);

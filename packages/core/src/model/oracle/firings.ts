@@ -5,6 +5,7 @@ import { readsAsContent } from "../scan/scan-range";
 import { itemId } from "../storage/item-id";
 import { ITEM_KINDS, KIND_KEY, PIECES_KEY } from "../storage/keys";
 import { SUBFLOW_DEPTH_CAP } from "../storage/limits";
+import { markRole } from "../storage/table-marks";
 
 /** A firing of a read rule (or an A1 / A2 / W2 break) in one flow's storage. */
 export interface Firing {
@@ -47,11 +48,16 @@ export function firingsOf(fs: FlowState, restores: Map<string, string> = new Map
     return cur;
   };
   const pending: Omit<Firing, "key">[] = [];
-  type Boundary = { k: "start" | "paragraphBreak" | "blockObject" | "section"; id: Y.ID | null };
+  // `cell`: after a `⟨c⟩`; `newRow` / `newCell`: after a `⟦` / `⟨r⟩`, the mark that must come next (design §1 faces).
+  type Boundary = { k: "start" | "paragraphBreak" | "blockObject" | "section" | "inCell" | "newRow" | "newCell"; id: Y.ID | null };
   let left: Boundary = { k: "start", id: null };
   let run: Y.ID[] = [];
   let gap: string[] = [];
   let any = false;
+  let open = 0;
+  const awaiting = (): boolean => left.k === "newRow" || left.k === "newCell";
+  /** A table broken by its faces (a lead, a missing row / cell mark, an empty cell, an unbalanced bracket): A1-like. */
+  const broken = (right: Y.ID | null): void => void pending.push({ type: "empty", end: "end", where, left: [], right, gap });
   const where = fs.holderId;
   const terminate = (k: "blockObject" | "section" | "end", id: Y.ID | null): void => {
     const leftIds = left.id === null ? [] : [left.id];
@@ -85,6 +91,21 @@ export function firingsOf(fs: FlowState, restores: Map<string, string> = new Map
         if (depth < SUBFLOW_DEPTH_CAP && arr instanceof Y.Array) for (const p of arr.toArray()) if (p instanceof Y.Text) visit(p, depth + 1);
         continue;
       }
+      const role = markRole(m);
+      if (role !== null) {
+        // A table mark: `⟦` ends what precedes as the table (a block object); `⟨r⟩` / `⟨c⟩` / `⟧` end a container,
+        // as the flow end does. (Inert marks are not modelled: concurrency only.)
+        any = true;
+        const misplaced = awaiting() ? role !== left.k : left.k === "inCell" && role !== "open";
+        open += role === "open" ? 1 : role === "close" ? -1 : 0;
+        if (run.length === 0 && (misplaced || open < 0 || (open === 0 && role !== "open" && role !== "close"))) broken(it.id);
+        else terminate(role === "open" ? "blockObject" : "end", it.id);
+        left = role === "close" ? { k: "blockObject", id: it.id } : { k: role === "newCell" ? "inCell" : role === "open" ? "newRow" : "newCell", id: null };
+        run = [];
+        gap = [];
+        continue;
+      }
+      if (awaiting()) broken(it.id); // a table / row lead (F2)
       if (isParagraphBreak(fk)) {
         any = true;
         left = { k: "paragraphBreak", id: it.id };
@@ -101,6 +122,7 @@ export function firingsOf(fs: FlowState, restores: Map<string, string> = new Map
     }
   };
   for (const p of fs.array?.toArray() ?? []) if (p instanceof Y.Text) visit(p, 0);
+  if (open > 0) broken(null);
   terminate("end", null);
   for (const f of pending) out.push({ ...f, key: `${f.type}:${f.end}:${f.right === null ? f.where : canon(idKey(f.right))}` });
   return out;

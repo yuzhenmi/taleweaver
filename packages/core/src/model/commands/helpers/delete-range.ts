@@ -45,12 +45,14 @@ export function deleteRange(start: At, end: At, tailKeys?: Keys): Deletion | nul
     const id = end.L.block.id;
     return { writes, survivor: () => id, at: a };
   }
-  if (!join && tailKeys === undefined) {
+  // Debris stays debris; an implicit end paragraph (a cell's `/empty`, a block object's `/after`) gets its ¶, so
+  // what replaces the range is not left without one.
+  if (!join && tailKeys === undefined && !end.L.implicit) {
     const id = end.L.block.id;
     return { writes, survivor: () => id, at: a };
   }
-  // The end paragraph is debris: give it a ¶ (X2) carrying the joined keys.
-  const m = materialize(end.L, target ?? {});
+  // The end paragraph is debris or implicit: give it a ¶ (X2 / X5) carrying the joined keys.
+  const m = materialize(end.L, target ?? {}, [], a);
   if (m === null) return null;
   writes.push(...m.writes);
   const fallback = end.L.block.id;

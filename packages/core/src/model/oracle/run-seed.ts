@@ -1,3 +1,4 @@
+import { holdsAll } from "../document/blocks";
 /**
  * The randomized multi-peer oracle (r7 §10, build plan P1). One seed = one run of
  * N peers (1 = a single-user run; 3 = concurrency) × `steps` steps. Each step one peer
@@ -121,7 +122,7 @@ function snapped(d: Document, sel: ModelSelection): ModelSelection {
 }
 
 const resolves = (d: Document, sel: ModelSelection): boolean =>
-  isAllSelection(sel) ? d.flows.has(sel.flow) : isObjectSelection(sel) ? blockObjectAt(d, sel.object) !== null : paragraphLayout(d, sel.anchor.blockId) !== null && paragraphLayout(d, sel.focus.blockId) !== null;
+  isAllSelection(sel) ? holdsAll(d, sel.container) : isObjectSelection(sel) ? blockObjectAt(d, sel.object) !== null : paragraphLayout(d, sel.anchor.blockId) !== null && paragraphLayout(d, sel.focus.blockId) !== null;
 
 /**
  * One seed. Multi-peer firings are counted by class in `quirks` (labels include `UNCLASSIFIED:*`,

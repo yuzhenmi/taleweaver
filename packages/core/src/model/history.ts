@@ -1,3 +1,4 @@
+import { holdsAll } from "./document/blocks";
 /**
  * H1 — undo / redo over plain `Y.UndoManager` (r7 §5 H1):
  *   - `trackedOrigins` = this editor's `Symbol` origin only (X16): remote updates and
@@ -50,7 +51,7 @@ interface StoredPosition {
 type StoredSelection =
   | { readonly kind: "text"; readonly anchor: StoredPosition; readonly focus: StoredPosition }
   | { readonly kind: "object"; readonly rel: Y.RelativePosition }
-  | { readonly kind: "all"; readonly flow: string };
+  | { readonly kind: "all"; readonly container: string };
 interface Entry {
   readonly before: StoredSelection | null;
   readonly after: StoredSelection | null;
@@ -81,7 +82,7 @@ function storePosition(d: Document, p: ModelPosition, assoc: Assoc): StoredPosit
  * re-selects exactly the restored text; a caret sticks to the unit after it.
  */
 function storeSelection(d: Document, sel: ModelSelection): StoredSelection | null {
-  if (isAllSelection(sel)) return { kind: "all", flow: sel.flow };
+  if (isAllSelection(sel)) return { kind: "all", container: sel.container };
   if (isObjectSelection(sel)) {
     const o = blockObjectAt(d, sel.object);
     return o === null ? null : { kind: "object", rel: Y.createRelativePositionFromTypeIndex(o.point.piece, o.point.index, 0) };
@@ -109,7 +110,7 @@ function restoreObject(d: Document, rel: Y.RelativePosition): ModelSelection | n
 
 function restoreSelection(d: Document, s: StoredSelection | null): ModelSelection | null {
   if (s === null) return null;
-  if (s.kind === "all") return d.flows.has(s.flow) ? { kind: "all", flow: s.flow } : null;
+  if (s.kind === "all") return holdsAll(d, s.container) ? { kind: "all", container: s.container } : null;
   if (s.kind === "object") return restoreObject(d, s.rel);
   const anchor = restorePosition(d, s.anchor);
   const focus = restorePosition(d, s.focus);

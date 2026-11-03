@@ -3,7 +3,7 @@ import type { BlockId } from "../../block";
 import type { FlowState } from "../../document/types";
 import type { InsertUnit, Write } from "../../plan";
 import type { ParagraphLayout, StoragePoint } from "../../position/paragraph-layout";
-import { comparePoints, pointAfter } from "../../position/storage-points";
+import { comparePoints, pointAfter, pointOf } from "../../position/storage-points";
 import { typeId } from "../../storage/item-id";
 import { newParagraphMark } from "../../storage/new-items";
 import { newCellMark, newTableEnd } from "../../storage/table-marks";
@@ -35,9 +35,14 @@ export function deleteBetween(fs: FlowState, a: StoragePoint, b: StoragePoint): 
   return out;
 }
 
-/** An unclosed table's implicit paragraph (its `before` is the `⟦`) made real: the missing `⟧` first, so it reads after the table. */
-function tableClose(L: ParagraphLayout): InsertUnit[] {
+/**
+ * An unclosed table's implicit paragraph (its `before` is the `⟦`) made real: the missing `⟧` first, so it reads after
+ * the table — unless the same plan deletes the table (its `⟦` at or after `deletedFrom`, a range's start).
+ */
+function tableClose(L: ParagraphLayout, deletedFrom?: StoragePoint): InsertUnit[] {
   const open = L.implicit ? L.before : null;
+  const at = open === null ? null : pointOf(L.fs, open);
+  if (deletedFrom !== undefined && at !== null && comparePoints(deletedFrom, at) <= 0) return [];
   const d = open === null || roleOf(open.token) !== "open" ? null : depthOf(open.token);
   return d === null ? [] : [{ embed: newTableEnd(d), attrs: {} }];
 }
@@ -62,9 +67,9 @@ function cellLead(L: ParagraphLayout): InsertUnit[] {
  * X2: the writes inserting a ¶ (with `keys`) at the end of debris / R17 paragraph `L`,
  * and the new map. Null when the flow cannot be written (a holder without a flow).
  */
-export function materialize(L: ParagraphLayout, keys: Keys, before: readonly InsertUnit[] = []): { writes: Write[]; map: Y.Map<unknown> } | null {
+export function materialize(L: ParagraphLayout, keys: Keys, before: readonly InsertUnit[] = [], deletedFrom?: StoragePoint): { writes: Write[]; map: Y.Map<unknown> } | null {
   const map = newParagraphMark(keys);
-  const units: InsertUnit[] = [...tableClose(L), ...cellLead(L), ...before, { embed: map, attrs: {} }];
+  const units: InsertUnit[] = [...tableClose(L, deletedFrom), ...cellLead(L), ...before, { embed: map, attrs: {} }];
   const p = pointAfter(L, L.length);
   if (p !== null) return { writes: [insertAt(p, units)], map };
   return L.fs.array === null ? null : { writes: [{ k: "firstPiece", flow: L.fs.array, units }], map };

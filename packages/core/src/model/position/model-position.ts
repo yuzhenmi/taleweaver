@@ -18,10 +18,10 @@ export interface ObjectSelection {
   readonly object: BlockId;
 }
 
-/** Everything in a flow, block objects included (ProseMirror's AllSelection); `flow` is its holder id. */
+/** Everything in a container, block objects included (ProseMirror's AllSelection); `container`: a flow's holder id or a table cell's id. */
 export interface AllSelection {
   readonly kind: "all";
-  readonly flow: BlockId;
+  readonly container: BlockId;
 }
 
 export type ModelSelection = TextSelection | ObjectSelection | AllSelection;

@@ -1,7 +1,7 @@
 /**
  * Read API over a version (same names as the schema-3 document API).
  */
-import type { Block, BlockId } from "../block";
+import { BLOCK_TYPES, type Block, type BlockId } from "../block";
 import type { Document, TreeKind } from "./types";
 
 export function getBlock(d: Document, id: BlockId): Block | null {
@@ -51,3 +51,6 @@ export function getEmbedContentIds(d: Document): BlockId[] {
 export function getTemplateContentIds(d: Document): BlockId[] {
   return flowIdsOf(d, "templateContent");
 }
+
+/** Block `id` is a container a select-all can hold: a flow's holder or a table cell. */
+export const holdsAll = (d: Document, id: BlockId): boolean => d.flows.has(id) || peekBlock(d, id)?.type === BLOCK_TYPES.tableCell;

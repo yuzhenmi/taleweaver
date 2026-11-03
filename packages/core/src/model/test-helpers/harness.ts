@@ -187,7 +187,7 @@ export function selectionOf(d: Document, sel: ModelSelection): string {
     const f = flows.findIndex((bs) => bs.some((b) => b.id === id));
     return `${f}.${flows[f]?.findIndex((b) => b.id === id) ?? -1}`;
   };
-  if (isAllSelection(sel)) return `all ${holders.indexOf(sel.flow)}`;
+  if (isAllSelection(sel)) return `all ${holders.indexOf(sel.container)}`;
   if (isObjectSelection(sel)) return `object ${at(sel.object)}`;
   return `${at(sel.anchor.blockId)}:${sel.anchor.offset}-${at(sel.focus.blockId)}:${sel.focus.offset}`;
 }

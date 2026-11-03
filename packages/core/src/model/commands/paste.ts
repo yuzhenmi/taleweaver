@@ -4,8 +4,9 @@ import { caretAt, isObjectSelection } from "../position/model-position";
 import type { BlockObject } from "../position/block-object";
 import type { StoragePoint } from "../position/paragraph-layout";
 import { comparePoints, pointAfter } from "../position/storage-points";
+import { isObjectEnd } from "../position/table-extent";
 import { unitsBefore } from "../position/terminator-neighbours";
-import { holdsFlows, isBlockObject, isParagraphBreak, isSectionBreak, isStructural } from "../scan/kinds";
+import { holdsFlows, isParagraphBreak, isSectionBreak, isStructural } from "../scan/kinds";
 import { typeId } from "../storage/item-id";
 import { newParagraphMark } from "../storage/new-items";
 import type { CommandContext } from "./command-context";
@@ -81,12 +82,15 @@ function pasteAt(ctx: CommandContext, fragment: readonly FragmentItem[], replace
     if (comparePoints(del.at, p) < 0) ins = del.at;
   }
   // What precedes the insertion point: the paragraph's previous terminator — or, when that is the replaced object, what
-  // precedes it ("run": text); undefined: the flow start (a select-all took everything before the paragraph).
+  // precedes it (null: text); undefined: the flow start (a select-all took everything before the paragraph). A table
+  // mark faces as a block object only as a `⟧` (a cell start is a container start, as the flow start).
   const prev = start.L.before;
   const prior = replaced !== null && prev !== null && prev.token.id === replaced.last?.token.id ? unitsBefore(start.L.fs, replaced.term.seg, replaced.term.tok, 0) : null;
-  const before = comparePoints(ins, p) < 0 ? undefined : prior === null ? prev?.token.k : prior.units > 0 ? "run" : prior.before?.token.k;
+  const before = comparePoints(ins, p) < 0 ? undefined : prior === null ? prev?.token : prior.units > 0 ? null : prior.before?.token;
+  const objectBefore = before !== undefined && before !== null && isObjectEnd(before);
+  const paraBefore = before !== undefined && before !== null && isParagraphBreak(before.k);
   const lead: InsertUnit[] = [];
-  if (startsWithBlock && start.offset === 0 && (isBlockObject(before) || (isSectionBreak(first?.k) && !isParagraphBreak(before)))) lead.push({ embed: newParagraphMark(), attrs: {} });
+  if (startsWithBlock && start.offset === 0 && (objectBefore || (isSectionBreak(first?.k) && !paraBefore))) lead.push({ embed: newParagraphMark(), attrs: {} });
   if (r.collapsed && start.L.implicit) {
     // Separate from the R17 branch above: an implicit paragraph follows a block object, so it needs `lead`, which that branch returns before computing.
     // The payload goes in with the paragraph's ¶ (X5), which its last paragraph joins.
