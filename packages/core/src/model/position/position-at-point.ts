@@ -2,7 +2,9 @@ import type * as Y from "yjs";
 import type { BlockId } from "../block";
 import { resolveBlock } from "../document/blocks";
 import type { Document, FlowState } from "../document/types";
-import { afterObjectId, debrisBeforeId, flowEndId } from "../ids";
+import { afterObjectId, debrisBeforeId, emptyCellParagraphId, flowEndId, virtualCellId } from "../ids";
+import { roleOf } from "../scan/tokens";
+import { TABLE_COLUMN_CAP } from "../storage/limits";
 import { type Assoc, type ModelPosition, position } from "./model-position";
 import { type TerminatorRef, nextTerminator, starts } from "./paragraph-layout";
 import { unitsBefore } from "./terminator-neighbours";
@@ -82,7 +84,7 @@ function blockLength(d: Document, id: BlockId): number | null {
 type Probe = { readonly pos: ModelPosition } | { readonly after: TerminatorRef | null; readonly before: TerminatorRef | null };
 
 /** The position at `at`, or — in no paragraph — the terminators either side. */
-function probe(fs: FlowState, at: Located): Probe {
+function probe(d: Document, fs: FlowState, at: Located): Probe {
   const after = nextTerminator(fs, at.seg, at.tok, at.within);
   const before = unitsBefore(fs, at.seg, at.tok, at.within);
   const t = after.term;
@@ -91,6 +93,19 @@ function probe(fs: FlowState, at: Located): Probe {
   if (t === null && fs.synthetic) return { pos: position(flowEndId(fs.holderId), 0) };
   const b = before.before;
   if (b !== null && isObjectEnd(b.token)) return { pos: position(afterObjectId(b.token.id), 0) };
+  // Table cells with no paragraph stored (§5): right after a `⟨c⟩` a mark follows (its `/empty`); right at a row's end
+  // mark, the row's first virtual end cell (several share the point).
+  if (b !== null && roleOf(b.token) === "newCell" && t !== null && roleOf(t.token) !== null) {
+    const id = emptyCellParagraphId(b.token.id);
+    if (resolveBlock(d, id) !== null) return { pos: position(id, 0) };
+  }
+  const role = t === null ? null : roleOf(t.token);
+  if (t !== null && (role === "newRow" || role === "close")) {
+    for (let col = 0; col < TABLE_COLUMN_CAP; col++) {
+      const id = emptyCellParagraphId(virtualCellId(t.token.id, col));
+      if (resolveBlock(d, id) !== null) return { pos: position(id, 0) };
+    }
+  }
   return { after: t, before: before.before };
 }
 
@@ -99,7 +114,7 @@ function probe(fs: FlowState, at: Located): Probe {
  * the other. A loop, not recursion: a peer can store any number of abutting terminators.
  */
 function positionAt(d: Document, fs: FlowState, at: Located, assoc: Assoc): ModelPosition | null {
-  const first = probe(fs, at);
+  const first = probe(d, fs, at);
   if ("pos" in first) return first.pos;
   const walk = (dir: Assoc): ModelPosition | null => {
     let p: Probe = first;
@@ -110,7 +125,7 @@ function positionAt(d: Document, fs: FlowState, at: Located, assoc: Assoc): Mode
         if (t === null) return null;
         const next = t.tok + 1 < (fs.segments[t.seg]?.tokens.length ?? 0) ? { seg: t.seg, tok: t.tok + 1, within: 0 } : { seg: t.seg + 1, tok: 0, within: 0 };
         if (next.seg >= fs.segments.length) return null;
-        p = probe(fs, next);
+        p = probe(d, fs, next);
       } else {
         const b = p.before;
         if (b === null) return null;
@@ -118,7 +133,7 @@ function positionAt(d: Document, fs: FlowState, at: Located, assoc: Assoc): Mode
           const len = blockLength(d, b.token.id);
           return len === null ? null : position(b.token.id, len);
         }
-        p = probe(fs, { seg: b.seg, tok: b.tok, within: 0 });
+        p = probe(d, fs, { seg: b.seg, tok: b.tok, within: 0 });
       }
     }
   };

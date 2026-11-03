@@ -6,6 +6,7 @@ import type { ParagraphLayout, StoragePoint } from "../../position/paragraph-lay
 import { comparePoints, pointAfter } from "../../position/storage-points";
 import { typeId } from "../../storage/item-id";
 import { newParagraphMark } from "../../storage/new-items";
+import { newCellMark } from "../../storage/table-marks";
 import type { Scalar } from "../../storage/scalar";
 import type { Keys } from "./paragraph-keys";
 
@@ -34,12 +35,28 @@ export function deleteBetween(fs: FlowState, a: StoragePoint, b: StoragePoint): 
 }
 
 /**
+ * A virtual end cell's paragraph made real (design: short rows): real `⟨c⟩¶` cells for the virtual cells before it
+ * in its row, then its own `⟨c⟩` (its ¶ follows). Nothing for any other paragraph.
+ */
+function cellLead(L: ParagraphLayout): InsertUnit[] {
+  const v = L.virtualCell;
+  if (v === undefined) return [];
+  const out: InsertUnit[] = [];
+  for (let i = 1; i < v.rank; i++) {
+    out.push({ embed: newCellMark(v.depth), attrs: {} });
+    if (!(i === 1 && v.firstHolds)) out.push({ embed: newParagraphMark({}), attrs: {} });
+  }
+  out.push({ embed: newCellMark(v.depth), attrs: {} });
+  return out;
+}
+
+/**
  * X2: the writes inserting a ¶ (with `keys`) at the end of debris / R17 paragraph `L`,
  * and the new map. Null when the flow cannot be written (a holder without a flow).
  */
 export function materialize(L: ParagraphLayout, keys: Keys, before: readonly InsertUnit[] = []): { writes: Write[]; map: Y.Map<unknown> } | null {
   const map = newParagraphMark(keys);
-  const units: InsertUnit[] = [...before, { embed: map, attrs: {} }];
+  const units: InsertUnit[] = [...cellLead(L), ...before, { embed: map, attrs: {} }];
   const p = pointAfter(L, L.length);
   if (p !== null) return { writes: [insertAt(p, units)], map };
   return L.fs.array === null ? null : { writes: [{ k: "firstPiece", flow: L.fs.array, units }], map };

@@ -26,8 +26,8 @@ import * as Y from "yjs";
 import type { Block, BlockId } from "../block";
 import { resolveBlock } from "../document/blocks";
 import type { Document, FlowState, TreeKind } from "../document/types";
-import { flowEndId } from "../ids";
-import { type RunToken, type TerminatorToken, roleOf } from "../scan/tokens";
+import { emptyCellParagraphId, flowEndId } from "../ids";
+import { type RunToken, type TerminatorToken, depthOf, roleOf } from "../scan/tokens";
 import { isBlockObject, isParagraphBreak } from "../scan/kinds";
 import { afterObject, tableExtent } from "./table-extent";
 
@@ -76,6 +76,17 @@ export interface ParagraphLayout {
   readonly head: StoragePoint | null;
   /** Nothing stored (an empty holder's paragraph, R17; a block object's implicit one): a write there creates its ¶ first (X2 / X5). */
   readonly implicit: boolean;
+  /**
+   * A virtual end cell's paragraph (design: short rows): the cell is the `rank`-th (from 1)
+   * virtual cell of its row, its table's marks at `depth`. Its first write makes real `⟨c⟩¶`
+   * cells up to it, and its own `⟨c⟩`, before its ¶.
+   */
+  readonly virtualCell?: {
+    readonly rank: number;
+    readonly depth: number;
+    /** The row's first virtual cell holds content (a lead joins it, F2): made real, it needs no ¶ of its own. */
+    readonly firstHolds: boolean;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +222,8 @@ export function paragraphLayout(d: Document, id: BlockId): ParagraphLayout | nul
   const flowEnd = { seg: Math.max(0, last), tok: fs.segments[last]?.tokens.length ?? 0 };
   if (id === flowEndId(fs.holderId)) {
     from = flowEnd;
+  } else if (id.endsWith("/empty")) {
+    return emptyCellLayout(d, fs, r.block, r.kind, id.slice(0, -"/empty".length));
   } else if (id.endsWith("/after")) {
     // The implicit paragraph after a block object: nothing read up to the next terminator, a non-¶ one (or `<end>`).
     const object = findTerminator(d, fs, id.slice(0, -"/after".length));
@@ -249,4 +262,42 @@ export function paragraphLayout(d: Document, id: BlockId): ParagraphLayout | nul
   }
   const head = before !== null ? afterTerminator(fs, before) : flowStart(fs);
   return { block: r.block, tree: r.kind, fs, parts, length: readStart, mark: end !== null && isParagraphBreak(end.token.k) ? end.token.map : null, end, before, head, implicit };
+}
+
+/**
+ * The layout of a cell paragraph with nothing stored (§5): `${cell}/empty` of a real cell (`⟨c⟩` with a mark next;
+ * its head right after the `⟨c⟩`), or of a virtual end cell `${M}/fill<col>` (its head AT its row's next mark M, a
+ * real item, so a caret there is stored like any other). Null otherwise — a virtual cell of an unclosed table's last
+ * row (anchored at its `⟦`) included: that table's first write is N3's.
+ */
+function emptyCellLayout(d: Document, fs: FlowState, block: Block, tree: TreeKind, cellId: BlockId): ParagraphLayout | null {
+  const fillAt = cellId.lastIndexOf("/fill");
+  if (fillAt < 0) {
+    const open = findTerminator(d, fs, cellId);
+    if (open === null || roleOf(open.token) !== "newCell") return null;
+    const next = afterObject(fs, open);
+    const n = nextTerminator(fs, next.seg, next.tok, 0);
+    const role = n.term === null ? null : roleOf(n.term.token);
+    if (n.units > 0 || role === null || role === "open") return null;
+    return { block, tree, fs, parts: [], length: 0, mark: null, end: n.term, before: open, head: afterTerminator(fs, open), implicit: true };
+  }
+  const markId = cellId.slice(0, fillAt);
+  const m = findTerminator(d, fs, markId);
+  const role = m === null ? null : roleOf(m.token);
+  const seg = m === null ? undefined : fs.segments[m.seg];
+  if (m === null || seg === undefined || (role !== "newRow" && role !== "close")) return null;
+  // Its rank among its row's virtual cells (they all follow the row's real ones).
+  const rowId = d.trees[tree].get(block.parentId ?? "")?.parentId ?? null;
+  let rank = 0;
+  let found = false;
+  let firstHolds = false;
+  for (let c = rowId === null ? null : (d.trees[tree].get(rowId)?.firstChildId ?? null); c !== null && !found; c = d.trees[tree].get(c)?.nextSiblingId ?? null) {
+    if (c.startsWith(`${markId}/fill`) && ++rank === 1) firstHolds = d.trees[tree].get(c)?.firstChildId !== emptyCellParagraphId(c);
+    found = c === cellId;
+  }
+  if (!found) return null;
+  const head = { piece: seg.piece, index: m.index, seg: m.seg };
+  // Its notional `⟨c⟩` would be the terminator before it: the row's end mark stands in (a container boundary, as a
+  // real empty cell's `⟨c⟩` is), so nothing joins across it (C5).
+  return { block, tree, fs, parts: [], length: 0, mark: null, end: m, before: m, head, implicit: true, virtualCell: { rank, depth: depthOf(m.token) ?? 0, firstHolds } };
 }

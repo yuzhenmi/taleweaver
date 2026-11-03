@@ -75,12 +75,15 @@ export function splitWrites(ctx: CommandContext, r: Range, extra: readonly Inser
     const id = end.L.block.id;
     tailId = () => id;
   } else {
-    // X2: Enter in debris gives the tail its ¶.
-    const m = materialize(end.L, tail);
+    // X2: Enter in debris gives the tail its ¶. A virtual end cell's ¶N goes in after the cell marks it is made real
+    // with (inside its new cell), so it is materialized with them.
+    const inCell = end.L.virtualCell !== undefined;
+    const m = materialize(end.L, tail, inCell ? [{ embed: headMark, attrs: {} }, ...extra] : []);
     if (m === null) return null;
     writes.push(...m.writes);
     const fallback = end.L.block.id;
     tailId = () => idAfter(m.map, fallback);
+    if (inCell) return { writes, tail: tailId, head: headMark };
   }
   // ¶N first: when the materialized tail ¶ lands at the same index, plan order puts ¶N before it.
   writes.unshift(insertAt(ins, [{ embed: headMark, attrs: {} }, ...extra]));

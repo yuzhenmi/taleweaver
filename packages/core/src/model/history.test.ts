@@ -34,6 +34,10 @@ import { ITEM_KINDS, PIECES_KEY } from "./storage/keys";
 import { PIECE_SOFT_MAX } from "./storage/limits";
 import { kindOf } from "./storage/map-reads";
 import { UNDO_COALESCE_PAUSE_MS } from "./history";
+import { emptyCellParagraphId, virtualCellId } from "./ids";
+import { caretAt } from "./position/model-position";
+import { idOf } from "./test-helpers/fixture";
+import { insertUnits, mapsOf, shape, units } from "./test-helpers/table";
 
 const type = (h: Harness, text: string): void => typeLines(h, text, insertText, splitParagraph);
 
@@ -311,6 +315,67 @@ describe("H1 coalescing (today's rule)", () => {
     expect(h.undo()).toBe(true);
     expect([h.dump(), h.sel()]).toEqual([["paragraph:xaby"], "0:3"]);
     expect(h.undo()).toBe(false);
+  });
+});
+
+describe("M3a: a caret in a table cell with nothing stored (N2)", () => {
+  it("in an empty cell (`/empty`) and in a virtual end cell: typing makes the cell real; undo restores the read and the caret", () => {
+    const h = new Harness();
+    const us = units("⟦ ⟨r⟩ ⟨c⟩ ⟨c⟩ a¶ ⟨r⟩ ⟨c⟩ b¶ ⟧");
+    h.f.doc.transact(() => insertUnits(h.f.piece, 0, us));
+    const [table, , c0, , , , , , end] = mapsOf(us);
+    const tableId = idOf(table ?? new Y.Map());
+    const cases: [string, string[][]][] = [
+      [emptyCellParagraphId(idOf(c0 ?? new Y.Map())), [["z", "a"], ["b", ""]]],
+      [emptyCellParagraphId(virtualCellId(idOf(end ?? new Y.Map()), 1)), [["", "a"], ["b", "z"]]],
+    ];
+    for (const [id, typed] of cases) {
+      const before = h.read();
+      h.selection = caretAt(id, 0);
+      h.run(insertText, "z");
+      expect(shape(h.version, tableId)).toEqual(typed);
+      expect(h.undo()).toBe(true);
+      expect(h.read()).toEqual(before);
+      expect(h.selection).toEqual(caretAt(id, 0));
+    }
+  });
+});
+
+describe("M3a: commands in a virtual end cell", () => {
+  const setup = (spec: string): { h: Harness; tableId: string; fill: (col: number) => string } => {
+    const h = new Harness();
+    const us = units(spec);
+    h.f.doc.transact(() => insertUnits(h.f.piece, 0, us));
+    const ms = mapsOf(us);
+    const end = ms.filter((m) => m.get("k") === "tableEnd").pop();
+    return { h, tableId: idOf(ms[0] ?? new Y.Map()), fill: (col) => emptyCellParagraphId(virtualCellId(idOf(end ?? new Y.Map()), col)) };
+  };
+
+  it("Enter makes the cell real with both paragraphs in it; Backspace at its start is a no-op (C5)", () => {
+    let t = setup("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟧");
+    t.h.selection = caretAt(t.fill(1), 0);
+    t.h.run(splitParagraph);
+    expect(shape(t.h.version, t.tableId)).toEqual([["a", "b"], ["c", "|"]]);
+    t = setup("⟦ ⟨r⟩ ⟨c⟩ ⟨c⟩ a¶ ⟨r⟩ ⟨c⟩ b¶ ⟧");
+    const before = t.h.read();
+    t.h.selection = caretAt(t.fill(1), 0);
+    t.h.run(deleteBackward);
+    expect(t.h.read()).toEqual(before);
+  });
+
+  it("setParagraphAttrs makes the cell real and keeps the caret in it", () => {
+    const t = setup("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟧");
+    t.h.selection = caretAt(t.fill(1), 0);
+    t.h.run(setParagraphAttrs, { align: "center" });
+    t.h.run(insertText, "Q");
+    expect(shape(t.h.version, t.tableId)).toEqual([["a", "b"], ["c", "Q"]]);
+  });
+
+  it("a later virtual cell made real: the first one, holding the row's lead, gets no ¶ of its own", () => {
+    const t = setup("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ x¶ ⟧");
+    t.h.selection = caretAt(t.fill(1), 0);
+    t.h.run(insertText, "z");
+    expect(shape(t.h.version, t.tableId)).toEqual([["a", "b"], ["x", "z"]]);
   });
 });
 
