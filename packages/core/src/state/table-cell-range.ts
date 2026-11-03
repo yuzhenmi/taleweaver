@@ -2,7 +2,7 @@ import type { Document } from "./document";
 import type { Selection } from "./block-position";
 import type { BlockId } from "./block-id";
 import { resolveTableContext, buildTableGrid } from "./table-context";
-import type { AssignedCell } from "./table-grid-core";
+import type { AssignedCell } from "../table-grid/assign-table-grid";
 
 /**
  * A rectangular cell range in GRID coordinates within one table — the input to
@@ -44,8 +44,8 @@ export function resolveCellRange(document: Document, selection: Selection): Cell
 
   const grid = buildTableGrid(document, anchorCtx.tableId);
   if (grid === null) return null;
-  const cellById = new Map<BlockId, AssignedCell>(
-    grid.cells.map((c): [BlockId, AssignedCell] => [c.cellId, c]),
+  const cellById = new Map<BlockId, AssignedCell<BlockId>>(
+    grid.cells.map((c): [BlockId, AssignedCell<BlockId>] => [c.cellId, c]),
   );
   const anchorCell = cellById.get(anchorCtx.cellId);
   const focusCell = cellById.get(focusCtx.cellId);

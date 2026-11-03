@@ -7,25 +7,11 @@
  * normalize spans the way their layer does.
  */
 import { describe, it, expect } from "vitest";
-import { assignTableGrid } from "./table-grid-core";
-import type { GridCell } from "./table-grid-core";
-import type { BlockId } from "./block-id";
+import { assignTableGrid, type GridCell } from "./assign-table-grid";
 
 /** Build a neutral grid cell; spans default to 1 (the caller's pre-clamp contract). */
 function cell(id: string, rowSpan = 1, colSpan = 1): GridCell {
-  return { cellId: id as BlockId, rowSpan, colSpan };
-}
-
-/** Run `fn` with NODE_ENV forced to "production" (exercises the non-dev path). */
-function inProduction<T>(fn: () => T): T {
-  const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
-  const prev = proc?.env?.NODE_ENV;
-  if (proc?.env) proc.env.NODE_ENV = "production";
-  try {
-    return fn();
-  } finally {
-    if (proc?.env) proc.env.NODE_ENV = prev;
-  }
+  return { cellId: id, rowSpan, colSpan };
 }
 
 describe("assignTableGrid (neutral core, #P15b)", () => {
@@ -118,33 +104,21 @@ describe("assignTableGrid (neutral core, #P15b)", () => {
     expect(g.occupancy).toEqual([["a", "b"]]);
   });
 
-  it("dev-asserts on a malformed overlap (a colSpan cell colliding with a rowSpan from above)", () => {
-    expect(() =>
-      assignTableGrid([
-        [cell("A"), cell("B", 2)],
-        [cell("C", 1, 2)],
-      ]),
-    ).toThrow(/overlap/i);
-  });
-
-  it("in production, a malformed overlap does NOT throw and never overwrites the first writer", () => {
-    const g = inProduction(() =>
-      assignTableGrid([
-        [cell("A"), cell("B", 2)],
-        [cell("C", 1, 2)],
-      ]),
-    );
+  it("clips a colSpan colliding with a rowSpan from above to the free run (RT2; earlier cells win)", () => {
+    const g = assignTableGrid([
+      [cell("A"), cell("B", 2)],
+      [cell("C", 1, 2)],
+    ]);
     expect(g.occupancy[1]).toEqual(["C", "B"]);
+    expect(g.cells[2]).toEqual({ cellId: "C", gridRow: 1, gridCol: 0, rowSpan: 1, colSpan: 1 });
   });
 
-  it("a malformed overlap does NOT shrink the winner's column reservation (3-row)", () => {
-    const g = inProduction(() =>
-      assignTableGrid([
-        [cell("A"), cell("B", 3)],
-        [cell("C", 1, 2)],
-        [cell("E"), cell("F")],
-      ]),
-    );
+  it("a clipped cell keeps the winner's column reserved below (3-row)", () => {
+    const g = assignTableGrid([
+      [cell("A"), cell("B", 3)],
+      [cell("C", 1, 2)],
+      [cell("E"), cell("F")],
+    ]);
     expect(g.columnCount).toBe(3);
     expect(g.occupancy[2]).toEqual(["E", "B", "F"]);
   });

@@ -385,8 +385,8 @@ export { computedStylesEqual } from "./cascade/cascade-pass";
 export { INLINE_KEY_SEPARATOR } from "./render/inline-render-key";
 export type { BlockKindResolver } from "./state/block-kinds";
 export { coerceBlockId } from "./state/block-id";
-export type { GridCell, TableGrid, AssignedCell } from "./state/table-grid-core";
-export { assignTableGrid } from "./state/table-grid-core";
+export type { GridCell, TableGrid, AssignedCell } from "./table-grid/assign-table-grid";
+export { assignTableGrid } from "./table-grid/assign-table-grid";
 export type { PageFieldNumberStyle } from "./state/page-field";
 export {
   PAGE_FIELD_EMBED_TYPE,

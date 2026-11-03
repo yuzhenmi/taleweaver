@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { assignTableGrid } from "../table-grid-core";
-import type { GridCell, TableGrid } from "../table-grid-core";
+import { assignTableGrid } from "../../table-grid/assign-table-grid";
+import type { GridCell, TableGrid } from "../../table-grid/assign-table-grid";
 import type { BlockId } from "../block-id";
 import { largestCleanHeaderCount, adjustHeaderRowCount } from "./table-header-rows";
 
