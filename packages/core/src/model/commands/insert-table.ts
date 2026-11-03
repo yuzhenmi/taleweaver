@@ -1,6 +1,6 @@
-import type { Block, BlockId } from "../block";
 import { peekBlock } from "../document/blocks";
 import type { Plan } from "../plan";
+import { edgeParagraphOf } from "../position/block-object";
 import { caretAt, isTextSelection } from "../position/model-position";
 import type { CommandContext } from "./command-context";
 import { checkTableSize } from "./helpers/fragment";
@@ -20,10 +20,9 @@ export function insertTable(ctx: CommandContext, rows: number, cols: number): Pl
     selection: (after) => {
       // Paste's contract: the caret is at the start of the paragraph right after the table.
       const s = p.selection(after);
-      const get = (id: BlockId | null | undefined): Block | undefined => (id === null || id === undefined ? undefined : peekBlock(after, id));
-      const table = get(isTextSelection(s) ? get(s.focus.blockId)?.prevSiblingId : null);
-      const first = get(get(get(table?.firstChildId)?.firstChildId)?.firstChildId);
-      return table?.inlineContent !== null || first === undefined ? s : caretAt(first.id, 0);
+      const table = isTextSelection(s) ? peekBlock(after, s.focus.blockId)?.prevSiblingId : null;
+      const first = table === null || table === undefined ? null : edgeParagraphOf(after, table, 1);
+      return first === null ? s : caretAt(first, 0);
     },
   };
 }

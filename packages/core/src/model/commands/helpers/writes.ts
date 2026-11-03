@@ -6,7 +6,8 @@ import type { ParagraphLayout, StoragePoint } from "../../position/paragraph-lay
 import { comparePoints, pointAfter } from "../../position/storage-points";
 import { typeId } from "../../storage/item-id";
 import { newParagraphMark } from "../../storage/new-items";
-import { newCellMark } from "../../storage/table-marks";
+import { newCellMark, newTableEnd } from "../../storage/table-marks";
+import { depthOf, roleOf } from "../../scan/tokens";
 import type { Scalar } from "../../storage/scalar";
 import type { Keys } from "./paragraph-keys";
 
@@ -34,6 +35,13 @@ export function deleteBetween(fs: FlowState, a: StoragePoint, b: StoragePoint): 
   return out;
 }
 
+/** An unclosed table's implicit paragraph (its `before` is the `⟦`) made real: the missing `⟧` first, so it reads after the table. */
+function tableClose(L: ParagraphLayout): InsertUnit[] {
+  const open = L.implicit ? L.before : null;
+  const d = open === null || roleOf(open.token) !== "open" ? null : depthOf(open.token);
+  return d === null ? [] : [{ embed: newTableEnd(d), attrs: {} }];
+}
+
 /**
  * A virtual end cell's paragraph made real (design: short rows): real `⟨c⟩¶` cells for the virtual cells before it
  * in its row, then its own `⟨c⟩` (its ¶ follows). Nothing for any other paragraph.
@@ -56,7 +64,7 @@ function cellLead(L: ParagraphLayout): InsertUnit[] {
  */
 export function materialize(L: ParagraphLayout, keys: Keys, before: readonly InsertUnit[] = []): { writes: Write[]; map: Y.Map<unknown> } | null {
   const map = newParagraphMark(keys);
-  const units: InsertUnit[] = [...cellLead(L), ...before, { embed: map, attrs: {} }];
+  const units: InsertUnit[] = [...tableClose(L), ...cellLead(L), ...before, { embed: map, attrs: {} }];
   const p = pointAfter(L, L.length);
   if (p !== null) return { writes: [insertAt(p, units)], map };
   return L.fs.array === null ? null : { writes: [{ k: "firstPiece", flow: L.fs.array, units }], map };

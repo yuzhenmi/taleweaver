@@ -2,6 +2,8 @@
 import { describe, expect, it } from "vitest";
 import { BLOCK_TYPES, type Block } from "./block";
 import { insertTable } from "./commands/insert-table";
+import { deleteBackward } from "./commands/delete-backward";
+import { deleteForward } from "./commands/delete-forward";
 import { insertText } from "./commands/insert-text";
 import { splitParagraph } from "./commands/split-paragraph";
 import { caretAt, isTextSelection } from "./position/model-position";
@@ -135,5 +137,95 @@ describe("E2", () => {
     n.selection = caretAt(cellPara(n, outer, 0, 1).id, 0);
     n.run(splitParagraph);
     expect(shape(n.version, outer.id)).toEqual([["|T|", "|b"]]);
+  });
+});
+
+describe("C5 / C8 next to a table", () => {
+  it("Backspace in an empty paragraph after a table deletes it, the caret to the end of the last cell; not when W2 needs it or it holds text", () => {
+    const h = raw("p¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ bc¶ ⟧ ¶ q¶");
+    const t = tableOf(h);
+    expect(h.dump()).toEqual(["paragraph:p", "table", "paragraph:", "paragraph:q", "paragraph:"]);
+    h.caret(2, 0);
+    expect(h.run(deleteBackward)).toBe(true);
+    expect(h.dump()).toEqual(["paragraph:p", "table", "paragraph:q", "paragraph:"]);
+    expect(h.selection).toEqual(caretAt(cellPara(h, t, 0, 1).id, 2));
+    h.caret(2, 0); // "q": not empty
+    expect(h.run(deleteBackward)).toBe(false);
+    expect(h.undo()).toBe(true);
+    expect(h.dump()).toEqual(["paragraph:p", "table", "paragraph:", "paragraph:q", "paragraph:"]);
+    // W2 needs the paragraph: the table's last line in the flow, or a block object after it.
+    for (const spec of ["⟦ ⟨r⟩ ⟨c⟩ a¶ ⟧", "⟦ ⟨r⟩ ⟨c⟩ a¶ ⟧ ¶ ⟦ ⟨r⟩ ⟨c⟩ b¶ ⟧ z¶"]) {
+      const g = raw(spec);
+      g.caret(1, 0);
+      expect(g.run(deleteBackward)).toBe(false);
+    }
+  });
+
+  it("the caret goes to the end of a nested table's /after paragraph, the last paragraph of the last cell", () => {
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 a¶ ⟧@1 ⟧ ¶ q¶");
+    const t = tableOf(h);
+    h.caret(1, 0);
+    h.run(deleteBackward);
+    expect(h.selection).toEqual(caretAt(cellPara(h, t, 0, 0, 1).id, 0));
+  });
+
+  it("Delete in an empty paragraph before a table deletes it, the caret to the first cell; not after a block object, nor with text", () => {
+    const h = raw("p¶ ¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟧ q¶");
+    const t = tableOf(h);
+    h.caret(1, 0);
+    expect(h.run(deleteForward)).toBe(true);
+    expect(h.dump()).toEqual(["paragraph:p", "table", "paragraph:q", "paragraph:"]);
+    expect(h.selection).toEqual(caretAt(cellPara(h, t, 0, 0).id, 0));
+    h.caret(0, 1);
+    expect(h.run(deleteForward)).toBe(false); // "p": not empty
+    expect(h.undo()).toBe(true);
+    expect(h.dump()).toEqual(["paragraph:p", "paragraph:", "table", "paragraph:q", "paragraph:"]);
+    // The flow's first paragraph may go: the table then starts the flow (as C14 at k = 0 does).
+    const f = raw("¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟧ q¶");
+    f.caret(0, 0);
+    expect(f.run(deleteForward)).toBe(true);
+    expect(f.dump()).toEqual(["table", "paragraph:q", "paragraph:"]);
+    // Between two tables the paragraph is W2's.
+    const w = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟧ ¶ ⟦ ⟨r⟩ ⟨c⟩ b¶ ⟧ z¶");
+    w.caret(1, 0);
+    expect(w.run(deleteForward)).toBe(false);
+  });
+
+  it("in a cell: an empty first paragraph before a nested table goes (a cell start is no object)", () => {
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ ¶ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 a¶ ⟧@1 b¶ ⟧ z¶");
+    const t = tableOf(h);
+    h.selection = caretAt(cellPara(h, t, 0, 0).id, 0);
+    expect(h.run(deleteForward)).toBe(true);
+    expect(shape(h.version, t.id)).toEqual([["T|b"]]);
+  });
+});
+
+describe("cell edges", () => {
+  it("Backspace at a cell's start and Delete at a cell's end do nothing, for empty, text, first and last cells", () => {
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ ¶ ⟨r⟩ ⟨c⟩ b¶ ⟨c⟩ c¶ ⟧ z¶");
+    const t = tableOf(h);
+    const before = h.read();
+    for (const [r, c] of [[0, 0], [0, 1], [1, 0], [1, 1]] as const) {
+      const p = cellPara(h, t, r, c);
+      h.selection = caretAt(p.id, 0);
+      expect(h.run(deleteBackward)).toBe(false);
+      h.selection = caretAt(p.id, p.inlineContent?.items.reduce((n, i) => n + ("text" in i ? i.text.length : 1), 0) ?? 0);
+      expect(h.run(deleteForward)).toBe(false);
+    }
+    expect(h.read()).toEqual(before);
+  });
+});
+
+describe("an unclosed table (concurrency only)", () => {
+  it("the first write in its implicit paragraph writes the missing ⟧, so the text reads after the table", () => {
+    const h = raw("p¶ ⟦ ⟨r⟩ ⟨c⟩ a¶");
+    // The body's final ¶ is inside the unclosed table; the implicit paragraph after it reads last.
+    const n = h.paragraphs().length;
+    expect(h.dump()[n - 1]).toBe("paragraph:");
+    h.caret(n - 1, 0);
+    h.run(insertText, "x");
+    expect(h.dump()).toEqual(["paragraph:p", "table", "paragraph:x"]);
+    expect(shape(h.version, tableOf(h).id)).toEqual([["a|"]]);
+    expect(h.undo()).toBe(true);
   });
 });

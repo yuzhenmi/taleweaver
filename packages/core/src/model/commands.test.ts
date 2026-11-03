@@ -169,7 +169,7 @@ describe("C3 / C8 joins", () => {
     expect(h.dump()).toEqual(["paragraph:acd"]);
   });
 
-  it("next to a table, Backspace / Delete do nothing (C5 / its C8 mirror arrive with table editing); a rule beside a table is still C4r", () => {
+  it("next to a table, Backspace / Delete in a paragraph holding text do nothing (C5 / its C8 mirror); a rule beside a table is still C4r", () => {
     const mk = (debris: boolean): Harness => {
       const h = new Harness();
       h.f.doc.transact(() => {

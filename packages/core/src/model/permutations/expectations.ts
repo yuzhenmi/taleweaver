@@ -105,7 +105,9 @@ function deleteAtCaret(u: readonly Unit[], i: number, dir: -1 | 1): Expectation 
     const rule = pastZeroWidth(u, j - 1, -1);
     if (isPara(c) && takesItsParagraphAt(u, rule)) return removing(u, [rule, j], rule);
     const t = CATEGORIES[c.c];
-    if (t.blockObject) return t.holdsFlows ? NOOP : removing(u, [j], j);
+    // C5: after a block object holding flows, an empty real paragraph goes when a paragraph (not a boundary, nor the end) follows it.
+    if (t.holdsFlows) return j === i - 1 && isPara(u[i]) && u[i]?.implicit !== true && u[i + 1] !== undefined && !isBoundary(u[i + 1]) ? removing(u, [i], j) : NOOP;
+    if (t.blockObject) return removing(u, [j], j);
     // C7: the paragraphs around it join (the ¶ before it goes too).
     if (t.removedByJoin && isPara(u[j - 1])) return removing(u, [j - 1, j], j - 1);
     return removing(u, [j], j);
@@ -119,7 +121,9 @@ function deleteAtCaret(u: readonly Unit[], i: number, dir: -1 | 1): Expectation 
   if (next === undefined) return NOOP;
   if (isBoundary(next)) {
     const t = CATEGORIES[next.c];
-    if (t.blockObject) return t.holdsFlows ? NOOP : removing(u, [j + 1], i);
+    // C8's C5 mirror: an empty real paragraph before a block object holding flows goes, unless a block object precedes it (W2's).
+    if (t.holdsFlows) return j === i && c.implicit !== true && (i === 0 || (terminator(u[i - 1]) && !blockObject(u[i - 1]))) ? removing(u, [j], i) : NOOP;
+    if (t.blockObject) return removing(u, [j + 1], i);
     // C8 and its correction: a join only with a paragraph on the far side.
     const joins = u[j + 2] !== undefined && !isBoundary(u[j + 2]);
     return t.removedByJoin && joins ? removing(u, [j, j + 1], i) : removing(u, [j + 1], i);

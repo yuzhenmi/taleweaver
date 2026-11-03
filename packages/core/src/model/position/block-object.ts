@@ -1,5 +1,5 @@
 import type { BlockId } from "../block";
-import { resolveBlock } from "../document/blocks";
+import { peekBlock, resolveBlock } from "../document/blocks";
 import type { Document, FlowState } from "../document/types";
 import { holdsFlows, isBlockObject } from "../scan/kinds";
 import { roleOf } from "../scan/tokens";
@@ -41,4 +41,14 @@ export function paragraphAfterObject(d: Document, o: BlockObject): ParagraphLayo
   if (o.last === null) return null;
   const next = followingOf(d, o.fs, o.last);
   return next.k === "paragraph" ? next.L : null;
+}
+
+/** The first (`side` 1) or last (−1) paragraph inside table `tableId`, through nested tables at a cell's edge; null when it reads none. */
+export function edgeParagraphOf(d: Document, tableId: BlockId, side: 1 | -1): BlockId | null {
+  let b = peekBlock(d, tableId);
+  for (let n = 0; b !== undefined && b.inlineContent === null && n < 64; n++) {
+    const next = side > 0 ? b.firstChildId : b.lastChildId;
+    b = next === null ? undefined : peekBlock(d, next);
+  }
+  return b === undefined || b.inlineContent === null ? null : b.id;
 }
