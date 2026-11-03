@@ -17,6 +17,7 @@
  * A closed table is formed (RT2–RT4, `form-table.ts`) and becomes a block object of the
  * container it opened in.
  */
+import type * as Y from "yjs";
 import type { BlockId } from "../../block";
 import { holdsFlows, isSectionBreak } from "../../scan/kinds";
 import { type Token, depthOf, roleOf } from "../../scan/tokens";
@@ -67,6 +68,8 @@ export interface RegionSeed {
   readonly withItems?: boolean;
   /** The block object just before the region, if any (its implicit paragraph's base). */
   readonly objectBefore?: BlockId | null;
+  /** The region's NEW tokens: a run holding folded inert marks (not rescanned) makes it decline. */
+  readonly rescanned?: boolean;
 }
 
 /**
@@ -77,87 +80,160 @@ export interface RegionSeed {
  * entities read exactly as in a whole-flow parse (with the same seed's containers).
  */
 export function parseRegion(tokens: Iterable<Token>, holderId: BlockId, seed: RegionSeed): ParseResult | null {
-  const base = seed.depth;
-  const top = new Grouper(holderId, [], seed.withItems ?? true, seed.objectBefore ?? null);
-  const inert = new Set<BlockId>();
-  const tables = new Map<BlockId, TableForm>();
-  const leadsAfter = new Set<BlockId>();
-  // Index i < base: an enclosing table (not this parse's); the region's own tables above.
-  const stack: (Open | null)[] = new Array<Open | null>(base).fill(null);
-  const current = (): Grouper => (stack.length > base ? (stack[stack.length - 1]?.grouper ?? top) : top);
-  const close = (closer: BlockId | null, closeId: BlockId | null): void => {
-    const o = stack.pop();
+  const p = new RegionParser(holderId, seed.depth, { withItems: seed.withItems, objectBefore: seed.objectBefore, rescanned: seed.rescanned });
+  for (const t of tokens) if (!p.push(t)) return null;
+  return p.finish(seed.end);
+}
+
+/**
+ * The RT1 parse of a region, token by token ({@link parseRegion}). In ROW mode (`table`
+ * given) the region is whole rows of that table, open at depth `depth` and not closed in
+ * the region: its rows are collected ({@link endRows}) instead of the container's entities.
+ */
+export class RegionParser {
+  readonly inert = new Set<BlockId>();
+  readonly tables = new Map<BlockId, TableForm>();
+  readonly leadsAfter = new Set<BlockId>();
+  /** Row mode: the open table whose rows the region holds. */
+  readonly table: ParsedTable | null;
+  private readonly top: Grouper;
+  /** Index i < depth: an enclosing table (not this parse's); then the row mode's table; then the region's own. */
+  private readonly stack: (Open | null)[];
+  private failed = false;
+  private readonly rescanned: boolean;
+
+  constructor(
+    private readonly holderId: BlockId,
+    private readonly depth: number,
+    opts: {
+      readonly withItems?: boolean;
+      readonly objectBefore?: BlockId | null;
+      readonly table?: { readonly id: BlockId; readonly map: Y.Map<unknown> };
+      /** Decline a run holding folded inert marks (the context they were read inert in may differ now). */
+      readonly rescanned?: boolean;
+    } = {},
+  ) {
+    this.top = new Grouper(holderId, [], opts.withItems ?? true, opts.objectBefore ?? null);
+    this.rescanned = opts.rescanned ?? false;
+    this.stack = new Array<Open | null>(depth).fill(null);
+    this.table = opts.table === undefined ? null : { id: opts.table.id, map: opts.table.map, lead: [], rows: [] };
+    if (this.table !== null) this.stack.push({ table: this.table, grouper: new Grouper(holderId, this.table.lead), row: null });
+  }
+
+  /** The region's own open tables start at this stack index. */
+  private get own(): number {
+    return this.table === null ? this.depth : this.depth + 1;
+  }
+
+  private current(): Grouper {
+    return this.stack[this.stack.length - 1]?.grouper ?? this.top;
+  }
+
+  private close(closer: BlockId | null, closeId: BlockId | null): void {
+    const o = this.stack.pop();
     if (o === undefined || o === null) return;
     o.grouper.finish(closer);
-    const { formed, trailing, form } = formTable(o.table, closeId, stack.length);
-    tables.set(o.table.id, form);
-    const parent = current();
+    const { formed, trailing, form } = formTable(o.table, closeId, this.stack.length);
+    this.tables.set(o.table.id, form);
+    const parent = this.current();
     const t = o.table;
     parent.pushObject({ k: "table", id: t.id, map: t.map, after: closeId ?? t.id, formed }, closeId ?? t.id, true);
     parent.pushEntities(trailing);
-    for (const e of trailing) leadsAfter.add(e.id);
-  };
-  for (const t of tokens) {
+    for (const e of trailing) this.leadsAfter.add(e.id);
+  }
+
+  /** Read token `t`; false (for good) when the region is not balanced. */
+  push(t: Token): boolean {
+    if (this.failed) return false;
+    const ok = this.read(t);
+    if (!ok) this.failed = true;
+    return ok;
+  }
+
+  private read(t: Token): boolean {
+    if (t.k === "run" && t.foldedMarks === true && this.rescanned) return false;
     if (t.k === "run" || (!holdsFlows(t.k) && !isSectionBreak(t.k))) {
-      current().push(t);
-      continue;
+      this.current().push(t);
+      return true;
     }
+    const stack = this.stack;
     if (!holdsFlows(t.k)) {
-      if (base > 0) return null;
-      while (stack.length > 0) close(t.id, null);
-      top.push(t);
-      continue;
+      if (this.depth > 0 || this.table !== null) return false;
+      while (stack.length > 0) this.close(t.id, null);
+      this.top.push(t);
+      return true;
     }
     const d = depthOf(t);
     if (d === null) {
-      inert.add(t.id);
-      continue;
+      this.inert.add(t.id);
+      return true;
     }
     const role = roleOf(t);
     if (role === "open") {
       if (d !== stack.length || d >= TABLE_DEPTH_CAP) {
-        inert.add(t.id);
-        continue;
+        this.inert.add(t.id);
+        return true;
       }
       const table: ParsedTable = { id: t.id, map: t.map, lead: [], rows: [] };
-      stack.push({ table, grouper: new Grouper(holderId, table.lead), row: null });
-      continue;
+      stack.push({ table, grouper: new Grouper(this.holderId, table.lead), row: null });
+      return true;
     }
-    if (d < base && role !== null) return null;
+    // Binding to an enclosing table, or closing the row mode's one, changes what is outside the region.
+    if (role !== null && (d < this.depth || (this.table !== null && d === this.depth && role === "close"))) return false;
     const o = stack[d];
     if (o === undefined || o === null || role === null || (role === "newCell" && o.row === null)) {
-      inert.add(t.id);
-      continue;
+      this.inert.add(t.id);
+      return true;
     }
-    while (stack.length > d + 1) close(t.id, null);
+    while (stack.length > d + 1) this.close(t.id, null);
     if (role === "close") {
-      close(t.id, t.id);
+      this.close(t.id, t.id);
     } else if (role === "newRow") {
       o.grouper.finish(t.id);
       const row: ParsedRow = { id: t.id, map: t.map, lead: [], cells: [] };
       o.table.rows.push(row);
       o.row = row;
-      o.grouper = new Grouper(holderId, row.lead);
+      o.grouper = new Grouper(this.holderId, row.lead);
     } else if (o.row !== null) {
       o.grouper.finish(t.id);
       const cell: ParsedCell = { id: t.id, map: t.map, ents: [] };
       o.row.cells.push(cell);
-      o.grouper = new Grouper(holderId, cell.ents);
+      o.grouper = new Grouper(this.holderId, cell.ents);
     }
+    return true;
   }
-  const end = seed.end;
-  if (end === undefined) {
-    if (stack.length > base) return null;
-  } else if (end === null) {
-    if (base > 0) return null;
-    while (stack.length > 0) close(null, null);
-    top.finish(null);
-  } else {
-    // The mark must read as it did: a `⟦` opening a table in the container (at its depth), or another mark ending
-    // the container (binding to an enclosing table, so it closes the region's open tables, deeper, first).
-    if (end.d === null || (end.opens ? stack.length > base || end.d !== base : end.d >= base)) return null;
-    while (stack.length > base) close(end.id, null);
-    top.finish(end.id);
+
+  /** Content mode: the region's entities, ending at `end`; null when it is not balanced. */
+  finish(end: RegionEnd): ParseResult | null {
+    if (this.failed || this.table !== null) return null;
+    const stack = this.stack;
+    const base = this.depth;
+    if (end === undefined) {
+      if (stack.length > base) return null;
+    } else if (end === null) {
+      if (base > 0) return null;
+      while (stack.length > 0) this.close(null, null);
+      this.top.finish(null);
+    } else {
+      // The mark must read as it did: a `⟦` opening a table in the container (at its depth), or another mark ending
+      // the container (binding to an enclosing table, so it closes the region's open tables, deeper, first).
+      if (end.d === null || (end.opens ? stack.length > base || end.d !== base : end.d >= base)) return null;
+      while (stack.length > base) this.close(end.id, null);
+      this.top.finish(end.id);
+    }
+    this.failed = true;
+    return { ents: this.top.out, inert: this.inert, tables: this.tables, leadsAfter: this.leadsAfter };
   }
-  return { ents: top.out, inert, tables, leadsAfter };
+
+  /**
+   * Row mode: the rows read so far, the last one ended by `closer` (the row mode table's next `⟨r⟩` / its `⟧`, not
+   * in the region): the region's open tables are closed first, as that mark closes them. Pushing `closer` afterwards
+   * continues the parse. Null when the region is not balanced.
+   */
+  endRows(closer: BlockId): ParsedTable | null {
+    if (this.failed || this.table === null) return null;
+    while (this.stack.length > this.own) this.close(closer, null);
+    this.current().finish(closer);
+    return this.table;
+  }
 }

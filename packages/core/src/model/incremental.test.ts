@@ -13,7 +13,8 @@ import { BUILTIN_OBJECT_KINDS } from "./object-kinds";
 import { createDocMap, getDocMap } from "./storage/doc-map";
 import { createEditorOrigin, flowContainerDeleteFilter } from "./storage/history-hooks";
 import { typeId } from "./storage/item-id";
-import { BODIES_KEY, BODY_KEY, FLOW_KEY, LIST_DEFS_KEY, PIECES_KEY } from "./storage/keys";
+import { BODIES_KEY, BODY_KEY, COL_SPAN_KEY, DEPTH_KEY, FLOW_KEY, HEADER_KEY, LIST_DEFS_KEY, PIECES_KEY, ROW_SPAN_KEY } from "./storage/keys";
+import { newCellMark, newRowMark, newTableEnd, newTableStart } from "./storage/table-marks";
 import { SUBFLOW_DEPTH_CAP } from "./storage/limits";
 import { childMap, flowOf, kindOf } from "./storage/map-reads";
 import {
@@ -94,6 +95,37 @@ function midPair(piece: Y.Text, i: number): boolean {
 }
 
 /** One random raw write into `doc`. */
+/** Table storage (N2): whole tables of random shape, single marks, and span / header / depth keys on marks. */
+function tableWrite(r: () => number, piece: Y.Text, at: number, maps: readonly Y.Map<unknown>[]): void {
+  const d = (): number => (r() < 0.6 ? 0 : r() < 0.7 ? 1 : 2);
+  const roll = r();
+  if (roll < 0.3) {
+    const depth = d();
+    const units: (string | Y.Map<unknown>)[] = [newTableStart(depth)];
+    const rows = 1 + Math.floor(r() * 3);
+    for (let i = 0; i < rows; i++) {
+      units.push(newRowMark(depth));
+      const cols = Math.floor(r() * 3);
+      for (let c = 0; c <= cols; c++) units.push(newCellMark(depth), ...(r() < 0.8 ? ["t", newParagraphMark()] : []));
+    }
+    if (r() < 0.9) units.push(newTableEnd(depth));
+    let i = at;
+    for (const u of units) {
+      if (typeof u === "string") piece.insert(i, u);
+      else piece.insertEmbed(i, u);
+      i++;
+    }
+  } else if (roll < 0.7) {
+    const depth = d();
+    piece.insertEmbed(at, pick(r, [newRowMark(depth), newCellMark(depth), newCellMark(depth), newTableEnd(depth), newTableStart(depth)]) ?? newCellMark(depth));
+  } else {
+    const marks = maps.filter((m) => ["table", "row", "cell", "tableEnd"].includes(kindOf(m)));
+    const m = pick(r, marks);
+    const key = pick(r, [ROW_SPAN_KEY, ROW_SPAN_KEY, COL_SPAN_KEY, HEADER_KEY, DEPTH_KEY]) ?? ROW_SPAN_KEY;
+    m?.set(key, key === HEADER_KEY ? r() < 0.7 : key === DEPTH_KEY ? d() : 1 + Math.floor(r() * 4));
+  }
+}
+
 function randomWrite(r: () => number, doc: Y.Doc): void {
   const docMap = getDocMap(doc);
   if (docMap === null) return;
@@ -106,6 +138,7 @@ function randomWrite(r: () => number, doc: Y.Doc): void {
   // a pair (R15); only a foreign writer could.
   const cut = (i: number): number => (midPair(piece, i) ? i - 1 : i);
   const at = cut(Math.floor(r() * (piece.length + 1)));
+  if (r() < 0.15) return tableWrite(r, piece, at, maps);
   const roll = r();
   if (roll < 0.25) {
     piece.insert(at, pick(r, ["a", "bc", "def ", "é"]) ?? "a", r() < 0.3 ? { bold: true } : r() < 0.2 ? { italic: true } : {});
@@ -637,6 +670,9 @@ function brutePosition(fs: FlowState, piece: Y.Text, index: number, assoc: -1 | 
     if (t !== undefined && t.kind === "para") return { blockId: t.id, offset: before };
     if (before + after > 0) return { blockId: t === undefined ? `${fs.holderId}/end` : `${t.id}/pre`, offset: before };
     if (t === undefined && synthetic) return { blockId: `${fs.holderId}/end`, offset: 0 };
+    // W2: a block object no paragraph follows reads an implicit empty paragraph right after it.
+    const b = i >= 0 ? units[i] : undefined;
+    if (b?.kind === "toc") return { blockId: `${b.id}/after`, offset: 0 };
     return { next: t === undefined ? null : j, prev: i >= 0 ? i : null };
   };
   const walk = (dir: -1 | 1): ModelPosition | null => {
@@ -792,7 +828,10 @@ describe("commands (M2)", () => {
             // ordered by Yjs item order, which a delta does not carry: compare live anchors only.
             // Over ONE version step (one transaction). Across several, each intermediate position is
             // normalized into a paragraph, which a raw storage anchor is not.
-            if (!m.deleted && peer.versions === 1) {
+            // The brute-force reader does not model table marks (RT1 binding): a flow holding any skips the comparison.
+            const marked = (fs: FlowState | undefined): boolean =>
+              fs?.segments.some((sg) => sg.tokens.some((t) => (t.k === "run" ? t.foldedMarks === true : t.mark !== undefined))) === true;
+            if (!m.deleted && peer.versions === 1 && !marked(probeFs) && !marked(now.flows.get(probeFs?.holderId ?? ""))) {
               const abs = Y.createAbsolutePositionFromRelativePosition(oracle, peer.doc);
               const nfs = probeFs === undefined ? undefined : now.flows.get(probeFs.holderId);
               const expected = abs === null || !(abs.type instanceof Y.Text) || nfs === undefined ? null : brutePosition(nfs, abs.type, abs.index, probeAssoc);

@@ -9,7 +9,7 @@ import { flowOf, scalarsWithPrefix } from "../storage/map-reads";
 import { type BlockEntity, type Entity, type ParaEntity, type SectionBreakEntity, type TableEntity, flatten, indexSegments, isBlockEntity, isParaEntity, isSectionBreakEntity } from "./entities";
 import { EMPTY_ATTRS, type Links, containerRecord, entityRecord } from "./records";
 import { writeSections } from "./sections";
-import type { FormedTable } from "./table/form-table";
+import type { FormedRow, FormedTable } from "./table/form-table";
 import { withInertMarks } from "./table/inert-marks";
 import type { TableForm } from "./table/table-form";
 import { PMap } from "../pmap";
@@ -129,15 +129,17 @@ function writeTable(w: Working, tree: TreeKind, e: TableEntity, links: Links): v
   const formed = e.formed;
   if (formed === null) throw new Error(`model: table ${e.id} written unformed`);
   w.put(tree, tableRecord(e, formed, links));
-  formed.rows.forEach((row, r) => {
-    row.cells.forEach((cell, j) => {
-      const cellLinks: Links = { parentId: row.id, prevSiblingId: row.cells[j - 1]?.id ?? null, nextSiblingId: row.cells[j + 1]?.id ?? null };
-      w.put(tree, containerRecord(cell.id, BLOCK_TYPES.tableCell, cellAttrs(cell.map, cell.rowSpan, cell.colSpan), cellLinks, cell.ents[0]?.id ?? null, cell.ents[cell.ents.length - 1]?.id ?? null));
-      writeSegment(w, tree, cell.ents, cell.id, null, null);
-    });
-    const rowLinks: Links = { parentId: e.id, prevSiblingId: formed.rows[r - 1]?.id ?? null, nextSiblingId: formed.rows[r + 1]?.id ?? null };
-    w.put(tree, containerRecord(row.id, BLOCK_TYPES.tableRow, Object.freeze(scalarsWithPrefix(row.map, "a:")), rowLinks, row.cells[0]?.id ?? null, row.cells[row.cells.length - 1]?.id ?? null));
+  formed.rows.forEach((row, r) => writeRow(w, tree, row, { parentId: e.id, prevSiblingId: formed.rows[r - 1]?.id ?? null, nextSiblingId: formed.rows[r + 1]?.id ?? null }));
+}
+
+/** Write a table row's record (with `links`) and its cells and their contents. */
+export function writeRow(w: Working, tree: TreeKind, row: FormedRow, links: Links): void {
+  row.cells.forEach((cell, j) => {
+    const cellLinks: Links = { parentId: row.id, prevSiblingId: row.cells[j - 1]?.id ?? null, nextSiblingId: row.cells[j + 1]?.id ?? null };
+    w.put(tree, containerRecord(cell.id, BLOCK_TYPES.tableCell, cellAttrs(cell.map, cell.rowSpan, cell.colSpan), cellLinks, cell.ents[0]?.id ?? null, cell.ents[cell.ents.length - 1]?.id ?? null));
+    writeSegment(w, tree, cell.ents, cell.id, null, null);
   });
+  w.put(tree, containerRecord(row.id, BLOCK_TYPES.tableRow, Object.freeze(scalarsWithPrefix(row.map, "a:")), links, row.cells[0]?.id ?? null, row.cells[row.cells.length - 1]?.id ?? null));
 }
 
 /** The table's record: `a:*` + `columnWidths` (RT3) + `headerRowCount` (RT4, when > 0). */

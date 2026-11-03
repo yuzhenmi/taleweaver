@@ -21,6 +21,11 @@ export interface RunToken {
    * as nothing. Read offset ↔ storage index within the run skips exactly these.
    */
   readonly inert: readonly number[];
+  /**
+   * Some of its inert units are table marks read inert in their context (folded in by
+   * `derive/table/inert-marks.ts`): a re-read whose context may differ must rescan it.
+   */
+  readonly foldedMarks?: true;
 }
 
 export interface TerminatorToken {

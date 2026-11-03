@@ -70,8 +70,8 @@ describe("rung 0: content edits next to marks splice locally (faces)", () => {
   it("emptying a cell (`⟨c⟩⟨c⟩`, its `/empty` paragraph) and refilling it read as from scratch", () => {
     const t = live("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟧");
     const [, , , c0, , c1] = t.maps;
-    t.step(() => t.piece.delete(t.at(c0) + 1, 2), false);
-    t.step(() => t.piece.insert(t.at(c1), "z"), false);
+    t.step(() => t.piece.delete(t.at(c0) + 1, 2), true); // rung 1: the row
+    t.step(() => t.piece.insert(t.at(c1), "z"), true);
     t.destroy();
   });
 });
@@ -95,6 +95,68 @@ describe("rung 0: whole tables in the region (insert / delete a table at any dep
       t.piece.insert(t.at(a) + 1, "!");
       t.piece.insert(t.at(x), "?");
     }, false);
+    t.destroy();
+  });
+});
+
+describe("rung 1: whole rows of a table", () => {
+  it("row inserts / deletes, cell merges, span and header changes, leads: the row range re-forms locally", () => {
+    const t = live("x¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟨c⟩ d¶ ⟨r⟩ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧ y¶");
+    const [, , , r0, , , c01, b, r1, c10, , c11, , r2, , , c21, , end] = t.maps;
+    const row = units("⟨r⟩ ⟨c⟩ n¶ ⟨c⟩ o¶");
+    t.step(() => insertUnits(t.piece, t.at(r1), row), true); // insert a row between rows 0 and 1
+    t.step(() => t.piece.delete(t.at(mapsOf(row)[0]), 7), true); // and delete it again
+    t.step(() => t.piece.delete(t.at(c11), 1), true); // merge row 1's cells: a virtual end cell pads it
+    t.step(() => insertUnits(t.piece, t.at(r2), units("⟨c⟩")), true); // a cell back (empty)
+    t.step(() => r0?.set("header", true), true); // a header row (RT4)
+    t.step(() => c21?.set("rowSpan", 4), true); // a span in the last row: clipped to the end
+    t.step(() => insertUnits(t.piece, t.at(end), units("⟨r⟩ ⟨c⟩ g¶")), true); // a row appended: the span reaches it
+    t.step(() => t.piece.delete(t.at(end) - 4, 4), true); // and it goes again
+    t.step(() => insertUnits(t.piece, t.at(c10), units("lead¶")), true); // a row lead (joins the row's first cell)
+    t.step(() => t.piece.insert(t.at(c10) - 1, "L"), true); // typing in it
+    t.step(() => t.piece.delete(t.at(b), 1), true); // a cell's only ¶: its content is debris of the next mark
+    t.step(() => t.piece.insertEmbed(t.at(c01) + 1, newFootnoteOf(new Y.Text())), true); // a footnote, then its row deleted
+    t.step(() => t.piece.delete(t.at(r0), t.at(r1) - t.at(r0)), true);
+    t.destroy();
+  });
+
+  it("a nested table's row edit re-forms the nested table's rows only", () => {
+    const t = live("⟦ ⟨r⟩ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 p¶ ⟨r⟩@1 ⟨c⟩@1 q¶ ⟧@1 ⟨c⟩ b¶ ⟧");
+    const nr1 = t.maps[8];
+    t.step(() => t.piece.delete(t.at(nr1), 4), true);
+    t.destroy();
+  });
+});
+
+describe("rung 1 edge cases (found by the O4 table fuzz)", () => {
+  const at = (t: ReturnType<typeof live>, i: number): number => t.at(t.maps[i]);
+  it("the table's lead joins row 0: the range starts at the ⟦ and spans old row 0", () => {
+    let t = live("⟦ lead ⟨r⟩ ⟨c⟩ a¶ ⟧ y¶");
+    t.step(() => t.piece.insertEmbed(at(t, 1) + 1, newParagraphMark()), true); // in the lead, R = row 0's ⟨r⟩
+    t.destroy();
+    t = live("⟦ lead¶ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟧ y¶");
+    t.step(() => t.maps[5]?.set("a:bg", "x"), true); // a cell key in row 0: the lead stays in its first cell
+    t.destroy();
+    t = live("⟦ lead ⟨r⟩ ⟨c⟩ a¶ ⟧ y¶");
+    t.step(() => insertUnits(t.piece, at(t, 2), units("⟨r⟩ ⟨c⟩ n¶")), true); // rows before old row 0: the lead moves to the new row 0
+    t.destroy();
+  });
+
+  it("an edit that moves a table's end (its rows absorb the next table's) re-derives", () => {
+    const t = live("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟧ ⟦ ⟨r⟩ ⟨c⟩ b¶ ⟧ y¶");
+    t.step(() => t.piece.delete(at(t, 5), 1), false);
+    t.destroy();
+  });
+
+  it("a row lead joining a head from above: the head's row holds it (re-derives)", () => {
+    const t = live("⟦ ⟨r⟩ ⟨c⟩r2 ⟨c⟩ t¶ ⟨r⟩ bc ⟨c⟩ u¶ ⟧ y¶");
+    t.step(() => t.maps[4]?.set("a:bg", "x"), false);
+    t.destroy();
+  });
+
+  it("a row holding a cell-less nested table with a lead: the lead leaves `leadsAfter` with the row", () => {
+    const t = live("⟦ ⟨r⟩ ⟨c⟩ t ⟦@1 lead¶ ⟨c⟩ b¶ ⟧ y¶");
+    t.step(() => t.piece.delete(at(t, 4), 1), true);
     t.destroy();
   });
 });

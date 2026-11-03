@@ -111,75 +111,87 @@ export function formRows(rows: readonly ParsedRow[], carryIn: Carry): { forms: R
   for (const r of rows) {
     const input: GridCell[] = r.cells.map((c) => ({ cellId: c.id, rowSpan: spanOf(c.map.get(ROW_SPAN_KEY)), colSpan: spanOf(c.map.get(COL_SPAN_KEY)) }));
     const pr = placeRow(carry, input, TABLE_COLUMN_CAP);
-    forms.push({ id: r.id, carryIn: carry, placed: pr.placed, width: pr.width });
+    const placed = new Set(pr.placed.map((p) => p.cellId));
+    const lonelyOverflow = pr.placed.length === 0 && r.cells.some((c) => !placed.has(c.id) && blocks(c.ents).length > 0);
+    const joinsAbove = carry[0] !== undefined && (blocks(r.lead).length > 0 || lonelyOverflow);
+    forms.push({ id: r.id, carryIn: carry, placed: pr.placed, width: pr.width, header: r.map.get(HEADER_KEY) === true, joinsAbove });
     slots.push(pr.slots);
     carry = pr.carryOut;
   }
   return { forms, slots, carryOut: carry };
 }
 
-/** The stored form of a table of rows `rows` (with their `forms`). */
-export function tableForm(rows: readonly ParsedRow[], forms: readonly RowForm[], depth: number, closeId: BlockId | null): TableForm {
+/** The stored form of table `map` with row forms `forms` (and its rows' carry out, `endCarry`). */
+export function tableForm(map: Y.Map<unknown>, forms: readonly RowForm[], endCarry: Carry, depth: number, closeId: BlockId | null): TableForm {
   const widthCount: number[] = new Array<number>(TABLE_COLUMN_CAP + 1).fill(0);
   for (const f of forms) widthCount[f.width] = (widthCount[f.width] ?? 0) + 1;
-  let rawHeaderRun = 0;
-  while (rawHeaderRun < rows.length && rows[rawHeaderRun]?.map.get(HEADER_KEY) === true) rawHeaderRun++;
-  return { depth, closeId, rows: forms, rowIndex: new Map(forms.map((f, i) => [f.id, i])), widthCount, rawHeaderRun };
+  const joinsAbove = forms.filter((f) => f.joinsAbove).length;
+  return { map, depth, closeId, rows: forms, endCarry, rowIndex: new Map(forms.map((f, i) => [f.id, i])), widthCount, rawHeaderRun: headerRun(forms, 0), joinsAbove };
+}
+
+/** The run of `header` rows of `forms` from row `from`. */
+export function headerRun(forms: readonly RowForm[], from: number): number {
+  let i = from;
+  while (forms[i]?.header === true) i++;
+  return i - from;
 }
 
 /**
- * Form `t` (of nesting depth `depth`), closed by its `⟧` `closeId` (null: by `[S]` / `<end>`).
- * `trailing`: its leads when it has no cell (they read right after it).
+ * The formed rows of `rows` (`lead`: the table's, before them; empty unless they start at grid row 0), placed by
+ * `forms` / `slots` (from {@link formRows}) as grid rows `first`… of a table of `rowCount` rows and `columnCount`
+ * columns; `nextMark(i)`: the id of the mark after row i (virtual end cell ids). Null when content of these rows
+ * joins a cell of an earlier row (a lead or a cell past the width cap, under a head from above them).
  */
-export function formTable(t: ParsedTable, closeId: BlockId | null, depth: number): { formed: FormedTable; trailing: Entity[]; form: TableForm } {
-  const { forms, slots } = formRows(t.rows, EMPTY_CARRY);
-  const form = tableForm(t.rows, forms, depth, closeId);
-  const columnCount = columnCountOf(form);
-  if (columnCount === 0) {
-    return { formed: { rows: [], headerCount: 0, widths: null }, trailing: [...t.lead, ...t.rows.flatMap((r) => r.lead)], form };
-  }
-  const occupancy = slots.map((row) => Array.from({ length: columnCount }, (_, col) => row[col] ?? null));
-  const grid = {
-    cells: forms.flatMap((f, i) => f.placed.map((p) => ({ ...p, gridRow: i, rowSpan: Math.min(p.rowSpan, forms.length - i) }))),
-    occupancy,
-  };
-  const placed = new Map(grid.cells.map((g) => [g.cellId, g]));
+export function formedRows(
+  lead: readonly Entity[],
+  rows: readonly ParsedRow[],
+  forms: readonly RowForm[],
+  slots: readonly (readonly (BlockId | undefined)[])[],
+  at: { readonly columnCount: number; readonly first: number; readonly rowCount: number; readonly nextMark: (i: number) => BlockId },
+): FormedRow[] | null {
   // Cell contents by id (real cells: their entities; virtual ones: filled below).
   const ents = new Map<BlockId, BlockEntity[]>();
-  for (const r of t.rows) for (const c of r.cells) ents.set(c.id, blocks(c.ents));
-  const rowCells: Slot[][] = t.rows.map((r, i) => {
+  for (const r of rows) for (const c of r.cells) ents.set(c.id, blocks(c.ents));
+  const slotAt = (i: number, col: number): BlockId | null => slots[i]?.[col] ?? null;
+  let outside = false;
+  const joinInto = (into: BlockId | null | undefined, es: readonly BlockEntity[], front: boolean): void => {
+    const own = into === undefined || into === null ? undefined : ents.get(into);
+    if (own === undefined) outside = true;
+    else if (front) own.unshift(...es);
+    else own.push(...es);
+  };
+  const rowCells: Slot[][] = rows.map((r, i) => {
     const out: Slot[] = [];
+    const form = forms[i];
+    const placed = new Map((form?.placed ?? []).map((p) => [p.cellId, p]));
     for (const c of r.cells) {
       const g = placed.get(c.id);
       if (g !== undefined) {
-        out.push({ id: c.id, map: c.map, col: g.gridCol, rowSpan: g.rowSpan, colSpan: g.colSpan });
+        out.push({ id: c.id, map: c.map, col: g.gridCol, rowSpan: Math.min(g.rowSpan, at.rowCount - (at.first + i)), colSpan: g.colSpan });
         continue;
       }
       // Past the width cap: its content joins the cell before it in the row (or the head covering the row's slot 0).
-      const into = out[out.length - 1]?.id ?? grid.occupancy[i]?.[0];
-      if (into !== undefined && into !== null) ents.get(into)?.push(...(ents.get(c.id) ?? []));
+      const es = ents.get(c.id) ?? [];
+      if (es.length > 0) joinInto(out[out.length - 1]?.id ?? slotAt(i, 0), es, false);
     }
-    const nextMark = t.rows[i + 1]?.id ?? closeId ?? t.id;
-    (grid.occupancy[i] ?? []).forEach((owner, col) => {
-      if (owner !== null) return;
+    const nextMark = at.nextMark(i);
+    for (let col = 0; col < at.columnCount; col++) {
+      if (slotAt(i, col) !== null) continue;
       const id = virtualCellId(nextMark, col);
       out.push({ id, map: null, col, rowSpan: 1, colSpan: 1 });
       ents.set(id, []);
-    });
+    }
     return out.sort((a, b) => a.col - b.col);
   });
   // F2: each row's lead (the first row's after the table's) joins the cell at its slot 0.
-  t.rows.forEach((r, i) => {
-    const lead = blocks(i === 0 ? [...t.lead, ...r.lead] : r.lead);
-    if (lead.length === 0) return;
-    const owner = grid.occupancy[i]?.[0] ?? rowCells[i]?.[0]?.id;
-    const own = owner === undefined || owner === null ? undefined : ents.get(owner);
-    if (own === undefined) return;
-    const startsHere = rowCells[i]?.some((c) => c.id === owner) === true;
-    if (startsHere) own.unshift(...lead);
-    else own.push(...lead);
+  rows.forEach((r, i) => {
+    const es = blocks(i === 0 ? [...lead, ...r.lead] : r.lead);
+    if (es.length === 0) return;
+    const owner = slotAt(i, 0) ?? rowCells[i]?.[0]?.id;
+    joinInto(owner, es, rowCells[i]?.some((c) => c.id === owner) === true);
   });
-  const rows: FormedRow[] = t.rows.map((r, i) => ({
+  if (outside || (rows.length === 0 && blocks(lead).length > 0)) return null;
+  return rows.map((r, i) => ({
     id: r.id,
     map: r.map,
     cells: (rowCells[i] ?? []).map((c) => {
@@ -193,5 +205,20 @@ export function formTable(t: ParsedTable, closeId: BlockId | null, depth: number
       };
     }),
   }));
+}
+
+/**
+ * Form `t` (of nesting depth `depth`), closed by its `⟧` `closeId` (null: by `[S]` / `<end>`).
+ * `trailing`: its leads when it has no cell (they read right after it).
+ */
+export function formTable(t: ParsedTable, closeId: BlockId | null, depth: number): { formed: FormedTable; trailing: Entity[]; form: TableForm } {
+  const { forms, slots, carryOut } = formRows(t.rows, EMPTY_CARRY);
+  const form = tableForm(t.map, forms, carryOut, depth, closeId);
+  const columnCount = columnCountOf(form);
+  if (columnCount === 0) {
+    return { formed: { rows: [], headerCount: 0, widths: null }, trailing: [...t.lead, ...t.rows.flatMap((r) => r.lead)], form };
+  }
+  const rows = formedRows(t.lead, t.rows, forms, slots, { columnCount, first: 0, rowCount: forms.length, nextMark: (i) => t.rows[i + 1]?.id ?? closeId ?? t.id });
+  if (rows === null) throw new Error(`model: table ${t.id} formed with content outside its rows`);
   return { formed: { rows, headerCount: headerCountOf(form), widths: widthsOf(t.map, columnCount) }, trailing: [], form };
 }

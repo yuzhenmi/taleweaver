@@ -9,9 +9,9 @@ import type { RunToken, Segment, Token } from "../../scan/tokens";
 
 function merged(tokens: readonly Token[], inert: ReadonlySet<BlockId>): Token[] {
   const out: Token[] = [];
-  let run: { len: number; items: RunToken["items"][number][]; footnotes: RunToken["footnotes"][number][]; inert: number[] } | null = null;
+  let run: { len: number; items: RunToken["items"][number][]; footnotes: RunToken["footnotes"][number][]; inert: number[]; marks: boolean } | null = null;
   const flush = (): void => {
-    if (run !== null) out.push({ k: "run", len: run.len, items: run.items, footnotes: run.footnotes, inert: run.inert });
+    if (run !== null) out.push({ k: "run", len: run.len, items: run.items, footnotes: run.footnotes, inert: run.inert, ...(run.marks ? { foldedMarks: true as const } : {}) });
     run = null;
   };
   for (const t of tokens) {
@@ -21,12 +21,16 @@ function merged(tokens: readonly Token[], inert: ReadonlySet<BlockId>): Token[] 
       out.push(t);
       continue;
     }
-    run ??= { len: 0, items: [], footnotes: [], inert: [] };
+    run ??= { len: 0, items: [], footnotes: [], inert: [], marks: false };
     if (t.k === "run") {
+      if (t.foldedMarks === true) run.marks = true;
       for (const i of t.inert) run.inert.push(run.len + i);
       run.items.push(...t.items);
       run.footnotes.push(...t.footnotes);
-    } else for (let i = 0; i < t.len; i++) run.inert.push(run.len + i);
+    } else {
+      run.marks = true;
+      for (let i = 0; i < t.len; i++) run.inert.push(run.len + i);
+    }
     run.len += t.len;
   }
   flush();
