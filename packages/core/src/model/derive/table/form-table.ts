@@ -77,7 +77,7 @@ const spanOf = (v: unknown): number => (typeof v === "number" && Number.isSafeIn
 const isWeight = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
 
 /** RT3 over `n` grid columns. */
-function widthsOf(map: Y.Map<unknown>, n: number): readonly number[] | null {
+export function widthsOf(map: Y.Map<unknown>, n: number): readonly number[] | null {
   const cols = map.get(COLS_KEY);
   const ws: unknown[] = [];
   for (let i = 0; i < n; i++) {

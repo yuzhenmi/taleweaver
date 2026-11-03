@@ -5,7 +5,7 @@ import { deriveDocument } from "./derive/derive-document";
 import type { Document } from "./document/types";
 import { Model } from "./model";
 import { BUILTIN_OBJECT_KINDS } from "./object-kinds";
-import { newFootnoteOf, newParagraphMark } from "./storage/new-items";
+import { mapOf, newFootnoteOf, newParagraphMark } from "./storage/new-items";
 import { expectSameVersion } from "./test-helpers/expect-same-version";
 import { fixture, idOf } from "./test-helpers/fixture";
 import { insertUnits, mapsOf, units } from "./test-helpers/table";
@@ -141,6 +141,29 @@ describe("rung 1, F4: the range runs on while its carry out differs from the nex
       c00?.set("rowSpan", 3);
     }, true);
     t.step(() => insertUnits(t.piece, t.at(r1), units("⟨r⟩ ⟨c⟩ m¶")), true); // without the adjust: old row 1 leaves the span
+    t.destroy();
+  });
+});
+
+describe("rung 1: a changed column count (every other row's virtual end cells, RT3)", () => {
+  it("a long row widens the table and its removal narrows it; a span pushing cells right widens it", () => {
+    const t = live("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟨c⟩ d¶ ⟨r⟩ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧ y¶");
+    const [, table, , c00, , , b] = t.maps;
+    const w = new Y.Array<Y.Map<unknown>>();
+    w.insert(0, [mapOf({ w: 1 }), mapOf({ w: 3 })]); // a third column takes the mean weight (RT3)
+    table?.set("cols", w);
+    t.step(() => insertUnits(t.piece, t.at(b) + 1, units("⟨c⟩ x¶")), true); // row 0 gets a third cell
+    t.step(() => t.piece.delete(t.at(b) + 1, 3), true); // and loses it
+    t.step(() => c00?.set("rowSpan", 2), true); // row 1's cells move right: three columns
+    t.step(() => c00?.set("rowSpan", 1), true);
+    t.destroy();
+  });
+  it("a virtual cell at column 0 keeps the row lead it holds; a table losing its last cell re-derives", () => {
+    let t = live("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ lead¶ ⟧ y¶"); // row 1 has no cell: its lead is in its virtual cell at column 0
+    t.step(() => insertUnits(t.piece, t.at(t.maps[6]) + 1, units("⟨c⟩ x¶")), true);
+    t.destroy();
+    t = live("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟧ y¶");
+    t.step(() => t.piece.delete(t.at(t.maps[3]), 1), false);
     t.destroy();
   });
 });

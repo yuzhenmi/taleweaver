@@ -11,12 +11,12 @@
  * Declines (the caller re-derives) when the table would change outside the range: a mark
  * popping it, its end at `[S]` / `<end>`, content joining a cell above the range, a
  * cell-less table, a lead read outside its bracket, a row joining content into an earlier
- * row, or a changed column count (N2 step 4c). F4: while the range's carry out differs from
+ * row. A changed column count rewrites every other row's virtual end cells (`relink-row.ts`). F4: while the range's carry out differs from
  * the next old row's stored carry, the range runs on through that row.
  */
 import type { BlockId } from "../block";
 import { deriveFootnote, footnoteBodiesOf, parasOf, removeFlow, writeRow } from "../derive/derive-flow";
-import { type ParsedTable, formRows, formedRows, headerRun } from "../derive/table/form-table";
+import { type ParsedTable, formRows, formedRows, headerRun, widthsOf } from "../derive/table/form-table";
 import { withInertMarks } from "../derive/table/inert-marks";
 import { RegionParser } from "../derive/table/parse-tables";
 import { type RowForm, type TableForm, columnCountOf, headerCountOf } from "../derive/table/table-form";
@@ -27,6 +27,7 @@ import { isSectionBreak } from "../scan/kinds";
 import { type FootnoteRef, type Segment, type TerminatorToken, type Token, depthOf, roleOf } from "../scan/tokens";
 import type { Carry } from "../../table-grid/assign-table-grid";
 import type { Anchor, Pos } from "./anchors";
+import { relinkRow } from "./relink-row";
 
 export interface RowSpliceInput {
   readonly w: Working;
@@ -203,7 +204,8 @@ function spliceRows(inp: RowSpliceInput, tableId: BlockId, form: TableForm): boo
     joinsAbove: forms.filter((f) => f.joinsAbove).length,
   };
   const columnCount = columnCountOf(next);
-  if (columnCount !== columnCountOf(form)) return false; // N2 step 4c
+  if (columnCount === 0) return false; // the table becomes cell-less: its leads read after it
+  const widened = columnCount !== columnCountOf(form);
   const formed = formedRows(k === 0 ? parsed.lead : [], parsed.rows, forms, slots, {
     columnCount,
     first: k,
@@ -239,6 +241,16 @@ function spliceRows(inp: RowSpliceInput, tableId: BlockId, form: TableForm): boo
   delete attrs["headerRowCount"];
   const h = headerCountOf(next);
   if (h > 0) attrs["headerRowCount"] = h;
+  if (widened) {
+    // RT3 over the new grid columns, and every other row's virtual end cells for the new width (O(R · columns): the
+    // output changes there).
+    delete attrs["columnWidths"];
+    const ws = widthsOf(form.map, columnCount);
+    if (ws !== null) attrs["columnWidths"] = ws;
+    rows.forEach((row, r) => {
+      if (r < k || r >= k + forms.length) relinkRow(w, tree, row, rows[r + 1]?.id ?? form.closeId ?? tableId, columnCountOf(form), columnCount);
+    });
+  }
   w.put(tree, Object.freeze({ ...tRec, attrs: Object.freeze(attrs), firstChildId: rows[0]?.id ?? null, lastChildId: rows[rows.length - 1]?.id ?? null }));
   // Heads above the range reaching the table's end: their clipped rowSpan follows the row count (old + left − left').
   const leftOf = (c: Carry): Map<BlockId, number> => {
