@@ -106,7 +106,7 @@ export function deriveFlow(w: Working, holderId: BlockId, tree: TreeKind, array:
   const read = withInertMarks(flowSegments, parsed.inert);
   let tables = PMap.empty<TableForm>();
   for (const [id, f] of parsed.tables) tables = tables.set(id, f);
-  w.flows = w.flows.set(holderId, { holderId, tree, isRoot, array, segments: read, segIndex: indexSegments(read), sections, synthetic, inertMarks: parsed.inert.size > 0, tables });
+  w.flows = w.flows.set(holderId, { holderId, tree, isRoot, array, segments: read, segIndex: indexSegments(read), sections, synthetic, tables, leadsAfter: parsed.leadsAfter });
   w.fresh.add(holderId);
   if (isRoot) writeSections(w);
   for (const p of parasOf(ents)) for (const f of p.footnotes) deriveFootnote(w, f);

@@ -1,7 +1,7 @@
 import type { Document, FlowState } from "../document/types";
 import { afterObjectId, debrisBeforeId, flowEndId } from "../ids";
-import { holdsFlows, isBlockObject, isParagraphBreak } from "../scan/kinds";
-import { isTableStart } from "../storage/table-marks";
+import { isBlockObject, isParagraphBreak } from "../scan/kinds";
+import { roleOf } from "../scan/tokens";
 import { afterObject, tableExtent } from "./table-extent";
 import { type ParagraphLayout, type TerminatorRef, nextTerminator, paragraphLayout, readLength, runsBefore } from "./paragraph-layout";
 
@@ -26,7 +26,7 @@ export type Following =
 export function followingOf(d: Document, fs: FlowState, first: TerminatorRef): Following {
   // A table's `⟦` faces outward as the whole table: what follows it is what follows the table. Its implicit paragraph
   // is anchored at its `⟧` (at its `⟦` when unclosed).
-  const table = holdsFlows(first.token.k) && isTableStart(first.token.map) ? tableExtent(fs, first) : null;
+  const table = roleOf(first.token) === "open" ? tableExtent(fs, first) : null;
   const t = table?.close ?? first;
   const next = table?.next ?? afterObject(fs, first);
   const { term, units } = nextTerminator(fs, next.seg, next.tok, 0);

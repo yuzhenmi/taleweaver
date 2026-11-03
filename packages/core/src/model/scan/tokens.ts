@@ -1,6 +1,7 @@
 import type * as Y from "yjs";
 import type { InlineItem } from "../block";
 import type { ObjectKindRegistry } from "../object-kinds";
+import type { MarkRole } from "../storage/table-marks";
 import type { TerminatorKind } from "./kinds";
 
 export interface FootnoteRef {
@@ -27,7 +28,18 @@ export interface TerminatorToken {
   readonly len: number;
   readonly id: string;
   readonly map: Y.Map<unknown>;
+  /**
+   * A table mark's role and stored depth (null: invalid), read at scan time: an old
+   * version's tokens keep them after a later transaction deletes the mark (a deleted
+   * map reads no keys).
+   */
+  readonly mark?: { readonly role: MarkRole | null; readonly d: number | null };
 }
+
+/** A table mark token's role (null for any other token). */
+export const roleOf = (t: TerminatorToken): MarkRole | null => t.mark?.role ?? null;
+/** A table mark token's stored depth (null for any other token, or an invalid depth). */
+export const depthOf = (t: TerminatorToken): number | null => t.mark?.d ?? null;
 
 export type Token = RunToken | TerminatorToken;
 

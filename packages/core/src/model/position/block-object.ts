@@ -2,7 +2,7 @@ import type { BlockId } from "../block";
 import { resolveBlock } from "../document/blocks";
 import type { Document, FlowState } from "../document/types";
 import { holdsFlows, isBlockObject } from "../scan/kinds";
-import { isTableStart } from "../storage/table-marks";
+import { roleOf } from "../scan/tokens";
 import { type ParagraphLayout, type StoragePoint, type TerminatorRef, flowOfBlock, terminatorOf } from "./paragraph-layout";
 import { pointOf } from "./storage-points";
 import { tableExtent } from "./table-extent";
@@ -32,7 +32,7 @@ export function blockObjectAt(d: Document, id: BlockId): BlockObject | null {
   const point = fs === undefined || term === null ? null : pointOf(fs, term);
   if (fs === undefined || term === null || point === null || !isBlockObject(term.token.k)) return null;
   if (!holdsFlows(term.token.k)) return { fs, term, point, end: { ...point, index: point.index + term.token.len }, last: term };
-  const x = isTableStart(term.token.map) ? tableExtent(fs, term) : null;
+  const x = roleOf(term.token) === "open" ? tableExtent(fs, term) : null;
   return x === null ? null : { fs, term, point, end: x.end, last: x.close };
 }
 

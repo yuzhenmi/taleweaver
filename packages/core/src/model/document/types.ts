@@ -28,10 +28,13 @@ export interface FlowState {
   readonly sections: readonly SectionInfo[];
   /** R17 fired: the flow reads as one synthetic empty paragraph. */
   readonly synthetic: boolean;
-  /** Some table mark reads inert (RT1): `segments` hold it as an inert run unit; N1: any change re-derives the flow. */
-  readonly inertMarks: boolean;
   /** Its tables' forming state, by `⟦` id (nested ones included; N2's row splice). */
   readonly tables: PMap<TableForm>;
+  /**
+   * Blocks stored in a cell-less table's bracket (its leads, concurrency only) that read after it:
+   * their records do not show the bracket they are in, so a region starting at one re-derives.
+   */
+  readonly leadsAfter: ReadonlySet<BlockId>;
 }
 
 export type ListRestart = "always" | "never" | "after-break";

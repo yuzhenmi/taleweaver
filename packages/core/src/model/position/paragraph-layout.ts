@@ -27,10 +27,9 @@ import type { Block, BlockId } from "../block";
 import { resolveBlock } from "../document/blocks";
 import type { Document, FlowState, TreeKind } from "../document/types";
 import { flowEndId } from "../ids";
-import type { RunToken, TerminatorToken } from "../scan/tokens";
-import { holdsFlows, isBlockObject, isParagraphBreak } from "../scan/kinds";
+import { type RunToken, type TerminatorToken, roleOf } from "../scan/tokens";
+import { isBlockObject, isParagraphBreak } from "../scan/kinds";
 import { afterObject, tableExtent } from "./table-extent";
-import { isTableStart } from "../storage/table-marks";
 
 /** An insertion point `index` of `piece`, which is segment `seg`'s piece in its flow. */
 export interface StoragePoint {
@@ -216,7 +215,7 @@ export function paragraphLayout(d: Document, id: BlockId): ParagraphLayout | nul
     // The implicit paragraph after a block object: nothing read up to the next terminator, a non-¶ one (or `<end>`).
     const object = findTerminator(d, fs, id.slice(0, -"/after".length));
     if (object === null || !isBlockObject(object.token.k)) return null;
-    const open = holdsFlows(object.token.k) && isTableStart(object.token.map) ? tableExtent(fs, object) : null;
+    const open = roleOf(object.token) === "open" ? tableExtent(fs, object) : null;
     const next = open?.next ?? afterObject(fs, object);
     const n = nextTerminator(fs, next.seg, next.tok, 0);
     if (n.units > 0 || (n.term !== null && isParagraphBreak(n.term.token.k))) return null;

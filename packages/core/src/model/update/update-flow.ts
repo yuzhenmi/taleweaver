@@ -15,12 +15,17 @@
  * piece's subtree (its segments + its sub-flows'). New pieces of any piece array (the
  * flow's or a sub-flow's) are scanned and spliced in next to their existing siblings.
  *
+ * The region is parsed in its container (`parseRegion`), with the table marks at its ends read
+ * by their faces (design §1); the marks it reads inert become inert run units, as from scratch.
+ *
  * Fallbacks to a from-scratch derivation of the flow (all correct, just O(flow)):
  *   - a piece removed from the flow array, or a changed piece the flow state does not know;
  *   - an `[S]` in a non-body flow (as an anchor or inside the region);
- *   - a flow that is synthetic (R17) or whose region empties it, or that holds inert table marks;
- *   - a region touching a table mark, or ending at an `[S]` / `<end>` from inside a cell
- *     (N1: tables are derived from scratch with their flow; the structural splice is N2);
+ *   - a flow that is synthetic (R17) or whose region empties it;
+ *   - a region not balanced in its container (`parseRegion`: a mark binding to an enclosing
+ *     table, an `[S]` / `<end>` closing one, a table left open), holding a whole table,
+ *     in a table's / row's lead, emptying / filling an empty cell, or next to content its cell
+ *     reads from outside its own marks (a lead, a cell past the width cap) (N2 steps 3–4 narrow these);
  *   - overlapping splices, an anchor whose old record is missing, a section list the
  *     region's old `[S]` cannot be found in (defensive: not produced by any known write).
  * ponytail: several dirty pieces in one transaction form ONE region spanning them all.
@@ -28,15 +33,18 @@
 import * as Y from "yjs";
 import { BLOCK_TYPES, type BlockId } from "../block";
 import { deriveFlow, deriveFootnote, piecesOf, removeFlow, scanCtxOf, segmentsOf, writeSegment } from "../derive/derive-flow";
-import { type BlockEntity, type Entity, group, indexSegments, isBlockEntity, isParaEntity, isSectionBreakEntity } from "../derive/entities";
+import { type BlockEntity, type Entity, indexSegments, isBlockEntity, isParaEntity, isSectionBreakEntity } from "../derive/entities";
+import { withInertMarks } from "../derive/table/inert-marks";
+import { type RegionEnd, parseRegion } from "../derive/table/parse-tables";
 import { sectionRecord } from "../derive/records";
 import { writeSections } from "../derive/sections";
 import type { Working } from "../derive/working";
 import type { FlowState, SectionInfo } from "../document/types";
 import { footnoteBodyId, sectionIdOf } from "../ids";
 import { flattenPiece } from "../scan/flatten-piece";
-import { holdsFlows, isBlockObject, isSectionBreak } from "../scan/kinds";
-import { type FootnoteRef, type Segment, isTerminator } from "../scan/tokens";
+import { holdsFlows, isSectionBreak } from "../scan/kinds";
+import { isObjectEnd } from "../position/table-extent";
+import { type FootnoteRef, type Segment, depthOf, isTerminator, roleOf } from "../scan/tokens";
 import { SUBFLOW_DEPTH_CAP } from "../storage/limits";
 import { pieceHoldingSubflow } from "../storage/pieces";
 import { type Anchor, type Pos, between, leftAnchor, rightAnchor } from "./anchors";
@@ -88,9 +96,7 @@ const sectionBreakIds = (ents: readonly Entity[]): string => ents.filter(isSecti
 export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void {
   const fs = w.flows.get(holderId);
   if (fs === undefined || w.fresh.has(holderId)) return;
-  // A flow with inert table marks (their segments rewritten, `derive/table/inert-marks.ts`) re-derives: a rescanned segment
-  // would read them as terminators again (N1; rare: concurrent / stray marks only).
-  if (fs.synthetic || fs.inertMarks) return rederiveFlow(w, fs);
+  if (fs.synthetic) return rederiveFlow(w, fs);
   const oldScans = fs.segments;
 
   // 1. Splices: whole subtrees (structural changes, new top-level pieces) and single-segment deltas.
@@ -217,30 +223,80 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   const growth = newScans.length - oldScans.length;
   const oldL: Pos | null = L;
   const oldR: Pos | null = R === null ? null : R.p === zNLast && last.closed ? { p: last.o2 - 1, t: last.endOld - 1 } : { p: R.p - growth, t: R.t };
+  // The faces of table marks at the region's ends (design §1): a `⟨c⟩` before it starts its cell; a `⟧` before it is
+  // its table, a block object; a `⟦` after it is the table; any other mark after it ends the container. R is then not
+  // in the region (it is unchanged: a changed item is always inside the hull).
+  const tree = fs.tree;
+  const lRole = L !== null && holdsFlows(L.tok.k) ? roleOf(L.tok) : undefined;
+  const rRole = R !== null && holdsFlows(R.tok.k) ? roleOf(R.tok) : undefined;
+  // ponytail: a region in a table's or row's lead (concurrency only) re-derives its flow; the row splice is N2 step 4.
+  // So does one starting in a cell-less table's lead (its records hang after the table, outside its bracket).
+  if (lRole === "open" || lRole === "newRow" || lRole === null || rRole === null || (L !== null && fs.leadsAfter.has(L.tok.id))) return rederiveFlow(w, fs);
+  const lDepth = L === null || lRole === undefined ? null : depthOf(L.tok);
+  const depth =
+    lRole === "newCell" || lRole === "close"
+      ? lDepth === null ? null : lDepth + (lRole === "newCell" ? 1 : 0)
+      : L === null || isSectionBreak(L.tok.k) ? 0 : tableDepthOf(w, fs, L.tok.id);
+  if (depth === null) return rederiveFlow(w, fs);
+  const end: RegionEnd = R === null ? null : rRole === undefined ? undefined : { id: R.tok.id, opens: rRole === "open", d: depthOf(R.tok) };
   // The region starts after L: a block object there reads its implicit paragraph (if any) in the region. (R is an
   // unchanged terminator past every change, and so is what follows it: its implicit paragraph, if any, stays.)
-  const objectBefore = L !== null && isBlockObject(L.tok.k) ? L.tok.id : null;
-  const oldEnts = group(between(oldScans, oldL, oldR), R === null, holderId, { withItems: false, objectBefore });
-  const newEnts = group(between(newScans, L, R), R === null, holderId, { objectBefore });
-  // ponytail: a region touching a table's marks re-derives its flow (O(flow)); the structural splice is N2. So does one
-  // that would end at an `[S]` / `<end>` (which close tables) from inside a cell. Any other region inside a cell lies
-  // between two terminators of that cell.
-  const withFlows = (e: Entity): boolean => holdsFlows(e.k);
-  if (oldEnts.some(withFlows) || newEnts.some(withFlows) || holdsFlows(L?.tok.k) || holdsFlows(R?.tok.k)) return rederiveFlow(w, fs);
-  const lCell = L === null || isSectionBreak(L.tok.k) ? undefined : w.get(fs.tree, w.get(fs.tree, L.tok.id)?.parentId ?? "");
-  const closesTables = R === null || isSectionBreak(R.tok.k) || newEnts.some(isSectionBreakEntity) || oldEnts.some(isSectionBreakEntity);
-  if (lCell?.type === BLOCK_TYPES.tableCell && closesTables) return rederiveFlow(w, fs);
+  const objectBefore = L !== null && isObjectEnd(L.tok) ? L.tok.id : null;
+  const withR = rRole === undefined;
+  const oldP = parseRegion(between(oldScans, oldL, oldR, withR), holderId, { depth, end, withItems: false, objectBefore });
+  const newP = parseRegion(between(newScans, L, R, withR), holderId, { depth, end, objectBefore });
+  // ponytail: an unbalanced region (concurrency only) re-derives its flow; whole tables in it are N2 step 3.
+  if (oldP === null || newP === null || oldP.tables.size > 0 || newP.tables.size > 0) return rederiveFlow(w, fs);
+  const oldEnts = oldP.ents;
+  const newEnts = newP.ents;
   if (!fs.isRoot && (isSectionBreak(L?.tok.k) || isSectionBreak(R?.tok.k) || newEnts.some(isSectionBreakEntity) || oldEnts.some(isSectionBreakEntity))) {
     return rederiveFlow(w, fs);
   }
+  // Marks the region reads inert become inert run units of its segments, as from scratch (`inert-marks.ts`). The stack
+  // at the region's end is the old one, so no mark outside it changes binding.
+  if (newP.inert.size > 0) {
+    const p0 = L?.p ?? 0;
+    const p1 = R?.p ?? newScans.length - 1;
+    withInertMarks(newScans.slice(p0, p1 + 1), newP.inert).forEach((sg, i) => (newScans[p0 + i] = sg));
+  }
   const sectionsChanged = fs.isRoot && sectionBreakIds(oldEnts) !== sectionBreakIds(newEnts);
 
-  const tree = fs.tree;
-  const prevBlockId = L !== null && !isSectionBreak(L.tok.k) ? L.tok.id : null;
+  // The region's neighbours. At a mark face they are checked against the old records: content a container reads from
+  // outside its own marks (a lead joining a cell, a cell past the width cap) re-derives (concurrency only).
+  const oldBlocks = oldEnts.filter(isBlockEntity);
+  const oldFirst = oldBlocks[0] === undefined ? undefined : w.get(tree, oldBlocks[0].id);
+  const oldLast = oldBlocks[oldBlocks.length - 1];
+  let prevBlockId = L !== null && !isSectionBreak(L.tok.k) ? L.tok.id : null;
+  let cellStart: BlockId | null = null;
+  if (lRole === "newCell" && L !== null) {
+    if (w.get(tree, L.tok.id)?.type !== BLOCK_TYPES.tableCell || oldFirst === undefined || oldFirst.prevSiblingId !== null) return rederiveFlow(w, fs);
+    prevBlockId = null;
+    cellStart = L.tok.id;
+  } else if (lRole === "close") {
+    // The previous sibling must be the table L closes, and not itself a cell-less table's lead (which reads outside it).
+    const table = oldFirst?.prevSiblingId ?? null;
+    if (table === null || fs.tables.get(table)?.closeId !== L?.tok.id || fs.leadsAfter.has(table)) return rederiveFlow(w, fs);
+    prevBlockId = table;
+  }
   const rEndsWithS = R !== null && isSectionBreak(R.tok.k);
   let nextBlockId: BlockId | null = null;
+  let endsContainer = false;
   let trailingContainer: BlockId = fs.isRoot ? (fs.sections[fs.sections.length - 1]?.id ?? holderId) : holderId;
-  if (R !== null && !rEndsWithS) {
+  if (R !== null && rRole === "open") {
+    const parent = w.get(tree, R.tok.id)?.parentId ?? null;
+    if (parent === null || (cellStart !== null && parent !== cellStart)) return rederiveFlow(w, fs);
+    nextBlockId = R.tok.id;
+    trailingContainer = parent;
+  } else if (rRole !== undefined) {
+    // A container end: the region's last old block (or L) is its container's last child.
+    if (cellStart !== null && (oldLast === undefined || !newEnts.some(isBlockEntity))) return rederiveFlow(w, fs); // the cell reads `/empty`
+    const lastId = oldLast?.id ?? prevBlockId;
+    const lastRec = lastId === null ? undefined : w.get(tree, lastId);
+    const container = cellStart ?? lastRec?.parentId ?? null;
+    if (container === null || lastRec === undefined || lastRec.nextSiblingId !== null || lastRec.parentId !== container) return rederiveFlow(w, fs);
+    trailingContainer = container;
+    endsContainer = true;
+  } else if (R !== null && !rEndsWithS) {
     const rRec = w.get(tree, R.tok.id);
     if (rRec === undefined || rRec.parentId === null) return rederiveFlow(w, fs);
     nextBlockId = rRec.nextSiblingId;
@@ -303,7 +359,7 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
     const firstId = seg[0]?.id ?? null;
     const lastId = seg[seg.length - 1]?.id ?? null;
     if (j > 0 || prevBlockId === null) w.patch(tree, container, { firstChildId: firstId ?? (isTrailing ? nextBlockId : null) });
-    if (!isTrailing || R === null) w.patch(tree, container, { lastChildId: lastId ?? (j === 0 ? prevBlockId : null) });
+    if (!isTrailing || R === null || endsContainer) w.patch(tree, container, { lastChildId: lastId ?? (j === 0 ? prevBlockId : null) });
     if (j === 0 && prevBlockId !== null) w.patch(tree, prevBlockId, { nextSiblingId: firstId ?? (isTrailing ? nextBlockId : null) });
     if (isTrailing && nextBlockId !== null) w.patch(tree, nextBlockId, { prevSiblingId: lastId ?? (j === 0 ? prevBlockId : null) });
   }
@@ -319,4 +375,17 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
     const now = w.flows.get(holderId);
     if (now !== undefined) rederiveFlow(w, now);
   }
+}
+
+/**
+ * The nesting depth of record `id`'s container: its nearest enclosing table's parse depth + 1, 0 with none. The
+ * depth comes from the parse, not the record chain: a cell-less table's leads hang after it, outside its bracket.
+ * O(depth).
+ */
+function tableDepthOf(w: Working, fs: FlowState, id: BlockId): number {
+  for (let p = w.get(fs.tree, id)?.parentId ?? null; p !== null; p = w.get(fs.tree, p)?.parentId ?? null) {
+    const f = fs.tables.get(p);
+    if (f !== undefined) return f.depth + 1;
+  }
+  return 0;
 }

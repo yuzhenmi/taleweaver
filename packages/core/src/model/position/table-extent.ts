@@ -7,8 +7,7 @@
  */
 import type { FlowState } from "../document/types";
 import { holdsFlows, isBlockObject, isSectionBreak } from "../scan/kinds";
-import type { TerminatorToken } from "../scan/tokens";
-import { isTableStart, markDepth, markRole } from "../storage/table-marks";
+import { type TerminatorToken, depthOf, roleOf } from "../scan/tokens";
 import type { StoragePoint, TerminatorRef } from "./paragraph-layout";
 import { starts } from "./token-starts";
 
@@ -29,7 +28,7 @@ export interface TableExtent {
 
 /** The extent of the table whose `⟦` is `open`; null when `open` is not a bound `⟦` of `fs`. */
 export function tableExtent(fs: FlowState, open: TerminatorRef): TableExtent | null {
-  const d = markDepth(open.token.map);
+  const d = depthOf(open.token);
   if (d === null) return null;
   let last: StoragePoint | null = null;
   for (let j = open.seg; j < fs.segments.length; j++) {
@@ -43,10 +42,10 @@ export function tableExtent(fs: FlowState, open: TerminatorRef): TableExtent | n
       const here = { piece: seg.piece, index, seg: j };
       if (isSectionBreak(token.k)) return { end: here, next: { seg: j, tok: t }, close: null };
       if (!holdsFlows(token.k)) continue;
-      const dd = markDepth(token.map);
+      const dd = depthOf(token);
       if (dd === null || dd > d) continue;
       if (dd < d) return { end: here, next: { seg: j, tok: t }, close: null };
-      if (markRole(token.map) === "close") return { end: { ...here, index: index + token.len }, next: tokenAfter(fs, j, t), close: { seg: j, tok: t, index, token } };
+      if (roleOf(token) === "close") return { end: { ...here, index: index + token.len }, next: tokenAfter(fs, j, t), close: { seg: j, tok: t, index, token } };
     }
     last = { piece: seg.piece, index: seg.start + seg.len, seg: j };
   }
@@ -58,7 +57,7 @@ const tokenAfter = (fs: FlowState, seg: number, tok: number): TokenPos =>
 
 /** The token right after block object `t` (a table's `⟦`: after the whole table). */
 export function afterObject(fs: FlowState, t: TerminatorRef): TokenPos {
-  if (holdsFlows(t.token.k) && isTableStart(t.token.map)) {
+  if (roleOf(t.token) === "open") {
     const x = tableExtent(fs, t);
     if (x !== null) return x.next;
   }
@@ -66,4 +65,4 @@ export function afterObject(fs: FlowState, t: TerminatorRef): TokenPos {
 }
 
 /** Seen from right after it, a terminator reads as a block object: a TOC, or a table's `⟧` (`⟦`, `⟨r⟩` and `⟨c⟩` start a container). */
-export const isObjectEnd = (t: TerminatorToken): boolean => isBlockObject(t.k) && (!holdsFlows(t.k) || markRole(t.map) === "close");
+export const isObjectEnd = (t: TerminatorToken): boolean => isBlockObject(t.k) && (!holdsFlows(t.k) || roleOf(t) === "close");

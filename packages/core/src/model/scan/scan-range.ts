@@ -26,7 +26,8 @@ import { type ObjectKindRegistry, resolveObjectProps } from "../object-kinds";
 import { itemId } from "../storage/item-id";
 import { BODY_KEY, ITEM_KINDS } from "../storage/keys";
 import { fieldProps } from "./field-props";
-import { type FlowKind, KINDS, isTerminatorKind, isText, kindOfStored } from "./kinds";
+import { markDepth, markRole } from "../storage/table-marks";
+import { type FlowKind, KINDS, holdsFlows, isTerminatorKind, isText, kindOfStored } from "./kinds";
 import { SUBFLOW_DEPTH_CAP } from "../storage/limits";
 import { childMap, kindOf, scalarsWithPrefix } from "../storage/map-reads";
 import { joinsForward, joinsForwardAtEnd } from "./joins";
@@ -132,7 +133,7 @@ function scanMap(st: ScanState, item: Y.Item, m: Y.Map<unknown>, attrs: () => Re
   const k = kindOfStored(stored);
   if (k !== null && isTerminatorKind(k)) {
     flushRun(st);
-    st.tokens.push({ k, len: 1, id: itemId(item), map: m });
+    st.tokens.push(holdsFlows(k) ? { k, len: 1, id: itemId(item), map: m, mark: { role: markRole(m), d: markDepth(m) } } : { k, len: 1, id: itemId(item), map: m });
     return true;
   }
   // The INERT decision is {@link readsAsContent}'s alone (the oracle's storage walk shares it).

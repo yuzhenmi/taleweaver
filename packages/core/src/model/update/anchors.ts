@@ -13,15 +13,16 @@ export interface Anchor extends Pos {
   readonly tok: TerminatorToken;
 }
 
-/** Tokens strictly after `from` (null = flow start) up to and including `to` (null = flow end). */
-export function* between(scans: readonly Segment[], from: Pos | null, to: Pos | null): Generator<Token> {
+/** Tokens strictly after `from` (null = flow start) up to `to` (null = flow end), `to` itself included unless `withTo` is false. */
+export function* between(scans: readonly Segment[], from: Pos | null, to: Pos | null, withTo = true): Generator<Token> {
   let t = from === null ? 0 : from.t + 1;
   for (let p = from === null ? 0 : from.p; p < scans.length; p++, t = 0) {
     const toks = scans[p]?.tokens ?? [];
     for (; t < toks.length; t++) {
       const tok = toks[t];
-      if (tok !== undefined) yield tok;
-      if (to !== null && p === to.p && t === to.t) return;
+      const last = to !== null && p === to.p && t === to.t;
+      if (tok !== undefined && (withTo || !last)) yield tok;
+      if (last) return;
     }
   }
 }
