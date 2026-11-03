@@ -122,4 +122,11 @@ describe("assignTableGrid (neutral core, #P15b)", () => {
     expect(g.columnCount).toBe(3);
     expect(g.occupancy[2]).toEqual(["E", "B", "F"]);
   });
+
+  it("caps the width at maxColumns: spans clip to it, a cell whose slot would be past it overflows", () => {
+    const g = assignTableGrid([[cell("A", 2, 3), cell("B", 1, 2)], [cell("C"), cell("D")]], 4);
+    expect(g.columnCount).toBe(4);
+    expect(g.cells.map((c) => [c.cellId, c.colSpan])).toEqual([["A", 3], ["B", 1], ["C", 1]]);
+    expect(g.overflow).toEqual(["D"]);
+  });
 });

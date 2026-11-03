@@ -4,3 +4,5 @@ export const PIECE_SOFT_MAX = 1024;
 export const SUBFLOW_DEPTH_CAP = 4;
 /** Table nesting cap: a `⟦` at this depth or deeper is inert, and so are its marks. */
 export const TABLE_DEPTH_CAP = 4;
+/** Table width cap in grid columns (Word's 63): it bounds the virtual cells a row reads, whatever the stored spans. */
+export const TABLE_COLUMN_CAP = 63;

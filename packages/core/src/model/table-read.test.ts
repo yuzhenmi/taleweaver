@@ -11,6 +11,7 @@ import { paragraphLayout } from "./position/paragraph-layout";
 import { positionAtPoint } from "./position/position-at-point";
 import { BUILTIN_OBJECT_KINDS } from "./object-kinds";
 import { BODIES_KEY, COLS_KEY, COL_SPAN_KEY, KIND_KEY, ROW_SPAN_KEY, WIDTH_KEY } from "./storage/keys";
+import { TABLE_COLUMN_CAP } from "./storage/limits";
 import { childMap } from "./storage/map-reads";
 import { mapOf, newBody, newFootnoteOf } from "./storage/new-items";
 import { newTableStart } from "./storage/table-marks";
@@ -86,7 +87,7 @@ describe("RT2 spans and clipping", () => {
     expect(getBlock(d, idOf(c ?? new Y.Map()))?.attrs).toEqual({ colSpan: 2 });
   });
 
-  it("an invalid span reads 1, an overlong rowSpan is clipped to the rows left, colSpan is capped at 1000", () => {
+  it("an invalid span reads 1, an overlong rowSpan is clipped to the rows left, the width is capped", () => {
     const us = units("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨c⟩ c¶ ⟨c⟩r9 d¶ ⟨r⟩ ⟨c⟩ e¶ ⟧");
     const [table, , ca, , cb, , cc, , cd, , ce] = mapsOf(us);
     ca?.set(ROW_SPAN_KEY, 0);
@@ -99,12 +100,15 @@ describe("RT2 spans and clipping", () => {
     expect(shape(d, idOf(table ?? new Y.Map()))[1]?.[0]).toBe("e");
     void ce;
 
-    const wide = units("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨r⟩ ⟨c⟩ b¶ ⟧");
+    // The width cap (Word's 63 columns) bounds what a row reads, whatever the stored spans.
+    const wide = units("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ over¶ ⟨r⟩ ⟨c⟩ b¶ ⟧");
     mapsOf(wide)[2]?.set(COL_SPAN_KEY, 5000);
     const w = body(wide);
-    const rows = cellIds(w.d, idOf(mapsOf(wide)[0] ?? new Y.Map()));
-    expect(getBlock(w.d, rows[0]?.[0] ?? "")?.attrs).toEqual({ colSpan: 1000 });
-    expect(rows[1]?.length).toBe(1000);
+    const wt = idOf(mapsOf(wide)[0] ?? new Y.Map());
+    const rows = cellIds(w.d, wt);
+    expect(getBlock(w.d, rows[0]?.[0] ?? "")?.attrs).toEqual({ colSpan: TABLE_COLUMN_CAP });
+    expect(rows.map((r) => r.length)).toEqual([1, TABLE_COLUMN_CAP]);
+    expect(shape(w.d, wt)[0]).toEqual(["a|over"]); // the cell past the cap joins the cell before it
   });
 });
 

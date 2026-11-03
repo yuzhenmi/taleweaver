@@ -42,6 +42,8 @@ export interface TableGrid<Id extends string = string> {
    * empty slot (ragged rows). Rectangular: every row has `columnCount` entries.
    */
   readonly occupancy: readonly (Id | null)[][];
+  /** Cells left unplaced because their slot would be at or past `maxColumns` (document order). */
+  readonly overflow: readonly Id[];
 }
 
 /**
@@ -56,11 +58,16 @@ export interface TableGrid<Id extends string = string> {
  *     earlier rectangle covering a slot below would cover row r's slot too).
  * A clipped cell's AssignedCell carries the clipped spans.
  *
+ * `maxColumns` caps the grid's width: a colSpan is clipped to it, and a cell whose slot
+ * would be at or past it is not placed (`overflow`; the caller decides where its content
+ * reads). The default is no cap.
+ *
  * Pure: no geometry, just the integer grid.
  */
-export function assignTableGrid<Id extends string>(rows: readonly (readonly GridCell<Id>[])[]): TableGrid<Id> {
+export function assignTableGrid<Id extends string>(rows: readonly (readonly GridCell<Id>[])[], maxColumns = Number.POSITIVE_INFINITY): TableGrid<Id> {
   const rowCount = rows.length;
   const cells: AssignedCell<Id>[] = [];
+  const overflow: Id[] = [];
   // occ[r][c] = owning cell id (undefined = free). Made rectangular at the end.
   const occ: (Id | undefined)[][] = rows.map(() => []);
   const free = (r: number, c: number): boolean => occ[r]?.[c] === undefined;
@@ -70,8 +77,12 @@ export function assignTableGrid<Id extends string>(rows: readonly (readonly Grid
     let c = 0;
     for (const cell of rows[r] ?? []) {
       while (!free(r, c)) c++;
+      if (c >= maxColumns) {
+        overflow.push(cell.cellId);
+        continue;
+      }
       let colSpan = 1;
-      const wantCols = clampSpan(cell.colSpan);
+      const wantCols = Math.min(clampSpan(cell.colSpan), maxColumns - c);
       while (colSpan < wantCols && free(r, c + colSpan)) colSpan++;
       // Rows below are then free across that width: an earlier rectangle covering a slot below
       // starts at or above row r, so it would cover the slot in row r too.
@@ -92,5 +103,5 @@ export function assignTableGrid<Id extends string>(rows: readonly (readonly Grid
     return out;
   });
 
-  return { cells, columnCount, occupancy };
+  return { cells, columnCount, occupancy, overflow };
 }

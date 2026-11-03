@@ -2,8 +2,10 @@
  * RT2–RT4 (tables continuous-text design §2 + its amendments): a parsed table (RT1,
  * `parse-tables.ts`) → its grid. Total: any parse forms a rectangular grid; nothing is
  * rewritten.
- *   - RT2: spans read as integers ≥ 1 (else 1), `colSpan` capped at 1000 (HTML); the
- *     §17.5 forming with clipping (`table-grid/`). Column count = the widest row.
+ *   - RT2: spans read as integers ≥ 1 (else 1); the §17.5 forming with clipping
+ *     (`table-grid/`). Column count = the widest row, at most {@link TABLE_COLUMN_CAP}
+ *     (Word's): spans clip to it, and a cell whose slot would be past it joins the cell
+ *     before it in its row (its content appended), so a row reads at most that many cells.
  *   - Virtual end cells: every free slot of a row reads a 1×1 empty cell
  *     `${nextMark}/fill<col>` (next mark = the following `⟨r⟩` / `⟧`; `⟦` for the last
  *     row of an unclosed table), made real by its first edit.
@@ -20,11 +22,9 @@ import * as Y from "yjs";
 import type { BlockId } from "../../block";
 import { emptyCellParagraphId, virtualCellId } from "../../ids";
 import { COLS_KEY, COL_SPAN_KEY, HEADER_KEY, ROW_SPAN_KEY, WIDTH_KEY } from "../../storage/keys";
+import { TABLE_COLUMN_CAP } from "../../storage/limits";
 import { assignTableGrid, type GridCell } from "../../../table-grid/assign-table-grid";
 import { type BlockEntity, type Entity, isBlockEntity } from "../entities";
-
-/** HTML's colspan cap. */
-const COL_SPAN_CAP = 1000;
 
 export interface ParsedCell {
   readonly id: BlockId;
@@ -116,9 +116,9 @@ const blocks = (es: readonly Entity[]): BlockEntity[] => es.filter(isBlockEntity
 /** Form `t`, closed by its `⟧` `closeId` (null: by `[S]` / `<end>`). `trailing`: its leads when it has no cell (they read right after it). */
 export function formTable(t: ParsedTable, closeId: BlockId | null): { formed: FormedTable; trailing: Entity[] } {
   const input: GridCell[][] = t.rows.map((r) =>
-    r.cells.map((c) => ({ cellId: c.id, rowSpan: spanOf(c.map.get(ROW_SPAN_KEY)), colSpan: Math.min(spanOf(c.map.get(COL_SPAN_KEY)), COL_SPAN_CAP) })),
+    r.cells.map((c) => ({ cellId: c.id, rowSpan: spanOf(c.map.get(ROW_SPAN_KEY)), colSpan: spanOf(c.map.get(COL_SPAN_KEY)) })),
   );
-  const grid = assignTableGrid(input);
+  const grid = assignTableGrid(input, TABLE_COLUMN_CAP);
   if (grid.columnCount === 0) {
     return { formed: { rows: [], headerCount: 0, widths: null }, trailing: [...t.lead, ...t.rows.flatMap((r) => r.lead)] };
   }
@@ -127,10 +127,17 @@ export function formTable(t: ParsedTable, closeId: BlockId | null): { formed: Fo
   const ents = new Map<BlockId, BlockEntity[]>();
   for (const r of t.rows) for (const c of r.cells) ents.set(c.id, blocks(c.ents));
   const rowCells: Slot[][] = t.rows.map((r, i) => {
-    const out = r.cells.map((c): Slot => {
+    const out: Slot[] = [];
+    for (const c of r.cells) {
       const g = placed.get(c.id);
-      return { id: c.id, map: c.map, col: g?.gridCol ?? 0, rowSpan: g?.rowSpan ?? 1, colSpan: g?.colSpan ?? 1 };
-    });
+      if (g !== undefined) {
+        out.push({ id: c.id, map: c.map, col: g.gridCol, rowSpan: g.rowSpan, colSpan: g.colSpan });
+        continue;
+      }
+      // Past the width cap: its content joins the cell before it in the row (or the head covering the row's slot 0).
+      const into = out[out.length - 1]?.id ?? grid.occupancy[i]?.[0];
+      if (into !== undefined && into !== null) ents.get(into)?.push(...(ents.get(c.id) ?? []));
+    }
     const nextMark = t.rows[i + 1]?.id ?? closeId ?? t.id;
     (grid.occupancy[i] ?? []).forEach((owner, col) => {
       if (owner !== null) return;
