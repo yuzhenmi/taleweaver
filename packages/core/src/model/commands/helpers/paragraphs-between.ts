@@ -1,4 +1,4 @@
-import { type BlockId, BLOCK_TYPES } from "../../block";
+import type { BlockId } from "../../block";
 import { resolveBlock } from "../../document/blocks";
 import type { Document } from "../../document/types";
 import { type ParagraphLayout, paragraphLayout } from "../../position/paragraph-layout";
@@ -11,10 +11,9 @@ export function* paragraphsBetween(d: Document, startId: BlockId, endId: BlockId
     if (L !== null) yield L;
     if (b.block.id === endId) return;
     let nextId = b.block.nextSiblingId;
-    const parent = b.kind === "block" && b.block.parentId !== null ? d.trees.block.get(b.block.parentId) : undefined;
-    if (nextId === null && parent?.type === BLOCK_TYPES.section) {
-      // Across a section boundary: the next non-empty section's first child (a cell's story ends at the cell).
-      for (let s = parent.nextSiblingId; s !== null && nextId === null; ) {
+    if (nextId === null && b.kind === "block" && b.block.parentId !== null) {
+      // Across a section boundary: the next non-empty section's first child.
+      for (let s = resolveBlock(d, b.block.parentId)?.block.nextSiblingId ?? null; s !== null && nextId === null; ) {
         const sec = resolveBlock(d, s)?.block;
         nextId = sec?.firstChildId ?? null;
         s = sec?.nextSiblingId ?? null;

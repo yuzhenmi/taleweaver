@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import { resolveBlock } from "../document/blocks";
 import type { Plan, Write } from "../plan";
 import { BODIES_KEY } from "../storage/keys";
 import { childMap } from "../storage/map-reads";
@@ -7,7 +8,7 @@ import { selectionStart } from "./helpers/over-object";
 import { plan } from "./helpers/build-plan";
 import { type Region, type Variant, linkAttr, linkKey } from "./helpers/header-footer-link";
 import { inSections } from "./helpers/placement";
-import { sectionOf, sectionOwner } from "./helpers/section-owner";
+import { sectionOwner } from "./helpers/section-owner";
 import { keysWrite } from "./helpers/writes";
 
 /**
@@ -23,7 +24,7 @@ export function removeHeaderFooter(ctx: CommandContext, region: Region, variant:
   if (owner === null || bodies === null) return null;
   const key = linkKey(region, variant);
   const own = owner.get(key);
-  const section = sectionOf(d, start);
+  const section = start.L.block.parentId === null ? undefined : resolveBlock(d, start.L.block.parentId)?.block;
   if (section?.attrs[linkAttr(region, variant)] === undefined) return null; // the section shows none
   const writes: Write[] = keysWrite(owner, { [key]: "none" });
   if (typeof own === "string" && bodies.get(own) instanceof Y.Map) writes.push({ k: "entry", map: bodies, key: own, value: null });

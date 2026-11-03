@@ -23,7 +23,7 @@
  * version's segments do the rest.
  */
 import * as Y from "yjs";
-import { type Block, type BlockId, BLOCK_TYPES } from "../block";
+import type { Block, BlockId } from "../block";
 import { resolveBlock } from "../document/blocks";
 import type { Document, FlowState, TreeKind } from "../document/types";
 import { flowEndId } from "../ids";
@@ -165,13 +165,10 @@ export function terminatorOf(d: Document, fs: FlowState, id: string): Terminator
   return findTerminator(d, fs, id);
 }
 
-/** The flow a record of `tree` belongs to. */
+/** The flow a record of `tree` belongs to (cells arrive in P2). */
 export function flowOfBlock(d: Document, block: Block, tree: TreeKind): FlowState | undefined {
-  // A main-tree paragraph's parent is a section (not a flow: the root holds it) or a table cell (its own flow).
-  if (block.parentId === null) return undefined;
-  const own = d.flows.get(block.parentId);
-  if (own !== undefined || tree !== "block") return own;
-  return d.trees.block.get(block.parentId)?.type === BLOCK_TYPES.section ? d.flows.get(d.rootId) : undefined;
+  const holder = tree === "block" ? d.rootId : block.parentId;
+  return holder === null ? undefined : d.flows.get(holder);
 }
 
 /** The point right after a terminator. */

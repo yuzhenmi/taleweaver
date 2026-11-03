@@ -2,7 +2,7 @@ import type * as Y from "yjs";
 import { attrsEqual } from "../equality";
 import type { BlockId, InlineItem } from "../block";
 import { afterObjectId, debrisBeforeId, flowEndId } from "../ids";
-import { holdsFlows, isBlockObject, isParagraphBreak, isSectionBreak, isText } from "../scan/kinds";
+import { isBlockObject, isParagraphBreak, isSectionBreak, isText } from "../scan/kinds";
 import type { FootnoteRef, Segment, Token } from "../scan/tokens";
 
 // ---------------------------------------------------------------------------
@@ -38,8 +38,6 @@ export type BlockEntity = ParaEntity | TocEntity | TableEntity;
 
 export const isParaEntity = (e: Entity): e is ParaEntity => isParagraphBreak(e.k);
 export const isSectionBreakEntity = (e: Entity): e is SectionBreakEntity => isSectionBreak(e.k);
-/** A block object holding flows (a table, P2). */
-export const isTableEntity = (e: Entity): e is TableEntity => holdsFlows(e.k);
 /** Every entity but `[S]` is a block record (an `[S]` is its section's end, R4). */
 export const isBlockEntity = (e: Entity): e is BlockEntity => !isSectionBreak(e.k);
 

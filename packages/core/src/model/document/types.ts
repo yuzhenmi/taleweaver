@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 import type { CounterStyle } from "../../styles/format-counter";
-import type { Block, BlockId } from "../block";
+import type { Block, BlockId, ReadonlyAttrs } from "../block";
 import type { ObjectKindRegistry } from "../object-kinds";
 import type { PMap } from "../pmap";
 import type { Segment } from "../scan/tokens";
@@ -35,28 +35,24 @@ export interface TableTrack {
   readonly map: Y.Map<unknown>;
 }
 
-/** A RowMap's `c:<col>:rowSpanTo` / `c:<col>:colSpanTo` (R7: resolved against the track indices when admitted). */
-export interface SpanRequest {
-  readonly rowTo: unknown;
-  readonly colTo: unknown;
-}
-
 export interface TableRowInfo extends TableTrack {
   /** The RowMap's item id: the row record's id. */
   readonly id: BlockId;
   /** `header === true` (R6h reads the leading run). */
   readonly header: boolean;
-  /** The row's span keys, by column key (the table's columns when the row was read). */
-  readonly spans: ReadonlyMap<string, SpanRequest>;
 }
 
-/** A rendered cell: an admitted anchor slot (R7) and the rectangle it spans (its row: the `rowCells` entry holding it). */
+/** A rendered cell: an admitted anchor slot (R7) and the rectangle it spans. */
 export interface TableCellInfo {
   readonly id: BlockId;
-  readonly colKey: string;
+  readonly row: number;
+  readonly col: number;
   readonly rowSpan: number;
   readonly colSpan: number;
-  // The cell's flow is its FlowState's (`flows`), its attrs its record's.
+  /** `c:<col>:flow`, or null (X4: one empty default paragraph `${id}/end`). */
+  readonly flow: Y.Array<Y.Text> | null;
+  /** `c:<col>:a:*`, with `rowSpan` / `colSpan` set only when > 1. */
+  readonly attrs: ReadonlyAttrs;
 }
 
 /** Derivation state of one table (internal to the model; plans read it). */
@@ -64,13 +60,10 @@ export interface TableState {
   readonly id: BlockId;
   readonly map: Y.Map<unknown>;
   readonly tree: TreeKind;
-  /** R6 rows / columns, and their key → index. */
   readonly rows: readonly TableRowInfo[];
   readonly cols: readonly TableTrack[];
-  readonly rowIndex: ReadonlyMap<string, number>;
-  readonly colIndex: ReadonlyMap<string, number>;
-  /** Rendered cells per row (aligned with `rows`). Empty when the table has no row or no column. */
-  readonly rowCells: readonly (readonly TableCellInfo[])[];
+  /** Rendered cells, row-major. Empty when the table has no row or no column. */
+  readonly cells: readonly TableCellInfo[];
   /** R6h: rendered header rows. */
   readonly headerCount: number;
   /** R10: normalised column widths, or null (auto layout). */

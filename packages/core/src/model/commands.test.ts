@@ -8,7 +8,7 @@ import * as Y from "yjs";
 import { caretAt } from "./position/model-position";
 import { idOf } from "./test-helpers/fixture";
 import { Harness, pair, sync, typeLines } from "./test-helpers/harness";
-import { cellPiece, testRow } from "./test-helpers/table";
+import { testRow } from "./test-helpers/table";
 import { deleteBackward } from "./commands/delete-backward";
 import { deleteForward } from "./commands/delete-forward";
 import { deleteSelection } from "./commands/delete-selection";
@@ -19,7 +19,6 @@ import { setParagraphAttrs } from "./commands/set-paragraph-attrs";
 import { splitParagraph } from "./commands/split-paragraph";
 import { deleteBlockObject } from "./commands/delete-block-object";
 import type { FragmentItem } from "./commands/helpers/fragment";
-import { paragraphsBetween } from "./commands/helpers/paragraphs-between";
 import { insertField } from "./commands/insert-field";
 import { insertFootnote } from "./commands/insert-footnote";
 import { insertHeaderFooter } from "./commands/insert-header-footer";
@@ -544,47 +543,6 @@ describe("S1 footnotes, S2 headers / footers, markers", () => {
     h.run(removeHeaderFooter, "footer");
     expect(h.templateBodies()).toEqual([]);
     expect(h.version.docMap.get("h:footer:default")).toBe("none");
-  });
-
-  it("in a table cell (here nested in another table's cell, in the first of two sections): S2 applies to that section; [S] is refused; a TOC goes in; Backspace / Delete at the cell's edges do nothing", () => {
-    const h = doc("P\nB");
-    h.caret(1, 0);
-    h.run(insertSectionBreak); // P¶ [S] B¶
-    const innerRow = testRow("r", { a: "in", b: "x" });
-    const inner = newTable([innerRow], [newColMap("a"), newColMap("b")]);
-    const outerFlow = new Y.Array<Y.Text>();
-    const outerPiece = new Y.Text();
-    outerPiece.insertEmbed(0, inner);
-    outerPiece.insertEmbed(1, newParagraphMark());
-    outerFlow.insert(0, [outerPiece]);
-    const outer = newTable([testRow("r", { a: outerFlow })], [newColMap("a")]);
-    h.f.doc.transact(() => h.f.piece.insertEmbed(2, outer)); // P¶ [table] [S] B¶
-    const cell = cellId(idOf(inner), "r", "a");
-    const cellPara = h.version.trees.block.get(cell)?.firstChildId ?? "";
-    const at = (offset: number): void => void (h.selection = { anchor: { blockId: cellPara, offset }, focus: { blockId: cellPara, offset } });
-    // A cell's story ends at the cell: the paragraph walk never goes on into the next cell.
-    expect([...paragraphsBetween(h.version, cellPara, "none")].map((L) => L.block.id)).toEqual([cellPara]);
-    at(0);
-    expect(h.run(deleteBackward)).toBe(false);
-    at(2);
-    expect(h.run(deleteForward)).toBe(false);
-    expect(h.run(insertSectionBreak)).toBe(false);
-    expect(h.run(paste, [{ k: "para" }, { k: "S", keys: {} }, { k: "text", text: "z" }])).toBe(false);
-    expect(cellPiece(innerRow, "a").toString()).toBe("in");
-    const [s1, s2] = h.version.flows.get(h.version.rootId)?.sections ?? [];
-    at(1);
-    h.run(insertHeaderFooter, "header");
-    expect(h.templateBodies()).toEqual([["paragraph:"]]);
-    expect(s1?.map.get("h:header:default")).toEqual(expect.any(String));
-    expect(s2?.map.get("h:header:default")).toBeUndefined();
-    at(1);
-    h.run(removeHeaderFooter, "header");
-    expect(s1?.map.get("h:header:default")).toBe("none");
-    at(1);
-    expect(h.run(insertTableOfContents)).toBe(true);
-    const kids: string[] = [];
-    for (let id = h.version.trees.block.get(cell)?.firstChildId ?? null; id !== null; id = h.version.trees.block.get(id)?.nextSiblingId ?? null) kids.push(h.version.trees.block.get(id)?.type ?? "?");
-    expect(kids).toEqual(["paragraph", "table-of-contents", "paragraph"]);
   });
 
   it("markers wrap the selection (zero-width at a caret) and are removed by key", () => {
