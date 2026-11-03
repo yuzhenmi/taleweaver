@@ -14,6 +14,11 @@ export interface Unit {
   readonly label: string;
   /** The ¶ of a block object's implicit paragraph: read only while no paragraph follows the object. */
   readonly implicit?: true;
+  /**
+   * A table's two ends (category containerBlock; design §1 faces): `open` (`⟦`) is the table seen from before it and a
+   * container start seen from after it; `close` (`⟧`) is a container end seen from before it and the table from after it.
+   */
+  readonly face?: "open" | "close";
 }
 
 /** A command's effect: inserts `n` of `kind` (`text`: the inserted characters; over the range, unless the kind is zero-width: an anchor wraps it), formats (`key` set to `value` on run units / paragraphs), or deletes (`dir` -1 Backspace, 1 Delete, 0 range delete). */
@@ -48,6 +53,29 @@ const traitsOf = (u: Unit | undefined) => (u === undefined ? undefined : CATEGOR
 const zeroWidth = (u: Unit | undefined): boolean => traitsOf(u)?.zeroWidth === true;
 const terminator = (u: Unit | undefined): boolean => traitsOf(u)?.terminator === true;
 const blockObject = (u: Unit | undefined): boolean => traitsOf(u)?.blockObject === true;
+/** Seen from right after it, a block object (a TOC, a table's `⟧`); a `⟦` is a container start, as the flow start. */
+const objectEnd = (u: Unit | undefined): boolean => blockObject(u) && u?.face !== "open";
+/** Seen from right before it, a container end (a table's `⟧`), as the flow end. */
+const containerEnd = (u: Unit | undefined): boolean => u?.face === "close";
+/** `[s, e)` holds no table end without its other end (a range across a cell edge is refused, until cell selections). */
+const balanced = (u: readonly Unit[], s: number, e: number): boolean => {
+  let depth = 0;
+  for (let i = s; i < e; i++) {
+    depth += u[i]?.face === "open" ? 1 : u[i]?.face === "close" ? -1 : 0;
+    if (depth < 0) return false;
+  }
+  return depth === 0;
+};
+/** A block object's units from `s` (a table: `⟦` to its `⟧`); its end, exclusive. */
+export const objectSpan = (u: readonly Unit[], s: number): number => {
+  if (u[s]?.face !== "open") return s + 1;
+  let depth = 0;
+  for (let i = s; i < u.length; i++) {
+    depth += u[i]?.face === "open" ? 1 : u[i]?.face === "close" ? -1 : 0;
+    if (depth === 0) return i + 1;
+  }
+  return u.length;
+};
 /** Ends a paragraph: the ¶ of one (the only terminator commands put inside a flow's paragraph sequence alongside block objects / [S]). */
 const isPara = (u: Unit | undefined): boolean => u?.c === "paragraphBreak";
 /** A terminator that is not a ¶: a block object or [S]. */
@@ -70,10 +98,10 @@ const firstParaFrom = (u: readonly Unit[], i: number): number => {
   return j;
 };
 
-/** The start of the paragraph at or after `i`, past the block objects there (a C10 caret, when the deleted object's implicit paragraph went with it). */
+/** The start of the paragraph at or after `i`, past the block objects there — into a table's first cell (a C10 caret, when the deleted object's implicit paragraph went with it). */
 const pastBlockObjects = (u: readonly Unit[], i: number): number => {
   let j = i;
-  while (blockObject(u[j])) j++;
+  while (blockObject(u[j]) && !containerEnd(u[j])) j++;
   return j;
 };
 
@@ -83,7 +111,7 @@ const real = (u: Unit): Unit => (u.implicit === true ? { c: u.c, label: u.label 
 const NOOP: Expectation = { t: "noop" };
 /** The read of `units`: an implicit ¶ stays only where the read rule still puts one (right after a block object, a non-¶ terminator or the end next); index `at` moves with the units before it. */
 function settle(units: readonly Unit[], at: number): { units: Unit[]; at: number } {
-  const read = (u: Unit, i: number): boolean => u.implicit !== true || (blockObject(units[i - 1]) && (units[i + 1] === undefined || isBoundary(units[i + 1])));
+  const read = (u: Unit, i: number): boolean => u.implicit !== true || (objectEnd(units[i - 1]) && (units[i + 1] === undefined || isBoundary(units[i + 1])));
   return { units: units.filter(read), at: at - units.filter((u, i) => i < at && !read(u, i)).length };
 }
 const seq = (units: readonly Unit[], caret: number | null): Expectation => {
@@ -99,14 +127,16 @@ function deleteAtCaret(u: readonly Unit[], i: number, dir: -1 | 1): Expectation 
     let j = i - 1;
     while (j >= 0 && zeroWidth(u[j])) j--;
     const c = u[j];
-    if (c === undefined) return NOOP;
+    // The flow's or a cell's start.
+    if (c === undefined || c.face === "open") return NOOP;
     // C4r: at a paragraph start after a rule paragraph, that whole paragraph goes.
     // Its anchor edges stay (C9).
     const rule = pastZeroWidth(u, j - 1, -1);
     if (isPara(c) && takesItsParagraphAt(u, rule)) return removing(u, [rule, j], rule);
     const t = CATEGORIES[c.c];
-    // C5: after a block object holding flows, an empty real paragraph goes when a paragraph (not a boundary, nor the end) follows it.
-    if (t.holdsFlows) return j === i - 1 && isPara(u[i]) && u[i]?.implicit !== true && u[i + 1] !== undefined && !isBoundary(u[i + 1]) ? removing(u, [i], j) : NOOP;
+    // C5: after a table, an empty real paragraph goes when a paragraph (not a boundary, nor the end) follows it; the
+    // caret to the end of the table's last paragraph (before its ¶, just before the `⟧`).
+    if (t.holdsFlows) return j === i - 1 && isPara(u[i]) && u[i]?.implicit !== true && u[i + 1] !== undefined && !isBoundary(u[i + 1]) ? removing(u, [i], j - 1) : NOOP;
     if (t.blockObject) return removing(u, [j], j);
     // C7: the paragraphs around it join (the ¶ before it goes too).
     if (t.removedByJoin && isPara(u[j - 1])) return removing(u, [j - 1, j], j - 1);
@@ -120,9 +150,12 @@ function deleteAtCaret(u: readonly Unit[], i: number, dir: -1 | 1): Expectation 
   const next = u[j + 1];
   if (next === undefined) return NOOP;
   if (isBoundary(next)) {
+    // A cell's end (its `⟧`), as the flow's end.
+    if (containerEnd(next)) return NOOP;
     const t = CATEGORIES[next.c];
-    // C8's C5 mirror: an empty real paragraph before a block object holding flows goes, unless a block object precedes it (W2's).
-    if (t.holdsFlows) return j === i && c.implicit !== true && (i === 0 || (terminator(u[i - 1]) && !blockObject(u[i - 1]))) ? removing(u, [j], i) : NOOP;
+    // C8's C5 mirror: an empty real paragraph before a table goes, unless a block object precedes it (W2's); the caret
+    // to the table's first paragraph.
+    if (t.holdsFlows) return j === i && c.implicit !== true && (i === 0 || (terminator(u[i - 1]) && !objectEnd(u[i - 1]))) ? removing(u, [j], pastBlockObjects(u, j + 1) - 1) : NOOP;
     if (t.blockObject) return removing(u, [j + 1], i);
     // C8 and its correction: a join only with a paragraph on the far side.
     const joins = u[j + 2] !== undefined && !isBoundary(u[j + 2]);
@@ -137,11 +170,17 @@ function deleteAtCaret(u: readonly Unit[], i: number, dir: -1 | 1): Expectation 
 const deleteRange = (u: readonly Unit[], s: number, e: number): Unit[] => [...u.slice(0, s), ...u.slice(s, e).filter(zeroWidth), ...u.slice(e)];
 
 function insert(e: Effect & { t: "insert" }, x: Situation): Expectation {
-  if (!allowedIn(e.kind, x.container)) return NOOP;
+  // Inside a table of the container (an open `⟦` before `s`) the position is in a cell.
+  let depth = 0;
+  for (let i = 0; i < x.s; i++) depth += x.units[i]?.face === "open" ? 1 : x.units[i]?.face === "close" ? -1 : 0;
+  if (!allowedIn(e.kind, depth > 0 ? "cell" : x.container)) return NOOP;
   const cat = categoryOfKind(e.kind);
   const t = CATEGORIES[cat];
   const { units: u, s } = x;
-  const fresh = (n: number): Unit[] => Array.from({ length: n }, (_, i) => unit(cat, e.text?.[i]));
+  // A table: `⟦`, one empty cell's ¶, `⟧` (the commands insert one-cell tables here).
+  const fresh = (n: number): Unit[] =>
+    t.holdsFlows ? [{ c: cat, label: "⟦", face: "open" }, unit("paragraphBreak"), { c: cat, label: "⟧", face: "close" }] : Array.from({ length: n }, (_, i) => unit(cat, e.text?.[i]));
+  if (x.object !== true && !balanced(u, s, x.e)) return NOOP;
   // A zero-width kind wraps the selection: its edges at both ends, in paragraphs (past the block objects / [S] a range starts before).
   // Over an object selection it is refused, as every command that formats or wraps the selection.
   if (t.zeroWidth) {
@@ -151,7 +190,7 @@ function insert(e: Effect & { t: "insert" }, x: Situation): Expectation {
     return seq([...u.slice(0, a), ...fresh(1), ...u.slice(a, x.e), ...fresh(e.n - 1), ...u.slice(x.e)], null);
   }
   // C10 then a caret: an object selection's object goes; what replaces it goes at the start of the paragraph after it.
-  const d = x.object === true ? u.filter((_, i) => i !== s) : s === x.e ? [...u] : deleteRange(u, s, x.e);
+  const d = x.object === true ? u.filter((_, i) => i < s || i >= x.e) : s === x.e ? [...u] : deleteRange(u, s, x.e);
   // What replaces the selection goes in the paragraph at `s` (after an object selection's object there is always
   // one: W2's, or its implicit one, which then gets its ¶).
   const target = firstParaFrom(d, s);
@@ -167,9 +206,10 @@ function insert(e: Effect & { t: "insert" }, x: Situation): Expectation {
     // C15: one removed by a join is inserted by a split (C7's inverse). C14: a block object splits at k > 0; at k = 0
     // it gets a ¶ first only after another block object (W2).
     const before = d[s - 1];
-    const lead = t.removedByJoin || (before !== undefined && (!terminator(before) || blockObject(before)));
+    const lead = t.removedByJoin || (before !== undefined && (!terminator(before) || objectEnd(before)));
     const ins: Unit[] = lead ? [unit("paragraphBreak"), ...fresh(1)] : fresh(1);
-    return put(s, ins, s + ins.length);
+    // The caret: after it (the tail's start); a table's: its cell (Word / GDocs).
+    return put(s, ins, t.holdsFlows ? s + ins.length - 2 : s + ins.length);
   }
   return put(s, fresh(e.n), s + e.n);
 }
@@ -177,7 +217,7 @@ function insert(e: Effect & { t: "insert" }, x: Situation): Expectation {
 function format(e: Effect & { t: "format" }, x: Situation): Expectation {
   // An object selection is not formatted: the commands refuse one today. (Word formats a selected table's cell text;
   // a containerBlock's object selection formatting its cells is tracked for M5. An atomic block has no text to format.)
-  if (x.object === true) return NOOP;
+  if (x.object === true || !balanced(x.units, x.s, x.e)) return NOOP;
   const { units: u, s } = x;
   let at: number[];
   if (e.scope === "run") {
@@ -198,12 +238,13 @@ export function expectation(e: Effect, x0: Situation): Expectation {
   const x: Situation = { ...x0, units: x0.units.map((u, i) => (i === caretPara ? real(u) : u)) };
   if (e.t === "format") return format(e, x);
   if (e.t === "insert") return insert(e, x);
-  // C10: an object selection's object goes, whatever its category; the caret where it was (the paragraph after it).
+  // C10: an object selection's object goes (a table: `⟦` to `⟧`), whatever its category; the caret where it was (the paragraph after it).
   if (x.object === true) {
-    const left = settle(x.units.filter((_, i) => i !== x.s), x.s);
+    const left = settle(x.units.filter((_, i) => i < x.s || i >= x.e), x.s);
     return seq(left.units, pastBlockObjects(left.units, left.at));
   }
   if (x.s !== x.e) {
+    if (!balanced(x.units, x.s, x.e)) return NOOP;
     // A range of zero-width units only deletes nothing.
     const d = deleteRange(x.units, x.s, x.e);
     return d.length === x.units.length ? NOOP : seq(d, x.s);

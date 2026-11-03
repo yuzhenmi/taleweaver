@@ -9,9 +9,8 @@
  * checks the generic invariants (plan total, O2 / O4 / O5(a) validity, no A1 / A2 firing,
  * the caret a valid stop, undo / redo exact) and the trait-derived expectation
  * (`expectations.ts`: the whole category sequence after, the caret, the format reached).
- * Failures are collected per (container, pair, command). Only table cells may skip a case or
- * drop a selection (select-all scoped to a cell is N3 / N7); a caret at a table's edge that
- * resolves into one of its cells is counted and not judged (the linear read has no inside).
+ * Failures are collected per (container, pair, command). The linear read shows a table as its `⟦`, its cells' content
+ * and its `⟧` (design §1 faces), so a caret in a table is judged like any other.
  */
 import { afterAll, describe, expect, it } from "vitest";
 import type { CommandContext } from "../commands/command-context";
@@ -23,6 +22,7 @@ import { insertLineBreak } from "../commands/insert-line-break";
 import { insertMarker } from "../commands/insert-marker";
 import { insertObject } from "../commands/insert-object";
 import { insertSectionBreak } from "../commands/insert-section-break";
+import { insertTable } from "../commands/insert-table";
 import { insertTableOfContents } from "../commands/insert-table-of-contents";
 import { insertText } from "../commands/insert-text";
 import { paste } from "../commands/paste";
@@ -48,7 +48,7 @@ import { resolvePosition } from "../position/resolve-position";
 import { CATEGORIES, type Category, type Container } from "../scan/kinds";
 import { expectSameVersion } from "../test-helpers/expect-same-version";
 import { readOf, selectionOf } from "../test-helpers/harness";
-import { type Effect, type Expectation, type Unit, caretStop, expectation } from "./expectations";
+import { type Effect, type Expectation, type Unit, caretStop, expectation, objectSpan } from "./expectations";
 import { CATEGORY_LIST, CONTAINERS, type Case, type Linear, build, flowOf, linear, placeable, sequence, storageLength, unreachable } from "./fixtures";
 
 interface Command {
@@ -58,7 +58,7 @@ interface Command {
   readonly effect: Effect;
 }
 
-/** The commands under test; there is no insertTable command yet (containerBlock is inserted by none). */
+/** The commands under test. */
 const COMMANDS: readonly Command[] = [
   { name: "insertText", run: (c) => insertText(c, "z"), edit: "insert", effect: { t: "insert", kind: "text", n: 1, text: "z" } },
   { name: "splitParagraph", run: splitParagraph, edit: "command", effect: { t: "insert", kind: "para", n: 1 } },
@@ -72,6 +72,7 @@ const COMMANDS: readonly Command[] = [
   { name: "insertObject", run: (c) => insertObject(c, "image", { props: { src: "b.png" } }), edit: "command", effect: { t: "insert", kind: "object", n: 1 } },
   { name: "insertHorizontalRule", run: insertHorizontalRule, edit: "command", effect: { t: "insert", kind: "hr", n: 1 } },
   { name: "insertTableOfContents", run: insertTableOfContents, edit: "command", effect: { t: "insert", kind: "toc", n: 1 } },
+  { name: "insertTable", run: (c) => insertTable(c, 1, 1), edit: "command", effect: { t: "insert", kind: "table", n: 1 } },
   { name: "insertSectionBreak", run: insertSectionBreak, edit: "command", effect: { t: "insert", kind: "S", n: 1 } },
   { name: "insertMarker", run: (c) => insertMarker(c, "m", "new"), edit: "command", effect: { t: "insert", kind: "marker", n: 2 } },
 ];
@@ -92,14 +93,11 @@ function selections(c: Case, points: readonly [number, number, number]): { sels:
   const seen = new Set<string>();
   const assocs: readonly (-1 | 1)[] = [-1, 1];
   const named: readonly [string, number][] = [["before", points[0]], ["between", points[1]], ["after", points[2]]];
-  // A caret at a table's edge may resolve into its first / last cell (the nearest paragraph): outside the container's
-  // linear read, so not modelled here; the `cell` container covers positions in cells.
   const read = linear(d, c.where).paraStart;
   for (const [name, i] of named) {
     for (const assoc of assocs) {
       const p = at(i, assoc);
-      if (p === null) dropped.push(`caret ${name}${assoc < 0 ? "-" : "+"}`);
-      if (p !== null && !read.has(p.blockId)) stats.inTable++;
+      if (p === null || !read.has(p.blockId)) dropped.push(`caret ${name}${assoc < 0 ? "-" : "+"}`);
       if (p === null || !read.has(p.blockId) || seen.has(`${p.blockId}:${p.offset}`)) continue;
       seen.add(`${p.blockId}:${p.offset}`);
       out.push({ label: `caret ${name}${assoc < 0 ? "-" : "+"}`, sel: { anchor: p, focus: p } });
@@ -131,7 +129,7 @@ function indexOf(L: Linear, p: ModelPosition): number | null {
 function spanOf(L: Linear, sel: ModelSelection): { s: number; e: number; object?: boolean } | null {
   if (isObjectSelection(sel)) {
     const i = L.blockAt.get(sel.object);
-    return i === undefined ? null : { s: i, e: i + 1, object: true };
+    return i === undefined ? null : { s: i, e: objectSpan(L.units, i), object: true };
   }
   if (isAllSelection(sel)) return { s: 0, e: L.units.length - 1 };
   const a = indexOf(L, sel.anchor);
@@ -191,17 +189,12 @@ function caretOk(d: Document, sel: ModelSelection): string[] {
 interface Stats {
   cases: number;
   failures: Map<string, string[]>;
-  skipped: Set<string>;
-  /** Selections dropped in table cells (the known gap); anywhere else a dropped one fails. */
-  droppedInCells: number;
-  /** Carets at a table's edge that resolve into a cell (not modelled by the container's linear read). */
-  inTable: number;
 }
-const stats: Stats = { cases: 0, failures: new Map(), skipped: new Set(), droppedInCells: 0, inTable: 0 };
+const stats: Stats = { cases: 0, failures: new Map() };
 const t0 = Date.now();
 
 /** Run `cmd` on the pair in `container` at every selection; the failures (each with a repro line). */
-function runCase(container: Container, l: Category, r: Category, cmd: Command): string[] | "unresolved" {
+function runCase(container: Container, l: Category, r: Category, cmd: Command): string[] {
   const depth = container === "cell" ? 1 : 0;
   const seq = sequence(l, r, depth);
   const lenOf = storageLength;
@@ -210,11 +203,8 @@ function runCase(container: Container, l: Category, r: Category, cmd: Command): 
   const { sels, dropped } = selections(probe, points);
   const unresolved = sels.length === 0 || sels.some((s) => isTextSelection(s.sel) && paragraphLayout(probe.h.version, s.sel.focus.blockId) === null);
   const fails: string[] = [];
-  if (container === "cell") {
-    if (unresolved) return "unresolved";
-    stats.droppedInCells += dropped.length;
-  } else if (unresolved) return [`x¶ ${l} ${r} y¶: positions do not resolve`];
-  else if (dropped.length > 0) fails.push(`x¶ ${l} ${r} y¶: dropped ${dropped.join(", ")}`);
+  if (unresolved) return [`x¶ ${l} ${r} y¶: positions do not resolve`];
+  if (dropped.length > 0) fails.push(`x¶ ${l} ${r} y¶: dropped ${dropped.join(", ")}`);
   for (const { label, sel } of sels) {
     stats.cases++;
     const c = build(container, sequence(l, r, depth));
@@ -270,11 +260,7 @@ function runCase(container: Container, l: Category, r: Category, cmd: Command): 
     const caret = isTextSelection(hs) && samePosition(hs.anchor, hs.focus) ? indexOf(L1, hs.focus) : null;
     const same = sameRead(read1, read0);
     // The adjacent-objects fixture's own W2 break may stand (by identity); any other W2 break fails.
-    // A caret moved into a table next to the pair (C10 before a table: the nearest paragraph is its first cell) is not
-    // modelled by the linear read; the rest is still judged.
-    const inTable = isTextSelection(hs) && samePosition(hs.anchor, hs.focus) && caret === null && paragraphLayout(d1, hs.focus.blockId) !== null;
-    if (inTable) stats.inTable++;
-    const verdict = judge(inTable && x.t === "seq" ? { ...x, caret: null } : x, L1, same, caret);
+    const verdict = judge(x, L1, same, caret);
     for (const m of [...validity(d1, fixtureW2), ...caretOk(d1, hs), ...verdict]) fail(m);
     if (h.history.depths().undo === 0) {
       if (!sameRead(read1, read0)) fail("changed the read but recorded no undo entry");
@@ -307,13 +293,8 @@ for (const container of CONTAINERS) {
           continue;
         }
         for (const cmd of COMMANDS) {
-          it(`${l} → ${r} ${cmd.name}${w2 ? " (concurrent W2 break)" : ""}`, (ctx) => {
+          it(`${l} → ${r} ${cmd.name}${w2 ? " (concurrent W2 break)" : ""}`, () => {
             const out = runCase(container, l, r, cmd);
-            if (out === "unresolved") {
-              stats.skipped.add(`${container} ${l} → ${r}: positions do not resolve`);
-              ctx.skip();
-              return;
-            }
             if (out.length > 0) stats.failures.set(`${cmd.name} | ${l} → ${r} | ${container}`, out);
             expect(out).toEqual([]);
           });
@@ -326,8 +307,6 @@ for (const container of CONTAINERS) {
 afterAll(() => {
   const lines = [
     `category permutations: ${stats.cases} cases in ${Date.now() - t0} ms; ${stats.failures.size} failing groups`,
-    `selections dropped in cells ×${stats.droppedInCells}; carets resolving into a table (not modelled) ×${stats.inTable}`,
-    ...[...stats.skipped].map((s) => `SKIPPED ${s}`),
     ...[...stats.failures].flatMap(([k, v]) => [`FAIL ${k}`, ...v.map((m) => `    ${m}`)]),
   ];
   console.log(lines.join("\n"));

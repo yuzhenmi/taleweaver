@@ -3,7 +3,7 @@
  * ordered pair (L, R) a small valid document `x¶ L R y¶` (padded as the single-user rules
  * need) in a container, built in raw storage; and the container's read as a linear
  * sequence of category units (the units the storage holds, in order, and the ¶ of each
- * block object's implicit paragraph, flagged `implicit`).
+ * block object's implicit paragraph, flagged `implicit`; a table as its `⟦`, its cells' content, its `⟧`).
  */
 import * as Y from "yjs";
 import type { Block, ReadonlyAttrs } from "../block";
@@ -144,7 +144,7 @@ export function build(container: Container, seq: readonly Unit[]): Case {
 
 export const flowOf = (d: Document, w: Where): FlowState | undefined => d.flows.get(w.flow);
 
-/** A container's read as units (a text unit labelled by its character; each with its attrs: an item's; a ¶'s, its paragraph's, with `type`), with where each paragraph starts and where each block object is. */
+/** A container's read as units (a text unit labelled by its character; each with its attrs: an item's; a ¶'s, its paragraph's, with `type`), with where each paragraph starts and where each block object is (a table: its `⟦`). */
 export interface Linear {
   readonly units: readonly LinearUnit[];
   readonly attrs: readonly ReadonlyAttrs[];
@@ -163,29 +163,37 @@ export function linear(d: Document, w: Where): Linear {
   const attrs: ReadonlyAttrs[] = [];
   const paraStart = new Map<string, number>();
   const blockAt = new Map<string, number>();
-  const push = (c: Category, a: ReadonlyAttrs, label: string = c, implicit?: true): void => {
-    out.push(implicit === undefined ? { c, label } : { c, label, implicit });
+  const push = (u: LinearUnit, a: ReadonlyAttrs): void => {
+    out.push(u);
     attrs.push(a);
   };
-  let prev: Block | null = null;
-  for (const b of flowBlocks(d, w)) {
-    // A block object's implicit paragraph (a table's is anchored at its `⟧`: `${⟧}/after`).
-    const implicit = prev !== null && b !== null && prev.inlineContent === null && b.inlineContent !== null && b.id.endsWith(afterObjectId(""));
-    prev = b;
-    if (b === null) push("sectionBreak", {});
-    else if (implicit) {
-      paraStart.set(b.id, out.length);
-      push("paragraphBreak", { ...b.attrs, type: b.type }, "paragraphBreak", true);
+  /** A container's blocks; a table expands to `⟦`, its cells' content in order, `⟧` (its faces, design §1). */
+  const visit = (blocks: readonly (Block | null)[]): void => {
+    let prev: Block | null = null;
+    for (const b of blocks) {
+      // A block object's implicit paragraph (a table's is anchored at its `⟧`: `${⟧}/after`).
+      const implicit = prev !== null && b !== null && prev.inlineContent === null && b.inlineContent !== null && b.id.endsWith(afterObjectId(""));
+      prev = b;
+      if (b === null) push({ c: "sectionBreak", label: "sectionBreak" }, {});
+      else if (implicit) {
+        paraStart.set(b.id, out.length);
+        push({ c: "paragraphBreak", label: "paragraphBreak", implicit: true }, { ...b.attrs, type: b.type });
+      } else if (b.inlineContent === null && b.firstChildId !== null) {
+        // A block object read with records of its own holds flows (its category's trait): a table.
+        blockAt.set(b.id, out.length);
+        push({ c: "containerBlock", label: "⟦", face: "open" }, b.attrs);
+        for (const row of childrenOf(d, w.tree, b.id)) for (const cell of childrenOf(d, w.tree, row.id)) visit(childrenOf(d, w.tree, cell.id));
+        push({ c: "containerBlock", label: "⟧", face: "close" }, b.attrs);
+      } else if (b.inlineContent === null) {
+        blockAt.set(b.id, out.length);
+        push({ c: "atomicBlock", label: "atomicBlock" }, b.attrs);
+      } else {
+        paraStart.set(b.id, out.length);
+        for (const i of b.inlineContent.items) for (let n = 0; n < unitsOf(i); n++) push({ c: categoryOfKind(kindOfItem(i)), label: isText(i) ? (i.text[n] ?? "") : categoryOfKind(kindOfItem(i)) }, i.attrs);
+        push({ c: "paragraphBreak", label: "paragraphBreak" }, { ...b.attrs, type: b.type });
+      }
     }
-    else if (b.inlineContent === null) {
-      // A block object read with records of its own holds flows (its category's trait).
-      blockAt.set(b.id, out.length);
-      push(b.firstChildId !== null ? "containerBlock" : "atomicBlock", b.attrs);
-    } else {
-      paraStart.set(b.id, out.length);
-      for (const i of b.inlineContent.items) for (let n = 0; n < unitsOf(i); n++) push(categoryOfKind(kindOfItem(i)), i.attrs, isText(i) ? i.text[n] : undefined);
-      push("paragraphBreak", { ...b.attrs, type: b.type });
-    }
-  }
+  };
+  visit(flowBlocks(d, w));
   return { units: out, attrs, paraStart, blockAt };
 }
