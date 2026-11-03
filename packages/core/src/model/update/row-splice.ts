@@ -10,15 +10,16 @@
  *
  * Declines (the caller re-derives) when the table would change outside the range: a mark
  * popping it, its end at `[S]` / `<end>`, content joining a cell above the range, a
- * cell-less table, a lead read outside its bracket, a carry out of the range unequal to the
- * next row's stored one (N2 step 4b), or a changed column count (step 4c).
+ * cell-less table, a lead read outside its bracket, a row joining content into an earlier
+ * row, or a changed column count (N2 step 4c). F4: while the range's carry out differs from
+ * the next old row's stored carry, the range runs on through that row.
  */
 import type { BlockId } from "../block";
 import { deriveFootnote, footnoteBodiesOf, parasOf, removeFlow, writeRow } from "../derive/derive-flow";
-import { formRows, formedRows, headerRun } from "../derive/table/form-table";
+import { type ParsedTable, formRows, formedRows, headerRun } from "../derive/table/form-table";
 import { withInertMarks } from "../derive/table/inert-marks";
 import { RegionParser } from "../derive/table/parse-tables";
-import { type TableForm, columnCountOf, headerCountOf } from "../derive/table/table-form";
+import { type RowForm, type TableForm, columnCountOf, headerCountOf } from "../derive/table/table-form";
 import type { Working } from "../derive/working";
 import type { FlowState } from "../document/types";
 import { footnoteBodyId } from "../ids";
@@ -138,12 +139,19 @@ function spliceRows(inp: RowSpliceInput, tableId: BlockId, form: TableForm): boo
     }
   }
   if (start === null) return false;
-  // 2. Parse forward to the table's first `⟨r⟩` / `⟧` at or after R (R itself included when it is a mark).
+  // 2. Parse forward to the table's own `⟧`, or its OLD row's `⟨r⟩` past row k, at or after R (R itself included when
+  // it is a mark) — so old row k (whose lead / content may have moved) is always in the range, and a new row's mark
+  // never ends it. F4: the range's rows are formed from the stored carry of row k as they complete; at an old row
+  // whose stored carry differs from the range's carry out, the range runs on through that row.
   const parser = new RegionParser(fs.holderId, dT, { table: { id: tableId, map: form.map }, rescanned: true });
+  const carryIn = form.rows[k]?.carryIn ?? form.endCarry;
+  const forms: RowForm[] = [];
+  const slots: (readonly (BlockId | undefined)[])[] = [];
+  let carryOut = carryIn;
   let boundary: TerminatorToken | null = null;
   let bPos: Pos | null = null;
-  // The end: the table's own `⟧`, or its OLD row's `⟨r⟩` past row k — so old row k (whose lead / content may have
-  // moved) is always in the range, and a new row's mark never ends it.
+  let parsed: ParsedTable | null = null;
+  let j = form.rows.length;
   for (let p: Pos | null = start; p !== null; p = step(newScans, p, 1)) {
     const t = at(newScans, p);
     if (t === undefined) continue;
@@ -157,24 +165,26 @@ function spliceRows(inp: RowSpliceInput, tableId: BlockId, form: TableForm): boo
         const i = role === "newRow" ? (form.rowIndex.get(t.id) ?? -1) : -1;
         if (i !== k) {
           if (!(t.id === form.closeId || i > k)) return false;
-          boundary = t;
-          bPos = p;
-          break;
+          parsed = parser.endRows(t.id);
+          if (parsed === null) return false;
+          const more = formRows(parsed.rows.slice(forms.length), carryOut);
+          forms.push(...more.forms);
+          slots.push(...more.slots);
+          carryOut = more.carryOut;
+          const next = i > k ? form.rows[i] : undefined;
+          if (next === undefined || sameCarry(carryOut, next.carryIn)) {
+            boundary = t;
+            bPos = p;
+            j = next === undefined ? form.rows.length : i;
+            break;
+          }
         }
       }
     }
     if (!parser.push(t)) return false;
   }
-  if (boundary === null || bPos === null) return false;
-  const parsed = parser.endRows(boundary.id);
-  if (parsed === null || parser.leadsAfter.size > 0) return false;
-  const j = roleOf(boundary) === "newRow" ? form.rowIndex.get(boundary.id) : form.rows.length;
-  if (j === undefined || j < k) return false;
-  // 3. Form the range's rows from the stored carry of row k.
-  const carryIn = form.rows[k]?.carryIn ?? form.endCarry;
-  const { forms, slots, carryOut } = formRows(parsed.rows, carryIn);
+  if (boundary === null || bPos === null || parsed === null || parser.leadsAfter.size > 0) return false;
   const after = form.rows[j];
-  if (after !== undefined && !sameCarry(carryOut, after.carryIn)) return false; // the F4 forward re-form is N2 step 4b
   const widthCount = form.widthCount.slice();
   for (let i = k; i < j; i++) {
     const wd = form.rows[i]?.width ?? 0;

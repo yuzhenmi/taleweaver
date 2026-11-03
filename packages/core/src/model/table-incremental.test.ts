@@ -128,6 +128,23 @@ describe("rung 1: whole rows of a table", () => {
   });
 });
 
+describe("rung 1, F4: the range runs on while its carry out differs from the next row's stored one", () => {
+  it("a span set / grown / shrunk in an upper row, a row inserted inside a span (with and without its rowSpan + 1)", () => {
+    // Rows 1–2 hold one cell each: a span over column 0 moves it right without widening the table.
+    const t = live("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ e¶ ⟨r⟩ ⟨c⟩ g¶ ⟨c⟩ h¶ ⟧ y¶");
+    const [, , , c00, , , , r1] = t.maps;
+    t.step(() => c00?.set("rowSpan", 3), true); // rows 1–2 shift right; row 3 is where the carry meets the stored one
+    t.step(() => c00?.set("rowSpan", 2), true);
+    t.step(() => {
+      // T1: a row inside the span, and the crossing head's rowSpan + 1, in one transaction.
+      insertUnits(t.piece, t.at(r1), units("⟨r⟩ ⟨c⟩ n¶"));
+      c00?.set("rowSpan", 3);
+    }, true);
+    t.step(() => insertUnits(t.piece, t.at(r1), units("⟨r⟩ ⟨c⟩ m¶")), true); // without the adjust: old row 1 leaves the span
+    t.destroy();
+  });
+});
+
 describe("rung 1 edge cases (found by the O4 table fuzz)", () => {
   const at = (t: ReturnType<typeof live>, i: number): number => t.at(t.maps[i]);
   it("the table's lead joins row 0: the range starts at the ⟦ and spans old row 0", () => {
