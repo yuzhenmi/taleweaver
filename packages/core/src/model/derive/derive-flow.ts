@@ -160,14 +160,17 @@ function cellAttrs(map: Y.Map<unknown> | null, rowSpan: number, colSpan: number)
   return Object.freeze(a);
 }
 
-/** Remove the records under block `id` (a table's rows, cells and their contents, with the footnote bodies they anchor). */
-function removeDescendants(w: Working, tree: TreeKind, id: BlockId): void {
+/**
+ * Remove the records under block `id` (a table's rows, cells and their contents), with the footnote bodies they
+ * anchor unless `bodies` is false (the caller diffs those).
+ */
+export function removeDescendants(w: Working, tree: TreeKind, id: BlockId, bodies = true): void {
   let c = w.get(tree, id)?.firstChildId ?? null;
   while (c !== null) {
     const b = w.get(tree, c);
     if (b === undefined) break;
-    for (const body of footnoteBodiesOf(b)) removeFlow(w, body);
-    removeDescendants(w, tree, c);
+    if (bodies) for (const body of footnoteBodiesOf(b)) removeFlow(w, body);
+    removeDescendants(w, tree, c, bodies);
     w.del(tree, c);
     c = b.nextSiblingId;
   }

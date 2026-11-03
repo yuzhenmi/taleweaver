@@ -5,7 +5,7 @@ import { deriveDocument } from "./derive/derive-document";
 import type { Document } from "./document/types";
 import { Model } from "./model";
 import { BUILTIN_OBJECT_KINDS } from "./object-kinds";
-import { newParagraphMark } from "./storage/new-items";
+import { newFootnoteOf, newParagraphMark } from "./storage/new-items";
 import { expectSameVersion } from "./test-helpers/expect-same-version";
 import { fixture, idOf } from "./test-helpers/fixture";
 import { insertUnits, mapsOf, units } from "./test-helpers/table";
@@ -72,6 +72,29 @@ describe("rung 0: content edits next to marks splice locally (faces)", () => {
     const [, , , c0, , c1] = t.maps;
     t.step(() => t.piece.delete(t.at(c0) + 1, 2), false);
     t.step(() => t.piece.insert(t.at(c1), "z"), false);
+    t.destroy();
+  });
+});
+
+describe("rung 0: whole tables in the region (insert / delete a table at any depth)", () => {
+  it("inserting and deleting tables in the body and in a cell, with footnotes in their cells, splice locally", () => {
+    const t = live("x¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟧ y¶");
+    const [, x, , , c0, a] = t.maps;
+    const table = units("⟦ ⟨r⟩ ⟨c⟩ p¶ ⟨c⟩ ¶ ⟨r⟩ ⟨c⟩ q¶ ⟧");
+    t.step(() => insertUnits(t.piece, t.at(x) + 1, table), true); // a table between x¶ and the next table
+    t.step(() => t.piece.insert(t.at(mapsOf(table)[3]), "P"), true); // typing in it
+    t.step(() => t.piece.insertEmbed(t.at(mapsOf(table)[3]), newFootnoteOf(new Y.Text())), true); // a footnote in its cell
+    const nested = units("⟦@1 ⟨r⟩@1 ⟨c⟩@1 n¶ ⟨r⟩@1 ⟨c⟩@1 ⟧@1");
+    t.step(() => insertUnits(t.piece, t.at(c0) + 1, nested), true); // a nested table at a cell's start
+    t.step(() => insertUnits(t.piece, t.at(a) + 1, units("⟦@1 ⟨r⟩@1 ⟨c⟩@1 m¶ ⟧@1")), true); // one at a cell's end
+    t.step(() => t.piece.delete(t.at(nested[0] as Y.Map<unknown>), t.at(mapsOf(nested)[6]) + 1 - t.at(nested[0] as Y.Map<unknown>)), true); // delete a nested table
+    const first = mapsOf(table);
+    t.step(() => t.piece.delete(t.at(first[0]), t.at(first[first.length - 1]) + 1 - t.at(first[0])), true); // delete the inserted table (with its footnote)
+    t.step(() => {
+      // One transaction: an edit before a table and one inside it — the region straddles the table's ⟦ (widened by rung 1, N2 step 4).
+      t.piece.insert(t.at(a) + 1, "!");
+      t.piece.insert(t.at(x), "?");
+    }, false);
     t.destroy();
   });
 });

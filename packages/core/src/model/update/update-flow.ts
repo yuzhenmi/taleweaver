@@ -17,14 +17,15 @@
  *
  * The region is parsed in its container (`parseRegion`), with the table marks at its ends read
  * by their faces (design §1); the marks it reads inert become inert run units, as from scratch.
+ * Whole tables in it (inserted / deleted at any depth) are written with their forms.
  *
  * Fallbacks to a from-scratch derivation of the flow (all correct, just O(flow)):
  *   - a piece removed from the flow array, or a changed piece the flow state does not know;
  *   - an `[S]` in a non-body flow (as an anchor or inside the region);
  *   - a flow that is synthetic (R17) or whose region empties it;
  *   - a region not balanced in its container (`parseRegion`: a mark binding to an enclosing
- *     table, an `[S]` / `<end>` closing one, a table left open), holding a whole table,
- *     in a table's / row's lead, emptying / filling an empty cell, or next to content its cell
+ *     table, an `[S]` / `<end>` closing one, a table left open), holding a cell-less table's
+ *     leads, in a table's / row's lead, emptying / filling an empty cell, or next to content its cell
  *     reads from outside its own marks (a lead, a cell past the width cap) (N2 steps 3–4 narrow these);
  *   - overlapping splices, an anchor whose old record is missing, a section list the
  *     region's old `[S]` cannot be found in (defensive: not produced by any known write).
@@ -32,8 +33,8 @@
  */
 import * as Y from "yjs";
 import { BLOCK_TYPES, type BlockId } from "../block";
-import { deriveFlow, deriveFootnote, piecesOf, removeFlow, scanCtxOf, segmentsOf, writeSegment } from "../derive/derive-flow";
-import { type BlockEntity, type Entity, indexSegments, isBlockEntity, isParaEntity, isSectionBreakEntity } from "../derive/entities";
+import { deriveFlow, deriveFootnote, parasOf, piecesOf, removeDescendants, removeFlow, scanCtxOf, segmentsOf, writeSegment } from "../derive/derive-flow";
+import { type BlockEntity, type Entity, indexSegments, isBlockEntity, isSectionBreakEntity } from "../derive/entities";
 import { withInertMarks } from "../derive/table/inert-marks";
 import { type RegionEnd, parseRegion } from "../derive/table/parse-tables";
 import { sectionRecord } from "../derive/records";
@@ -86,7 +87,7 @@ function pieceDepthOrNull(piece: Y.Text): number | null {
 
 const footnotesOf = (ents: readonly Entity[]): Map<string, FootnoteRef> => {
   const m = new Map<string, FootnoteRef>();
-  for (const e of ents) if (isParaEntity(e)) for (const f of e.footnotes) m.set(f.id, f);
+  for (const p of parasOf(ents)) for (const f of p.footnotes) m.set(f.id, f);
   return m;
 };
 
@@ -245,8 +246,9 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   const withR = rRole === undefined;
   const oldP = parseRegion(between(oldScans, oldL, oldR, withR), holderId, { depth, end, withItems: false, objectBefore });
   const newP = parseRegion(between(newScans, L, R, withR), holderId, { depth, end, objectBefore });
-  // ponytail: an unbalanced region (concurrency only) re-derives its flow; whole tables in it are N2 step 3.
-  if (oldP === null || newP === null || oldP.tables.size > 0 || newP.tables.size > 0) return rederiveFlow(w, fs);
+  // An unbalanced region (concurrency only) re-derives its flow (rung 1, the row splice, is N2 step 4); so does one
+  // holding a cell-less table's leads (concurrency only: they read outside the bracket they are stored in).
+  if (oldP === null || newP === null || oldP.leadsAfter.size > 0 || newP.leadsAfter.size > 0) return rederiveFlow(w, fs);
   const oldEnts = oldP.ents;
   const newEnts = newP.ents;
   if (!fs.isRoot && (isSectionBreak(L?.tok.k) || isSectionBreak(R?.tok.k) || newEnts.some(isSectionBreakEntity) || oldEnts.some(isSectionBreakEntity))) {
@@ -348,7 +350,11 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   // [S] entities are not block records (their section is `${id}/section`): an item whose
   // `k` changed from ¶ / TOC to `[S]` keeps its id but loses its record.
   const newIds = new Set(newEnts.filter(isBlockEntity).map((e) => e.id));
-  for (const e of oldEnts) if (isBlockEntity(e) && !newIds.has(e.id)) w.del(tree, e.id);
+  for (const e of oldEnts) {
+    // A whole table in the region: its old rows / cells / contents go (rewritten below when it stays).
+    if (oldP.tables.has(e.id)) removeDescendants(w, tree, e.id, false);
+    if (isBlockEntity(e) && !newIds.has(e.id)) w.del(tree, e.id);
+  }
 
   const lastSeg = rEndsWithS ? m - 1 : m;
   for (let j = 0; j <= lastSeg; j++) {
@@ -365,7 +371,10 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   }
 
   for (const id of removedSections) w.del(tree, id);
-  w.flows = w.flows.set(holderId, { ...fs, segments: newScans, segIndex: newIdx, sections });
+  let tables = fs.tables;
+  for (const id of oldP.tables.keys()) tables = tables.delete(id);
+  for (const [id, f] of newP.tables) tables = tables.set(id, f);
+  w.flows = w.flows.set(holderId, { ...fs, segments: newScans, segIndex: newIdx, sections, tables });
   if (sectionsChanged) writeSections(w);
   for (const [id, f] of newFn) if (!oldFn.has(id)) deriveFootnote(w, f);
 
