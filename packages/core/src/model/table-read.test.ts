@@ -1,362 +1,367 @@
-/** P2 M1: table storage → read rules R6–R8, R10, R6h → schema-3-shaped Block records. */
+/** N1: tables as continuous text — marks → RT1–RT4 + virtual end cells → schema-3-shaped Block records. */
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import type { Block } from "./block";
 import { deriveDocument } from "./derive/derive-document";
-import { getBlock, getEmbedContent, getEmbedContentIds, getTemplateContent, getTemplateContentIds } from "./document/blocks";
-import type { Document, TreeKind } from "./document/types";
-import { cellId, flowEndId, footnoteBodyId, templateBodyId } from "./ids";
+import { getBlock, getEmbedContent, getEmbedContentIds, getTemplateContent } from "./document/blocks";
+import type { Document } from "./document/types";
+import { afterObjectId, debrisBeforeId, emptyCellParagraphId, flowEndId, footnoteBodyId, sectionIdOf, templateBodyId, virtualCellId } from "./ids";
 import { Model } from "./model";
+import { paragraphLayout } from "./position/paragraph-layout";
+import { positionAtPoint } from "./position/position-at-point";
 import { BUILTIN_OBJECT_KINDS } from "./object-kinds";
-import { BODIES_KEY, COLS_KEY, ITEM_KINDS, KIND_KEY, ROWS_KEY, WEIGHT_KEY } from "./storage/keys";
+import { BODIES_KEY, COLS_KEY, COL_SPAN_KEY, KIND_KEY, ROW_SPAN_KEY, WIDTH_KEY } from "./storage/keys";
 import { childMap } from "./storage/map-reads";
-import { mapOf, newBody, newFootnoteOf, newParagraphMark } from "./storage/new-items";
-import { newColMap, newRowMap, newTable } from "./storage/new-table";
-import { cellFlowKey } from "./storage/table-keys";
+import { mapOf, newBody, newFootnoteOf } from "./storage/new-items";
+import { newTableStart } from "./storage/table-marks";
 import { expectSameVersion } from "./test-helpers/expect-same-version";
 import { childrenOf, fixture, idOf, textOf } from "./test-helpers/fixture";
-import { cellPiece, testRow, textFlow } from "./test-helpers/table";
+import { type Unit, cellIds, insertUnits, mapsOf, shape, units } from "./test-helpers/table";
 
 const derive = (doc: Y.Doc): Document => deriveDocument(doc, BUILTIN_OBJECT_KINDS);
-const cols = (...keys: string[]): Y.Map<unknown>[] => keys.map((k) => newColMap(k));
 
-/** A body holding `table` then the final ¶; returns the derived version and the table's id. */
-function withTable(table: Y.Map<unknown>): { d: Document; id: string; rootId: string } {
+/** A body holding `spec` before its final ¶ (or after it, `atEnd`); the version, the inserted maps and the root id. */
+function body(spec: string | readonly Unit[], atEnd = false): { d: Document; m: Y.Map<unknown>[]; rootId: string } {
   const f = fixture();
-  f.piece.insertEmbed(0, table);
-  return { d: derive(f.doc), id: idOf(table), rootId: f.rootId };
+  const us = typeof spec === "string" ? units(spec) : spec;
+  insertUnits(f.piece, atEnd ? f.piece.length : 0, us);
+  return { d: derive(f.doc), m: mapsOf(us), rootId: f.rootId };
 }
 
-const kids = (d: Document, id: string, tree: TreeKind = "block"): Block[] => childrenOf(d, tree, id);
-/** The grid as rows of `rowKey|colKey` of the rendered cells (ids minus the table prefix). */
-const grid = (d: Document, id: string, tree: TreeKind = "block"): string[][] =>
-  kids(d, id, tree).map((r) => kids(d, r.id, tree).map((c) => c.id.slice(id.length + 1)));
-const cellText = (d: Document, id: string, tree: TreeKind = "block"): string[] => kids(d, id, tree).map((b) => textOf(b));
+const section = (d: Document, rootId: string): Block[] => childrenOf(d, "block", `${rootId}/final`);
+const types = (bs: readonly Block[]): string[] => bs.map((b) => b.type);
 
-describe("table records (schema-3 component contract)", () => {
-  it("a table reads as table → table-row → table-cell → the cell flow's blocks, in its flow's tree", () => {
-    const rows = [testRow("r0", { a: "A0", b: "B0" }, { "a:height": 20, "c:a:a:bg": "red" }), testRow("r1", { a: "A1", b: "B1" })];
-    const table = newTable(rows, [newColMap("a", 1), newColMap("b", 1)], { "a:style": "grid" });
-    const { d, id, rootId } = withTable(table);
-    const section = kids(d, `${rootId}/final`);
-    expect(section.map((b) => b.type)).toEqual(["table", "paragraph"]);
-    const t = getBlock(d, id);
-    expect(t).toMatchObject({ type: "table", attrs: { style: "grid", columnWidths: [0.5, 0.5] }, parentId: `${rootId}/final`, prevSiblingId: null, inlineContent: null });
-    expect(t?.attrs["headerRowCount"]).toBeUndefined();
-    expect(t?.nextSiblingId).toBe(section[1]?.id);
-    const [r0, r1] = kids(d, id);
-    expect(r0).toMatchObject({ id: idOf(rows[0] ?? new Y.Map()), type: "table-row", attrs: { height: 20 }, parentId: id, prevSiblingId: null, nextSiblingId: r1?.id, inlineContent: null });
-    expect(r1).toMatchObject({ type: "table-row", attrs: {}, prevSiblingId: r0?.id, nextSiblingId: null });
-    expect(grid(d, id)).toEqual([
-      ["r0|a", "r0|b"],
-      ["r1|a", "r1|b"],
+describe("records (the schema-3 component contract)", () => {
+  it("a table reads as table → table-row → table-cell → paragraphs, all in its flow; ids are the marks' ids", () => {
+    const us = units("x¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟨c⟩ d¶ ⟧ y¶");
+    const [, table, r0, c0, , c1, , r1] = mapsOf(us);
+    if (table === undefined || r0 === undefined || c0 === undefined || c1 === undefined || r1 === undefined) throw new Error("spec");
+    table.set("a:style", "grid");
+    table.set(COLS_KEY, (() => {
+      const a = new Y.Array<Y.Map<unknown>>();
+      a.insert(0, [mapOf({ [WIDTH_KEY]: 1 }), mapOf({ [WIDTH_KEY]: 3 })]);
+      return a;
+    })());
+    r0.set("a:height", 20);
+    c0.set("a:bg", "red");
+    const { d, rootId } = body(us);
+    const id = idOf(table);
+    expect(types(section(d, rootId))).toEqual(["paragraph", "table", "paragraph", "paragraph"]);
+    expect(getBlock(d, id)).toMatchObject({ type: "table", attrs: { style: "grid", columnWidths: [0.25, 0.75] }, parentId: `${rootId}/final`, inlineContent: null });
+    expect(getBlock(d, id)?.attrs["headerRowCount"]).toBeUndefined();
+    expect(childrenOf(d, "block", id).map((r) => r.id)).toEqual([idOf(r0), idOf(r1)]);
+    expect(getBlock(d, idOf(r0))).toMatchObject({ type: "table-row", attrs: { height: 20 }, parentId: id, prevSiblingId: null, nextSiblingId: idOf(r1) });
+    expect(getBlock(d, idOf(c0))).toMatchObject({ type: "table-cell", attrs: { bg: "red" }, parentId: idOf(r0), prevSiblingId: null, nextSiblingId: idOf(c1) });
+    expect(shape(d, id)).toEqual([
+      ["a", "b"],
+      ["c", "d"],
     ]);
-    const a0 = getBlock(d, cellId(id, "r0", "a"));
-    const b0 = getBlock(d, cellId(id, "r0", "b"));
-    expect(a0).toMatchObject({ type: "table-cell", attrs: { bg: "red" }, parentId: r0?.id, prevSiblingId: null, nextSiblingId: b0?.id, inlineContent: null });
-    expect(b0).toMatchObject({ attrs: {}, prevSiblingId: a0?.id, nextSiblingId: null });
-    const [p] = kids(d, cellId(id, "r0", "a"));
-    expect(p).toMatchObject({ type: "paragraph", parentId: cellId(id, "r0", "a"), prevSiblingId: null, nextSiblingId: null });
-    expect(textOf(p)).toBe("A0");
-    expect(d.flows.get(cellId(id, "r1", "b"))?.tree).toBe("block");
+    const [p] = childrenOf(d, "block", idOf(c0));
+    expect(p).toMatchObject({ type: "paragraph", parentId: idOf(c0), prevSiblingId: null, nextSiblingId: null });
+    expect([...d.flows.entries()].map(([k]) => k)).toEqual([rootId]);
   });
 
-  it("computed attrs replace stored ones; spans / header count appear only when > 1 / > 0 as integers", () => {
-    const rows = [
-      testRow("r0", { a: "x", b: "y" }, { header: true, "c:a:rowSpanTo": "r1", "c:b:a:rowSpan": 7, "c:b:a:colSpan": 1 }),
-      testRow("r1", { a: "", b: "z" }),
-    ];
-    const { d, id } = withTable(newTable(rows, cols("a", "b"), { "a:columnWidths": "bogus", "a:headerRowCount": 9 }));
-    const t = getBlock(d, id);
-    // No weights: auto layout; the header band is clamped to 0 by the span crossing row 1.
-    expect(t?.attrs).toEqual({});
-    expect(getBlock(d, cellId(id, "r0", "a"))?.attrs).toEqual({ rowSpan: 2 });
-    expect(getBlock(d, cellId(id, "r0", "b"))?.attrs).toEqual({});
+  it("computed attrs replace stored ones; spans appear only when > 1", () => {
+    const us = units("⟦ ⟨r⟩ ⟨c⟩r2 a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟧");
+    const [table, , c0, , c1] = mapsOf(us);
+    table?.set("a:columnWidths", "bogus");
+    table?.set("a:headerRowCount", 9);
+    c1?.set("a:rowSpan", 7);
+    const { d } = body(us);
+    const id = idOf(table ?? new Y.Map());
+    expect(getBlock(d, id)?.attrs).toEqual({});
+    expect(getBlock(d, idOf(c0 ?? new Y.Map()))?.attrs).toEqual({ rowSpan: 2 });
+    expect(getBlock(d, idOf(c1 ?? new Y.Map()))?.attrs).toEqual({});
   });
 });
 
-describe("R6 tracks and slots", () => {
-  it("a later duplicate key, non-map items and keyless / non-string-keyed maps are ignored", () => {
-    const rows = new Y.Array<unknown>();
-    rows.insert(0, [
-      testRow("r0", { a: "first", b: "b" }),
-      "junk",
-      mapOf({ [cellFlowKey("a")]: textFlow("keyless") }),
-      mapOf({ key: 5, [cellFlowKey("a")]: textFlow("numeric") }),
-      testRow("r0", { a: "dup", b: "dup" }),
-      testRow("r1", { a: "second", b: "b" }),
-    ]);
-    const colArr = new Y.Array<unknown>();
-    colArr.insert(0, [newColMap("a"), 7, new Y.Map<unknown>(), newColMap("a", 5), newColMap("b")]);
-    const table = mapOf({ k: "table", [ROWS_KEY]: rows, [COLS_KEY]: colArr });
-    const { d, id } = withTable(table);
-    expect(grid(d, id)).toEqual([
-      ["r0|a", "r0|b"],
-      ["r1|a", "r1|b"],
-    ]);
-    expect(cellText(d, cellId(id, "r0", "a"))).toEqual(["first"]);
-    expect(cellText(d, cellId(id, "r1", "a"))).toEqual(["second"]);
-    // The duplicate column's weight is not read: no valid weight → auto layout.
-    expect(getBlock(d, id)?.attrs["columnWidths"]).toBeUndefined();
-    const dupRow = rows.get(4);
-    expect(dupRow instanceof Y.Map ? getBlock(d, idOf(dupRow)) : "not a map").toBeNull();
+describe("RT2 spans and clipping", () => {
+  it("places cells by §17.5 and clips a colSpan to the free run (earlier cells win)", () => {
+    const us = units("⟦ ⟨r⟩ ⟨c⟩c2 A¶ ⟨c⟩r2 B¶ ⟨r⟩ ⟨c⟩c3 C¶ ⟧");
+    const [table, , a, , b, , , c] = mapsOf(us);
+    const { d } = body(us);
+    expect(shape(d, idOf(table ?? new Y.Map()))).toEqual([["A", "B"], ["C"]]);
+    expect(getBlock(d, idOf(a ?? new Y.Map()))?.attrs).toEqual({ colSpan: 2 });
+    expect(getBlock(d, idOf(b ?? new Y.Map()))?.attrs).toEqual({ rowSpan: 2 });
+    expect(getBlock(d, idOf(c ?? new Y.Map()))?.attrs).toEqual({ colSpan: 2 });
   });
 
-  it("X4: a slot with no flow reads as one empty default paragraph `${cell}/end`; orphan column keys are not read", () => {
-    const r0 = testRow("r0", { a: null, b: "b", gone: "orphan" }, { "c:gone:a:bg": "x" });
-    r0.set(cellFlowKey("b"), "not an array");
-    const { d, id } = withTable(newTable([r0], cols("a", "b")));
-    for (const col of ["a", "b"]) {
-      const cell = cellId(id, "r0", col);
-      expect(kids(d, cell).map((b) => b.id)).toEqual([flowEndId(cell)]);
-      expect(getBlock(d, flowEndId(cell))).toMatchObject({ type: "paragraph", attrs: {}, inlineContent: { items: [] } });
-    }
-    expect(grid(d, id)).toEqual([["r0|a", "r0|b"]]);
-    expect(d.flows.has(cellId(id, "r0", "gone"))).toBe(false);
-  });
+  it("an invalid span reads 1, an overlong rowSpan is clipped to the rows left, colSpan is capped at 1000", () => {
+    const us = units("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨c⟩ c¶ ⟨c⟩r9 d¶ ⟨r⟩ ⟨c⟩ e¶ ⟧");
+    const [table, , ca, , cb, , cc, , cd, , ce] = mapsOf(us);
+    ca?.set(ROW_SPAN_KEY, 0);
+    cb?.set(COL_SPAN_KEY, 2.5);
+    cc?.set(COL_SPAN_KEY, "2");
+    const { d } = body(us);
+    const at = (m: Y.Map<unknown> | undefined): Block | null => getBlock(d, idOf(m ?? new Y.Map()));
+    expect([ca, cb, cc].map((m) => at(m)?.attrs)).toEqual([{}, {}, {}]);
+    expect(at(cd)?.attrs).toEqual({ rowSpan: 2 });
+    expect(shape(d, idOf(table ?? new Y.Map()))[1]?.[0]).toBe("e");
+    void ce;
 
-  it("a table with no rows or no columns is a childless table record (a no-rows table keeps its columnWidths)", () => {
-    const noCols = withTable(newTable([testRow("r0", { a: "x" }, { header: true })], []));
-    expect(getBlock(noCols.d, noCols.id)).toMatchObject({ type: "table", attrs: {}, firstChildId: null, lastChildId: null });
-    expect(getBlock(noCols.d, cellId(noCols.id, "r0", "a"))).toBeNull();
-    const noRows = withTable(newTable([], [newColMap("a", 1)]));
-    expect(getBlock(noRows.d, noRows.id)).toMatchObject({ attrs: { columnWidths: [1] }, firstChildId: null, lastChildId: null });
-    const bare = withTable(mapOf({ k: "table" }));
-    expect(getBlock(bare.d, bare.id)).toMatchObject({ type: "table", firstChildId: null });
+    const wide = units("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨r⟩ ⟨c⟩ b¶ ⟧");
+    mapsOf(wide)[2]?.set(COL_SPAN_KEY, 5000);
+    const w = body(wide);
+    const rows = cellIds(w.d, idOf(mapsOf(wide)[0] ?? new Y.Map()));
+    expect(getBlock(w.d, rows[0]?.[0] ?? "")?.attrs).toEqual({ colSpan: 1000 });
+    expect(rows[1]?.length).toBe(1000);
   });
 });
 
-describe("R7 spans / R8 covered slots", () => {
-  it("admits row-major: a span anchored in a covered slot is not admitted; an overlapping rectangle reads 1×1", () => {
-    // 3 rows × 3 cols. r0.a spans a..b (covers r0.b, whose own rowSpanTo is not admitted).
-    // r0.c spans rows 0..1. r1.b spans b..c, overlapping r1.c (covered) → 1×1.
-    const rows = [
-      testRow("r0", { a: "A", b: "hidden", c: "C" }, { "c:a:colSpanTo": "b", "c:b:rowSpanTo": "r1", "c:c:rowSpanTo": "r1" }),
-      testRow("r1", { a: "", b: "B1", c: "hidden too" }, { "c:b:colSpanTo": "c" }),
-      testRow("r2", { a: "", b: "", c: "" }),
-    ];
-    const { d, id } = withTable(newTable(rows, cols("a", "b", "c")));
-    expect(grid(d, id)).toEqual([
-      ["r0|a", "r0|c"],
-      ["r1|a", "r1|b"],
-      ["r2|a", "r2|b", "r2|c"],
+describe("virtual end cells, F1 rows", () => {
+  it("a short row reads virtual cells to the table's width, anchored at its next mark; a long row widens the table", () => {
+    const us = units("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ d¶ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧");
+    const [table, , , , , , r1, , , r2, , , , , , , end] = mapsOf(us);
+    const { d } = body(us);
+    const id = idOf(table ?? new Y.Map());
+    const ids = cellIds(d, id);
+    const fill = (m: Y.Map<unknown> | undefined, col: number): string => virtualCellId(idOf(m ?? new Y.Map()), col);
+    expect(ids[0]?.[2]).toBe(fill(r1, 2));
+    expect(ids[1]?.slice(1)).toEqual([fill(r2, 1), fill(r2, 2)]);
+    expect(shape(d, id)).toEqual([
+      ["a", "b", ""],
+      ["c", "", ""],
+      ["d", "e", "f"],
     ]);
-    expect(getBlock(d, cellId(id, "r0", "a"))?.attrs).toEqual({ colSpan: 2 });
-    expect(getBlock(d, cellId(id, "r0", "c"))?.attrs).toEqual({ rowSpan: 2 });
-    expect(getBlock(d, cellId(id, "r1", "b"))?.attrs).toEqual({});
-    // R8: covered slots have no record and no flow, whatever they hold.
-    for (const { r, c } of [{ r: "r0", c: "b" }, { r: "r1", c: "c" }]) {
-      expect(getBlock(d, cellId(id, r, c))).toBeNull();
-      expect(d.flows.has(cellId(id, r, c))).toBe(false);
-    }
+    const v = getBlock(d, fill(r1, 2));
+    expect(v).toMatchObject({ type: "table-cell", attrs: {} });
+    expect(childrenOf(d, "block", fill(r1, 2)).map((p) => p.id)).toEqual([emptyCellParagraphId(fill(r1, 2))]);
+    void end;
   });
 
-  it("an unresolvable end (unknown key, a track before the anchor, a non-string) spans 1", () => {
-    const rows = [
-      testRow("r0", { a: "", b: "" }, { "c:a:rowSpanTo": "nope", "c:b:colSpanTo": "a" }),
-      testRow("r1", { a: "", b: "" }, { "c:a:rowSpanTo": "r0", "c:b:rowSpanTo": 2 }),
-    ];
-    const { d, id } = withTable(newTable(rows, cols("a", "b")));
-    expect(grid(d, id)).toEqual([
-      ["r0|a", "r0|b"],
-      ["r1|a", "r1|b"],
-    ]);
-    for (const c of kids(d, idOf(rows[0] ?? new Y.Map())).concat(kids(d, idOf(rows[1] ?? new Y.Map())))) expect(c.attrs).toEqual({});
-  });
+  it("F1: every row is a row — a fully covered one has no cell, a cell-less one with free slots reads virtual cells", () => {
+    const covered = units("⟦ ⟨r⟩ ⟨c⟩r2 a¶ ⟨r⟩ ⟧");
+    const c = body(covered);
+    const ct = idOf(mapsOf(covered)[0] ?? new Y.Map());
+    expect(shape(c.d, ct)).toEqual([["a"], []]);
+    expect(getBlock(c.d, ct)?.attrs).toEqual({});
 
-  it("a row whose slots are all covered has no cells", () => {
-    const rows = [testRow("r0", { a: "x" }, { "c:a:rowSpanTo": "r1" }), testRow("r1", { a: "" })];
-    const { d, id } = withTable(newTable(rows, cols("a")));
-    expect(grid(d, id)).toEqual([["r0|a"], []]);
-    expect(getBlock(d, idOf(rows[1] ?? new Y.Map()))).toMatchObject({ firstChildId: null, lastChildId: null });
+    const free = units("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨r⟩ ⟧");
+    const f = body(free);
+    const [ft, , , , , end] = mapsOf(free);
+    expect(cellIds(f.d, idOf(ft ?? new Y.Map()))[1]).toEqual([virtualCellId(idOf(end ?? new Y.Map()), 0)]);
   });
 });
 
-describe("R10 widths", () => {
-  const widths = (weights: unknown[]): unknown => {
-    const colMaps = weights.map((w, i) => (w === undefined ? newColMap(`c${i}`) : mapOf({ key: `c${i}`, weight: w })));
-    const { d, id } = withTable(newTable([testRow("r0", {})], colMaps));
-    return getBlock(d, id)?.attrs["columnWidths"];
+describe("RT1 binding", () => {
+  it("stray marks (no table open, a ⟨c⟩ before any row, a wrong or invalid depth) are inert: the content around them joins", () => {
+    const { d, rootId } = body("a ⟨c⟩ b ⟧ c ⟨r⟩ d¶");
+    const [p] = section(d, rootId);
+    expect(section(d, rootId).map((b) => textOf(b))).toEqual(["abcd", ""]);
+    // Positions read them as the records do: inert units of one paragraph.
+    const fs = d.flows.get(rootId);
+    if (p === undefined || fs === undefined) throw new Error("no paragraph");
+    expect(paragraphLayout(d, p.id)?.length).toBe(4);
+    const piece = fs.segments[0]?.piece ?? new Y.Text();
+    expect([0, 1, 3, 5].map((i) => positionAtPoint(d, fs, piece, i, 1))).toEqual([0, 1, 2, 3].map((offset) => ({ blockId: p.id, offset })));
+
+    const us = units("⟦ ⟨c⟩ x ⟨r⟩ ⟨c⟩ a ⟨r⟩@1 b ⟨c⟩@x c ⟦@2 d¶ ⟧");
+    const t = body(us);
+    expect(shape(t.d, idOf(mapsOf(us)[0] ?? new Y.Map()))).toEqual([["x|abcd"]]);
+  });
+
+  it("F3: restored marks of a deleted nested table (depth 1, no ⟦@1 open) do not split the outer table", () => {
+    const us = units("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨r⟩@1 ⟨c⟩@1 x¶ ⟧@1 ⟨c⟩ b¶ ⟧");
+    const { d } = body(us);
+    expect(shape(d, idOf(mapsOf(us)[0] ?? new Y.Map()))).toEqual([["a|x", "b"]]);
+  });
+
+  it("nests by depth; a nested table's implicit paragraph is anchored at its ⟧ (at its ⟦ when unclosed)", () => {
+    const us = units("⟦ ⟨r⟩ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 in¶ ⟧@1 ⟨c⟩ b¶ ⟧");
+    const [outer, , c0, inner, , ic, , innerEnd] = mapsOf(us);
+    const { d } = body(us);
+    const kids = childrenOf(d, "block", idOf(c0 ?? new Y.Map()));
+    expect(kids.map((b) => b.id)).toEqual([idOf(inner ?? new Y.Map()), afterObjectId(idOf(innerEnd ?? new Y.Map()))]);
+    expect(kids[0]?.parentId).toBe(idOf(c0 ?? new Y.Map()));
+    expect(shape(d, idOf(inner ?? new Y.Map()))).toEqual([["in"]]);
+    expect(getBlock(d, idOf(ic ?? new Y.Map()))?.parentId).toBe(idOf(mapsOf(us)[4] ?? new Y.Map()));
+    expect(shape(d, idOf(outer ?? new Y.Map()))).toEqual([["T|", "b"]]);
+  });
+
+  it("a shallower mark closes deeper open tables first", () => {
+    const us = units("⟦ ⟨r⟩ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 in¶ ⟨c⟩ out¶ ⟧");
+    const [outer, , c0, inner] = mapsOf(us);
+    const { d } = body(us);
+    expect(shape(d, idOf(outer ?? new Y.Map()))).toEqual([["T|", "out"]]);
+    expect(childrenOf(d, "block", idOf(c0 ?? new Y.Map()))[1]?.id).toBe(afterObjectId(idOf(inner ?? new Y.Map())));
+  });
+
+  it("a ⟦ at the depth cap is inert, and so are its marks", () => {
+    const nest = [0, 1, 2, 3, 4].map((n) => `⟦@${n} ⟨r⟩@${n} ⟨c⟩@${n}`).join(" ");
+    const us = units(`${nest} deep¶ ⟧@3 ⟧@2 ⟧@1 ⟧`);
+    const { d } = body(us);
+    const t3 = mapsOf(us)[9];
+    expect(shape(d, idOf(t3 ?? new Y.Map()))).toEqual([["deep"]]);
+  });
+});
+
+describe("F2 leads, F6 debris, closers, empty cells", () => {
+  it("leads join the cell at their row's slot 0: prepended to a cell starting there, appended to a covering head, or a virtual cell's content", () => {
+    const us = units("⟦ L1¶ ⟨r⟩ L2¶ ⟨c⟩r2 a¶ ⟨c⟩ b¶ ⟨r⟩ L3¶ ⟨c⟩ c¶ ⟨r⟩ L4¶ ⟧");
+    const { d } = body(us);
+    expect(shape(d, idOf(mapsOf(us)[0] ?? new Y.Map()))).toEqual([
+      ["L1|L2|a|L3", "b"],
+      ["c"],
+      ["L4", ""],
+    ]);
+  });
+
+  it("a table with no cell is a childless record; its leads read right after it", () => {
+    const us = units("⟦ L¶ ⟨r⟩ ⟧ z¶");
+    const { d, rootId } = body(us);
+    const s = section(d, rootId);
+    expect(types(s)).toEqual(["table", "paragraph", "paragraph", "paragraph"]);
+    expect(s[0]?.firstChildId).toBeNull();
+    expect(s.map((b) => textOf(b))).toEqual(["", "L", "z", ""]);
+  });
+
+  it("F6: content no ¶ ends is debris of the mark closing its container", () => {
+    const us = units("⟦ ⟨r⟩ ⟨c⟩ a ⟨c⟩ b ⟧");
+    const [table, , c0, c1, end] = mapsOf(us);
+    const { d } = body(us);
+    expect(childrenOf(d, "block", idOf(c0 ?? new Y.Map())).map((p) => p.id)).toEqual([debrisBeforeId(idOf(c1 ?? new Y.Map()))]);
+    expect(childrenOf(d, "block", idOf(c1 ?? new Y.Map())).map((p) => p.id)).toEqual([debrisBeforeId(idOf(end ?? new Y.Map()))]);
+    expect(shape(d, idOf(table ?? new Y.Map()))).toEqual([["a", "b"]]);
+  });
+
+  it("[S] and <end> close open tables; an unclosed last row's virtual cells anchor at its ⟦", () => {
+    const us = units("⟦ ⟨r⟩ ⟨c⟩ a [S] b¶");
+    const { d, rootId } = body(us);
+    const [table, , c0, S] = mapsOf(us);
+    const sec1 = childrenOf(d, "block", sectionIdOf(idOf(S ?? new Y.Map())));
+    expect(sec1.map((b) => b.id)).toEqual([idOf(table ?? new Y.Map()), afterObjectId(idOf(table ?? new Y.Map()))]);
+    expect(childrenOf(d, "block", idOf(c0 ?? new Y.Map())).map((p) => p.id)).toEqual([debrisBeforeId(idOf(S ?? new Y.Map()))]);
+    expect(section(d, rootId).map((b) => textOf(b))).toEqual(["b", ""]);
+    // The unclosed table's implicit paragraph is anchored where the table ends: at the [S], not inside it.
+    const after = paragraphLayout(d, afterObjectId(idOf(table ?? new Y.Map())));
+    expect([after?.end?.token.id, after?.length, after?.parts.length, after?.head?.index]).toEqual([idOf(S ?? new Y.Map()), 0, 0, us.indexOf(S ?? new Y.Map())]);
+
+    const tail = units("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c");
+    const e = body(tail, true);
+    const [t2, , , , , , r1, c2] = mapsOf(tail);
+    const id2 = idOf(t2 ?? new Y.Map());
+    expect(cellIds(e.d, id2)[1]).toEqual([idOf(c2 ?? new Y.Map()), virtualCellId(id2, 1)]);
+    expect(childrenOf(e.d, "block", idOf(c2 ?? new Y.Map())).map((p) => p.id)).toEqual([flowEndId(e.rootId)]);
+    expect(section(e.d, e.rootId).map((b) => b.id).slice(-1)).toEqual([afterObjectId(id2)]);
+    void r1;
+  });
+
+  it("a cell holding nothing reads one empty paragraph `${cell}/empty`", () => {
+    const us = units("⟦ ⟨r⟩ ⟨c⟩ ⟨c⟩ b¶ ⟧");
+    const [, , c0] = mapsOf(us);
+    const { d } = body(us);
+    const id = idOf(c0 ?? new Y.Map());
+    expect(childrenOf(d, "block", id).map((p) => [p.id, p.type])).toEqual([[emptyCellParagraphId(id), "paragraph"]]);
+  });
+});
+
+describe("RT3 widths, RT4 header band", () => {
+  const withCols = (entries: readonly Y.Map<unknown>[], spec: string): { d: Document; id: string } => {
+    const table = newTableStart(0);
+    const cols = new Y.Array<Y.Map<unknown>>();
+    cols.insert(0, entries.slice());
+    table.set(COLS_KEY, cols);
+    const us = [table, ...units(spec)];
+    return { d: body(us).d, id: idOf(table) };
   };
 
-  it("valid weights normalise to sum 1; a missing / invalid weight is the mean of the valid ones", () => {
-    expect(widths([1, 1, 2])).toEqual([0.25, 0.25, 0.5]);
-    expect(widths([1, 3, undefined])).toEqual([1 / 6, 3 / 6, 2 / 6]);
-    expect(widths([2, 0, -1, "2", Infinity, Number.NaN])).toEqual([1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6]);
+  it("entry i is grid column i; a missing / invalid weight is the mean of the valid ones; extras are ignored; none valid → auto", () => {
+    const three = withCols([mapOf({ [WIDTH_KEY]: 2 }), mapOf({ [WIDTH_KEY]: "x" })], "⟨r⟩ ⟨c⟩ ⟨c⟩ ⟨c⟩ ⟧");
+    expect(getBlock(three.d, three.id)?.attrs["columnWidths"]).toEqual([1 / 3, 1 / 3, 1 / 3]);
+    const extra = withCols([mapOf({ [WIDTH_KEY]: 1 }), mapOf({ [WIDTH_KEY]: 3 }), mapOf({ [WIDTH_KEY]: 9 })], "⟨r⟩ ⟨c⟩ ⟨c⟩ ⟧");
+    expect(getBlock(extra.d, extra.id)?.attrs["columnWidths"]).toEqual([0.25, 0.75]);
+    const none = withCols([mapOf({ [WIDTH_KEY]: -1 }), mapOf({})], "⟨r⟩ ⟨c⟩ ⟨c⟩ ⟧");
+    expect(getBlock(none.d, none.id)?.attrs["columnWidths"]).toBeUndefined();
   });
 
-  it("no valid weight: no columnWidths (auto layout)", () => {
-    expect(widths([undefined, undefined])).toBeUndefined();
-    expect(widths([0, "x"])).toBeUndefined();
-  });
-});
-
-describe("R6h header band", () => {
-  const headerCount = (rows: Y.Map<unknown>[]): unknown => {
-    const { d, id } = withTable(newTable(rows, cols("a")));
-    return getBlock(d, id)?.attrs["headerRowCount"];
-  };
-
-  it("counts the leading run of `header === true` rows", () => {
-    expect(headerCount([testRow("r0", {}, { header: true }), testRow("r1", {}, { header: true }), testRow("r2", {})])).toBe(2);
-    expect(headerCount([testRow("r0", {}, { header: true }), testRow("r1", {}), testRow("r2", {}, { header: true })])).toBe(1);
-    expect(headerCount([testRow("r0", {}, { header: "yes" }), testRow("r1", {}, { header: true })])).toBeUndefined();
-  });
-
-  it("clamps to the largest count no admitted span crosses", () => {
-    const h = { header: true };
-    expect(headerCount([testRow("r0", {}, h), testRow("r1", {}, { ...h, "c:a:rowSpanTo": "r2" }), testRow("r2", {})])).toBe(1);
-    expect(headerCount([testRow("r0", {}, { ...h, "c:a:rowSpanTo": "r1" }), testRow("r1", {}, h), testRow("r2", {})])).toBe(2);
-    expect(headerCount([testRow("r0", {}, { ...h, "c:a:rowSpanTo": "r2" }), testRow("r1", {}, h), testRow("r2", {})])).toBeUndefined();
+  it("counts the leading run of header rows, clamped so no span crosses its end", () => {
+    const two = body(units("⟦ ⟨r⟩h ⟨c⟩ ⟨r⟩h ⟨c⟩ ⟨r⟩ ⟨c⟩ ⟨r⟩h ⟨c⟩ ⟧"));
+    const t2 = two.m[0];
+    expect(getBlock(two.d, idOf(t2 ?? new Y.Map()))?.attrs["headerRowCount"]).toBe(2);
+    const crossed = body(units("⟦ ⟨r⟩h ⟨c⟩ ⟨r⟩h ⟨c⟩r2 ⟨r⟩ ⟧"));
+    expect(getBlock(crossed.d, idOf(crossed.m[0] ?? new Y.Map()))?.attrs["headerRowCount"]).toBe(1);
   });
 });
 
 describe("tables in other flows", () => {
-  it("nests: a table in a cell is a block of that cell, with its own cells", () => {
-    const innerRow = testRow("i0", { x: "inner" });
-    const inner = newTable([innerRow], cols("x"));
-    const cellPieceText = new Y.Text();
-    cellPieceText.insertEmbed(0, inner);
-    cellPieceText.insertEmbed(1, newParagraphMark());
-    const cellFlow = new Y.Array<Y.Text>();
-    cellFlow.insert(0, [cellPieceText]);
-    const { d, id } = withTable(newTable([testRow("r0", { a: cellFlow })], cols("a")));
-    const outerCell = cellId(id, "r0", "a");
-    const [t, after] = kids(d, outerCell);
-    expect(t).toMatchObject({ id: idOf(inner), type: "table", parentId: outerCell, nextSiblingId: after?.id });
-    expect(cellText(d, cellId(idOf(inner), "i0", "x"))).toEqual(["inner"]);
-    expect(getBlock(d, cellId(idOf(inner), "i0", "x"))?.parentId).toBe(idOf(innerRow));
-  });
-
-  it("a table in a footnote body / header body reads in that tree; only the bodies are content roots", () => {
+  it("a table in a footnote body / header body reads in that tree", () => {
     const f = fixture();
-    const fnTable = newTable([testRow("r0", { a: "in footnote" })], cols("a"));
     const fnPiece = new Y.Text();
-    fnPiece.insertEmbed(0, fnTable);
-    fnPiece.insertEmbed(1, newParagraphMark());
+    const fnUs = units("⟦ ⟨r⟩ ⟨c⟩ in-footnote¶ ⟧ ¶");
+    insertUnits(fnPiece, 0, fnUs);
     const anchor = newFootnoteOf(fnPiece);
     f.piece.insertEmbed(0, anchor);
-    const hTable = newTable([testRow("r0", { a: "in header" })], cols("a"));
-    const body = newBody();
-    childMap(f.docMap, BODIES_KEY)?.set("h1", body);
-    const bodyPiece = body.get("flow");
-    const hp: unknown = bodyPiece instanceof Y.Array ? bodyPiece.get(0) : null;
-    if (hp instanceof Y.Text) hp.insertEmbed(0, hTable);
+    const b = newBody();
+    childMap(f.docMap, BODIES_KEY)?.set("h1", b);
+    const flow = b.get("flow");
+    const hp: unknown = flow instanceof Y.Array ? flow.get(0) : null;
+    const hUs = units("⟦ ⟨r⟩ ⟨c⟩ in-header¶ ⟧");
+    if (hp instanceof Y.Text) insertUnits(hp, 0, hUs);
     const d = derive(f.doc);
-    const fnId = footnoteBodyId(idOf(anchor));
-    expect(getEmbedContentIds(d)).toEqual([fnId]);
-    expect(getTemplateContentIds(d)).toEqual([templateBodyId("h1")]);
-    expect(getEmbedContent(d, idOf(fnTable))).toMatchObject({ type: "table", parentId: fnId });
-    expect(cellText(d, cellId(idOf(fnTable), "r0", "a"), "embedContent")).toEqual(["in footnote"]);
-    expect(getTemplateContent(d, idOf(hTable))?.parentId).toBe(templateBodyId("h1"));
-    expect(cellText(d, cellId(idOf(hTable), "r0", "a"), "templateContent")).toEqual(["in header"]);
-    expect(getBlock(d, idOf(fnTable))).toBeNull();
+    const fnTable = idOf(mapsOf(fnUs)[0] ?? new Y.Map());
+    const hTable = idOf(mapsOf(hUs)[0] ?? new Y.Map());
+    expect(getEmbedContentIds(d)).toEqual([footnoteBodyId(idOf(anchor))]);
+    expect(getEmbedContent(d, fnTable)).toMatchObject({ type: "table", parentId: footnoteBodyId(idOf(anchor)) });
+    expect(shape(d, fnTable, "embedContent")).toEqual([["in-footnote"]]);
+    expect(getTemplateContent(d, hTable)?.parentId).toBe(templateBodyId("h1"));
+    expect(shape(d, hTable, "templateContent")).toEqual([["in-header"]]);
+    expect(getBlock(d, fnTable)).toBeNull();
   });
 
   it("a footnote anchored in a main-tree cell is read; in a cell of a table in a footnote body it is inert", () => {
     const f = fixture();
-    const row = testRow("r0", { a: "x" });
-    const table = newTable([row], cols("a"));
-    f.piece.insertEmbed(0, table);
-    const inCell = newFootnoteOf(new Y.Text());
-    cellPiece(row, "a").insertEmbed(1, inCell);
-    // A footnote after the table whose body holds a table, its cell anchoring another footnote.
-    const fnRow = testRow("q0", { a: "y" });
-    const fnTable = newTable([fnRow], cols("a"));
     const fnPiece = new Y.Text();
-    fnPiece.insertEmbed(0, fnTable);
-    fnPiece.insertEmbed(1, newParagraphMark());
+    const inner = newFootnoteOf(new Y.Text());
+    insertUnits(fnPiece, 0, ["⟦ ⟨r⟩ ⟨c⟩", "y", inner, "¶ ⟧ ¶"].flatMap((u) => (typeof u === "string" && /[⟦⟨¶]/.test(u) ? units(u) : [u])));
+    const inCell = newFootnoteOf(new Y.Text());
     const outer = newFootnoteOf(fnPiece);
-    f.piece.insertEmbed(1, outer);
-    cellPiece(fnRow, "a").insertEmbed(1, newFootnoteOf(new Y.Text()));
+    const us = [...units("⟦ ⟨r⟩ ⟨c⟩ x"), inCell, ...units("¶ ⟧"), outer];
+    insertUnits(f.piece, 0, us);
     const d = derive(f.doc);
     expect(getEmbedContentIds(d)).toEqual([footnoteBodyId(idOf(inCell)), footnoteBodyId(idOf(outer))].sort());
-    expect(textOf(kids(d, cellId(idOf(table), "r0", "a"))[0])).toBe("x\ufffc");
-    expect(textOf(kids(d, cellId(idOf(fnTable), "q0", "a"), "embedContent")[0])).toBe("y");
+    expect(shape(d, idOf(mapsOf(us)[0] ?? new Y.Map()))).toEqual([["x￼"]]);
   });
 });
 
-describe("cell ids", () => {
-  it("escape `%`, `/` and `|` in the track keys", () => {
-    expect(cellId("1:2", "a/b|c%", "x|y")).toBe("1:2/a%2Fb%7Cc%25|x%7Cy");
-    expect(cellId("1:2", "a", "b|c")).not.toBe(cellId("1:2", "a|b", "c"));
-    const { d, id } = withTable(newTable([testRow("a/b|c%", { "x|y": "t" })], cols("x|y")));
-    expect(cellText(d, `${id}/a%2Fb%7Cc%25|x%7Cy`)).toEqual(["t"]);
-  });
-});
-
-describe("the live model with tables (M1: table changes re-derive)", () => {
+describe("the live model with tables (N1: table edits re-derive their flow)", () => {
   it("every edit around and inside a table reads as from scratch", () => {
     const f = fixture();
     const model = new Model(f.doc);
     const check = (): void => expectSameVersion(model.version, derive(f.doc));
-    const row = newRowMap("r0", ["a", "b"]);
-    const table = newTable([row, newRowMap("r1", ["a", "b"])], [newColMap("a", 1), newColMap("b", 1)]);
-    f.doc.transact(() => {
-      f.piece.insert(0, "before");
-      f.piece.insertEmbed(6, newParagraphMark());
-      f.piece.insertEmbed(7, table);
+    const us = units("before¶ ⟦ ⟨r⟩ ⟨c⟩ a1¶ a2¶ a3¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟨c⟩ d¶ ⟧");
+    f.doc.transact(() => insertUnits(f.piece, 0, us));
+    check();
+    const [, table, , c0] = mapsOf(us);
+    const at = (m: Y.Map<unknown> | undefined): number => {
+      const it = m?._item;
+      let n = 0;
+      for (let x = f.piece._start; x !== null && x !== it; x = x.right) if (!x.deleted && x.countable) n += x.length;
+      return n;
+    };
+    const step = (fn: () => void): void => {
+      f.doc.transact(fn);
+      check();
+    };
+    step(() => f.piece.insert(at(c0) + 4, "X")); // inside a2 (between two ¶s of one cell: incremental)
+    step(() => f.piece.insert(at(c0) + 1, "Y")); // the cell's first paragraph
+    step(() => f.piece.insert(2, "Z")); // the paragraph before the table
+    step(() => f.piece.insert(f.piece.length - 1, "after")); // the paragraph after the table
+    step(() => table?.set("a:style", "s"));
+    step(() => c0?.set(COL_SPAN_KEY, 2));
+    step(() => {
+      const cols = table?.get(COLS_KEY);
+      if (cols instanceof Y.Array) cols.insert(0, [mapOf({ [WIDTH_KEY]: 3 })]);
     });
-    check();
-    cellPiece(row, "a").insert(0, "typed");
-    check();
-    f.piece.insert(3, "X"); // the paragraph before the table
-    check();
-    f.piece.insert(9, "after"); // typing right after the table
-    check();
-    table.set("a:style", "s");
-    check();
-    const colMaps = table.get(COLS_KEY);
-    const col0: unknown = colMaps instanceof Y.Array ? colMaps.get(0) : null;
-    if (col0 instanceof Y.Map) col0.set(WEIGHT_KEY, 3);
-    check();
-    table.set(KIND_KEY, "para"); // the table item flips kind, and back
-    check();
-    table.set(KIND_KEY, ITEM_KINDS.table);
-    check();
-    // A nested table, then a cell edit inside it.
-    const innerRow = newRowMap("i0", ["x"]);
-    cellPiece(row, "b").insertEmbed(0, newTable([innerRow], cols("x")));
-    check();
-    cellPiece(innerRow, "x").insert(0, "deep");
-    check();
-    // A footnote anchored in a cell, then an edit of its body.
-    const cellFn = new Y.Text();
-    cellFn.insertEmbed(0, newParagraphMark());
-    cellPiece(row, "a").insertEmbed(0, newFootnoteOf(cellFn));
-    check();
-    cellFn.insert(0, "note");
-    check();
-    // A table in a header body, then a cell edit.
-    const hRow = newRowMap("h0", ["a"]);
-    const body = newBody();
-    childMap(f.docMap, BODIES_KEY)?.set("h1", body);
-    const bodyFlow = body.get("flow");
-    const hp: unknown = bodyFlow instanceof Y.Array ? bodyFlow.get(0) : null;
-    if (hp instanceof Y.Text) hp.insertEmbed(0, newTable([hRow], cols("a")));
-    check();
-    cellPiece(hRow, "a").insert(0, "hdr");
-    check();
-    row.set("header", true);
-    check();
-    row.set("c:a:colSpanTo", "b");
-    check();
-    const rows = table.get(ROWS_KEY);
-    if (rows instanceof Y.Array) rows.delete(1, 1);
-    check();
-    // A footnote body holding a table, removed with its anchor.
-    const fnPiece = new Y.Text();
-    fnPiece.insertEmbed(0, newTable([newRowMap("q", ["a"])], cols("a")));
-    fnPiece.insertEmbed(1, newParagraphMark());
-    f.piece.insertEmbed(2, newFootnoteOf(fnPiece));
-    check();
-    f.piece.delete(2, 1);
-    check();
-    f.piece.delete(8, 1); // the table itself
-    check();
-    childMap(f.docMap, BODIES_KEY)?.delete("h1");
-    check();
-    expect([...model.version.tables.entries()]).toEqual([]);
+    step(() => c0?.set(KIND_KEY, "para")); // a mark flips kind, and back
+    step(() => c0?.set(KIND_KEY, "cell"));
+    step(() => insertUnits(f.piece, at(c0) + 1, units("⟦@1 ⟨r⟩@1 ⟨c⟩@1 deep¶ ⟧@1"))); // a nested table
+    step(() => f.piece.insert(at(c0) + 6, "!")); // inside it
+    step(() => insertUnits(f.piece, at(c0) + 2, units("[S]"))); // an [S] in a cell closes the tables
+    step(() => f.piece.delete(at(c0) + 2, 1));
+    step(() => f.piece.insertEmbed(at(c0) + 1, newFootnoteOf(new Y.Text()))); // a footnote in a cell
+    const end = mapsOf(us)[mapsOf(us).length - 1];
+    step(() => f.piece.delete(at(end), 1)); // the ⟧: the table runs to <end>
+    step(() => f.piece.delete(at(table), 1)); // the ⟦: every mark is a stray
     model.destroy();
   });
 });

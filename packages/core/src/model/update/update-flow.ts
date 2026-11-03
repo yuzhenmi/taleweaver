@@ -18,14 +18,15 @@
  * Fallbacks to a from-scratch derivation of the flow (all correct, just O(flow)):
  *   - a piece removed from the flow array, or a changed piece the flow state does not know;
  *   - an `[S]` in a non-body flow (as an anchor or inside the region);
- *   - a flow that is synthetic (R17) or whose region empties it;
- *   - a region holding a table (P2 M1: tables are derived from scratch with their flow);
+ *   - a flow that is synthetic (R17) or whose region empties it, or that holds inert table marks;
+ *   - a region touching a table mark, or ending at an `[S]` / `<end>` from inside a cell
+ *     (N1: tables are derived from scratch with their flow; the structural splice is N2);
  *   - overlapping splices, an anchor whose old record is missing, a section list the
  *     region's old `[S]` cannot be found in (defensive: not produced by any known write).
  * ponytail: several dirty pieces in one transaction form ONE region spanning them all.
  */
 import * as Y from "yjs";
-import type { BlockId } from "../block";
+import { BLOCK_TYPES, type BlockId } from "../block";
 import { deriveFlow, deriveFootnote, piecesOf, removeFlow, scanCtxOf, segmentsOf, writeSegment } from "../derive/derive-flow";
 import { type BlockEntity, type Entity, group, indexSegments, isBlockEntity, isParaEntity, isSectionBreakEntity } from "../derive/entities";
 import { sectionRecord } from "../derive/records";
@@ -87,7 +88,9 @@ const sectionBreakIds = (ents: readonly Entity[]): string => ents.filter(isSecti
 export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void {
   const fs = w.flows.get(holderId);
   if (fs === undefined || w.fresh.has(holderId)) return;
-  if (fs.synthetic) return rederiveFlow(w, fs);
+  // A flow with inert table marks (their segments rewritten, `derive/table/inert-marks.ts`) re-derives: a rescanned segment
+  // would read them as terminators again (N1; rare: concurrent / stray marks only).
+  if (fs.synthetic || fs.inertMarks) return rederiveFlow(w, fs);
   const oldScans = fs.segments;
 
   // 1. Splices: whole subtrees (structural changes, new top-level pieces) and single-segment deltas.
@@ -219,9 +222,14 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   const objectBefore = L !== null && isBlockObject(L.tok.k) ? L.tok.id : null;
   const oldEnts = group(between(oldScans, oldL, oldR), R === null, holderId, { withItems: false, objectBefore });
   const newEnts = group(between(newScans, L, R), R === null, holderId, { objectBefore });
-  // ponytail: a region holding a block object with flows (a table) re-derives its flow (O(flow)); incremental tables are P2 M2.
+  // ponytail: a region touching a table's marks re-derives its flow (O(flow)); the structural splice is N2. So does one
+  // that would end at an `[S]` / `<end>` (which close tables) from inside a cell. Any other region inside a cell lies
+  // between two terminators of that cell.
   const withFlows = (e: Entity): boolean => holdsFlows(e.k);
-  if (oldEnts.some(withFlows) || newEnts.some(withFlows)) return rederiveFlow(w, fs);
+  if (oldEnts.some(withFlows) || newEnts.some(withFlows) || holdsFlows(L?.tok.k) || holdsFlows(R?.tok.k)) return rederiveFlow(w, fs);
+  const lCell = L === null || isSectionBreak(L.tok.k) ? undefined : w.get(fs.tree, w.get(fs.tree, L.tok.id)?.parentId ?? "");
+  const closesTables = R === null || isSectionBreak(R.tok.k) || newEnts.some(isSectionBreakEntity) || oldEnts.some(isSectionBreakEntity);
+  if (lCell?.type === BLOCK_TYPES.tableCell && closesTables) return rederiveFlow(w, fs);
   if (!fs.isRoot && (isSectionBreak(L?.tok.k) || isSectionBreak(R?.tok.k) || newEnts.some(isSectionBreakEntity) || oldEnts.some(isSectionBreakEntity))) {
     return rederiveFlow(w, fs);
   }

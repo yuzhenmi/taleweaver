@@ -1,6 +1,8 @@
 import type { Document, FlowState } from "../document/types";
 import { afterObjectId, debrisBeforeId, flowEndId } from "../ids";
-import { isBlockObject, isParagraphBreak } from "../scan/kinds";
+import { holdsFlows, isBlockObject, isParagraphBreak } from "../scan/kinds";
+import { isTableStart } from "../storage/table-marks";
+import { afterObject, tableExtent } from "./table-extent";
 import { type ParagraphLayout, type TerminatorRef, nextTerminator, paragraphLayout, readLength, runsBefore } from "./paragraph-layout";
 
 /** Read units from the previous terminator up to (seg, tok, within). */
@@ -21,9 +23,12 @@ export type Following =
   | { readonly k: "terminator"; readonly term: TerminatorRef }
   | { readonly k: "end" };
 
-export function followingOf(d: Document, fs: FlowState, t: TerminatorRef): Following {
-  const seg = fs.segments[t.seg];
-  const next = seg !== undefined && t.tok + 1 < seg.tokens.length ? { seg: t.seg, tok: t.tok + 1 } : { seg: t.seg + 1, tok: 0 };
+export function followingOf(d: Document, fs: FlowState, first: TerminatorRef): Following {
+  // A table's `⟦` faces outward as the whole table: what follows it is what follows the table. Its implicit paragraph
+  // is anchored at its `⟧` (at its `⟦` when unclosed).
+  const table = holdsFlows(first.token.k) && isTableStart(first.token.map) ? tableExtent(fs, first) : null;
+  const t = table?.close ?? first;
+  const next = table?.next ?? afterObject(fs, first);
   const { term, units } = nextTerminator(fs, next.seg, next.tok, 0);
   const none = units === 0 && (term === null || !isParagraphBreak(term.token.k));
   if (none && !isBlockObject(t.token.k)) return term === null ? { k: "end" } : { k: "terminator", term };

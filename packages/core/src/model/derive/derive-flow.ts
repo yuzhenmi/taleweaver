@@ -1,15 +1,17 @@
 import * as Y from "yjs";
 import { BLOCK_TYPES, type Block, type BlockId, EMBED_TYPES, type ReadonlyAttrs } from "../block";
-import type { FlowState, SectionInfo, TableState, TreeKind } from "../document/types";
+import type { FlowState, SectionInfo, TreeKind } from "../document/types";
 import { finalSectionId, flowEndId, footnoteBodyId, sectionIdOf } from "../ids";
 import { flattenPiece } from "../scan/flatten-piece";
 import { isText } from "../scan/kinds";
 import type { FootnoteRef, ScanCtx, Segment } from "../scan/tokens";
 import { flowOf, scalarsWithPrefix } from "../storage/map-reads";
-import { type BlockEntity, type Entity, type SectionBreakEntity, type TableEntity, flatten, group, indexSegments, isBlockEntity, isParaEntity, isSectionBreakEntity } from "./entities";
+import { type BlockEntity, type Entity, type ParaEntity, type SectionBreakEntity, type TableEntity, flatten, indexSegments, isBlockEntity, isParaEntity, isSectionBreakEntity } from "./entities";
 import { EMPTY_ATTRS, type Links, containerRecord, entityRecord } from "./records";
 import { writeSections } from "./sections";
-import { readTable } from "./table/read-table";
+import type { FormedTable } from "./table/form-table";
+import { withInertMarks } from "./table/inert-marks";
+import { parseFlow } from "./table/parse-tables";
 import type { Working } from "./working";
 
 // ---------------------------------------------------------------------------
@@ -50,13 +52,8 @@ export function writeSegment(w: Working, tree: TreeKind, seg: readonly BlockEnti
       prevSiblingId: i === 0 ? prev : (seg[i - 1]?.id ?? null),
       nextSiblingId: i === seg.length - 1 ? next : (seg[i + 1]?.id ?? null),
     };
-    if (e.k !== "table") {
-      w.put(tree, entityRecord(e, links));
-      continue;
-    }
-    const ts = w.tables.get(e.id);
-    if (ts === undefined) throw new Error(`model: table ${e.id} written before it was read`);
-    w.put(tree, tableRecord(ts, links));
+    if (e.k === "table") writeTable(w, tree, e, links);
+    else w.put(tree, entityRecord(e, links));
   }
 }
 
@@ -75,18 +72,18 @@ export interface HolderRecord {
 const NO_LINKS: Links = Object.freeze({ parentId: null, prevSiblingId: null, nextSiblingId: null });
 
 /**
- * Derive one flow from scratch (and, recursively, the tables it holds and the footnote
- * bodies its paragraphs anchor). `holder`: a cell's record fields (type, attrs, links).
+ * Derive one flow from scratch (with its tables, and recursively the footnote bodies its
+ * paragraphs anchor). `holder`: a non-root holder's record fields (type, attrs, links).
  */
 export function deriveFlow(w: Working, holderId: BlockId, tree: TreeKind, array: Y.Array<Y.Text> | null, isRoot: boolean, holder?: HolderRecord): void {
   const flowSegments: Segment[] = [];
   const ctx = scanCtxOf(w, tree);
   for (const p of piecesOf(array)) flattenPiece(p, ctx, flowSegments);
-  let ents = group(flatten(flowSegments), true, holderId);
+  const parsed = parseFlow(flatten(flowSegments), holderId);
+  let ents = parsed.ents;
   if (!isRoot) ents = ents.filter(isBlockEntity);
   const synthetic = !ents.some(isBlockEntity);
   if (synthetic) ents.push({ k: "para", id: flowEndId(holderId), map: null, items: [], footnotes: [] });
-  for (const e of ents) if (e.k === "table") deriveTable(w, e, tree);
   const { segments, breaks } = segmentsOf(ents);
   const sections: SectionInfo[] = isRoot
     ? [...breaks.map((b) => ({ id: sectionIdOf(b.id), map: b.map })), { id: finalSectionId(w.rootId), map: w.docMap }]
@@ -104,72 +101,72 @@ export function deriveFlow(w: Working, holderId: BlockId, tree: TreeKind, array:
     const type = holder?.type ?? (tree === "templateContent" ? BLOCK_TYPES.templateBody : BLOCK_TYPES.footnoteBody);
     w.put(tree, containerRecord(holderId, type, holder?.attrs ?? EMPTY_ATTRS, holder?.links ?? NO_LINKS, seg[0]?.id ?? null, seg[seg.length - 1]?.id ?? null));
   }
-  w.flows = w.flows.set(holderId, { holderId, tree, isRoot, array, segments: flowSegments, segIndex: indexSegments(flowSegments), sections, synthetic });
+  const read = withInertMarks(flowSegments, parsed.inert);
+  w.flows = w.flows.set(holderId, { holderId, tree, isRoot, array, segments: read, segIndex: indexSegments(read), sections, synthetic, inertMarks: parsed.inert.size > 0 });
   w.fresh.add(holderId);
   if (isRoot) writeSections(w);
-  for (const e of ents) if (isParaEntity(e)) for (const f of e.footnotes) deriveFootnote(w, f);
+  for (const p of parasOf(ents)) for (const f of p.footnotes) deriveFootnote(w, f);
+}
+
+/** The paragraph entities of `ents`, those in table cells included (reading order). */
+export function* parasOf(ents: readonly Entity[]): Generator<ParaEntity> {
+  for (const e of ents) {
+    if (isParaEntity(e)) yield e;
+    else if (e.k === "table") for (const r of e.formed?.rows ?? []) for (const c of r.cells) yield* parasOf(c.ents);
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Tables: rows, cells and cell flows (from scratch); the read is `table/read-table.ts`
+// Tables: the table, row and cell records (the grid is formed by `table/`)
 // ---------------------------------------------------------------------------
 
-/**
- * Read table `e` (in `tree`) and write its row and cell records and cell flows. The
- * table record itself is written with its flow siblings ({@link tableRecord}).
- */
-export function deriveTable(w: Working, e: TableEntity, tree: TreeKind): void {
-  const ts = readTable(e.id, e.map, tree);
-  w.tables = w.tables.set(e.id, ts);
-  if (ts.cells.length === 0) return;
-  let i = 0;
-  ts.rows.forEach((row, r) => {
-    const start = i;
-    while (ts.cells[i]?.row === r) i++;
-    const cells = ts.cells.slice(start, i);
-    cells.forEach((cell, j) => {
-      const links: Links = { parentId: row.id, prevSiblingId: cells[j - 1]?.id ?? null, nextSiblingId: cells[j + 1]?.id ?? null };
-      deriveFlow(w, cell.id, tree, cell.flow, false, { type: BLOCK_TYPES.tableCell, attrs: cell.attrs, links });
+/** Write table `e`'s record (with `links`) and its rows, cells and cell contents. */
+function writeTable(w: Working, tree: TreeKind, e: TableEntity, links: Links): void {
+  const formed = e.formed;
+  if (formed === null) throw new Error(`model: table ${e.id} written unformed`);
+  w.put(tree, tableRecord(e, formed, links));
+  formed.rows.forEach((row, r) => {
+    row.cells.forEach((cell, j) => {
+      const cellLinks: Links = { parentId: row.id, prevSiblingId: row.cells[j - 1]?.id ?? null, nextSiblingId: row.cells[j + 1]?.id ?? null };
+      w.put(tree, containerRecord(cell.id, BLOCK_TYPES.tableCell, cellAttrs(cell.map, cell.rowSpan, cell.colSpan), cellLinks, cell.ents[0]?.id ?? null, cell.ents[cell.ents.length - 1]?.id ?? null));
+      writeSegment(w, tree, cell.ents, cell.id, null, null);
     });
-    w.put(
-      tree,
-      containerRecord(
-        row.id,
-        BLOCK_TYPES.tableRow,
-        Object.freeze(scalarsWithPrefix(row.map, "a:")),
-        { parentId: e.id, prevSiblingId: ts.rows[r - 1]?.id ?? null, nextSiblingId: ts.rows[r + 1]?.id ?? null },
-        cells[0]?.id ?? null,
-        cells[cells.length - 1]?.id ?? null,
-      ),
-    );
+    const rowLinks: Links = { parentId: e.id, prevSiblingId: formed.rows[r - 1]?.id ?? null, nextSiblingId: formed.rows[r + 1]?.id ?? null };
+    w.put(tree, containerRecord(row.id, BLOCK_TYPES.tableRow, Object.freeze(scalarsWithPrefix(row.map, "a:")), rowLinks, row.cells[0]?.id ?? null, row.cells[row.cells.length - 1]?.id ?? null));
   });
 }
 
-/** The table's record: `a:*` + `columnWidths` (R10) + `headerRowCount` (R6h, when > 0). */
-export function tableRecord(ts: TableState, links: Links): Block {
-  const attrs = scalarsWithPrefix(ts.map, "a:");
+/** The table's record: `a:*` + `columnWidths` (RT3) + `headerRowCount` (RT4, when > 0). */
+function tableRecord(e: TableEntity, formed: FormedTable, links: Links): Block {
+  const attrs = scalarsWithPrefix(e.map, "a:");
   delete attrs["columnWidths"];
   delete attrs["headerRowCount"];
-  if (ts.widths !== null) attrs["columnWidths"] = ts.widths;
-  if (ts.headerCount > 0) attrs["headerRowCount"] = ts.headerCount;
-  const rendered = ts.cells.length > 0;
-  return containerRecord(
-    ts.id,
-    BLOCK_TYPES.table,
-    Object.freeze(attrs),
-    links,
-    rendered ? (ts.rows[0]?.id ?? null) : null,
-    rendered ? (ts.rows[ts.rows.length - 1]?.id ?? null) : null,
-  );
+  if (formed.widths !== null) attrs["columnWidths"] = formed.widths;
+  if (formed.headerCount > 0) attrs["headerRowCount"] = formed.headerCount;
+  return containerRecord(e.id, BLOCK_TYPES.table, Object.freeze(attrs), links, formed.rows[0]?.id ?? null, formed.rows[formed.rows.length - 1]?.id ?? null);
 }
 
-/** Remove a table's row and cell records and cell flows (its own record is its flow's). */
-export function removeTable(w: Working, id: BlockId): void {
-  const ts = w.tables.get(id);
-  if (ts === undefined) return;
-  for (const cell of ts.cells) removeFlow(w, cell.id);
-  if (ts.cells.length > 0) for (const row of ts.rows) w.del(ts.tree, row.id);
-  w.tables = w.tables.delete(id);
+/** A cell's `a:*`, with `rowSpan` / `colSpan` set only when > 1 (a virtual cell has none). */
+function cellAttrs(map: Y.Map<unknown> | null, rowSpan: number, colSpan: number): ReadonlyAttrs {
+  const a = map === null ? {} : scalarsWithPrefix(map, "a:");
+  delete a["rowSpan"];
+  delete a["colSpan"];
+  if (rowSpan > 1) a["rowSpan"] = rowSpan;
+  if (colSpan > 1) a["colSpan"] = colSpan;
+  return Object.freeze(a);
+}
+
+/** Remove the records under block `id` (a table's rows, cells and their contents, with the footnote bodies they anchor). */
+function removeDescendants(w: Working, tree: TreeKind, id: BlockId): void {
+  let c = w.get(tree, id)?.firstChildId ?? null;
+  while (c !== null) {
+    const b = w.get(tree, c);
+    if (b === undefined) break;
+    for (const body of footnoteBodiesOf(b)) removeFlow(w, body);
+    removeDescendants(w, tree, c);
+    w.del(tree, c);
+    c = b.nextSiblingId;
+  }
 }
 
 export function deriveFootnote(w: Working, f: FootnoteRef): void {
@@ -204,7 +201,7 @@ export function removeFlow(w: Working, holderId: BlockId): void {
       const b = w.get(fs.tree, id);
       if (b === undefined) break;
       for (const body of footnoteBodiesOf(b)) removeFlow(w, body);
-      removeTable(w, id);
+      removeDescendants(w, fs.tree, id);
       w.del(fs.tree, id);
       id = b.nextSiblingId;
     }

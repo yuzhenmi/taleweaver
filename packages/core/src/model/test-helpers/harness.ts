@@ -154,8 +154,15 @@ export class Harness {
  */
 export function readOf(d: Document): unknown {
   const sections = childrenOf(d, "block", d.rootId);
+  // A table's rows / cells / cell contents nest under it.
   const blocks = (tree: TreeKind, id: string): unknown[] =>
-    childrenOf(d, tree, id).map((b) => ({ type: b.type, attrs: b.attrs, markAttrs: b.markAttrs, items: b.inlineContent?.items.map(inline) }));
+    childrenOf(d, tree, id).map((b) => ({
+      type: b.type,
+      attrs: b.attrs,
+      markAttrs: b.markAttrs,
+      items: b.inlineContent?.items.map(inline),
+      children: b.firstChildId === null ? undefined : blocks(tree, b.id),
+    }));
   const inline = (i: InlineItem): unknown => {
     const body = i.kind === "embed" ? i.properties["contentBlockId"] : undefined;
     return typeof body === "string" ? { kind: "footnote", attrs: i.attrs, body: blocks("embedContent", body) } : i;
@@ -168,31 +175,14 @@ export function readOf(d: Document): unknown {
   };
 }
 
-/** A selection of `d` without ids: `flow.paragraph:offset` per end (flow 0 = the body, then footnote bodies in anchor order, then header / footer bodies, then table cells row-major by table in flow order, each followed by its footnote bodies; a paragraph's index counts its flow's block objects); `object flow.index` / `all flow` for those kinds. */
+/** A selection of `d` without ids: `flow.block:offset` per end (flow 0 = the body, then footnote bodies in anchor order, then header / footer bodies; a flow's blocks are its records depth first, table rows / cells / their contents in place); `object flow.index` / `all flow` for those kinds. */
 export function selectionOf(d: Document, sel: ModelSelection): string {
-  const body = childrenOf(d, "block", d.rootId).flatMap((s) => childrenOf(d, "block", s.id));
-  const footnotesOf = (blocks: readonly Block[]): string[] =>
-    blocks.flatMap((b) => (b.inlineContent?.items ?? []).flatMap((i) => (i.kind === "embed" && typeof i.properties["contentBlockId"] === "string" ? [i.properties["contentBlockId"]] : [])));
-  const footnotes = footnotesOf(body);
+  const under = (tree: TreeKind, id: string): Block[] => childrenOf(d, tree, id).flatMap((b) => [b, ...under(tree, b.id)]);
+  const body = childrenOf(d, "block", d.rootId).flatMap((s) => under("block", s.id));
+  const footnotes = body.flatMap((b) => (b.inlineContent?.items ?? []).flatMap((i) => (i.kind === "embed" && typeof i.properties["contentBlockId"] === "string" ? [i.properties["contentBlockId"]] : [])));
   const templates = getTemplateContentIds(d);
   const holders = [d.rootId, ...footnotes, ...templates];
-  const flows: Block[][] = [body, ...footnotes.map((id) => childrenOf(d, "embedContent", id)), ...templates.map((id) => childrenOf(d, "templateContent", id))];
-  // Cell flows after the rest (labels elsewhere unchanged), each followed by the bodies of footnotes anchored
-  // in it; `flows` grows, so cells of tables in cells follow too.
-  for (let f = 0; f < flows.length; f++) {
-    for (const b of flows[f] ?? []) {
-      const ts = d.tables.get(b.id);
-      for (const c of ts?.cells ?? []) {
-        const cell = childrenOf(d, ts?.tree ?? "block", c.id);
-        holders.push(c.id);
-        flows.push(cell);
-        for (const fn of footnotesOf(cell)) {
-          holders.push(fn);
-          flows.push(childrenOf(d, "embedContent", fn));
-        }
-      }
-    }
-  }
+  const flows: Block[][] = [body, ...footnotes.map((id) => under("embedContent", id)), ...templates.map((id) => under("templateContent", id))];
   const at = (id: string): string => {
     const f = flows.findIndex((bs) => bs.some((b) => b.id === id));
     return `${f}.${flows[f]?.findIndex((b) => b.id === id) ?? -1}`;

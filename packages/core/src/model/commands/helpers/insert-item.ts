@@ -25,7 +25,7 @@ export function insertItem(ctx: CommandContext, kind: FlowKind, make: () => Y.Ma
   const alone = CATEGORIES[categoryOfKind(kind)].insertedAlone;
   return overSelection(ctx, (c) => {
     const r = rangeOf(c);
-    if (r === null || !canPlace(kind, r.start)) return null;
+    if (r === null || !canPlace(c.version, kind, r.start)) return null;
     return alone ? insertAlone(c, make) : replaceSelection(c, (attrs) => [{ embed: make(), attrs }]);
   });
 }

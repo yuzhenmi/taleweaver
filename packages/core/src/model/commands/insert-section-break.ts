@@ -27,7 +27,7 @@ export function insertSectionBreak(ctx: CommandContext): Plan | null {
 
 function insertBreak(ctx: CommandContext): Plan | null {
   const r = rangeOf(ctx);
-  if (r === null || !canPlace("S", r.start)) return null;
+  if (r === null || !canPlace(ctx.version, "S", r.start)) return null;
   const owner = sectionOwner(ctx.version, r.end);
   if (owner === null) return null;
   const s: Record<string, Scalar> = {};

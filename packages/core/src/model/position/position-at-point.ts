@@ -6,7 +6,8 @@ import { afterObjectId, debrisBeforeId, flowEndId } from "../ids";
 import { type Assoc, type ModelPosition, position } from "./model-position";
 import { type TerminatorRef, nextTerminator, starts } from "./paragraph-layout";
 import { unitsBefore } from "./terminator-neighbours";
-import { isBlockObject, isParagraphBreak } from "../scan/kinds";
+import { isParagraphBreak } from "../scan/kinds";
+import { isObjectEnd } from "./table-extent";
 import { unitsOf } from "./items";
 
 /** Read units before run-relative storage offset `s`. */
@@ -89,7 +90,7 @@ function probe(fs: FlowState, at: Located): Probe {
   if (before.units + after.units > 0) return { pos: position(t === null ? flowEndId(fs.holderId) : debrisBeforeId(t.token.id), before.units) };
   if (t === null && fs.synthetic) return { pos: position(flowEndId(fs.holderId), 0) };
   const b = before.before;
-  if (b !== null && isBlockObject(b.token.k)) return { pos: position(afterObjectId(b.token.id), 0) };
+  if (b !== null && isObjectEnd(b.token)) return { pos: position(afterObjectId(b.token.id), 0) };
   return { after: t, before: before.before };
 }
 

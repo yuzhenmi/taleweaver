@@ -14,8 +14,9 @@
  *   - anything under `listDefs`: list definitions; under `comments` / `suggestions`:
  *     not read in M1 (P4 / P10).
  *
- * ponytail: events inside a table (cell flows, rows / cols, Row / ColMaps) → full
- * re-derive: O(doc) per cell keystroke until P2 M2 (incremental tables).
+ * A table is marks in its flow, so its edits are piece / item-map changes; a region
+ * touching a mark re-derives that flow (`update-flow.ts`), and a `cols` array edit is
+ * not classified (→ full re-derive) until N5.
  */
 import * as Y from "yjs";
 import type { BlockId } from "./block";

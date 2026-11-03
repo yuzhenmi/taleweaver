@@ -27,8 +27,10 @@ import type { Block, BlockId } from "../block";
 import { resolveBlock } from "../document/blocks";
 import type { Document, FlowState, TreeKind } from "../document/types";
 import { flowEndId } from "../ids";
-import type { RunToken, Segment, TerminatorToken } from "../scan/tokens";
-import { isBlockObject, isParagraphBreak } from "../scan/kinds";
+import type { RunToken, TerminatorToken } from "../scan/tokens";
+import { holdsFlows, isBlockObject, isParagraphBreak } from "../scan/kinds";
+import { afterObject, tableExtent } from "./table-extent";
+import { isTableStart } from "../storage/table-marks";
 
 /** An insertion point `index` of `piece`, which is segment `seg`'s piece in its flow. */
 export interface StoragePoint {
@@ -81,21 +83,8 @@ export interface ParagraphLayout {
 // Segment walking
 // ---------------------------------------------------------------------------
 
-const tokenStarts = new WeakMap<Segment, readonly number[]>();
-
-/** Storage index of each token of `seg` in its piece (memoized: segments are immutable). */
-export function starts(seg: Segment): readonly number[] {
-  const memo = tokenStarts.get(seg);
-  if (memo !== undefined) return memo;
-  const out: number[] = [];
-  let i = seg.start;
-  for (const t of seg.tokens) {
-    out.push(i);
-    i += t.len;
-  }
-  tokenStarts.set(seg, out);
-  return out;
-}
+export { starts } from "./token-starts";
+import { starts } from "./token-starts";
 
 export const readLength = (t: RunToken): number => t.len - t.inert.length;
 
@@ -165,10 +154,14 @@ export function terminatorOf(d: Document, fs: FlowState, id: string): Terminator
   return findTerminator(d, fs, id);
 }
 
-/** The flow a record of `tree` belongs to (cells arrive in P2). */
+/** The flow a record of `tree` belongs to: the body, or its nearest holder ancestor (through table cells, at most the nesting cap). */
 export function flowOfBlock(d: Document, block: Block, tree: TreeKind): FlowState | undefined {
-  const holder = tree === "block" ? d.rootId : block.parentId;
-  return holder === null ? undefined : d.flows.get(holder);
+  if (tree === "block") return d.flows.get(d.rootId);
+  for (let id = block.parentId; id !== null; id = d.trees[tree].get(id)?.parentId ?? null) {
+    const fs = d.flows.get(id);
+    if (fs !== undefined) return fs;
+  }
+  return undefined;
 }
 
 /** The point right after a terminator. */
@@ -223,10 +216,15 @@ export function paragraphLayout(d: Document, id: BlockId): ParagraphLayout | nul
     // The implicit paragraph after a block object: nothing read up to the next terminator, a non-¶ one (or `<end>`).
     const object = findTerminator(d, fs, id.slice(0, -"/after".length));
     if (object === null || !isBlockObject(object.token.k)) return null;
-    const seg = fs.segments[object.seg];
-    const next = seg !== undefined && object.tok + 1 < seg.tokens.length ? { seg: object.seg, tok: object.tok + 1 } : { seg: object.seg + 1, tok: 0 };
+    const open = holdsFlows(object.token.k) && isTableStart(object.token.map) ? tableExtent(fs, object) : null;
+    const next = open?.next ?? afterObject(fs, object);
     const n = nextTerminator(fs, next.seg, next.tok, 0);
     if (n.units > 0 || (n.term !== null && isParagraphBreak(n.term.token.k))) return null;
+    // An unclosed table's (concurrency only): nothing of it is stored; its head is where the table ends, at the
+    // `[S]` / mark / `<end>` closing it. ponytail: its first write must also write the table's `⟧` (N3).
+    if (open !== null && open.close === null) {
+      return { block: r.block, tree: r.kind, fs, parts: [], length: 0, mark: null, end: n.term, before: object, head: open.end, implicit: true };
+    }
     end = n.term;
     from = end ?? flowEnd;
     implicit = true;

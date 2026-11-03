@@ -16,7 +16,7 @@ import { replaceSelection } from "./helpers/replace-selection";
 export function insertFootnote(ctx: CommandContext): Plan | null {
   return overSelection(ctx, (c) => {
     const r = rangeOf(c);
-    if (r === null || !canPlace("footnote", r.start)) return null;
+    if (r === null || !canPlace(c.version, "footnote", r.start)) return null;
     const mark = newParagraphMark();
     return replaceSelection(
       c,

@@ -10,7 +10,7 @@ import type { Block, ReadonlyAttrs } from "../block";
 import { insertFootnote } from "../commands/insert-footnote";
 import { insertHeaderFooter } from "../commands/insert-header-footer";
 import type { Document, FlowState, TreeKind } from "../document/types";
-import { afterObjectId, cellId } from "../ids";
+import { afterObjectId } from "../ids";
 import { OPTIONS } from "../oracle/random-command";
 import { isTextSelection } from "../position/model-position";
 import { paragraphLayout } from "../position/paragraph-layout";
@@ -18,10 +18,9 @@ import { CATEGORIES, type Category, type Container, type FlowKind, allowedIn, ca
 import type { Unit as LinearUnit } from "./expectations";
 import { unitsOf } from "../position/items";
 import { newHorizontalRule, newMarker, newObject, newParagraphMark, newSectionBreak, newTableOfContents } from "../storage/new-items";
-import { newColMap, newTable } from "../storage/new-table";
 import { Harness } from "../test-helpers/harness";
 import { childrenOf, idOf } from "../test-helpers/fixture";
-import { testRow } from "../test-helpers/table";
+import { units as tableUnits } from "../test-helpers/table";
 
 export const CATEGORY_LIST: readonly Category[] = ["text", "paragraphBreak", "inlineAtom", "rule", "anchor", "atomicBlock", "containerBlock", "sectionBreak"];
 export const CONTAINERS: readonly Container[] = ["body", "cell", "footnote", "headerFooter"];
@@ -55,8 +54,8 @@ export function unreachable(l: Category, r: Category): string | null {
 /** One storage unit: a text character or an embedded item map. */
 type Unit = string | Y.Map<unknown>;
 
-/** The storage units of category `c`'s representative (L's text `ab`, R's `cd`: each character its own). An anchor is a collapsed marker pair (insertMarker's caret shape). */
-function units(c: Category, salt: "L" | "R"): Unit[] {
+/** The storage units of category `c`'s representative (L's text `ab`, R's `cd`: each character its own). An anchor is a collapsed marker pair (insertMarker's caret shape); a table is a one-cell bracket at `depth`. */
+function units(c: Category, salt: "L" | "R", depth: number): Unit[] {
   const k = REPRESENTATIVE[c];
   switch (k) {
     case "text":
@@ -72,7 +71,7 @@ function units(c: Category, salt: "L" | "R"): Unit[] {
     case "toc":
       return [newTableOfContents()];
     case "table":
-      return [newTable([testRow("r0", { a: "c" })], [newColMap("a")])];
+      return tableUnits(`⟦@${depth} ⟨r⟩@${depth} ⟨c⟩@${depth} c¶ ⟧@${depth}`);
     case "S":
       return [newSectionBreak()];
     default:
@@ -80,28 +79,33 @@ function units(c: Category, salt: "L" | "R"): Unit[] {
   }
 }
 
-/** `x¶ L R y` (the container's own final ¶ follows): a rule's paragraph (R a rule, or L a rule and R zero-width) gets its ¶ before `y`. */
-export function sequence(l: Category, r: Category): Unit[] {
+/** `x¶ L R y` (the container's own final ¶ follows): a rule's paragraph (R a rule, or L a rule and R zero-width) gets its ¶ before `y`. `depth`: a table's nesting depth there. */
+export function sequence(l: Category, r: Category, depth = 0): Unit[] {
   const ruleOpen = CATEGORIES[r].insertedAlone || (CATEGORIES[l].insertedAlone && CATEGORIES[r].zeroWidth);
-  return [...["x", newParagraphMark()], ...units(l, "L"), ...units(r, "R"), ...(ruleOpen ? [newParagraphMark()] : []), "y"];
+  return [...["x", newParagraphMark()], ...units(l, "L", depth), ...units(r, "R", depth), ...(ruleOpen ? [newParagraphMark()] : []), "y"];
 }
 
-function fill(piece: Y.Text, seq: readonly Unit[]): void {
-  seq.forEach((u, i) => (typeof u === "string" ? piece.insert(i, u) : piece.insertEmbed(i, u)));
+/** Storage units of category `c`'s representative (a table: its whole bracket). */
+export const storageLength = (c: Category): number => units(c, "L", 0).length;
+
+function fill(piece: Y.Text, seq: readonly Unit[], at = 0): void {
+  seq.forEach((u, i) => (typeof u === "string" ? piece.insert(at + i, u) : piece.insertEmbed(at + i, u)));
 }
 
-/** A container's flow in a version: its storage holder and its read tree / root record. */
+/** A container in a version: its record (the flow's holder, or a table cell), the flow holding it and its read tree. */
 export interface Where {
   readonly container: Container;
   readonly holder: string;
+  readonly flow: string;
   readonly tree: TreeKind;
 }
 
 export interface Case {
   readonly h: Harness;
   readonly where: Where;
-  /** The piece holding the sequence (storage index = linear index, no inert storage). */
+  /** The piece holding the sequence, from storage index `offset` (no inert storage). */
   readonly piece: Y.Text;
+  readonly offset: number;
 }
 
 /** A fresh harness holding `seq` in `container`; the history is cleared after setup. */
@@ -110,19 +114,20 @@ export function build(container: Container, seq: readonly Unit[]): Case {
   const f = h.f;
   let where: Where;
   let piece: Y.Text;
+  let offset = 0;
   if (container === "body" || container === "cell") {
+    piece = f.piece;
+    const rootId = h.version.rootId;
     if (container === "body") {
       f.doc.transact(() => fill(f.piece, seq));
-      where = { container, holder: h.version.rootId, tree: "block" };
-      piece = f.piece;
+      where = { container, holder: rootId, flow: rootId, tree: "block" };
     } else {
-      piece = new Y.Text();
-      fill(piece, [...seq, newParagraphMark()]);
-      const flow = new Y.Array<Y.Text>();
-      flow.insert(0, [piece]);
-      const table = newTable([testRow("r0", { a: flow })], [newColMap("a")]);
-      f.doc.transact(() => f.piece.insertEmbed(0, table));
-      where = { container, holder: cellId(idOf(table), "r0", "a"), tree: "block" };
+      // `⟦ ⟨r⟩ ⟨c⟩ seq ¶ ⟧`: the cell's own final ¶, then the body's.
+      const open = tableUnits("⟦ ⟨r⟩ ⟨c⟩");
+      offset = open.length;
+      f.doc.transact(() => fill(f.piece, [...open, ...seq, ...tableUnits("¶ ⟧")]));
+      const cell = open[2];
+      where = { container, holder: cell instanceof Y.Map ? idOf(cell) : "", flow: rootId, tree: "block" };
     }
   } else {
     const made = container === "footnote" ? h.run(insertFootnote) : h.run(insertHeaderFooter, "header");
@@ -130,14 +135,14 @@ export function build(container: Container, seq: readonly Unit[]): Case {
     const p = L?.fs.segments[0]?.piece;
     if (L === null || p === undefined) throw new Error(`permutations: could not make a ${container}`);
     f.doc.transact(() => fill(p, seq));
-    where = { container, holder: L.fs.holderId, tree: L.tree };
+    where = { container, holder: L.fs.holderId, flow: L.fs.holderId, tree: L.tree };
     piece = p;
   }
   h.history.clear();
-  return { h, where, piece };
+  return { h, where, piece, offset };
 }
 
-export const flowOf = (d: Document, w: Where): FlowState | undefined => d.flows.get(w.holder);
+export const flowOf = (d: Document, w: Where): FlowState | undefined => d.flows.get(w.flow);
 
 /** A container's read as units (a text unit labelled by its character; each with its attrs: an item's; a ¶'s, its paragraph's, with `type`), with where each paragraph starts and where each block object is. */
 export interface Linear {
@@ -164,7 +169,8 @@ export function linear(d: Document, w: Where): Linear {
   };
   let prev: Block | null = null;
   for (const b of flowBlocks(d, w)) {
-    const implicit = prev !== null && b !== null && b.id === afterObjectId(prev.id);
+    // A block object's implicit paragraph (a table's is anchored at its `⟧`: `${⟧}/after`).
+    const implicit = prev !== null && b !== null && prev.inlineContent === null && b.inlineContent !== null && b.id.endsWith(afterObjectId(""));
     prev = b;
     if (b === null) push("sectionBreak", {});
     else if (implicit) {

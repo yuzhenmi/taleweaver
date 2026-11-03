@@ -1,7 +1,8 @@
 import type { BlockId } from "../block";
 import type { InsertUnit, Plan, Write } from "../plan";
 import { caretAt, isObjectSelection } from "../position/model-position";
-import type { StoragePoint, TerminatorRef } from "../position/paragraph-layout";
+import type { BlockObject } from "../position/block-object";
+import type { StoragePoint } from "../position/paragraph-layout";
 import { comparePoints, pointAfter } from "../position/storage-points";
 import { unitsBefore } from "../position/terminator-neighbours";
 import { isBlockObject, isParagraphBreak, isSectionBreak, isStructural } from "../scan/kinds";
@@ -12,7 +13,7 @@ import { rangeOf } from "./helpers/at";
 import { plan } from "./helpers/build-plan";
 import { deleteRange } from "./helpers/delete-range";
 import { type FragmentItem, fragmentUnits, placeable, units } from "./helpers/fragment";
-import { overObject, withWrite } from "./helpers/over-object";
+import { overObject, withWrites } from "./helpers/over-object";
 import { containerOf } from "./helpers/placement";
 import { replaceSelection } from "./helpers/replace-selection";
 import { splitWrites } from "./helpers/split-writes";
@@ -31,15 +32,15 @@ export function paste(ctx: CommandContext, fragment: readonly FragmentItem[]): P
   if (fragment.length === 0) return null;
   if (!isObjectSelection(ctx.selection)) return pasteAt(ctx, fragment, null);
   const o = overObject(ctx);
-  return o === null ? null : withWrite(o.write, pasteAt(o.ctx, fragment, o.object));
+  return o === null ? null : withWrites(o.writes, pasteAt(o.ctx, fragment, o.object));
 }
 
 /** Paste at `ctx`'s selection; `replaced`: the block object an object selection deleted, just before the caret's paragraph. */
-function pasteAt(ctx: CommandContext, fragment: readonly FragmentItem[], replaced: TerminatorRef | null): Plan | null {
+function pasteAt(ctx: CommandContext, fragment: readonly FragmentItem[], replaced: BlockObject | null): Plan | null {
   const r = rangeOf(ctx);
   if (r === null) return null;
   // Placement: a payload holding a kind the target container does not take (a footnote body's included) is not pasted (as today).
-  if (!placeable(fragment, containerOf(r.start))) return null;
+  if (!placeable(fragment, containerOf(ctx.version, r.start))) return null;
   const us = units(ctx, fragment);
   const breaks = (i: FragmentItem): boolean => isParagraphBreak(i.k) || isStructural(i.k);
   const structural = fragment.some(breaks);
@@ -79,7 +80,7 @@ function pasteAt(ctx: CommandContext, fragment: readonly FragmentItem[], replace
   // What precedes the insertion point: the paragraph's previous terminator — or, when that is the replaced object, what
   // precedes it ("run": text); undefined: the flow start (a select-all took everything before the paragraph).
   const prev = start.L.before;
-  const prior = replaced !== null && prev !== null && prev.token.id === replaced.token.id ? unitsBefore(start.L.fs, replaced.seg, replaced.tok, 0) : null;
+  const prior = replaced !== null && prev !== null && prev.token.id === replaced.last?.token.id ? unitsBefore(start.L.fs, replaced.term.seg, replaced.term.tok, 0) : null;
   const before = comparePoints(ins, p) < 0 ? undefined : prior === null ? prev?.token.k : prior.units > 0 ? "run" : prior.before?.token.k;
   const lead: InsertUnit[] = [];
   if (startsWithBlock && start.offset === 0 && (isBlockObject(before) || (isSectionBreak(first?.k) && !isParagraphBreak(before)))) lead.push({ embed: newParagraphMark(), attrs: {} });

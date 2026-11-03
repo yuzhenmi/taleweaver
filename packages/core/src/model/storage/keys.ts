@@ -20,10 +20,11 @@
  *   - `field`: an inline field `{field, numberStyle?}` (`field` ∈ page-number|page-count);
  *   - `sectionBreak`: `[S]`, holding the props (`s:*`, `h:*`) of the section it ends;
  *   - `toc`: a table-of-contents block object (`a:*` options);
- *   - `table`: a table block object `{a:*, rows: Y.Array<RowMap>, cols: Y.Array<ColMap>}`;
- *     ColMap `{key, weight?}`; RowMap `{key, header?, a:*, c:<col>:a:*,
- *     c:<col>:rowSpanTo: rowKey, c:<col>:colSpanTo: colKey, c:<col>:flow}` — a cell is
- *     the slot (row key, column key), its content the `c:<col>:flow` flow (`table-keys.ts`);
+ *   - a table is a BRACKET of marks in its flow, each holding its nesting depth `d`
+ *     (tables continuous-text design §1): `table` (`⟦`, `{d, a:*, cols: Y.Array<Y.Map{w?}>}`,
+ *     `cols[i]` = grid column i), `row` (`⟨r⟩`, `{d, header?, a:*}`), `cell` (`⟨c⟩`,
+ *     `{d, colSpan?, rowSpan?, a:*}`) and `tableEnd` (`⟧`, `{d}`). A cell's content is
+ *     what follows its `⟨c⟩` up to its table's next mark (`derive/table/`);
  *   - `footnote`: an inline footnote anchor whose `body` is a nested `Y.Map{flow}` (X20);
  *   - `marker`: a generic range marker `{ns, id, edge: "start"|"end"}` (bookmarks,
  *     comment anchors);
@@ -49,12 +50,13 @@ export const SUGGESTIONS_KEY = "suggestions";
 export const KIND_KEY = "k";
 export const PIECES_KEY = "pieces";
 export const BODY_KEY = "body";
-export const ROWS_KEY = "rows";
+/** A table mark's nesting depth (Word `itap`): 0 for a table in a flow, +1 per enclosing table. */
+export const DEPTH_KEY = "d";
 export const COLS_KEY = "cols";
-/** A row's / column's track key (rows and columns are addressed by key, never by index). */
-export const TRACK_KEY = "key";
+export const WIDTH_KEY = "w";
 export const HEADER_KEY = "header";
-export const WEIGHT_KEY = "weight";
+export const ROW_SPAN_KEY = "rowSpan";
+export const COL_SPAN_KEY = "colSpan";
 
 export const ITEM_KINDS = {
   para: "para",
@@ -65,6 +67,9 @@ export const ITEM_KINDS = {
   sectionBreak: "sectionBreak",
   toc: "toc",
   table: "table",
+  row: "row",
+  cell: "cell",
+  tableEnd: "tableEnd",
   footnote: "footnote",
   marker: "marker",
   sub: "sub",

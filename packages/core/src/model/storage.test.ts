@@ -5,8 +5,9 @@ import { createEditorOrigin, flowContainerDeleteFilter } from "./storage/history
 import { PIECE_SOFT_MAX } from "./storage/limits";
 import { deepClone } from "./storage/deep-clone";
 import { newFootnote, newFootnoteOf, newParagraphMark } from "./storage/new-items";
-import { newColMap, newRowMap, newTable } from "./storage/new-table";
-import { cellFlowOf } from "./storage/table-keys";
+import { BODY_KEY, COLS_KEY } from "./storage/keys";
+import { childMap, flowOf } from "./storage/map-reads";
+import { newTableStart } from "./storage/table-marks";
 import { insertPieceAfter, pieceDepth, pieceIndex, pieceStructCount } from "./storage/pieces";
 import { writablePoint } from "./storage/writable-point";
 import { fixture } from "./test-helpers/fixture";
@@ -99,37 +100,35 @@ describe("PMap", () => {
   });
 });
 
-describe("table storage", () => {
-  it("newRowMap gives every column's slot a one-¶ flow; deepClone copies maps, arrays and formatted texts deeply", () => {
+describe("table marks / deepClone", () => {
+  it("newTableStart holds one `{w}` per weight; deepClone copies maps, arrays and formatted texts deeply", () => {
     const f = fixture();
-    const row = newRowMap("r0", ["a", "b"], { header: true, "c:a:a:bg": "red" });
-    const table = newTable([row], [newColMap("a", 1), newColMap("b")], { "a:style": "s" });
+    const table = newTableStart(0, [1, 2], { "a:style": "s" });
     f.piece.insertEmbed(0, table);
-    expect(row.toJSON()).toMatchObject({ key: "r0", header: true, "c:a:a:bg": "red" });
-    const a = cellFlowOf(row, "a")?.get(0);
-    if (!(a instanceof Y.Text)) throw new Error("no cell piece");
-    expect(cellFlowOf(row, "b")?.get(0)?.toDelta()).toHaveLength(1);
+    expect(table.toJSON()).toEqual({ k: "table", d: 0, "a:style": "s", cols: [{ w: 1 }, { w: 2 }] });
+    const copyT = deepClone(table);
+    f.piece.insertEmbed(0, copyT);
+    expect(copyT.toJSON()).toEqual(table.toJSON());
+    expect(copyT.get(COLS_KEY)).not.toBe(table.get(COLS_KEY));
+
+    const a = new Y.Text();
+    const fn = newFootnoteOf(a);
+    f.piece.insertEmbed(0, fn);
     a.insert(0, "xy", { bold: true });
     a.insert(2, "z", {});
-    const body = new Y.Text();
-    body.insert(0, "note");
-    a.insertEmbed(3, newFootnoteOf(body));
+    a.insertEmbed(3, newParagraphMark());
     a.delete(1, 1); // a tombstone: not copied
-    const copy = deepClone(table);
+    const copy = deepClone(fn);
     f.piece.insertEmbed(0, copy);
-    expect(copy.toJSON()).toEqual(table.toJSON());
-    const copied = copy.get("rows");
-    const copiedRow: unknown = copied instanceof Y.Array ? copied.get(0) : null;
-    const cp = copiedRow instanceof Y.Map ? cellFlowOf(copiedRow, "a")?.get(0) : undefined;
-    if (!(cp instanceof Y.Text)) throw new Error("no copied piece");
-    expect(cp).not.toBe(a);
-    expect(cp.toDelta().map((op: { insert: unknown; attributes?: unknown }) => [typeof op.insert === "string" ? op.insert : "embed", op.attributes])).toEqual([
+    expect(copy.toJSON()).toEqual(fn.toJSON());
+    const body = childMap(copy, BODY_KEY);
+    const piece: unknown = body === null ? undefined : flowOf(body)?.get(0);
+    if (!(piece instanceof Y.Text)) throw new Error("no copied piece");
+    expect(piece).not.toBe(a);
+    expect(piece.toDelta().map((op: { insert: unknown; attributes?: unknown }) => [typeof op.insert === "string" ? op.insert : "embed", op.attributes])).toEqual([
       ["x", { bold: true }],
       ["z", undefined],
       ["embed", undefined],
-      ["embed", undefined],
     ]);
-    const fn: unknown = cp.toDelta()[2]?.insert;
-    expect(fn instanceof Y.Map && fn !== a.toDelta()[2]?.insert).toBe(true);
   });
 });

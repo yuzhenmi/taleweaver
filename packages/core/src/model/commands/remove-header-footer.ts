@@ -17,7 +17,7 @@ import { keysWrite } from "./helpers/writes";
  */
 export function removeHeaderFooter(ctx: CommandContext, region: Region, variant: Variant = "default"): Plan | null {
   const start = selectionStart(ctx);
-  if (start === null || !inSections(start)) return null;
+  if (start === null || !inSections(ctx.version, start)) return null;
   const d = ctx.version;
   const owner = sectionOwner(d, start);
   const bodies = childMap(d.docMap, BODIES_KEY);

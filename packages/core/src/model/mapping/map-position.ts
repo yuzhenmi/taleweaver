@@ -141,7 +141,7 @@ export function mapSelection(from: Document, to: Document, sel: ModelSelection):
     const fs = o === null ? undefined : to.flows.get(o.fs.holderId);
     if (o === null || m === null || fs === undefined) return null;
     const t = m.deleted ? null : terminatorAtPoint(fs, o.point.piece, m.index);
-    if (t !== null && isBlockObject(t.token.k)) return { kind: "object", object: t.token.id };
+    if (t !== null && isBlockObject(t.token.k) && blockObjectAt(to, t.token.id) !== null) return { kind: "object", object: t.token.id };
     const p = positionAtPoint(to, fs, o.point.piece, m.index, 1);
     return p === null ? null : caretAt(p.blockId, p.offset);
   }

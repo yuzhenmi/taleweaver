@@ -16,7 +16,7 @@ export function insertField(ctx: CommandContext, field: string, numberStyle = "d
   validField(field, numberStyle);
   return overSelection(ctx, (c) => {
     const r = rangeOf(c);
-    if (r === null || !canPlace("field", r.start)) return null;
+    if (r === null || !canPlace(c.version, "field", r.start)) return null;
     return replaceSelection(c, (attrs) => [{ embed: newField(field, numberStyle), attrs }]);
   });
 }

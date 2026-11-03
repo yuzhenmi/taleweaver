@@ -9,8 +9,9 @@
  * checks the generic invariants (plan total, O2 / O4 / O5(a) validity, no A1 / A2 firing,
  * the caret a valid stop, undo / redo exact) and the trait-derived expectation
  * (`expectations.ts`: the whole category sequence after, the caret, the format reached).
- * Failures are collected per (container, pair, command). Only table cells (the known P2 M2
- * gap: their paragraph ends do not resolve) may skip a case or drop a selection.
+ * Failures are collected per (container, pair, command). Only table cells may skip a case or
+ * drop a selection (select-all scoped to a cell is N3 / N7); a caret at a table's edge that
+ * resolves into one of its cells is counted and not judged (the linear read has no inside).
  */
 import { afterAll, describe, expect, it } from "vitest";
 import type { CommandContext } from "../commands/command-context";
@@ -48,7 +49,7 @@ import { CATEGORIES, type Category, type Container } from "../scan/kinds";
 import { expectSameVersion } from "../test-helpers/expect-same-version";
 import { readOf, selectionOf } from "../test-helpers/harness";
 import { type Effect, type Expectation, type Unit, caretStop, expectation } from "./expectations";
-import { CATEGORY_LIST, CONTAINERS, type Case, type Linear, build, flowOf, linear, placeable, sequence, unreachable } from "./fixtures";
+import { CATEGORY_LIST, CONTAINERS, type Case, type Linear, build, flowOf, linear, placeable, sequence, storageLength, unreachable } from "./fixtures";
 
 interface Command {
   readonly name: string;
@@ -86,23 +87,27 @@ function selections(c: Case, points: readonly [number, number, number]): { sels:
   const fs = flowOf(d, c.where);
   const dropped: string[] = [];
   if (fs === undefined) return { sels: [], dropped: ["the container's flow"] };
-  const at = (i: number, assoc: -1 | 1): ModelPosition | null => positionAtPoint(d, fs, c.piece, i, assoc);
+  const at = (i: number, assoc: -1 | 1): ModelPosition | null => positionAtPoint(d, fs, c.piece, c.offset + i, assoc);
   const out: { label: string; sel: ModelSelection }[] = [];
   const seen = new Set<string>();
   const assocs: readonly (-1 | 1)[] = [-1, 1];
   const named: readonly [string, number][] = [["before", points[0]], ["between", points[1]], ["after", points[2]]];
+  // A caret at a table's edge may resolve into its first / last cell (the nearest paragraph): outside the container's
+  // linear read, so not modelled here; the `cell` container covers positions in cells.
+  const read = linear(d, c.where).paraStart;
   for (const [name, i] of named) {
     for (const assoc of assocs) {
       const p = at(i, assoc);
       if (p === null) dropped.push(`caret ${name}${assoc < 0 ? "-" : "+"}`);
-      if (p === null || seen.has(`${p.blockId}:${p.offset}`)) continue;
+      if (p !== null && !read.has(p.blockId)) stats.inTable++;
+      if (p === null || !read.has(p.blockId) || seen.has(`${p.blockId}:${p.offset}`)) continue;
       seen.add(`${p.blockId}:${p.offset}`);
       out.push({ label: `caret ${name}${assoc < 0 ? "-" : "+"}`, sel: { anchor: p, focus: p } });
     }
   }
   const start = at(points[0], -1);
   const end = at(points[2], -1);
-  if (start !== null && end !== null) out.push({ label: "range across", sel: { anchor: start, focus: end } });
+  if (start !== null && end !== null && read.has(start.blockId) && read.has(end.blockId)) out.push({ label: "range across", sel: { anchor: start, focus: end } });
   else dropped.push("range across");
   const blockObjects = [...linear(d, c.where).blockAt.keys()];
   blockObjects.forEach((id, k) => {
@@ -160,14 +165,7 @@ function w2Breaks(d: Document): Set<string> {
 /** `d`'s violations; a W2 break in `allowed` (the fixture's own) is tolerated, any other is a failure. */
 function validity(d: Document, allowed: ReadonlySet<string> = new Set()): string[] {
   const out: string[] = [];
-  for (const e of validityErrors(d)) {
-    // Known gap, removed by P2 M2: a table cell's paragraphs do not resolve (flowOfBlock maps main-tree records to
-    // the root flow). Counted, not failed — else every table case is masked; every other violation still fails.
-    const m = /^O2: (.+):\d+ does not resolve$/.exec(e);
-    const parent = m?.[1] === undefined ? undefined : d.trees.block.get(d.trees.block.get(m[1])?.parentId ?? "")?.parentId;
-    if (parent !== undefined && parent !== d.rootId) stats.knownCellO2++;
-    else out.push(e);
-  }
+  out.push(...validityErrors(d));
   for (const [, fs] of d.flows.entries()) {
     const firings = firingsOf(fs);
     // A flow is "not well formed" for its W2 breaks too; those are judged by identity below, and any other firing
@@ -194,17 +192,19 @@ interface Stats {
   cases: number;
   failures: Map<string, string[]>;
   skipped: Set<string>;
-  knownCellO2: number;
   /** Selections dropped in table cells (the known gap); anywhere else a dropped one fails. */
   droppedInCells: number;
+  /** Carets at a table's edge that resolve into a cell (not modelled by the container's linear read). */
+  inTable: number;
 }
-const stats: Stats = { cases: 0, failures: new Map(), skipped: new Set(), knownCellO2: 0, droppedInCells: 0 };
+const stats: Stats = { cases: 0, failures: new Map(), skipped: new Set(), droppedInCells: 0, inTable: 0 };
 const t0 = Date.now();
 
 /** Run `cmd` on the pair in `container` at every selection; the failures (each with a repro line). */
 function runCase(container: Container, l: Category, r: Category, cmd: Command): string[] | "unresolved" {
-  const seq = sequence(l, r);
-  const lenOf = (c: Category): number => (c === "text" || c === "anchor" ? 2 : 1);
+  const depth = container === "cell" ? 1 : 0;
+  const seq = sequence(l, r, depth);
+  const lenOf = storageLength;
   const points: [number, number, number] = [2, 2 + lenOf(l), 2 + lenOf(l) + lenOf(r)];
   const probe = build(container, seq);
   const { sels, dropped } = selections(probe, points);
@@ -217,7 +217,7 @@ function runCase(container: Container, l: Category, r: Category, cmd: Command): 
   else if (dropped.length > 0) fails.push(`x¶ ${l} ${r} y¶: dropped ${dropped.join(", ")}`);
   for (const { label, sel } of sels) {
     stats.cases++;
-    const c = build(container, sequence(l, r));
+    const c = build(container, sequence(l, r, depth));
     const h = c.h;
     const repro = `${label} in x¶ ${l} ${r} y¶`;
     const fail = (m: string): void => void fails.push(`${repro}: ${m}`);
@@ -270,7 +270,12 @@ function runCase(container: Container, l: Category, r: Category, cmd: Command): 
     const caret = isTextSelection(hs) && samePosition(hs.anchor, hs.focus) ? indexOf(L1, hs.focus) : null;
     const same = sameRead(read1, read0);
     // The adjacent-objects fixture's own W2 break may stand (by identity); any other W2 break fails.
-    for (const m of [...validity(d1, fixtureW2), ...caretOk(d1, hs), ...judge(x, L1, same, caret)]) fail(m);
+    // A caret moved into a table next to the pair (C10 before a table: the nearest paragraph is its first cell) is not
+    // modelled by the linear read; the rest is still judged.
+    const inTable = isTextSelection(hs) && samePosition(hs.anchor, hs.focus) && caret === null && paragraphLayout(d1, hs.focus.blockId) !== null;
+    if (inTable) stats.inTable++;
+    const verdict = judge(inTable && x.t === "seq" ? { ...x, caret: null } : x, L1, same, caret);
+    for (const m of [...validity(d1, fixtureW2), ...caretOk(d1, hs), ...verdict]) fail(m);
     if (h.history.depths().undo === 0) {
       if (!sameRead(read1, read0)) fail("changed the read but recorded no undo entry");
       continue;
@@ -305,7 +310,7 @@ for (const container of CONTAINERS) {
           it(`${l} → ${r} ${cmd.name}${w2 ? " (concurrent W2 break)" : ""}`, (ctx) => {
             const out = runCase(container, l, r, cmd);
             if (out === "unresolved") {
-              stats.skipped.add(`${container} ${l} → ${r}: positions do not resolve (P2 M2: cell paragraph ends)`);
+              stats.skipped.add(`${container} ${l} → ${r}: positions do not resolve`);
               ctx.skip();
               return;
             }
@@ -318,17 +323,10 @@ for (const container of CONTAINERS) {
   });
 }
 
-// Runs after every case above (file order). The known cell O2 count is pinned, so a new cell O2 bug changes it;
-// P2 M2 (cell paragraph ends resolve) drives it to 0. (1882 → 2618: the W2 pairs' carets and ranges run too, now
-// that the implicit paragraph between the objects reads; with object / all selections only it stays 1882.)
-it("KNOWN O2 count is bounded", () => {
-  expect(stats.knownCellO2).toBe(2618);
-});
-
 afterAll(() => {
   const lines = [
     `category permutations: ${stats.cases} cases in ${Date.now() - t0} ms; ${stats.failures.size} failing groups`,
-    `KNOWN O2 (P2 M2: cell paragraph ends unresolved) ×${stats.knownCellO2}; selections dropped in cells ×${stats.droppedInCells}; every other O2 check ran`,
+    `selections dropped in cells ×${stats.droppedInCells}; carets resolving into a table (not modelled) ×${stats.inTable}`,
     ...[...stats.skipped].map((s) => `SKIPPED ${s}`),
     ...[...stats.failures].flatMap(([k, v]) => [`FAIL ${k}`, ...v.map((m) => `    ${m}`)]),
   ];

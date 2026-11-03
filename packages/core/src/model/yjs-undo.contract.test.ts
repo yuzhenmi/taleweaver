@@ -5,12 +5,9 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { createEditorOrigin, flowContainerDeleteFilter } from "./storage/history-hooks";
-import { COLS_KEY, ROWS_KEY } from "./storage/keys";
-import { mapOf, newParagraphMark } from "./storage/new-items";
-import { newColMap, newRowMap, newTable } from "./storage/new-table";
-import { cellFlowKey } from "./storage/table-keys";
+import { PIECES_KEY } from "./storage/keys";
+import { mapOf } from "./storage/new-items";
 import { fixture } from "./test-helpers/fixture";
-import { cellPiece } from "./test-helpers/table";
 
 describe("K3 (a)/(b): map-entry redo", () => {
   it("(a) refuses to redo a map entry when a live entry this UndoManager does not own sits to its right", () => {
@@ -45,71 +42,28 @@ describe("K3 (a)/(b): map-entry redo", () => {
   });
 });
 
-describe("K3 (c): deleteFilter order and cell flows", () => {
-  it("sees a map's children before the map, and keeps a `c:<col>:flow` array", () => {
+describe("K3 (c): deleteFilter order", () => {
+  it("sees a map's children before the map (the sub-flow filter relies on it)", () => {
     const f = fixture();
-    const table = newTable([newRowMap("r0", ["a"])], [newColMap("a")]);
-    f.piece.insertEmbed(0, table);
-    const rows = table.get(ROWS_KEY);
-    if (!(rows instanceof Y.Array)) throw new Error("no rows");
+    const arr = f.doc.getArray<Y.Map<unknown>>("probe");
     const O = createEditorOrigin();
     const order: string[] = [];
-    const row = newRowMap("r1", ["a"]);
-    const um = new Y.UndoManager(rows, {
+    const inner = new Y.Array<number>();
+    const m = mapOf({ [PIECES_KEY]: inner });
+    const um = new Y.UndoManager(arr, {
       trackedOrigins: new Set([O]),
       captureTimeout: 0,
       deleteFilter: (item) => {
         const c = item.content;
-        if (c instanceof Y.ContentType && c.type === row) order.push("RowMap");
-        if (item.parentSub === cellFlowKey("a")) order.push("cell flow");
+        if (c instanceof Y.ContentType && c.type === m) order.push("map");
+        if (item.parentSub === PIECES_KEY) order.push("child");
         return flowContainerDeleteFilter(item);
       },
     });
-    f.doc.transact(() => rows.push([row]), O);
+    f.doc.transact(() => arr.push([m]), O);
     um.undo();
-    expect(order.indexOf("cell flow")).toBeGreaterThanOrEqual(0);
-    expect(order.indexOf("cell flow")).toBeLessThan(order.indexOf("RowMap"));
-    expect(rows.length).toBe(1); // the row died with its kept flow inside it
-
-    // T5 (X5): a flow created in an existing row is kept by undo (X17); its content is not.
-    const r0 = rows.get(0);
-    if (!(r0 instanceof Y.Map)) throw new Error("no r0");
-    f.doc.transact(() => r0.delete(cellFlowKey("a")));
-    const piece = new Y.Text();
-    piece.insert(0, "q");
-    piece.insertEmbed(1, newParagraphMark());
-    const flow = new Y.Array<Y.Text>();
-    flow.insert(0, [piece]);
-    f.doc.transact(() => r0.set(cellFlowKey("a"), flow), O);
-    um.undo();
-    expect(r0.get(cellFlowKey("a"))).toBe(flow);
-    expect(flow.get(0)).toBe(piece);
-    expect(piece.length).toBe(0);
-  });
-});
-
-describe("K3 (d): the item chain from a cell piece to its table (X14 reads)", () => {
-  it("piece → c:<col>:flow array → RowMap → rows array → table map → body piece, locally and on a peer", () => {
-    const f = fixture();
-    const table = newTable([newRowMap("r0", ["a"])], [newColMap("a")]);
-    f.piece.insertEmbed(0, table);
-    const peer = fixture(2, f.doc);
-    for (const piece of [f.piece, peer.piece]) {
-      const t = piece.toDelta()[0]?.insert;
-      if (!(t instanceof Y.Map)) throw new Error("no table");
-      const rows = t.get(ROWS_KEY);
-      const row: unknown = rows instanceof Y.Array ? rows.get(0) : null;
-      if (!(row instanceof Y.Map)) throw new Error("no row");
-      const cell = cellPiece(row, "a");
-      const flowItem = cell._item?.parent instanceof Y.Array ? cell._item.parent._item : null;
-      expect(flowItem?.parentSub).toBe(cellFlowKey("a"));
-      expect(flowItem?.parent).toBe(row);
-      expect(row._item?.parent).toBe(rows);
-      expect(rows instanceof Y.Array ? rows._item?.parentSub : null).toBe(ROWS_KEY);
-      expect(rows instanceof Y.Array ? rows._item?.parent : null).toBe(t);
-      expect(t.get(COLS_KEY) instanceof Y.Array).toBe(true);
-      expect(t._item?.parent).toBe(piece);
-    }
+    expect(order.indexOf("child")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("child")).toBeLessThan(order.indexOf("map"));
   });
 });
 

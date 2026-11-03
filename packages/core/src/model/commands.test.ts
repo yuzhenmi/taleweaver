@@ -8,7 +8,7 @@ import * as Y from "yjs";
 import { caretAt } from "./position/model-position";
 import { idOf } from "./test-helpers/fixture";
 import { Harness, pair, sync, typeLines } from "./test-helpers/harness";
-import { testRow } from "./test-helpers/table";
+import { insertUnits, mapsOf, units } from "./test-helpers/table";
 import { deleteBackward } from "./commands/delete-backward";
 import { deleteForward } from "./commands/delete-forward";
 import { deleteSelection } from "./commands/delete-selection";
@@ -33,15 +33,16 @@ import { removeHeaderFooter } from "./commands/remove-header-footer";
 import { removeMarker } from "./commands/remove-marker";
 import { setObjectProps } from "./commands/set-object-props";
 import { markerRanges } from "./document/markers";
-import { cellId } from "./ids";
 import { Model } from "./model";
 import { applyPlan } from "./plan";
 import { PIECE_SOFT_MAX } from "./storage/limits";
 import { newField, newFootnoteOf, newObject, newParagraphMark, newTableOfContents } from "./storage/new-items";
-import { newColMap, newRowMap, newTable } from "./storage/new-table";
 import { pieceStructCount } from "./storage/pieces";
 import type { Scalar } from "./storage/scalar";
 
+/** A one-cell table holding one empty paragraph, and its storage length. */
+const ONE_CELL = "⟦ ⟨r⟩ ⟨c⟩ ¶ ⟧";
+const ONE_CELL_LEN = 5;
 const type = (h: Harness, text: string): void => typeLines(h, text, insertText, splitParagraph);
 
 function doc(text: string): Harness {
@@ -175,8 +176,8 @@ describe("C3 / C8 joins", () => {
         h.f.piece.insert(0, "P");
         if (!debris) h.f.piece.insertEmbed(1, newParagraphMark());
         const at = debris ? 1 : 2;
-        h.f.piece.insertEmbed(at, newTable([newRowMap("r", ["a"])], [newColMap("a")]));
-        h.f.piece.insert(at + 1, "Q");
+        insertUnits(h.f.piece, at, units(ONE_CELL));
+        h.f.piece.insert(at + ONE_CELL_LEN, "Q");
       });
       return h;
     };
@@ -391,8 +392,8 @@ describe("C14 / C6 / C10 table of contents", () => {
       h.f.doc.transact(() => {
         h.f.piece.insert(0, "P");
         h.f.piece.insertEmbed(1, newParagraphMark());
-        h.f.piece.insertEmbed(2, newTable([newRowMap("r", ["a"])], [newColMap("a")]));
-        h.f.piece.insert(3, "Q");
+        insertUnits(h.f.piece, 2, units(ONE_CELL));
+        h.f.piece.insert(2 + ONE_CELL_LEN, "Q");
       });
       h.caret(2, 0);
       return h;
@@ -578,24 +579,19 @@ describe("S1 footnotes, S2 headers / footers, markers", () => {
     k.run(deleteSelection);
     expect(k.dump()).toEqual(["paragraph:[start]c[end]"]);
     expect(markerRanges(k.version).get("bm\u00001")).toMatchObject({ start: { offset: 0 }, end: { offset: 2 } });
-    // In a table cell of a footnote body: R12 walks cell flows too.
-    const cellText = new Y.Text();
-    cellText.insert(0, "cell");
-    cellText.insertEmbed(4, newParagraphMark());
-    const cellFlow = new Y.Array<Y.Text>();
-    cellFlow.insert(0, [cellText]);
-    const table = newTable([testRow("r", { a: cellFlow })], [newColMap("a")]);
+    // In a table cell of a footnote body: cells are part of their flow.
     const body = new Y.Text();
-    body.insertEmbed(0, table);
-    body.insertEmbed(1, newParagraphMark());
+    const cellUnits = units("⟦ ⟨r⟩ ⟨c⟩ cell¶ ⟧ ¶");
+    insertUnits(body, 0, cellUnits);
     h.f.doc.transact(() => h.f.piece.insertEmbed(0, newFootnoteOf(body)));
-    const cell = h.version.trees.embedContent.get(cellId(idOf(table), "r", "a"))?.firstChildId ?? "";
+    const cellMark = mapsOf(cellUnits)[2];
+    const cell = h.version.trees.embedContent.get(cellMark === undefined ? "" : idOf(cellMark))?.firstChildId ?? "";
     h.selection = { anchor: { blockId: cell, offset: 1 }, focus: { blockId: cell, offset: 3 } };
     h.run(insertMarker, "bm", "3");
     expect(markerRanges(h.version).get("bm\u00003")).toMatchObject({ start: { blockId: cell, offset: 1 }, end: { blockId: cell, offset: 4 } });
     expect(() => insertMarker(h.ctx(), "bm", "3")).toThrow();
     expect(h.run(removeMarker, "bm", "3")).toBe(true);
-    expect(cellText.toString()).toBe("cell");
+    expect(body.toString()).toBe("cell");
   });
 });
 
@@ -821,8 +817,8 @@ describe("review fixes", () => {
     const g = new Harness();
     g.f.doc.transact(() => {
       g.f.piece.insertEmbed(0, newTableOfContents());
-      g.f.piece.insertEmbed(1, newTable([newRowMap("r", ["a"])], [newColMap("a")]));
-      g.f.piece.insert(2, "P");
+      insertUnits(g.f.piece, 1, units(ONE_CELL));
+      g.f.piece.insert(1 + ONE_CELL_LEN, "P");
     });
     expect(g.dump()).toEqual(["toc", "paragraph:", "table", "paragraph:P"]);
     for (const [i, left] of [[0, ["table", "paragraph:P"]], [2, ["toc", "paragraph:P"]]] as const) {
@@ -1152,5 +1148,40 @@ describe("oracle minimized cases", () => {
       expect(a.dump()).toEqual(["paragraph:x", "paragraph:", "|", "|", "paragraph:", "paragraph:"]);
       expect(b.dump()).toEqual(a.dump());
     }
+  });
+});
+
+describe("tables as marks (N1)", () => {
+  /** A harness whose body holds `spec` before its final ¶, and the inserted maps. */
+  const withTable = (spec: string): { h: Harness; m: Y.Map<unknown>[] } => {
+    const h = new Harness();
+    const us = units(spec);
+    h.f.doc.transact(() => insertUnits(h.f.piece, 0, us));
+    h.history.clear();
+    return { h, m: mapsOf(us) };
+  };
+  const id = (m: Y.Map<unknown> | undefined): string => (m === undefined ? "" : idOf(m));
+
+  it("a caret in a cell is in the cell: a paste holding an [S] is refused there (no [S] inside a table)", () => {
+    const { h, m } = withTable("x¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟧ y¶");
+    h.selection = caretAt(id(m[4]), 1);
+    const before = h.dump();
+    expect(h.run(paste, [{ k: "text", text: "p" }, { k: "S" }, { k: "text", text: "q" }])).toBe(false);
+    expect(h.dump()).toEqual(before);
+  });
+
+  it("restored marks of a deleted nested table (inert) do not split their cell's paragraphs: Delete at the end of `a` joins `x`", () => {
+    const { h, m } = withTable("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨r⟩@1 ⟨c⟩@1 x¶ ⟧@1 ⟨c⟩ b¶ ⟧");
+    h.selection = caretAt(id(m[3]), 1);
+    expect(h.run(deleteForward)).toBe(true);
+    const cell = h.version.trees.block.get(id(m[2]));
+    const first = cell?.firstChildId ?? "";
+    expect(h.version.trees.block.get(first)?.inlineContent?.items).toMatchObject([{ text: "ax" }]);
+  });
+
+  it("C10 of a nested table takes its whole bracket; an inert shallower ⟦ inside it does not end it", () => {
+    const { h, m } = withTable("⟦ ⟨r⟩ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 a¶ ⟦@0 b¶ ⟧@1 c¶ ⟧");
+    expect(h.run(deleteBlockObject, id(m[3]))).toBe(true);
+    expect(h.f.piece.toString()).toBe("c");
   });
 });

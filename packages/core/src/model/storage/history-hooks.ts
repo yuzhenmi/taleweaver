@@ -1,6 +1,5 @@
 import * as Y from "yjs";
 import { FLOW_KEY, KIND_KEY, PIECES_KEY } from "./keys";
-import { isCellFlowKey } from "./table-keys";
 
 // ---------------------------------------------------------------------------
 // History hooks (X16 / X17)
@@ -13,10 +12,9 @@ export function createEditorOrigin(label = "taleweaver-editor"): symbol {
 
 /**
  * `Y.UndoManager` `deleteFilter` (X17): an undo never deletes a flow container — a
- * piece, a sub-flow (map or its pieces array), a holder's `flow` array or a table
- * cell's `c:<col>:flow` array — so a peer's text inside a container this editor
- * created survives the undo. Such a container dies only with its parent (a deleted
- * footnote / body / row / table).
+ * piece, a sub-flow (map or its pieces array) or a holder's `flow` array — so a peer's
+ * text inside a container this editor created survives the undo. Such a container dies
+ * only with its parent (a deleted footnote / body).
  */
 export function flowContainerDeleteFilter(item: Y.Item): boolean {
   // An undo filters a map's entries before the map itself (children first), so a sub-flow is
@@ -26,7 +24,7 @@ export function flowContainerDeleteFilter(item: Y.Item): boolean {
   if (!(c instanceof Y.ContentType)) return true;
   const t = c.type;
   if (t instanceof Y.Text && item.parent instanceof Y.Array) return false;
-  if (t instanceof Y.Array && (item.parentSub === FLOW_KEY || item.parentSub === PIECES_KEY || isCellFlowKey(item.parentSub))) return false;
+  if (t instanceof Y.Array && (item.parentSub === FLOW_KEY || item.parentSub === PIECES_KEY)) return false;
   if (t instanceof Y.Map && isSubflowMap(t)) return false;
   return true;
 }

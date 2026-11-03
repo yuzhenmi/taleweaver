@@ -18,8 +18,9 @@
  *     over it (markers);
  *   - `atomicBlock` (TOC): a block object the caret cannot enter; Backspace / Delete
  *     beside it delete it (C6);
- *   - `containerBlock` (table): a block object holding flows of its own; the caret
- *     goes inside, so Backspace / Delete beside it never delete it (C5, its C8 mirror);
+ *   - `containerBlock` (table): a block object holding containers (its cells, inline in
+ *     its flow as a bracket of marks); the caret goes inside, so Backspace / Delete beside
+ *     it never delete it (C5, its C8 mirror);
  *   - `sectionBreak` (`[S]`): ends a section (R4); Backspace / Delete beside it join the
  *     paragraphs around it and it goes with the join (C7, C8).
  * Both block categories are BLOCK OBJECTS: followed by a ¶-paragraph (W2), placed by
@@ -42,7 +43,7 @@ export interface CategoryTraits {
   readonly terminator: boolean;
   /** A block object (W2, C9, C10, C14). */
   readonly blockObject: boolean;
-  /** Holds flows of its own: the caret enters it (C5); else a block object is atomic (C6). */
+  /** Holds containers (cells): the caret enters it (C5); else a block object is atomic (C6). */
   readonly holdsFlows: boolean;
   /** Read units of zero width that the caret and Backspace / Delete step over. */
   readonly zeroWidth: boolean;
@@ -112,7 +113,12 @@ export type TerminatorKind = { [K in FlowKind]: (typeof CATEGORIES)[(typeof KIND
 
 const isFlowKind = (k: string): k is FlowKind => k in KINDS;
 export const FLOW_KINDS: readonly FlowKind[] = Object.keys(KINDS).filter(isFlowKind);
-const BY_STORED = new Map<string, FlowKind>(FLOW_KINDS.flatMap((k) => (KINDS[k].stored === null ? [] : [[KINDS[k].stored, k] as const])));
+/** A table's other marks (`⟨r⟩`, `⟨c⟩`, `⟧`) are storage-internal marks of the `table` kind: every rule sees a containerBlock beside them (§1 of the tables design). */
+const TABLE_MARKS: readonly string[] = [ITEM_KINDS.row, ITEM_KINDS.cell, ITEM_KINDS.tableEnd];
+const BY_STORED = new Map<string, FlowKind>([
+  ...FLOW_KINDS.flatMap((k) => (KINDS[k].stored === null ? [] : [[KINDS[k].stored, k] as const])),
+  ...TABLE_MARKS.map((m) => [m, "table"] as const),
+]);
 const BY_EMBED = new Map<string, FlowKind>(FLOW_KINDS.flatMap((k) => (KINDS[k].embedType === null ? [] : [[KINDS[k].embedType, k] as const])));
 
 /** A token / neighbour kind: a flow kind, a content run, or the flow end. */
