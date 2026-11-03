@@ -9,8 +9,7 @@
  * checks the generic invariants (plan total, O2 / O4 / O5(a) validity, no A1 / A2 firing,
  * the caret a valid stop, undo / redo exact) and the trait-derived expectation
  * (`expectations.ts`: the whole category sequence after, the caret, the format reached).
- * Failures are collected per (container, pair, command). Only table cells (the known P2 M2
- * gap: their paragraph ends do not resolve) may skip a case or drop a selection.
+ * Failures are collected per (container, pair, command).
  */
 import { afterAll, describe, expect, it } from "vitest";
 import type { CommandContext } from "../commands/command-context";
@@ -48,7 +47,7 @@ import { CATEGORIES, type Category, type Container } from "../scan/kinds";
 import { expectSameVersion } from "../test-helpers/expect-same-version";
 import { readOf, selectionOf } from "../test-helpers/harness";
 import { type Effect, type Expectation, type Unit, caretStop, expectation } from "./expectations";
-import { CATEGORY_LIST, CONTAINERS, type Case, type Linear, build, flowOf, linear, placeable, sequence, unreachable } from "./fixtures";
+import { CATEGORY_LIST, CONTAINERS, type Case, type Linear, type Where, build, flowOf, linear, placeable, sequence, unreachable } from "./fixtures";
 
 interface Command {
   readonly name: string;
@@ -110,7 +109,7 @@ function selections(c: Case, points: readonly [number, number, number]): { sels:
     if (sel === null) dropped.push(`object ${k}`);
     else out.push({ label: `object ${k}`, sel });
   });
-  const all = selectAll(d, c.where.holder);
+  const all = c.where.container === "cell" ? selectAll(d) : selectAll(d, c.where.holder); // a cell's story is the body
   if (all === null || rangeOf({ version: d, selection: all }) === null) dropped.push("all");
   else out.push({ label: "all", sel: all });
   return { sels: out, dropped };
@@ -160,14 +159,7 @@ function w2Breaks(d: Document): Set<string> {
 /** `d`'s violations; a W2 break in `allowed` (the fixture's own) is tolerated, any other is a failure. */
 function validity(d: Document, allowed: ReadonlySet<string> = new Set()): string[] {
   const out: string[] = [];
-  for (const e of validityErrors(d)) {
-    // Known gap, removed by P2 M2: a table cell's paragraphs do not resolve (flowOfBlock maps main-tree records to
-    // the root flow). Counted, not failed — else every table case is masked; every other violation still fails.
-    const m = /^O2: (.+):\d+ does not resolve$/.exec(e);
-    const parent = m?.[1] === undefined ? undefined : d.trees.block.get(d.trees.block.get(m[1])?.parentId ?? "")?.parentId;
-    if (parent !== undefined && parent !== d.rootId) stats.knownCellO2++;
-    else out.push(e);
-  }
+  out.push(...validityErrors(d));
   for (const [, fs] of d.flows.entries()) {
     const firings = firingsOf(fs);
     // A flow is "not well formed" for its W2 breaks too; those are judged by identity below, and any other firing
@@ -193,16 +185,12 @@ function caretOk(d: Document, sel: ModelSelection): string[] {
 interface Stats {
   cases: number;
   failures: Map<string, string[]>;
-  skipped: Set<string>;
-  knownCellO2: number;
-  /** Selections dropped in table cells (the known gap); anywhere else a dropped one fails. */
-  droppedInCells: number;
 }
-const stats: Stats = { cases: 0, failures: new Map(), skipped: new Set(), knownCellO2: 0, droppedInCells: 0 };
+const stats: Stats = { cases: 0, failures: new Map() };
 const t0 = Date.now();
 
 /** Run `cmd` on the pair in `container` at every selection; the failures (each with a repro line). */
-function runCase(container: Container, l: Category, r: Category, cmd: Command): string[] | "unresolved" {
+function runCase(container: Container, l: Category, r: Category, cmd: Command): string[] {
   const seq = sequence(l, r);
   const lenOf = (c: Category): number => (c === "text" || c === "anchor" ? 2 : 1);
   const points: [number, number, number] = [2, 2 + lenOf(l), 2 + lenOf(l) + lenOf(r)];
@@ -210,11 +198,8 @@ function runCase(container: Container, l: Category, r: Category, cmd: Command): 
   const { sels, dropped } = selections(probe, points);
   const unresolved = sels.length === 0 || sels.some((s) => isTextSelection(s.sel) && paragraphLayout(probe.h.version, s.sel.focus.blockId) === null);
   const fails: string[] = [];
-  if (container === "cell") {
-    if (unresolved) return "unresolved";
-    stats.droppedInCells += dropped.length;
-  } else if (unresolved) return [`x¶ ${l} ${r} y¶: positions do not resolve`];
-  else if (dropped.length > 0) fails.push(`x¶ ${l} ${r} y¶: dropped ${dropped.join(", ")}`);
+  if (unresolved) return [`x¶ ${l} ${r} y¶: positions do not resolve`];
+  if (dropped.length > 0) fails.push(`x¶ ${l} ${r} y¶: dropped ${dropped.join(", ")}`);
   for (const { label, sel } of sels) {
     stats.cases++;
     const c = build(container, sequence(l, r));
@@ -231,7 +216,9 @@ function runCase(container: Container, l: Category, r: Category, cmd: Command): 
     h.selection = sel;
     h.history.breakCoalescing();
     const d0 = h.version;
-    const L0 = linear(d0, c.where);
+    // A select-all from a cell selects the body (a cell's story is the body): judged on the body's read.
+    const where: Where = container === "cell" && isAllSelection(sel) ? { container: "body", holder: d0.rootId, tree: "block" } : c.where;
+    const L0 = linear(d0, where);
     const read0 = readOf(d0);
     const sel0 = selectionOf(d0, snapped(d0, sel));
     const span = spanOf(L0, sel);
@@ -240,7 +227,7 @@ function runCase(container: Container, l: Category, r: Category, cmd: Command): 
       continue;
     }
     const { s, e } = span;
-    const x = expectation(cmd.effect, { container, units: L0.units, ...span });
+    const x = expectation(cmd.effect, { container: where.container, units: L0.units, ...span });
     let plan: Plan | null;
     try {
       plan = cmd.run(h.ctx());
@@ -265,7 +252,7 @@ function runCase(container: Container, l: Category, r: Category, cmd: Command): 
     const d1 = h.version;
     const read1 = readOf(d1);
     const sel1 = selectionOf(d1, snapped(d1, h.selection));
-    const L1 = linear(d1, c.where);
+    const L1 = linear(d1, where);
     const hs = h.selection;
     const caret = isTextSelection(hs) && samePosition(hs.anchor, hs.focus) ? indexOf(L1, hs.focus) : null;
     const same = sameRead(read1, read0);
@@ -302,13 +289,8 @@ for (const container of CONTAINERS) {
           continue;
         }
         for (const cmd of COMMANDS) {
-          it(`${l} → ${r} ${cmd.name}${w2 ? " (concurrent W2 break)" : ""}`, (ctx) => {
+          it(`${l} → ${r} ${cmd.name}${w2 ? " (concurrent W2 break)" : ""}`, () => {
             const out = runCase(container, l, r, cmd);
-            if (out === "unresolved") {
-              stats.skipped.add(`${container} ${l} → ${r}: positions do not resolve (P2 M2: cell paragraph ends)`);
-              ctx.skip();
-              return;
-            }
             if (out.length > 0) stats.failures.set(`${cmd.name} | ${l} → ${r} | ${container}`, out);
             expect(out).toEqual([]);
           });
@@ -318,18 +300,9 @@ for (const container of CONTAINERS) {
   });
 }
 
-// Runs after every case above (file order). The known cell O2 count is pinned, so a new cell O2 bug changes it;
-// P2 M2 (cell paragraph ends resolve) drives it to 0. (1882 → 2618: the W2 pairs' carets and ranges run too, now
-// that the implicit paragraph between the objects reads; with object / all selections only it stays 1882.)
-it("KNOWN O2 count is bounded", () => {
-  expect(stats.knownCellO2).toBe(2618);
-});
-
 afterAll(() => {
   const lines = [
     `category permutations: ${stats.cases} cases in ${Date.now() - t0} ms; ${stats.failures.size} failing groups`,
-    `KNOWN O2 (P2 M2: cell paragraph ends unresolved) ×${stats.knownCellO2}; selections dropped in cells ×${stats.droppedInCells}; every other O2 check ran`,
-    ...[...stats.skipped].map((s) => `SKIPPED ${s}`),
     ...[...stats.failures].flatMap(([k, v]) => [`FAIL ${k}`, ...v.map((m) => `    ${m}`)]),
   ];
   console.log(lines.join("\n"));

@@ -13,14 +13,17 @@ import { setObjectProps } from "./commands/set-object-props";
 import { mapIndex, mapPosition, mapSelection } from "./mapping/map-position";
 import { fromRelativePosition, relativeItemLive, toRelativePosition } from "./mapping/relative-position";
 import { caretAt, position } from "./position/model-position";
-import { paragraphLayout } from "./position/paragraph-layout";
+import { flowOfBlock, paragraphLayout } from "./position/paragraph-layout";
 import { positionAtPoint } from "./position/position-at-point";
 import { resolvePosition } from "./position/resolve-position";
 import { pointAfter, pointBefore } from "./position/storage-points";
 import { PIECE_SOFT_MAX } from "./storage/limits";
 import { newObject, newParagraphMark, newSectionBreak, newTableOfContents } from "./storage/new-items";
 import { pieceStructCount } from "./storage/pieces";
-import { mapAt } from "./test-helpers/fixture";
+import { idOf, mapAt } from "./test-helpers/fixture";
+import { testRow } from "./test-helpers/table";
+import { cellId } from "./ids";
+import { newColMap, newTable } from "./storage/new-table";
 
 function doc(text: string): Harness {
   const h = new Harness();
@@ -41,6 +44,22 @@ function peer(h: Harness): { doc: Y.Doc; sync: () => void } {
 }
 
 describe("resolution (R14 / R15 / R16)", () => {
+  it("a caret in a table cell resolves in the cell's flow, and so does one in a cell with no flow (X4, its implicit paragraph)", () => {
+    const h = doc("P");
+    const table = newTable([testRow("r", { a: "cell", b: null })], [newColMap("a"), newColMap("b")]);
+    h.f.doc.transact(() => h.f.piece.insertEmbed(2, table));
+    const d = h.version;
+    const a = d.trees.block.get(cellId(idOf(table), "r", "a"))?.firstChildId ?? "";
+    const b = d.trees.block.get(cellId(idOf(table), "r", "b"))?.firstChildId ?? "";
+    expect(resolvePosition(d, position(a, 9))).toEqual(position(a, 4));
+    expect(paragraphLayout(d, a)?.fs.holderId).toBe(cellId(idOf(table), "r", "a"));
+    expect(resolvePosition(d, position(b, 0))).toEqual(position(b, 0));
+    expect(paragraphLayout(d, b)?.implicit).toBe(true);
+    // An X4 cell's paragraph is in the cell's own (synthetic) flow, never the root's.
+    const xb = d.trees.block.get(b);
+    expect(xb === undefined ? "absent" : flowOfBlock(d, xb, "block")?.holderId).toBe(cellId(idOf(table), "r", "b"));
+  });
+
   it("clamps, snaps into grapheme clusters, out of atomic mark runs, and before floats", () => {
     const h = doc("aéb👍🏽c");
     const d = h.version;

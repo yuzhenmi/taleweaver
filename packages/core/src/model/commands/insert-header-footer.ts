@@ -11,7 +11,7 @@ import { selectionStart } from "./helpers/over-object";
 import { plan } from "./helpers/build-plan";
 import { type Region, type Variant, linkAttr, linkKey } from "./helpers/header-footer-link";
 import { inSections } from "./helpers/placement";
-import { sectionOwner } from "./helpers/section-owner";
+import { sectionOf, sectionOwner } from "./helpers/section-owner";
 import { keysWrite } from "./helpers/writes";
 
 /**
@@ -24,11 +24,11 @@ export function insertHeaderFooter(ctx: CommandContext, region: Region, variant:
   const start = selectionStart(ctx);
   if (start === null || !inSections(start)) return null;
   const d = ctx.version;
-  const section = start.L.block.parentId === null ? null : resolveBlock(d, start.L.block.parentId)?.block;
+  const section = sectionOf(d, start);
   const owner = sectionOwner(d, start);
   const bodies = childMap(d.docMap, BODIES_KEY);
   const doc = d.docMap.doc;
-  if (section === undefined || section === null || owner === null || bodies === null || doc === null) return null;
+  if (section === null || owner === null || bodies === null || doc === null) return null;
   const existing = section.attrs[linkAttr(region, variant)];
   if (typeof existing === "string") {
     const first = resolveBlock(d, existing)?.block.firstChildId;

@@ -14,5 +14,5 @@ export function containerOf(a: At): Container {
 
 export const canPlace = (k: FlowKind, a: At): boolean => allowedIn(k, containerOf(a));
 
-/** The position is in the body, the only container with sections (header / footer links, R5). */
-export const inSections = (a: At): boolean => containerOf(a) === "body";
+/** The position is in the main tree (body or a table cell), the only one with sections (header / footer links, R5). */
+export const inSections = (a: At): boolean => a.L.tree === "block";

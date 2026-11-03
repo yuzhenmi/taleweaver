@@ -3,7 +3,10 @@ import type { Document } from "../document/types";
 import { blockObjectAt } from "../position/block-object";
 import type { AllSelection, ObjectSelection } from "../position/model-position";
 
-/** Select-all of a flow (default the body): everything in it, leading block objects included; null when `holderId` is no flow. */
+/**
+ * Select-all of a story (default the body): everything in its flow, leading block objects included; null when
+ * `holderId` is no flow. A table cell's story is the body (Word / GDocs): for a caret in a cell, hosts pass the root.
+ */
 export function selectAll(d: Document, holderId: BlockId = d.rootId): AllSelection | null {
   return d.flows.has(holderId) ? { kind: "all", flow: holderId } : null;
 }
