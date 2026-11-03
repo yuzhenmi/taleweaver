@@ -287,6 +287,28 @@ describe("RT3 widths, RT4 header band", () => {
   });
 });
 
+describe("the stored table form (N2: the row splice's state)", () => {
+  it("per row: the carry from above (stored spans), the placements and the width; width counts, the raw header run, depth, closer", () => {
+    const us = units("⟦ ⟨r⟩h ⟨c⟩r9 ⟨c⟩ ⟨r⟩h ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 ⟧@1 ⟨r⟩ ⟨c⟩ ⟨c⟩ ⟨c⟩ ⟧ ⟦ ⟨r⟩ ⟨c⟩");
+    const { d, rootId } = body(us);
+    const [t, r0, c00, , r1, c10, n, nr, , nEnd, r2, , , , end, u, ur] = mapsOf(us).map(idOf);
+    const fs = d.flows.get(rootId);
+    const f = fs?.tables.get(t ?? "");
+    expect(f).toMatchObject({ depth: 0, closeId: end, rawHeaderRun: 2 });
+    expect(f?.rows.map((r) => r.id)).toEqual([r0, r1, r2]);
+    expect(f?.rows.map((r) => r.carryIn)).toEqual([[], [{ head: c00, rowsLeft: 8 }], [{ head: c00, rowsLeft: 7 }]]);
+    expect(f?.rows[1]?.placed).toEqual([{ cellId: c10, gridCol: 1, rowSpan: 1, colSpan: 1 }]);
+    expect(f?.rows.map((r) => r.width)).toEqual([2, 2, 4]);
+    expect(f?.widthCount.slice(0, 5)).toEqual([0, 0, 2, 0, 1]);
+    expect(f?.rowIndex.get(r2 ?? "")).toBe(2);
+    expect(fs?.tables.get(n ?? "")).toMatchObject({ depth: 1, closeId: nEnd, rows: [{ id: nr }] });
+    // Unclosed (closed by <end>): no closer.
+    expect(fs?.tables.get(u ?? "")).toMatchObject({ closeId: null, rows: [{ id: ur }] });
+    // RT4 from the carries: the head of row 0 crosses boundaries 2 and 1, so the band shrinks to nothing.
+    expect(getBlock(d, t ?? "")?.attrs["headerRowCount"]).toBeUndefined();
+  });
+});
+
 describe("tables in other flows", () => {
   it("a table in a footnote body / header body reads in that tree", () => {
     const f = fixture();

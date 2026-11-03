@@ -11,6 +11,8 @@ import { EMPTY_ATTRS, type Links, containerRecord, entityRecord } from "./record
 import { writeSections } from "./sections";
 import type { FormedTable } from "./table/form-table";
 import { withInertMarks } from "./table/inert-marks";
+import type { TableForm } from "./table/table-form";
+import { PMap } from "../pmap";
 import { parseFlow } from "./table/parse-tables";
 import type { Working } from "./working";
 
@@ -102,7 +104,9 @@ export function deriveFlow(w: Working, holderId: BlockId, tree: TreeKind, array:
     w.put(tree, containerRecord(holderId, type, holder?.attrs ?? EMPTY_ATTRS, holder?.links ?? NO_LINKS, seg[0]?.id ?? null, seg[seg.length - 1]?.id ?? null));
   }
   const read = withInertMarks(flowSegments, parsed.inert);
-  w.flows = w.flows.set(holderId, { holderId, tree, isRoot, array, segments: read, segIndex: indexSegments(read), sections, synthetic, inertMarks: parsed.inert.size > 0 });
+  let tables = PMap.empty<TableForm>();
+  for (const [id, f] of parsed.tables) tables = tables.set(id, f);
+  w.flows = w.flows.set(holderId, { holderId, tree, isRoot, array, segments: read, segIndex: indexSegments(read), sections, synthetic, inertMarks: parsed.inert.size > 0, tables });
   w.fresh.add(holderId);
   if (isRoot) writeSections(w);
   for (const p of parasOf(ents)) for (const f of p.footnotes) deriveFootnote(w, f);

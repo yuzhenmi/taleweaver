@@ -4,6 +4,7 @@ import type { Block, BlockId } from "../block";
 import type { ObjectKindRegistry } from "../object-kinds";
 import type { PMap } from "../pmap";
 import type { Segment } from "../scan/tokens";
+import type { TableForm } from "../derive/table/table-form";
 
 export type TreeKind = "block" | "embedContent" | "templateContent";
 
@@ -29,6 +30,8 @@ export interface FlowState {
   readonly synthetic: boolean;
   /** Some table mark reads inert (RT1): `segments` hold it as an inert run unit; N1: any change re-derives the flow. */
   readonly inertMarks: boolean;
+  /** Its tables' forming state, by `⟦` id (nested ones included; N2's row splice). */
+  readonly tables: PMap<TableForm>;
 }
 
 export type ListRestart = "always" | "never" | "after-break";

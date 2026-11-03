@@ -24,6 +24,7 @@ import { TABLE_DEPTH_CAP } from "../../storage/limits";
 import { markDepth, markRole } from "../../storage/table-marks";
 import { type Entity, Grouper } from "../entities";
 import { type ParsedCell, type ParsedRow, type ParsedTable, formTable } from "./form-table";
+import type { TableForm } from "./table-form";
 
 interface Open {
   readonly table: ParsedTable;
@@ -32,17 +33,22 @@ interface Open {
   row: ParsedRow | null;
 }
 
-/** The entities of the flow `holderId` whose tokens are `tokens` (its whole reading order), and the ids of its INERT marks. */
-export function parseFlow(tokens: Iterable<Token>, holderId: BlockId): { ents: Entity[]; inert: Set<BlockId> } {
+/**
+ * The entities of the flow `holderId` whose tokens are `tokens` (its whole reading order),
+ * the ids of its INERT marks and the forms of its tables (by `⟦` id).
+ */
+export function parseFlow(tokens: Iterable<Token>, holderId: BlockId): { ents: Entity[]; inert: Set<BlockId>; tables: Map<BlockId, TableForm> } {
   const top = new Grouper(holderId);
   const inert = new Set<BlockId>();
+  const tables = new Map<BlockId, TableForm>();
   const stack: Open[] = [];
   const current = (): Grouper => stack[stack.length - 1]?.grouper ?? top;
   const close = (closer: BlockId | null, closeId: BlockId | null): void => {
     const o = stack.pop();
     if (o === undefined) return;
     o.grouper.finish(closer);
-    const { formed, trailing } = formTable(o.table, closeId);
+    const { formed, trailing, form } = formTable(o.table, closeId, stack.length);
+    tables.set(o.table.id, form);
     const parent = current();
     const t = o.table;
     parent.pushObject({ k: "table", id: t.id, map: t.map, after: closeId ?? t.id, formed }, closeId ?? t.id, true);
@@ -96,5 +102,5 @@ export function parseFlow(tokens: Iterable<Token>, holderId: BlockId): { ents: E
   }
   while (stack.length > 0) close(null, null);
   top.finish(null);
-  return { ents: top.out, inert };
+  return { ents: top.out, inert, tables };
 }

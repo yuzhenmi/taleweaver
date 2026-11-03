@@ -23,8 +23,9 @@ import type { BlockId } from "../../block";
 import { emptyCellParagraphId, virtualCellId } from "../../ids";
 import { COLS_KEY, COL_SPAN_KEY, HEADER_KEY, ROW_SPAN_KEY, WIDTH_KEY } from "../../storage/keys";
 import { TABLE_COLUMN_CAP } from "../../storage/limits";
-import { assignTableGrid, type GridCell } from "../../../table-grid/assign-table-grid";
+import { type Carry, EMPTY_CARRY, type GridCell, placeRow } from "../../../table-grid/assign-table-grid";
 import { type BlockEntity, type Entity, isBlockEntity } from "../entities";
+import { type RowForm, type TableForm, columnCountOf, headerCountOf } from "./table-form";
 
 export interface ParsedCell {
   readonly id: BlockId;
@@ -91,17 +92,6 @@ function widthsOf(map: Y.Map<unknown>, n: number): readonly number[] | null {
   return Object.freeze(filled.map((w) => w / total));
 }
 
-/** RT4. `spans`: each placed cell's grid row and row span. */
-function headerCountOf(rows: readonly ParsedRow[], spans: readonly { gridRow: number; rowSpan: number }[]): number {
-  let h = 0;
-  while (h < rows.length && rows[h]?.map.get(HEADER_KEY) === true) h++;
-  if (h === 0) return 0;
-  const crossed = new Set<number>();
-  for (const c of spans) for (let b = c.gridRow + 1; b < c.gridRow + c.rowSpan; b++) crossed.add(b);
-  while (h > 0 && crossed.has(h)) h--;
-  return h;
-}
-
 /** A cell placed in its row (real, or virtual with no map). */
 interface Slot {
   readonly id: BlockId;
@@ -113,15 +103,46 @@ interface Slot {
 
 const blocks = (es: readonly Entity[]): BlockEntity[] => es.filter(isBlockEntity);
 
-/** Form `t`, closed by its `⟧` `closeId` (null: by `[S]` / `<end>`). `trailing`: its leads when it has no cell (they read right after it). */
-export function formTable(t: ParsedTable, closeId: BlockId | null): { formed: FormedTable; trailing: Entity[] } {
-  const input: GridCell[][] = t.rows.map((r) =>
-    r.cells.map((c) => ({ cellId: c.id, rowSpan: spanOf(c.map.get(ROW_SPAN_KEY)), colSpan: spanOf(c.map.get(COL_SPAN_KEY)) })),
-  );
-  const grid = assignTableGrid(input, TABLE_COLUMN_CAP);
-  if (grid.columnCount === 0) {
-    return { formed: { rows: [], headerCount: 0, widths: null }, trailing: [...t.lead, ...t.rows.flatMap((r) => r.lead)] };
+/** Form rows `rows` (RT2, {@link placeRow}): their forms, from `carryIn` down. */
+export function formRows(rows: readonly ParsedRow[], carryIn: Carry): { forms: RowForm[]; slots: (readonly (BlockId | undefined)[])[]; carryOut: Carry } {
+  const forms: RowForm[] = [];
+  const slots: (readonly (BlockId | undefined)[])[] = [];
+  let carry = carryIn;
+  for (const r of rows) {
+    const input: GridCell[] = r.cells.map((c) => ({ cellId: c.id, rowSpan: spanOf(c.map.get(ROW_SPAN_KEY)), colSpan: spanOf(c.map.get(COL_SPAN_KEY)) }));
+    const pr = placeRow(carry, input, TABLE_COLUMN_CAP);
+    forms.push({ id: r.id, carryIn: carry, placed: pr.placed, width: pr.width });
+    slots.push(pr.slots);
+    carry = pr.carryOut;
   }
+  return { forms, slots, carryOut: carry };
+}
+
+/** The stored form of a table of rows `rows` (with their `forms`). */
+export function tableForm(rows: readonly ParsedRow[], forms: readonly RowForm[], depth: number, closeId: BlockId | null): TableForm {
+  const widthCount: number[] = new Array<number>(TABLE_COLUMN_CAP + 1).fill(0);
+  for (const f of forms) widthCount[f.width] = (widthCount[f.width] ?? 0) + 1;
+  let rawHeaderRun = 0;
+  while (rawHeaderRun < rows.length && rows[rawHeaderRun]?.map.get(HEADER_KEY) === true) rawHeaderRun++;
+  return { depth, closeId, rows: forms, rowIndex: new Map(forms.map((f, i) => [f.id, i])), widthCount, rawHeaderRun };
+}
+
+/**
+ * Form `t` (of nesting depth `depth`), closed by its `⟧` `closeId` (null: by `[S]` / `<end>`).
+ * `trailing`: its leads when it has no cell (they read right after it).
+ */
+export function formTable(t: ParsedTable, closeId: BlockId | null, depth: number): { formed: FormedTable; trailing: Entity[]; form: TableForm } {
+  const { forms, slots } = formRows(t.rows, EMPTY_CARRY);
+  const form = tableForm(t.rows, forms, depth, closeId);
+  const columnCount = columnCountOf(form);
+  if (columnCount === 0) {
+    return { formed: { rows: [], headerCount: 0, widths: null }, trailing: [...t.lead, ...t.rows.flatMap((r) => r.lead)], form };
+  }
+  const occupancy = slots.map((row) => Array.from({ length: columnCount }, (_, col) => row[col] ?? null));
+  const grid = {
+    cells: forms.flatMap((f, i) => f.placed.map((p) => ({ ...p, gridRow: i, rowSpan: Math.min(p.rowSpan, forms.length - i) }))),
+    occupancy,
+  };
   const placed = new Map(grid.cells.map((g) => [g.cellId, g]));
   // Cell contents by id (real cells: their entities; virtual ones: filled below).
   const ents = new Map<BlockId, BlockEntity[]>();
@@ -172,5 +193,5 @@ export function formTable(t: ParsedTable, closeId: BlockId | null): { formed: Fo
       };
     }),
   }));
-  return { formed: { rows, headerCount: headerCountOf(t.rows, grid.cells), widths: widthsOf(t.map, grid.columnCount) }, trailing: [] };
+  return { formed: { rows, headerCount: headerCountOf(form), widths: widthsOf(t.map, columnCount) }, trailing: [], form };
 }
