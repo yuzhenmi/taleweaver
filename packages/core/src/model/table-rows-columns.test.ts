@@ -1,10 +1,12 @@
 /** N4 table row / column commands: insertRow, insertColumn (T1), deleteRow (T2), deleteColumn (T3), `cols`. */
 import { describe, expect, it } from "vitest";
-import type * as Y from "yjs";
+import * as Y from "yjs";
 import { BLOCK_TYPES, type Block } from "./block";
 import { selectAll } from "./commands/selections";
+import { insertColumn } from "./commands/table/insert-column";
 import { insertRow } from "./commands/table/insert-row";
 import { type AllSelection, caretAt, isTextSelection } from "./position/model-position";
+import { mapOf } from "./storage/new-items";
 import { childrenOf, textOf } from "./test-helpers/fixture";
 import { Harness } from "./test-helpers/harness";
 import { insertUnits, mapsOf, units } from "./test-helpers/table";
@@ -189,5 +191,132 @@ describe("insertRow (T1)", () => {
     expect(h.run(insertRow, "below")).toBe(false);
     h.selection = all(h);
     expect(h.run(insertRow, "below")).toBe(false);
+  });
+});
+
+/** Sets `cols` of a detached `⟦` to entries `ws` (a number: `{w}`; null: `{}`). */
+function setCols(open: Y.Map<unknown> | undefined, ws: readonly (number | null)[]): void {
+  const a = new Y.Array<Y.Map<unknown>>();
+  a.insert(0, ws.map((w) => mapOf(w === null ? {} : { w })));
+  open?.set("cols", a);
+}
+
+const widths = (h: Harness): unknown => tableOf(h).attrs["columnWidths"];
+
+describe("insertColumn (T1)", () => {
+  it("left / right of a plain cell: a column of empty cells; the caret stays; undo / redo", () => {
+    const h = raw(T22);
+    const t = tableOf(h);
+    const b = inCell(h, t, 0, 1);
+    undoable(h, () => expect(h.run(insertColumn, "right")).toBe(true));
+    expect(grid(h, t)).toEqual([["a", "b", ""], ["c", "d", ""]]);
+    expect(focusId(h)).toBe(b);
+    const a = inCell(h, t, 0, 0);
+    expect(h.run(insertColumn, "left")).toBe(true);
+    expect(grid(h, t)).toEqual([["", "a", "b", ""], ["", "c", "d", ""]]);
+    expect(focusId(h)).toBe(a);
+  });
+
+  it("a head straddling the new column grows (once, also when it spans rows); a merged reference cell inserts past all its columns", () => {
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩c2 a¶ ⟨r⟩ ⟨c⟩ c¶ ⟨c⟩ d¶ ⟧ q¶");
+    const t = tableOf(h);
+    inCell(h, t, 1, 0);
+    undoable(h, () => h.run(insertColumn, "right"));
+    expect(grid(h, t)).toEqual([["a→3"], ["c", "", "d"]]);
+    inCell(h, t, 0, 0);
+    h.run(insertColumn, "right");
+    expect(grid(h, t)).toEqual([["a→3", ""], ["c", "", "d", ""]]);
+    const g = raw("⟦ ⟨r⟩ ⟨c⟩ x¶ ⟨c⟩ y¶ ⟨r⟩ ⟨c⟩r2c2 a¶ ⟨r⟩ ⟧ q¶");
+    const u = tableOf(g);
+    inCell(g, u, 0, 0);
+    undoable(g, () => g.run(insertColumn, "right"));
+    expect(grid(g, u)).toEqual([["x", "", "y"], ["a↓2→3"], []]);
+  });
+
+  it("a row covered at j by a head from above starting at j gets its cell at j", () => {
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩r2 b¶ ⟨r⟩ ⟨c⟩ c¶ ⟧ q¶");
+    const t = tableOf(h);
+    inCell(h, t, 0, 0);
+    undoable(h, () => h.run(insertColumn, "right"));
+    expect(grid(h, t)).toEqual([["a", "", "b↓2"], ["c", ""]]);
+  });
+
+  it("a short row ending before the column pads virtually; one reaching it gets a real cell; a virtual cell's caret follows it", () => {
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨c⟩ e¶ ⟨r⟩ ⟨c⟩ c¶ ⟧ q¶");
+    const t = tableOf(h);
+    inCell(h, t, 0, 1);
+    h.run(insertColumn, "right");
+    expect(grid(h, t)).toEqual([["a", "b", "", "e"], ["c", "", "", ""]]);
+    inCell(h, t, 0, 0);
+    h.run(insertColumn, "right");
+    expect(grid(h, t)).toEqual([["a", "", "b", "", "e"], ["c", "", "", "", ""]]);
+    const g = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟧ q¶");
+    const u = tableOf(g);
+    inCell(g, u, 1, 1);
+    g.run(insertColumn, "left");
+    expect(grid(g, u)).toEqual([["a", "", "b"], ["c", "", ""]]);
+    expect(focusId(g)).toBe(childrenOf(g.version, "block", cell(g, u, 1, 2).id)[0]?.id);
+    // A short row with no write: its virtual cell ids keep their columns, so the caret's id now names the new column.
+    const k = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨c⟩ e¶ ⟨r⟩ ⟨c⟩ c¶ ⟧ q¶");
+    const v = tableOf(k);
+    inCell(k, v, 1, 2);
+    k.run(insertColumn, "left");
+    expect(grid(k, v)).toEqual([["a", "b", "", "e"], ["c", "", "", ""]]);
+    expect(focusId(k)).toBe(childrenOf(k.version, "block", cell(k, v, 1, 3).id)[0]?.id);
+  });
+
+  it("cols: the reference column's weight is copied (an entry without one: {}); none past a short cols, nothing for an empty one", () => {
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟧ q¶", (m) => setCols(m[0], [2, 1]));
+    const t = tableOf(h);
+    inCell(h, t, 0, 0);
+    h.run(insertColumn, "right");
+    expect(widths(h)).toEqual([0.4, 0.4, 0.2]);
+    inCell(h, t, 0, 2);
+    h.run(insertColumn, "left");
+    expect(widths(h)).toEqual([2 / 6, 2 / 6, 1 / 6, 1 / 6]);
+    const g = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟧ q¶", (m) => setCols(m[0], [null, 1]));
+    inCell(g, tableOf(g), 0, 0);
+    g.run(insertColumn, "left");
+    expect(widths(g)).toEqual([1 / 3, 1 / 3, 1 / 3]);
+    const s = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟧ q¶", (m) => setCols(m[0], [3]));
+    inCell(s, tableOf(s), 0, 1);
+    s.run(insertColumn, "right");
+    expect(widths(s)).toEqual([1 / 3, 1 / 3, 1 / 3]);
+    const e = raw(T22);
+    inCell(e, tableOf(e), 0, 0);
+    e.run(insertColumn, "right");
+    expect(widths(e)).toBeUndefined();
+  });
+
+  it("copies the a:* of each row's reference cell", () => {
+    const h = raw(T22, (m) => {
+      m[2]?.set("a:bg", "red");
+      m[7]?.set("a:bg", "blue");
+    });
+    const t = tableOf(h);
+    inCell(h, t, 0, 0);
+    h.run(insertColumn, "right");
+    expect(cell(h, t, 0, 1).attrs["bg"]).toBe("red");
+    expect(cell(h, t, 1, 1).attrs["bg"]).toBe("blue");
+    inCell(h, t, 0, 2);
+    h.run(insertColumn, "left");
+    expect(cell(h, t, 0, 2).attrs["bg"]).toBeUndefined();
+    expect(cell(h, t, 1, 2).attrs["bg"]).toBeUndefined();
+  });
+
+  it("is a no-op at the 63-column cap; in a nested table the inner table gets the column", () => {
+    const h = raw(`⟦ ⟨r⟩ ${"⟨c⟩ ¶ ".repeat(62)} ⟧ q¶`);
+    const t = tableOf(h);
+    inCell(h, t, 0, 0);
+    expect(h.run(insertColumn, "right")).toBe(true);
+    expect(h.run(insertColumn, "right")).toBe(false);
+    const g = raw("⟦ ⟨r⟩ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 x¶ ⟧@1 ¶ ⟧ q¶");
+    const outer = tableOf(g);
+    const inner = tablesOf(g, cell(g, outer, 0, 0).id)[0];
+    if (inner === undefined) throw new Error("no inner table");
+    inCell(g, inner, 0, 0);
+    g.run(insertColumn, "right");
+    expect(grid(g, inner)).toEqual([["x", ""]]);
+    expect(grid(g, outer)).toEqual([["T|"]]);
   });
 });

@@ -41,6 +41,8 @@ export type Write =
   | { readonly k: "keys"; readonly map: Y.Map<unknown>; readonly keys: Readonly<Record<string, Scalar | undefined>> }
   /** A flow with no piece: its first piece, holding `units`. */
   | { readonly k: "firstPiece"; readonly flow: Y.Array<Y.Text>; readonly units: readonly InsertUnit[] }
+  /** A table's `cols` array: delete `delete` entries at `index`, then insert the detached `insert` maps there. */
+  | { readonly k: "cols"; readonly array: Y.Array<unknown>; readonly index: number; readonly delete: number; readonly insert: readonly Y.Map<unknown>[] }
   /** Set (a detached map) or delete (null) a nested-map entry (header / footer bodies). */
   | { readonly k: "entry"; readonly map: Y.Map<unknown>; readonly key: string; readonly value: Y.Map<unknown> | null };
 
@@ -153,6 +155,9 @@ export function applyPlan(model: Model, plan: Plan, origin: symbol): ModelSelect
         }
       } else if (w.k === "firstPiece") {
         w.flow.insert(0, chunked(w.units));
+      } else if (w.k === "cols") {
+        if (w.delete > 0) w.array.delete(w.index, w.delete);
+        if (w.insert.length > 0) w.array.insert(w.index, [...w.insert]);
       } else if (w.value === null) w.map.delete(w.key);
       else w.map.set(w.key, w.value);
     }

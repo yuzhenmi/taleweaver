@@ -15,8 +15,8 @@
  *     not read in M1 (P4 / P10).
  *
  * A table is marks in its flow, so its edits are piece / item-map changes; a region
- * touching a mark re-derives that flow (`update-flow.ts`), and a `cols` array edit is
- * not classified (→ full re-derive) until N5.
+ * touching a mark goes through the structural splice (`update-flow.ts`), and a `cols`
+ * edit re-reads its table's widths only (`update/table-widths.ts`).
  */
 import * as Y from "yjs";
 import type { BlockId } from "./block";
@@ -28,6 +28,7 @@ import { Working } from "./derive/working";
 import type { Document } from "./document/types";
 import type { DeltaOp, FlowChange, PieceChange } from "./update/flow-change";
 import { updateFlow } from "./update/update-flow";
+import { colsOwner, refreshWidths } from "./update/table-widths";
 import { recordStep } from "./mapping/map-position";
 import { footnoteBodyId, templateBodyId } from "./ids";
 import type { FootnoteRef } from "./scan/tokens";
@@ -198,6 +199,7 @@ export class Model {
     // Holder flows first: their anchor changes add / remove footnote flows.
     const order = [...c.flows].sort(([a], [b]) => rank(w, a) - rank(w, b));
     for (const [holderId, ch] of order) updateFlow(w, holderId, ch);
+    for (const [holderId, ch] of order) if (ch.tableCols.size > 0 && !w.fresh.has(holderId)) refreshWidths(w, holderId, ch.tableCols);
     for (const [anchorId, ref] of c.footnoteBodies) {
       const holderId = footnoteBodyId(anchorId);
       if (!w.flows.has(holderId) || w.fresh.has(holderId)) continue;
@@ -215,7 +217,7 @@ export class Model {
     const flowChange = (holderId: BlockId): FlowChange => {
       let f = c.flows.get(holderId);
       if (f === undefined) {
-        f = { arrayChanged: false, subArrays: new Set(), pieces: new Map() };
+        f = { arrayChanged: false, subArrays: new Set(), pieces: new Map(), tableCols: new Set() };
         c.flows.set(holderId, f);
       }
       return f;
@@ -288,6 +290,15 @@ export class Model {
         continue;
       }
       if (side === COMMENTS_KEY || side === SUGGESTIONS_KEY) continue;
+      // A table's `cols` (the array, or one entry's keys): its widths only.
+      const open = colsOwner(t);
+      if (open !== null) {
+        const piece = open._item?.parent;
+        const holderId = piece instanceof Y.Text ? holderOfPiece(piece) : null;
+        if (holderId === null) c.full = true;
+        else flowChange(holderId).tableCols.add(open);
+        continue;
+      }
       if (t instanceof Y.Text) {
         const holderId = holderOfPiece(t);
         if (holderId === null) c.full = true;

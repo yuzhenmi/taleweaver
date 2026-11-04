@@ -118,14 +118,15 @@ export function cellParagraphAt(after: Document, holderId: BlockId, tableId: Blo
 }
 
 /**
- * The selection after a row / column insert: kept while what it names still reads; else (a virtual cell's ids follow
- * its next mark) a caret in the cell now at the selected cell's slot, `dRow` / `dCol` past where it was.
+ * The selection after a row / column insert: kept while what it names still reads; for a virtual cell (whose id names
+ * a slot), or one that no longer reads, a caret in the cell now at the selected cell's slot, `dRow` / `dCol` past it.
  */
 export function keptSelection(ctx: CommandContext, c: CellAt, dRow: number, dCol: number): (after: Document) => ModelSelection {
   const sel = ctx.selection;
   return (after) => {
     const ids = isAllSelection(sel) ? [sel.container] : isTextSelection(sel) ? [sel.anchor.blockId, sel.focus.blockId] : [];
-    if (ids.length > 0 && ids.every((id) => peekBlock(after, id) !== undefined)) return sel;
+    // A virtual cell's id names a slot (`${nextMark}/fill<col>`), which may now be another cell: always re-found.
+    if (c.map !== null && ids.length > 0 && ids.every((id) => peekBlock(after, id) !== undefined)) return sel;
     const p = cellParagraphAt(after, c.fs.holderId, c.tableId, c.row + dRow, c.col + dCol);
     return p === null ? sel : caretAt(p, 0);
   };

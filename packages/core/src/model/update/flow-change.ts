@@ -22,4 +22,6 @@ export interface FlowChange {
   readonly subArrays: Set<Y.Array<Y.Text>>;
   /** Every changed piece, top-level or nested. */
   readonly pieces: Map<Y.Text, PieceChange>;
+  /** Tables' `⟦` maps whose `cols` changed: only their RT3 widths are re-read (`table-widths.ts`). */
+  readonly tableCols: Set<Y.Map<unknown>>;
 }

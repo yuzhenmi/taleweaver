@@ -168,6 +168,25 @@ describe("rung 1: a changed column count (every other row's virtual end cells, R
   });
 });
 
+describe("a `cols` edit re-reads its table's widths only (N4)", () => {
+  it("inserting / deleting an entry and changing a weight, in a top-level and a nested table, splice without re-deriving", () => {
+    const t = live("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 x¶ ⟨c⟩@1 z¶ ⟧@1 ¶ ⟧ y¶");
+    const [, table, , , , , inner] = t.maps;
+    const colsOf = (m: Y.Map<unknown> | undefined): Y.Array<Y.Map<unknown>> => {
+      const a = m?.get("cols");
+      if (!(a instanceof Y.Array)) throw new Error("no cols");
+      return a as Y.Array<Y.Map<unknown>>;
+    };
+    t.step(() => colsOf(table).insert(0, [mapOf({ w: 1 }), mapOf({ w: 3 })]), true);
+    t.step(() => colsOf(table).get(1).set("w", 2), true);
+    t.step(() => colsOf(table).delete(0, 1), true);
+    t.step(() => colsOf(inner).insert(0, [mapOf({ w: 1 }), mapOf({})]), true);
+    t.step(() => colsOf(inner).get(1).set("w", 5), true);
+    t.step(() => colsOf(inner).delete(0, 2), true);
+    t.destroy();
+  });
+});
+
 describe("rung 1 edge cases (found by the O4 table fuzz)", () => {
   const at = (t: ReturnType<typeof live>, i: number): number => t.at(t.maps[i]);
   it("the table's lead joins row 0: the range starts at the ⟦ and spans old row 0", () => {
