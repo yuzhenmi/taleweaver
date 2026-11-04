@@ -3,8 +3,8 @@ import { getBlock, createWalkGuard } from "./document";
 import type { BlockId } from "./block-id";
 import { ancestorChain } from "./block-traversal";
 import { isSpan, spanValue } from "./table-cell-span";
-import { assignTableGrid } from "./table-grid-core";
-import type { GridCell, TableGrid } from "./table-grid-core";
+import { assignTableGrid } from "../table-grid/assign-table-grid";
+import type { GridCell, TableGrid } from "../table-grid/assign-table-grid";
 
 /**
  * The table-editing context derived from a caret position. Identifies the
@@ -47,7 +47,7 @@ export interface TableContext {
    * `table`. Span-aware handlers reuse this for caret targeting instead of
    * re-scanning the tree with a second `buildTableGrid` call.
    */
-  readonly grid: TableGrid | null;
+  readonly grid: TableGrid<BlockId> | null;
 }
 
 /** The main-tree child ids of `parentId` in document order (sibling-chain walk).
@@ -170,14 +170,14 @@ export function resolveTableContext(document: Document, blockId: BlockId): Table
  * filtered to `table-row`/`table-cell` types (anonymous-row/cell synthesis is a
  * layout concern, not present in the state tree).
  */
-export function buildTableGrid(document: Document, tableId: BlockId): TableGrid | null {
+export function buildTableGrid(document: Document, tableId: BlockId): TableGrid<BlockId> | null {
   if (getBlock(document, tableId)?.type !== "table") return null;
-  const rows: GridCell[][] = getChildIds(document, tableId)
+  const rows: GridCell<BlockId>[][] = getChildIds(document, tableId)
     .filter((rid) => getBlock(document, rid)?.type === "table-row")
     .map((rid) =>
       getChildIds(document, rid)
         .filter((cid) => getBlock(document, cid)?.type === "table-cell")
-        .map((cid): GridCell => {
+        .map((cid): GridCell<BlockId> => {
           const attrs = getBlock(document, cid)?.attrs ?? {};
           return {
             cellId: cid,

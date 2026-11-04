@@ -159,8 +159,8 @@ export { spanValue, isSpan } from "./table-cell-span";
 // Layering-neutral occupancy-grid core (§17.5 scan, shared by layout + the
 // state-side span-aware editing ops). Layout's `assignTableGrid` adapter
 // (layout/table-grid.ts) and state ops build the SAME grid from this core.
-export { assignTableGrid } from "./table-grid-core";
-export type { GridCell, AssignedCell, TableGrid } from "./table-grid-core";
+export { assignTableGrid } from "../table-grid/assign-table-grid";
+export type { GridCell, AssignedCell, TableGrid } from "../table-grid/assign-table-grid";
 // Cross-cell selection → grid rectangle resolver (span-aware editing input):
 // bounding-box the anchor/focus cells over the occupancy grid, then fixpoint-
 // expand to whole span-rectangles. The editor `Selection` stays linear.

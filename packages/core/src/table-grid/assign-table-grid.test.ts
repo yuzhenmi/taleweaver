@@ -7,25 +7,11 @@
  * normalize spans the way their layer does.
  */
 import { describe, it, expect } from "vitest";
-import { assignTableGrid } from "./table-grid-core";
-import type { GridCell } from "./table-grid-core";
-import type { BlockId } from "./block-id";
+import { EMPTY_CARRY, assignTableGrid, type Carry, type GridCell, placeRow } from "./assign-table-grid";
 
 /** Build a neutral grid cell; spans default to 1 (the caller's pre-clamp contract). */
 function cell(id: string, rowSpan = 1, colSpan = 1): GridCell {
-  return { cellId: id as BlockId, rowSpan, colSpan };
-}
-
-/** Run `fn` with NODE_ENV forced to "production" (exercises the non-dev path). */
-function inProduction<T>(fn: () => T): T {
-  const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
-  const prev = proc?.env?.NODE_ENV;
-  if (proc?.env) proc.env.NODE_ENV = "production";
-  try {
-    return fn();
-  } finally {
-    if (proc?.env) proc.env.NODE_ENV = prev;
-  }
+  return { cellId: id, rowSpan, colSpan };
 }
 
 describe("assignTableGrid (neutral core, #P15b)", () => {
@@ -118,34 +104,83 @@ describe("assignTableGrid (neutral core, #P15b)", () => {
     expect(g.occupancy).toEqual([["a", "b"]]);
   });
 
-  it("dev-asserts on a malformed overlap (a colSpan cell colliding with a rowSpan from above)", () => {
-    expect(() =>
-      assignTableGrid([
-        [cell("A"), cell("B", 2)],
-        [cell("C", 1, 2)],
-      ]),
-    ).toThrow(/overlap/i);
-  });
-
-  it("in production, a malformed overlap does NOT throw and never overwrites the first writer", () => {
-    const g = inProduction(() =>
-      assignTableGrid([
-        [cell("A"), cell("B", 2)],
-        [cell("C", 1, 2)],
-      ]),
-    );
+  it("clips a colSpan colliding with a rowSpan from above to the free run (RT2; earlier cells win)", () => {
+    const g = assignTableGrid([
+      [cell("A"), cell("B", 2)],
+      [cell("C", 1, 2)],
+    ]);
     expect(g.occupancy[1]).toEqual(["C", "B"]);
+    expect(g.cells[2]).toEqual({ cellId: "C", gridRow: 1, gridCol: 0, rowSpan: 1, colSpan: 1 });
   });
 
-  it("a malformed overlap does NOT shrink the winner's column reservation (3-row)", () => {
-    const g = inProduction(() =>
-      assignTableGrid([
-        [cell("A"), cell("B", 3)],
-        [cell("C", 1, 2)],
-        [cell("E"), cell("F")],
-      ]),
-    );
+  it("a clipped cell keeps the winner's column reserved below (3-row)", () => {
+    const g = assignTableGrid([
+      [cell("A"), cell("B", 3)],
+      [cell("C", 1, 2)],
+      [cell("E"), cell("F")],
+    ]);
     expect(g.columnCount).toBe(3);
     expect(g.occupancy[2]).toEqual(["E", "B", "F"]);
+  });
+
+  it("caps the width at maxColumns: spans clip to it, a cell whose slot would be past it overflows", () => {
+    const g = assignTableGrid([[cell("A", 2, 3), cell("B", 1, 2)], [cell("C"), cell("D")]], 4);
+    expect(g.columnCount).toBe(4);
+    expect(g.cells.map((c) => [c.cellId, c.colSpan])).toEqual([["A", 3], ["B", 1], ["C", 1]]);
+    expect(g.overflow).toEqual(["D"]);
+  });
+});
+
+describe("placeRow (one row of the forming, with the carry from above)", () => {
+  it("places after covered slots; the carry keeps STORED (unclipped) spans", () => {
+    const r0 = placeRow(EMPTY_CARRY, [cell("A", 5), cell("B")]);
+    expect(r0.placed).toEqual([
+      { cellId: "A", gridCol: 0, rowSpan: 5, colSpan: 1 },
+      { cellId: "B", gridCol: 1, rowSpan: 1, colSpan: 1 },
+    ]);
+    expect(r0.width).toBe(2);
+    expect(r0.slots).toEqual(["A", "B"]);
+    expect(r0.carryOut).toEqual([{ head: "A", rowsLeft: 4 }]);
+    const r1 = placeRow(r0.carryOut, [cell("c")]);
+    expect(r1.placed).toEqual([{ cellId: "c", gridCol: 1, rowSpan: 1, colSpan: 1 }]);
+    expect(r1.width).toBe(2);
+    expect(r1.carryOut).toEqual([{ head: "A", rowsLeft: 3 }]);
+  });
+
+  it("an uncovered carry is the shared empty one; a row with no cell has width 0", () => {
+    const r = placeRow(EMPTY_CARRY, [cell("a"), cell("b")]);
+    expect(r.carryOut).toBe(EMPTY_CARRY);
+    const covered: Carry = [undefined, { head: "X", rowsLeft: 1 }];
+    const z = placeRow(covered, []);
+    expect(z.width).toBe(0);
+    expect(z.slots).toEqual([undefined, "X"]);
+    expect(z.carryOut).toBe(EMPTY_CARRY);
+    // Dense: a 1-row cell before a head leaves an undefined entry, not a hole.
+    const h = placeRow(EMPTY_CARRY, [cell("a"), cell("B", 2)]).carryOut;
+    expect(h).toEqual([undefined, { head: "B", rowsLeft: 1 }]);
+    expect(0 in h).toBe(true);
+  });
+
+  it("clips colSpan to the free run and to maxColumns; past the cap overflows", () => {
+    const r = placeRow([undefined, undefined, { head: "X", rowsLeft: 2 }], [cell("a", 1, 3), cell("b", 1, 9), cell("c")], 4);
+    expect(r.placed).toEqual([
+      { cellId: "a", gridCol: 0, rowSpan: 1, colSpan: 2 },
+      { cellId: "b", gridCol: 3, rowSpan: 1, colSpan: 1 },
+    ]);
+    expect(r.overflow).toEqual(["c"]);
+    expect(r.width).toBe(4);
+  });
+
+  it("assignTableGrid is placeRow row by row, spans clipped to the table's end on output", () => {
+    const rows = [[cell("A", 9), cell("B", 1, 2)], [cell("C", 2)], [cell("D"), cell("E")]];
+    const g = assignTableGrid(rows);
+    let carry: Carry = EMPTY_CARRY;
+    const cells = rows.flatMap((r, i) => {
+      const pr = placeRow(carry, r);
+      carry = pr.carryOut;
+      return pr.placed.map((p) => ({ ...p, gridRow: i, rowSpan: Math.min(p.rowSpan, rows.length - i) }));
+    });
+    expect(g.cells).toEqual(cells);
+    expect(g.cells[0]).toEqual({ cellId: "A", gridRow: 0, gridCol: 0, rowSpan: 3, colSpan: 1 });
   });
 });
