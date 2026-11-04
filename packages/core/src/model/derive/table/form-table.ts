@@ -72,7 +72,7 @@ export interface FormedTable {
   readonly widths: readonly number[] | null;
 }
 
-const spanOf = (v: unknown): number => (typeof v === "number" && Number.isSafeInteger(v) && v >= 1 ? v : 1);
+export const spanOf = (v: unknown): number => (typeof v === "number" && Number.isSafeInteger(v) && v >= 1 ? v : 1);
 
 const isWeight = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
 

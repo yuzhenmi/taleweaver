@@ -62,7 +62,7 @@ function containerParagraphs(d: Document, id: BlockId): { first: ParagraphLayout
 }
 
 /** The container a paragraph of `d` is in: its nearest table cell, else its flow (`""`). Text ranges stay inside one. */
-function containerKey(d: Document, L: ParagraphLayout): BlockId {
+export function containerKey(d: Document, L: ParagraphLayout): BlockId {
   const tree = d.trees[L.tree];
   for (let id = L.block.parentId; id !== null; id = tree.get(id)?.parentId ?? null) if (tree.get(id)?.type === BLOCK_TYPES.tableCell) return id;
   return "";
