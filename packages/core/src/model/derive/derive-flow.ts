@@ -9,7 +9,7 @@ import { flowOf, scalarsWithPrefix } from "../storage/map-reads";
 import { type BlockEntity, type Entity, type ParaEntity, type SectionBreakEntity, type TableEntity, flatten, indexSegments, isBlockEntity, isParaEntity, isSectionBreakEntity } from "./entities";
 import { EMPTY_ATTRS, type Links, containerRecord, entityRecord } from "./records";
 import { writeSections } from "./sections";
-import type { FormedRow, FormedTable } from "./table/form-table";
+import type { FormedCell, FormedRow, FormedTable } from "./table/form-table";
 import { withInertMarks } from "./table/inert-marks";
 import type { TableForm } from "./table/table-form";
 import { PMap } from "../pmap";
@@ -134,12 +134,14 @@ function writeTable(w: Working, tree: TreeKind, e: TableEntity, links: Links): v
 
 /** Write a table row's record (with `links`) and its cells and their contents. */
 export function writeRow(w: Working, tree: TreeKind, row: FormedRow, links: Links): void {
-  row.cells.forEach((cell, j) => {
-    const cellLinks: Links = { parentId: row.id, prevSiblingId: row.cells[j - 1]?.id ?? null, nextSiblingId: row.cells[j + 1]?.id ?? null };
-    w.put(tree, containerRecord(cell.id, BLOCK_TYPES.tableCell, cellAttrs(cell.map, cell.rowSpan, cell.colSpan), cellLinks, cell.ents[0]?.id ?? null, cell.ents[cell.ents.length - 1]?.id ?? null));
-    writeSegment(w, tree, cell.ents, cell.id, null, null);
-  });
+  row.cells.forEach((cell, j) => writeCell(w, tree, cell, { parentId: row.id, prevSiblingId: row.cells[j - 1]?.id ?? null, nextSiblingId: row.cells[j + 1]?.id ?? null }));
   w.put(tree, containerRecord(row.id, BLOCK_TYPES.tableRow, Object.freeze(scalarsWithPrefix(row.map, "a:")), links, row.cells[0]?.id ?? null, row.cells[row.cells.length - 1]?.id ?? null));
+}
+
+/** Write a table cell's record (with `links`) and its contents. */
+export function writeCell(w: Working, tree: TreeKind, cell: FormedCell, links: Links): void {
+  w.put(tree, containerRecord(cell.id, BLOCK_TYPES.tableCell, cellAttrs(cell.map, cell.rowSpan, cell.colSpan), links, cell.ents[0]?.id ?? null, cell.ents[cell.ents.length - 1]?.id ?? null));
+  writeSegment(w, tree, cell.ents, cell.id, null, null);
 }
 
 /** The table's record: `a:*` + `columnWidths` (RT3) + `headerRowCount` (RT4, when > 0). */

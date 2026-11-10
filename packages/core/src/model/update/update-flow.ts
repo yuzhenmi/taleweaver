@@ -30,7 +30,8 @@
  *   - overlapping splices, an anchor whose old record is missing, a section list the
  *     region's old `[S]` cannot be found in (defensive: not produced by any known write).
  * Several change sites in one transaction (runs of one piece, several pieces) form one region each, merged where
- * they overlap or touch (`regions.ts`).
+ * they overlap or touch (`regions.ts`). A table's regions inserting / deleting whole cells apply as one batch (rung 1c,
+ * `cell-splice.ts`).
  */
 import * as Y from "yjs";
 import { BLOCK_TYPES, type BlockId } from "../block";
@@ -53,6 +54,7 @@ import { type Pos, before, between, step } from "./anchors";
 import type { FlowChange } from "./flow-change";
 import { type Splice, deltaSplice, insertion, subtreeSplice } from "./piece-splice";
 import { type Region, oldPosOf, regionsOf } from "./regions";
+import { cellSplice } from "./cell-splice";
 import { rowSplice } from "./row-splice";
 
 /** A from-scratch re-derivation of an existing flow (a non-root holder keeps its record's type, attrs and links). */
@@ -264,8 +266,12 @@ function applyRegion(c: RegionCtx, fs: FlowState, { L, R }: Region, regions: rea
   // its table, a block object; a `⟦` after it is the table; any other mark after it ends the container. R is then not
   // in the region (it is unchanged: a changed item is always inside its window).
   const tree = fs.tree;
-  // Rung 0 declined: whole rows of an enclosing table (rung 1), else the flow.
-  const fallback = (): Pos | null => rowSplice({ w, fs, newScans, newIdx, L, R, regions, next, fold: c.fold }) ?? rederive();
+  // Rung 0 declined: whole cells of a table's rows (rung 1c, with the table's next such regions), else whole rows of an
+  // enclosing table (rung 1), else the flow.
+  const fallback = (): Pos | null =>
+    cellSplice({ w, fs, oldScans, newScans, newIdx, splices: c.splices, n1s: c.n1s, regions, first: next - 1, fold: c.fold }) ??
+    rowSplice({ w, fs, newScans, newIdx, L, R, regions, next, fold: c.fold }) ??
+    rederive();
   const lRole = L !== null && holdsFlows(L.tok.k) ? roleOf(L.tok) : undefined;
   const rRole = R !== null && holdsFlows(R.tok.k) ? roleOf(R.tok) : undefined;
   // A region in a table's / row's lead: rung 1.

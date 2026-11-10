@@ -1,5 +1,5 @@
 /** N2: structural incremental derive — edits around and inside tables read as from scratch, and splice locally. */
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 import { deriveDocument } from "./derive/derive-document";
 import type { Document } from "./document/types";
@@ -9,6 +9,19 @@ import { mapOf, newFootnoteOf, newParagraphMark } from "./storage/new-items";
 import { expectSameVersion } from "./test-helpers/expect-same-version";
 import { fixture, idOf } from "./test-helpers/fixture";
 import { insertUnits, mapsOf, units } from "./test-helpers/table";
+import { cellSplice } from "./update/cell-splice";
+import { rowSplice } from "./update/row-splice";
+
+// Spies on the rungs (calling through): which one applied a step.
+vi.mock("./update/cell-splice", async (orig) => {
+  const m = await orig<typeof import("./update/cell-splice")>();
+  return { ...m, cellSplice: vi.fn(m.cellSplice) };
+});
+vi.mock("./update/row-splice", async (orig) => {
+  const m = await orig<typeof import("./update/row-splice")>();
+  return { ...m, rowSplice: vi.fn(m.rowSplice) };
+});
+beforeEach(() => vi.clearAllMocks());
 
 /**
  * A live model over `spec` (inserted before the body's final ¶), led by a `far¶` paragraph.
@@ -296,6 +309,8 @@ describe("many change sites in one transaction: one region each (N4b step a)", (
       t.step(() => {
         for (const mk of at) insertUnits(t.piece, t.at(mk), units("⟨c⟩ z¶"));
       }, true);
+      expect(rowSplice).not.toHaveBeenCalled(); // rung 1c, one batch
+      vi.clearAllMocks();
       t.destroy();
     }
   });
@@ -308,6 +323,116 @@ describe("many change sites in one transaction: one region each (N4b step a)", (
       t.piece.insert(t.at(x), "w"); // … which covers this edit in its last cell
       insertUnits(t.piece, t.at(c12), units("⟨r⟩ ⟨c⟩ n¶")); // a row split in row 1: its own rung-1 range
     }, true);
+    t.destroy();
+  });
+});
+
+describe("rung 1c: whole cells inserted / deleted, one batch per table (N4b step b)", () => {
+  /** `step` local, applied by rung 1c alone (rung 1 never tried). */
+  const cellStep = (t: ReturnType<typeof live>, fn: () => void): void => {
+    vi.clearAllMocks();
+    t.step(fn, true);
+    expect(vi.mocked(cellSplice).mock.results.some((r) => r.value !== null)).toBe(true);
+    expect(rowSplice).not.toHaveBeenCalled();
+  };
+  const cellAt = (t: ReturnType<typeof live>, m: Y.Map<unknown> | undefined, spec = "⟨c⟩ z¶"): Y.Map<unknown>[] => {
+    const us = units(spec);
+    insertUnits(t.piece, t.at(m), us);
+    return mapsOf(us);
+  };
+
+  it("a rowSpan head moved by a cell before it: the row below re-places (F4), the column count and virtual end cells follow", () => {
+    const t = live("⟦ ⟨r⟩ ⟨c⟩r2 a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ d¶ ⟨c⟩ e¶ ⟧ y¶");
+    const [, , , c00, , , , , c10, , , c20] = t.maps;
+    let added: Y.Map<unknown>[] = [];
+    cellStep(t, () => (added = cellAt(t, c00))); // row 0 only: row 1 is untouched but its carry moves to column 1
+    cellStep(t, () => t.piece.delete(t.at(added[0]), 3)); // and back
+    let col: Y.Map<unknown>[][] = [];
+    cellStep(t, () => (col = [c20, c10, c00].map((m) => cellAt(t, m)))); // a column at grid column 0 (row 1's under the head)
+    cellStep(t, () => col.forEach((ms) => t.piece.delete(t.at(ms[0]), 3))); // a column delete: one cell per row
+    t.destroy();
+  });
+
+  it("short rows: a cell past the table's width adds virtual end cells to the others; a nested table in a new cell", () => {
+    const t = live("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟧ y¶");
+    const [, , , , , , , r1, , , end] = t.maps;
+    cellStep(t, () => cellAt(t, r1)); // row 0 gets a third column: row 1 reads two virtual cells
+    cellStep(t, () => cellAt(t, end, "⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 n¶ ⟧@1 ¶")); // row 1's second (real) cell, holding a table
+    t.destroy();
+  });
+
+  it("a cell holding a footnote deleted: its body goes", () => {
+    const t = live("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟨c⟩ d¶ ⟧ y¶");
+    const [, , , , , c01, b] = t.maps;
+    t.step(() => t.piece.insertEmbed(t.at(b), newFootnoteOf(new Y.Text())), true);
+    expect(t.version().trees.embedContent.size).toBeGreaterThan(0);
+    cellStep(t, () => t.piece.delete(t.at(c01), t.at(b) + 1 - t.at(c01)));
+    expect(t.version().trees.embedContent.size).toBe(0);
+    t.destroy();
+  });
+
+  it("a straddled colSpan head grown with the column's cells (rung 1 for the head's row, rung 1c for the rest)", () => {
+    const t = live("⟦ ⟨r⟩ ⟨c⟩c2 a¶ ⟨r⟩ ⟨c⟩ c¶ ⟨c⟩ d¶ ⟨r⟩ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧ y¶");
+    const [, , , head, , , , , c11, , , , c21] = t.maps;
+    t.step(() => {
+      head?.set("colSpan", 3);
+      cellAt(t, c21);
+      cellAt(t, c11);
+    }, true);
+    t.destroy();
+  });
+
+  it("a format in a cell's debris re-reads that cell (its unchanged `⟨c⟩` in the region)", () => {
+    const t = live("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ t ⟨c⟩ b¶ ⟧ y¶");
+    cellStep(t, () => t.piece.format(t.at(t.maps[5]), 2, { bold: true })); // the `⟨c⟩` and its debris
+    t.destroy();
+  });
+
+  /** Rung 1c declined (every call null); `local`: the step was spliced, else re-derived. */
+  const declined = (t: ReturnType<typeof live>, fn: () => void, local = true): void => {
+    vi.clearAllMocks();
+    t.step(fn, local);
+    expect(vi.mocked(cellSplice).mock.results.length).toBeGreaterThan(0);
+    expect(vi.mocked(cellSplice).mock.results.every((r) => r.value === null)).toBe(true);
+  };
+
+  it("declines when an untouched row reading outside its cells (past the column cap) has its carry-in changed (F4)", () => {
+    const t = live(`⟦ ⟨r⟩ ⟨c⟩r2 a¶ ⟨c⟩ b¶ ⟨r⟩ ${"⟨c⟩ ".repeat(64)}⟧ y¶`);
+    declined(t, () => cellAt(t, t.maps[3]), false);
+    t.destroy();
+  });
+
+  it("declines a cell insert past the column cap", () => {
+    const t = live(`⟦ ⟨r⟩ ${"⟨c⟩ ".repeat(63)}⟧ y¶`);
+    declined(t, () => cellAt(t, t.maps[3]), false);
+    t.destroy();
+  });
+
+  it("declines deleting the table's only cell (no columns left)", () => {
+    const t = live("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟧ y¶");
+    declined(t, () => t.piece.delete(t.at(t.maps[3]), 3), false);
+    t.destroy();
+  });
+
+  it("a cell holding a nested table deleted: the nested table's form goes", () => {
+    const t = live("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 n¶ ⟧@1 ¶ ⟨c⟩ b¶ ⟧ y¶");
+    const [, , , , , c01, , , , , , , c02] = t.maps;
+    cellStep(t, () => t.piece.delete(t.at(c01), t.at(c02) - t.at(c01)));
+    t.destroy();
+  });
+
+  it("a header row's rowSpan head deleted / restored: the header count crosses the boundary", () => {
+    const t = live("⟦ ⟨r⟩h ⟨c⟩r2 a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ d¶ ⟧ y¶");
+    const [, , , c00, , c01] = t.maps;
+    cellStep(t, () => t.piece.delete(t.at(c00), t.at(c01) - t.at(c00))); // row 1 no longer covered: the header run is whole
+    cellStep(t, () => cellAt(t, t.maps[3], "⟨c⟩r2 a¶")); // and covered again
+    t.destroy();
+  });
+
+  it("declines to rung 1 in a row with a lead", () => {
+    const t = live("⟦ ⟨r⟩ lead¶ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟧ y¶");
+    t.step(() => cellAt(t, t.maps[6]), true);
+    expect(rowSplice).toHaveBeenCalled();
     t.destroy();
   });
 });

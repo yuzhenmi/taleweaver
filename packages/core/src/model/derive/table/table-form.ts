@@ -4,13 +4,18 @@
  */
 import type * as Y from "yjs";
 import type { BlockId } from "../../block";
-import type { Carry, PlacedCell } from "../../../table-grid/assign-table-grid";
+import type { Carry, GridCell, PlacedCell } from "../../../table-grid/assign-table-grid";
 
 export interface RowForm {
   /** The row's `⟨r⟩`. */
   readonly id: BlockId;
+  /** Its `⟨r⟩`'s map. */
+  readonly map: Y.Map<unknown>;
   /** The slots covered from above (stored spans). */
   readonly carryIn: Carry;
+  /** Its cells with their REQUESTED spans (the placement's input, document order): a re-placement reads no map. */
+  readonly cells: readonly GridCell[];
+  /** Its cells that got a slot: `colSpan` clipped. */
   readonly placed: readonly PlacedCell[];
   /** Grid width of the row's own cells (0 with none). */
   readonly width: number;
@@ -21,6 +26,8 @@ export interface RowForm {
    * covering its slot 0 from an earlier row: that row's records hold it (concurrency only).
    */
   readonly joinsAbove: boolean;
+  /** Content of it reads outside its own cells' marks: a lead (row 0: the table's too) or a cell past the column cap. */
+  readonly outside: boolean;
 }
 
 export interface TableForm {

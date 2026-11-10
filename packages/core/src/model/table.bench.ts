@@ -11,10 +11,15 @@
  *     ≤ 1.5 × the same in a 10² × 3 table; a keystroke right after the table: ≤ 0.1 ms;
  *   - a first keystroke into an empty cell (`⟨c⟩¶`) at row 5000: ≤ 0.1 ms;
  *   - insert / delete a row at row 5000 of 10⁴ × 3: ≤ 30 ms each.
+ * N4 (the real command, plan + apply + derive; a fresh document each iteration, not timed):
+ *   - insert a column (`insertColumn`, caret in a middle-row cell) in 10⁴ × 3: ≤ 300 ms; in 1000 × 50: ≤ 100 ms.
  */
 import { afterAll, bench, describe, expect } from "vitest";
 import * as Y from "yjs";
+import { insertColumn } from "./commands/table/insert-column";
 import { Model } from "./model";
+import { applyPlan } from "./plan";
+import { caretAt } from "./position/model-position";
 import { createEditorOrigin } from "./storage/history-hooks";
 import { getDocMap } from "./storage/doc-map";
 import { flowOf } from "./storage/map-reads";
@@ -115,11 +120,50 @@ describe("N2 K-d: keystrokes and row edits in a large table", () => {
   bench("insert / delete a row at row ≈ 5000, 10⁴ × 3", timed("row", rowEdit), { iterations: 40, warmupIterations: 4, time: 0 });
 });
 
+describe("N4: insert a column through the command", () => {
+  for (const s of SHAPES) {
+    const update = updates.get(s.name) ?? new Uint8Array();
+    const all: number[] = [];
+    const plans: number[] = [];
+    samples.set(`col ${s.name}`, all);
+    samples.set(`colPlan ${s.name}`, plans);
+    bench(
+      `insert a column, ${s.name}`,
+      () => {
+        const doc = new Y.Doc();
+        Y.applyUpdate(doc, update);
+        const model = new Model(doc);
+        const d = model.version;
+        // A caret in the first cell of the middle row.
+        const tableId = d.trees.block.get(d.trees.block.get(d.rootId)?.firstChildId ?? "")?.firstChildId ?? "";
+        let row = d.trees.block.get(tableId)?.firstChildId ?? null;
+        for (let i = 0; i < s.rows / 2 && row !== null; i++) row = d.trees.block.get(row)?.nextSiblingId ?? null;
+        const cell = d.trees.block.get(row ?? "")?.firstChildId ?? "";
+        const para = d.trees.block.get(cell)?.firstChildId ?? "";
+        const t0 = performance.now();
+        const plan = insertColumn({ version: d, selection: caretAt(para, 0) }, "right");
+        const t1 = performance.now();
+        if (plan === null || applyPlan(model, plan, origin) === null) throw new Error("bench: insertColumn did not apply");
+        all.push(performance.now() - t0);
+        plans.push(t1 - t0);
+        model.destroy();
+      },
+      { iterations: 5, warmupIterations: 1, warmupTime: 0, time: 0 },
+    );
+  }
+});
+
 afterAll(() => {
   const size = updates.get("50 × 10³")?.length ?? Number.NaN;
   console.log(`N1 tables: load 10⁴×3 ${median("10⁴ × 3").toFixed(0)} ms, 50×10³ ${median("50 × 10³").toFixed(0)} ms; 50×10³ encoded ${(size / 1e6).toFixed(2)} MB`);
   for (const s of SHAPES) if (samples.has(s.name)) expect(median(s.name)).toBeLessThanOrEqual(1500);
   if (samples.has("10⁴ × 3")) expect(size).toBeLessThanOrEqual(6e6);
+  if ((samples.get("col 10⁴ × 3")?.length ?? 0) > 0) {
+    const line = SHAPES.map((x) => `${x.name} ${median(`col ${x.name}`).toFixed(1)} ms (plan ${median(`colPlan ${x.name}`).toFixed(1)} ms)`).join(", ");
+    console.log(`N4 insert a column: ${line}`);
+    expect(median("col 10⁴ × 3")).toBeLessThanOrEqual(300);
+    expect(median("col 50 × 10³")).toBeLessThanOrEqual(100);
+  }
   if (samples.has("k10000")) {
     console.log(
       `N2 K-d: keystroke 10²×3 ${median("k100").toFixed(4)} ms, 10⁴×3 ${median("k10000").toFixed(4)} ms; after the table ${median("kAfter").toFixed(4)} ms; ` +

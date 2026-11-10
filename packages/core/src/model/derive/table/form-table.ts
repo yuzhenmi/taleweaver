@@ -103,18 +103,29 @@ interface Slot {
 
 const blocks = (es: readonly Entity[]): BlockEntity[] => es.filter(isBlockEntity);
 
-/** Form rows `rows` (RT2, {@link placeRow}): their forms, from `carryIn` down. */
-export function formRows(rows: readonly ParsedRow[], carryIn: Carry): { forms: RowForm[]; slots: (readonly (BlockId | undefined)[])[]; carryOut: Carry } {
+/** A cell as the grid forming reads it: its requested spans (RT2). */
+export const gridCellOf = (c: ParsedCell): GridCell => ({ cellId: c.id, rowSpan: spanOf(c.map.get(ROW_SPAN_KEY)), colSpan: spanOf(c.map.get(COL_SPAN_KEY)) });
+
+/** A cell's contents as written: its blocks, or its `/empty` paragraph. */
+export const cellEnts = (id: BlockId, own: readonly BlockEntity[]): readonly BlockEntity[] =>
+  own.length > 0 ? own : [{ k: "para", id: emptyCellParagraphId(id), map: null, items: [], footnotes: [] }];
+
+/**
+ * Form rows `rows` (RT2, {@link placeRow}): their forms, from `carryIn` down. `lead`: the table's, when `rows` start
+ * at its row 0 (it joins that row).
+ */
+export function formRows(rows: readonly ParsedRow[], carryIn: Carry, lead: readonly Entity[] = []): { forms: RowForm[]; slots: (readonly (BlockId | undefined)[])[]; carryOut: Carry } {
   const forms: RowForm[] = [];
   const slots: (readonly (BlockId | undefined)[])[] = [];
   let carry = carryIn;
-  for (const r of rows) {
-    const input: GridCell[] = r.cells.map((c) => ({ cellId: c.id, rowSpan: spanOf(c.map.get(ROW_SPAN_KEY)), colSpan: spanOf(c.map.get(COL_SPAN_KEY)) }));
+  for (const [i, r] of rows.entries()) {
+    const input = r.cells.map(gridCellOf);
     const pr = placeRow(carry, input, TABLE_COLUMN_CAP);
     const placed = new Set(pr.placed.map((p) => p.cellId));
     const lonelyOverflow = pr.placed.length === 0 && r.cells.some((c) => !placed.has(c.id) && blocks(c.ents).length > 0);
     const joinsAbove = carry[0] !== undefined && (blocks(r.lead).length > 0 || lonelyOverflow);
-    forms.push({ id: r.id, carryIn: carry, placed: pr.placed, width: pr.width, header: r.map.get(HEADER_KEY) === true, joinsAbove });
+    const outside = r.lead.length > 0 || (i === 0 && lead.length > 0) || pr.overflow.length > 0;
+    forms.push({ id: r.id, map: r.map, carryIn: carry, cells: input, placed: pr.placed, width: pr.width, header: r.map.get(HEADER_KEY) === true, joinsAbove, outside });
     slots.push(pr.slots);
     carry = pr.carryOut;
   }
@@ -195,14 +206,7 @@ export function formedRows(
     id: r.id,
     map: r.map,
     cells: (rowCells[i] ?? []).map((c) => {
-      const own = ents.get(c.id) ?? [];
-      return {
-        id: c.id,
-        map: c.map,
-        rowSpan: c.rowSpan,
-        colSpan: c.colSpan,
-        ents: own.length > 0 ? own : [{ k: "para", id: emptyCellParagraphId(c.id), map: null, items: [], footnotes: [] }],
-      };
+      return { id: c.id, map: c.map, rowSpan: c.rowSpan, colSpan: c.colSpan, ents: cellEnts(c.id, ents.get(c.id) ?? []) };
     }),
   }));
 }
@@ -212,7 +216,7 @@ export function formedRows(
  * `trailing`: its leads when it has no cell (they read right after it).
  */
 export function formTable(t: ParsedTable, closeId: BlockId | null, depth: number): { formed: FormedTable; trailing: Entity[]; form: TableForm } {
-  const { forms, slots, carryOut } = formRows(t.rows, EMPTY_CARRY);
+  const { forms, slots, carryOut } = formRows(t.rows, EMPTY_CARRY, t.lead);
   const form = tableForm(t.map, forms, carryOut, depth, closeId);
   const columnCount = columnCountOf(form);
   if (columnCount === 0) {

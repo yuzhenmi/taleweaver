@@ -95,11 +95,11 @@ function nearestTable(w: Working, fs: FlowState, id: BlockId): BlockId | null {
   return null;
 }
 
-const sameCarry = (a: Carry, b: Carry): boolean =>
+export const sameCarry = (a: Carry, b: Carry): boolean =>
   a === b || (a.length === b.length && a.every((s, i) => s?.head === b[i]?.head && s?.rowsLeft === b[i]?.rowsLeft));
 
 /** Every record id under (and including) `id`, with the footnote bodies they anchor. */
-function subtree(w: Working, fs: FlowState, id: BlockId, ids: Set<BlockId>, bodies: Set<BlockId>): void {
+export function subtree(w: Working, fs: FlowState, id: BlockId, ids: Set<BlockId>, bodies: Set<BlockId>): void {
   const b = w.get(fs.tree, id);
   if (b === undefined) return;
   ids.add(id);
@@ -170,7 +170,7 @@ function spliceRows(inp: RowSpliceInput, tableId: BlockId, form: TableForm): Pos
           if (!(t.id === form.closeId || i > k)) return null;
           parsed = parser.endRows(t.id);
           if (parsed === null) return null;
-          const more = formRows(parsed.rows.slice(forms.length), carryOut);
+          const more = formRows(parsed.rows.slice(forms.length), carryOut, k === 0 && forms.length === 0 ? parsed.lead : []);
           forms.push(...more.forms);
           slots.push(...more.slots);
           carryOut = more.carryOut;

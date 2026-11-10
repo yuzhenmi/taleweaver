@@ -5,7 +5,7 @@
  * O(columns).
  */
 import { BLOCK_TYPES, type BlockId } from "../block";
-import { EMPTY_ATTRS, containerRecord, entityRecord } from "../derive/records";
+import { EMPTY_ATTRS, type Links, containerRecord, entityRecord } from "../derive/records";
 import type { RowForm } from "../derive/table/table-form";
 import type { Working } from "../derive/working";
 import type { TreeKind } from "../document/types";
@@ -40,9 +40,14 @@ export function relinkRow(w: Working, tree: TreeKind, row: RowForm, nextMark: Bl
       w.put(tree, Object.freeze({ ...b, ...links }));
       return;
     }
-    const para = emptyCellParagraphId(cell.id);
-    w.put(tree, containerRecord(cell.id, BLOCK_TYPES.tableCell, EMPTY_ATTRS, links, para, para));
-    w.put(tree, entityRecord({ k: "para", id: para, map: null, items: [], footnotes: [] }, { parentId: cell.id, prevSiblingId: null, nextSiblingId: null }));
+    writeVirtualCell(w, tree, cell.id, links);
   });
   w.patch(tree, row.id, { firstChildId: cells[0]?.id ?? null, lastChildId: cells[cells.length - 1]?.id ?? null });
+}
+
+/** Write an empty virtual end cell `id` (with `links`) and its `/empty` paragraph. */
+export function writeVirtualCell(w: Working, tree: TreeKind, id: BlockId, links: Links): void {
+  const para = emptyCellParagraphId(id);
+  w.put(tree, containerRecord(id, BLOCK_TYPES.tableCell, EMPTY_ATTRS, links, para, para));
+  w.put(tree, entityRecord({ k: "para", id: para, map: null, items: [], footnotes: [] }, { parentId: id, prevSiblingId: null, nextSiblingId: null }));
 }

@@ -13,7 +13,7 @@ function flowStates(d: Document): unknown[] {
       isRoot: fs.isRoot,
       synthetic: fs.synthetic,
       leadsAfter: [...fs.leadsAfter].sort(),
-      tables: [...fs.tables.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([id, f]) => [id, { ...f, map: typeId(f.map) }]),
+      tables: [...fs.tables.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([id, f]) => [id, { ...f, map: typeId(f.map), rows: f.rows.map((r) => ({ ...r, map: typeId(r.map) })) }]),
       sections: fs.sections.map((s) => s.id),
       segments: fs.segments.map((s) => ({
         piece: typeId(s.piece),

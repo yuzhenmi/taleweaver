@@ -108,7 +108,8 @@ export class RegionParser {
     opts: {
       readonly withItems?: boolean;
       readonly objectBefore?: BlockId | null;
-      readonly table?: { readonly id: BlockId; readonly map: Y.Map<unknown> };
+      /** `row`: the region starts inside that row of the table (after its `⟨r⟩`), so it reads whole cells. */
+      readonly table?: { readonly id: BlockId; readonly map: Y.Map<unknown>; readonly row?: { readonly id: BlockId; readonly map: Y.Map<unknown> } };
       /** Decline a run holding folded inert marks (the context they were read inert in may differ now). */
       readonly rescanned?: boolean;
     } = {},
@@ -117,7 +118,12 @@ export class RegionParser {
     this.rescanned = opts.rescanned ?? false;
     this.stack = new Array<Open | null>(depth).fill(null);
     this.table = opts.table === undefined ? null : { id: opts.table.id, map: opts.table.map, lead: [], rows: [] };
-    if (this.table !== null) this.stack.push({ table: this.table, grouper: new Grouper(holderId, this.table.lead), row: null });
+    if (this.table !== null) {
+      const seed = opts.table?.row;
+      const row: ParsedRow | null = seed === undefined ? null : { id: seed.id, map: seed.map, lead: [], cells: [] };
+      if (row !== null) this.table.rows.push(row);
+      this.stack.push({ table: this.table, grouper: new Grouper(holderId, row?.lead ?? this.table.lead), row });
+    }
   }
 
   /** The region's own open tables start at this stack index. */
