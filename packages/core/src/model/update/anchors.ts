@@ -48,3 +48,20 @@ export function rightAnchor(scans: readonly Segment[], p0: number, t0: number): 
   }
   return null;
 }
+
+export const at = (scans: readonly Segment[], p: Pos): Token | undefined => scans[p.p]?.tokens[p.t];
+
+export const before = (a: Pos, b: Pos): boolean => a.p < b.p || (a.p === b.p && a.t < b.t);
+
+/** The next (`dir` 1) / previous (-1) token position, null past the flow's end / start. */
+export function step(scans: readonly Segment[], p: Pos, dir: 1 | -1): Pos | null {
+  let { p: s, t } = p;
+  t += dir;
+  while (s >= 0 && s < scans.length) {
+    const n = scans[s]?.tokens.length ?? 0;
+    if (t >= 0 && t < n) return { p: s, t };
+    s += dir;
+    t = dir > 0 ? 0 : (scans[s]?.tokens.length ?? 0) - 1;
+  }
+  return null;
+}

@@ -264,3 +264,50 @@ describe("inert marks (RT1 strays) without the O(flow) fallback", () => {
     t.destroy();
   });
 });
+
+describe("many change sites in one transaction: one region each (N4b step a)", () => {
+  const table = "⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨c⟩ x¶ ⟨r⟩ ⟨c⟩ c¶ ⟨c⟩ d¶ ⟨c⟩ e¶ ⟨r⟩ ⟨c⟩ f¶ ⟨c⟩ g¶ ⟨c⟩ h¶ ⟧ y¶";
+  const rows = [2, 9, 16]; // the ⟨r⟩s; ⟧ is 23
+
+  it("edits in distant paragraphs, twice in one paragraph, in cells of different rows and after the table", () => {
+    const t = live(`p¶ q¶ r¶ s¶ ${table}`);
+    const m = (i: number): Y.Map<unknown> | undefined => t.maps[i + 4];
+    t.step(() => {
+      t.piece.insert(t.at(t.maps[1]), "X"); // p¶ and s¶: two runs of one piece, apart
+      t.piece.insert(t.at(t.maps[4]), "Y");
+    }, true);
+    t.step(() => {
+      t.piece.insert(t.at(t.maps[2]) - 1, "1"); // two runs in q¶: one window
+      t.piece.insert(t.at(t.maps[1]) + 1, "0");
+    }, true);
+    t.step(() => {
+      t.piece.insert(t.at(m(4)), "A"); // a¶, d¶ (row 1), h¶ (row 2), y¶
+      t.piece.insert(t.at(m(13)), "D");
+      t.piece.insert(t.at(m(22)), "H");
+      t.piece.insert(t.at(m(24)), "Y");
+    }, true);
+    t.destroy();
+  });
+
+  it("a cell inserted into every row (first, middle and last column) reads as from scratch", () => {
+    for (const before of [(r: number) => r + 1, (r: number) => r + 3, (r: number) => r + 7]) {
+      const t = live(table);
+      const at = rows.map((r) => t.maps[before(r)]);
+      t.step(() => {
+        for (const mk of at) insertUnits(t.piece, t.at(mk), units("⟨c⟩ z¶"));
+      }, true);
+      t.destroy();
+    }
+  });
+
+  it("a rung-1 edit with later edits in the same table: covered ones are skipped, reached ones join its range", () => {
+    const t = live(table);
+    const [, , , , , c01, , , x, , , , , , c12] = t.maps;
+    t.step(() => {
+      t.piece.delete(t.at(c01), 1); // row 0's cells merge (rung 1 over row 0) …
+      t.piece.insert(t.at(x), "w"); // … which covers this edit in its last cell
+      insertUnits(t.piece, t.at(c12), units("⟨r⟩ ⟨c⟩ n¶")); // a row split in row 1: its own rung-1 range
+    }, true);
+    t.destroy();
+  });
+});

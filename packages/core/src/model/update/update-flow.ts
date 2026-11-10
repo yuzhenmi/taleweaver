@@ -29,7 +29,8 @@
  *     reads from outside its own marks (a lead, a cell past the width cap) (N2 steps 3–4 narrow these);
  *   - overlapping splices, an anchor whose old record is missing, a section list the
  *     region's old `[S]` cannot be found in (defensive: not produced by any known write).
- * ponytail: several dirty pieces in one transaction form ONE region spanning them all.
+ * Several change sites in one transaction (runs of one piece, several pieces) form one region each, merged where
+ * they overlap or touch (`regions.ts`).
  */
 import * as Y from "yjs";
 import { BLOCK_TYPES, type BlockId } from "../block";
@@ -45,12 +46,13 @@ import { footnoteBodyId, sectionIdOf } from "../ids";
 import { flattenPiece } from "../scan/flatten-piece";
 import { holdsFlows, isSectionBreak } from "../scan/kinds";
 import { isObjectEnd } from "../position/table-extent";
-import { type FootnoteRef, type Segment, depthOf, isTerminator, roleOf } from "../scan/tokens";
+import { type FootnoteRef, type Segment, depthOf, roleOf } from "../scan/tokens";
 import { SUBFLOW_DEPTH_CAP } from "../storage/limits";
 import { pieceHoldingSubflow } from "../storage/pieces";
-import { type Anchor, type Pos, between, leftAnchor, rightAnchor } from "./anchors";
+import { type Pos, before, between, step } from "./anchors";
 import type { FlowChange } from "./flow-change";
 import { type Splice, deltaSplice, insertion, subtreeSplice } from "./piece-splice";
+import { type Region, oldPosOf, regionsOf } from "./regions";
 import { rowSplice } from "./row-splice";
 
 /** A from-scratch re-derivation of an existing flow (a non-root holder keeps its record's type, attrs and links). */
@@ -177,9 +179,7 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
     const cur = wide[i];
     if (prev !== undefined && cur !== undefined && cur.o1 < prev.o2) return rederiveFlow(w, fs);
   }
-  const first = wide[0];
-  const last = wide[wide.length - 1];
-  if (first === undefined || last === undefined) return;
+  if (wide.length === 0) return;
 
   // 2. The new segment list.
   const sameShape = wide.every((sp) => sp.o2 - sp.o1 === sp.segs.length) && structural.size === 0;
@@ -212,27 +212,60 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   }
   const newIdx = sameShape ? fs.segIndex : indexSegments(newScans);
 
-  // 3. The region: from the terminator before the first splice to the one ending the last.
-  const fN1 = n1s[0] ?? first.o1;
-  const zN1 = n1s[n1s.length - 1] ?? last.o1;
-  const zNLast = zN1 + last.segs.length - 1;
-  const L = leftAnchor(newScans, fN1, first.start - 1);
-  const closingTok = last.closed ? newScans[zNLast]?.tokens[last.endNew - 1] : undefined;
-  const R: Anchor | null =
-    closingTok !== undefined && isTerminator(closingTok)
-      ? { p: zNLast, t: last.endNew - 1, tok: closingTok }
-      : rightAnchor(newScans, zNLast, last.endNew);
-  const growth = newScans.length - oldScans.length;
-  const oldL: Pos | null = L;
-  const oldR: Pos | null = R === null ? null : R.p === zNLast && last.closed ? { p: last.o2 - 1, t: last.endOld - 1 } : { p: R.p - growth, t: R.t };
+  // 3. The regions, applied in flow order. A rung-1 range can run past its region: the regions it covers are skipped.
+  // Inert marks fold after the last region (`withInertMarks` merges tokens, so folding earlier would move the later
+  // regions' positions; every reader before then is the parser, which reads marks in context).
+  const folds: { p0: number; p1: number; inert: ReadonlySet<BlockId> }[] = [];
+  const ctx: RegionCtx = { w, holderId, oldScans, newScans, newIdx, splices: wide, n1s, fold: (p0, p1, inert) => folds.push({ p0, p1, inert }) };
+  let upto: Pos | null = null;
+  const regions = regionsOf(newScans, wide, n1s);
+  for (const [i, rg] of regions.entries()) {
+    const now = w.flows.get(holderId);
+    if (now === undefined) return;
+    if (upto !== null) {
+      if (rg.R !== null && !before(upto, rg.R)) continue;
+      // Defensive (not produced): rung 1 absorbs every region starting before its range end, so none is partly inside.
+      const firstTok = rg.L === null ? null : step(newScans, rg.L, 1);
+      if (rg.L === null || (firstTok !== null && before(firstTok, upto))) return rederiveFlow(w, now);
+    }
+    const r = applyRegion(ctx, now, rg, regions, i + 1);
+    if (r === null) return;
+    if (r !== "local") upto = r;
+  }
+  // The flow state holds `newScans` (every applied region wrote it).
+  for (const f of folds) withInertMarks(newScans.slice(f.p0, f.p1 + 1), f.inert).forEach((sg, i) => (newScans[f.p0 + i] = sg));
+}
+
+interface RegionCtx {
+  readonly w: Working;
+  readonly holderId: BlockId;
+  readonly oldScans: readonly Segment[];
+  readonly newScans: readonly Segment[];
+  readonly newIdx: FlowState["segIndex"];
+  readonly splices: readonly Splice[];
+  readonly n1s: readonly number[];
+  readonly fold: (p0: number, p1: number, inert: ReadonlySet<BlockId>) => void;
+}
+
+/**
+ * Apply one region: rung 0 (region-local), else rung 1 (whole rows), else the flow re-derives. "local" (rung 0), the
+ * rung-1 range's end, or null when the flow re-derived (its processing ends).
+ */
+function applyRegion(c: RegionCtx, fs: FlowState, { L, R }: Region, regions: readonly Region[], next: number): "local" | Pos | null {
+  const { w, holderId, oldScans, newScans, newIdx } = c;
+  const rederive = (): null => {
+    rederiveFlow(w, fs);
+    return null;
+  };
+  const oldL = L === null ? null : oldPosOf(c.splices, c.n1s, L);
+  const oldR = R === null ? null : oldPosOf(c.splices, c.n1s, R);
+  if ((L !== null && oldL === null) || (R !== null && oldR === null)) return rederive(); // defensive: anchors are unchanged tokens
   // The faces of table marks at the region's ends (design §1): a `⟨c⟩` before it starts its cell; a `⟧` before it is
   // its table, a block object; a `⟦` after it is the table; any other mark after it ends the container. R is then not
-  // in the region (it is unchanged: a changed item is always inside the hull).
+  // in the region (it is unchanged: a changed item is always inside its window).
   const tree = fs.tree;
   // Rung 0 declined: whole rows of an enclosing table (rung 1), else the flow.
-  const fallback = (): void => {
-    if (!rowSplice({ w, fs, newScans, newIdx, L, R })) rederiveFlow(w, fs);
-  };
+  const fallback = (): Pos | null => rowSplice({ w, fs, newScans, newIdx, L, R, regions, next, fold: c.fold }) ?? rederive();
   const lRole = L !== null && holdsFlows(L.tok.k) ? roleOf(L.tok) : undefined;
   const rRole = R !== null && holdsFlows(R.tok.k) ? roleOf(R.tok) : undefined;
   // A region in a table's / row's lead: rung 1.
@@ -304,11 +337,7 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   }
   // Marks the region reads inert become inert run units of its segments, as from scratch (`inert-marks.ts`). The stack
   // at the region's end is the old one, so no mark outside it changes binding.
-  if (newP.inert.size > 0) {
-    const p0 = L?.p ?? 0;
-    const p1 = R?.p ?? newScans.length - 1;
-    withInertMarks(newScans.slice(p0, p1 + 1), newP.inert).forEach((sg, i) => (newScans[p0 + i] = sg));
-  }
+  if (newP.inert.size > 0) c.fold(L?.p ?? 0, R?.p ?? newScans.length - 1, newP.inert);
   const { segments, breaks } = segmentsOf(newEnts);
   const m = breaks.length;
   const containerOf = (j: number): BlockId => {
@@ -324,7 +353,7 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
     const oldS = oldEnts.filter(isSectionBreakEntity).map((e) => sectionIdOf(e.id));
     const newS: SectionInfo[] = breaks.map((b) => ({ id: sectionIdOf(b.id), map: b.map }));
     const at = sections.findIndex((x) => x.id === (oldS[0] ?? trailingContainer));
-    if (at < 0) return rederiveFlow(w, fs);
+    if (at < 0) return rederive();
     sections = [...sections.slice(0, at), ...newS, ...sections.slice(at + oldS.length)];
     const kept = new Set(newS.map((x) => x.id));
     for (const id of oldS) if (!kept.has(id)) removedSections.push(id);
@@ -332,7 +361,7 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
     if (prevBlockId !== null) {
       const from = w.get(tree, prevBlockId)?.parentId ?? null;
       const to = containerOf(0);
-      if (from === null) return rederiveFlow(w, fs);
+      if (from === null) return rederive();
       if (from !== to) {
         let firstMoved: BlockId = prevBlockId;
         for (let id: BlockId | null = prevBlockId; id !== null; ) {
@@ -385,10 +414,12 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
 
   // R17: only a region left with no block can have emptied the flow.
   const containers = newEnts.some(isBlockEntity) ? [] : fs.isRoot ? sections.map((s) => s.id) : [holderId];
-  if (containers.length > 0 && containers.every((c) => (w.get(tree, c)?.firstChildId ?? null) === null)) {
+  if (containers.length > 0 && containers.every((id) => (w.get(tree, id)?.firstChildId ?? null) === null)) {
     const now = w.flows.get(holderId);
     if (now !== undefined) rederiveFlow(w, now);
+    return null;
   }
+  return "local";
 }
 
 /**

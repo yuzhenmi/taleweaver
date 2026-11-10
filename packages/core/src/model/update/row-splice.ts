@@ -17,7 +17,6 @@
 import type { BlockId } from "../block";
 import { deriveFootnote, footnoteBodiesOf, parasOf, removeFlow, writeRow } from "../derive/derive-flow";
 import { type ParsedTable, formRows, formedRows, headerRun, widthsOf } from "../derive/table/form-table";
-import { withInertMarks } from "../derive/table/inert-marks";
 import { RegionParser } from "../derive/table/parse-tables";
 import { type RowForm, type TableForm, columnCountOf, headerCountOf } from "../derive/table/table-form";
 import type { Working } from "../derive/working";
@@ -26,46 +25,43 @@ import { footnoteBodyId } from "../ids";
 import { isSectionBreak } from "../scan/kinds";
 import { type FootnoteRef, type Segment, type TerminatorToken, type Token, depthOf, roleOf } from "../scan/tokens";
 import type { Carry } from "../../table-grid/assign-table-grid";
-import type { Anchor, Pos } from "./anchors";
+import { type Anchor, type Pos, at, before, step } from "./anchors";
+import type { Region } from "./regions";
 import { relinkRow } from "./relink-row";
 
 export interface RowSpliceInput {
   readonly w: Working;
   readonly fs: FlowState;
-  /** The flow's new segments (mutated: inert marks folded) and their index. */
-  readonly newScans: Segment[];
+  /** The flow's new segments and their index. */
+  readonly newScans: readonly Segment[];
   readonly newIdx: FlowState["segIndex"];
   readonly L: Anchor | null;
   readonly R: Anchor | null;
-}
-
-const at = (scans: readonly Segment[], p: Pos): Token | undefined => scans[p.p]?.tokens[p.t];
-
-const before = (a: Pos, b: Pos): boolean => a.p < b.p || (a.p === b.p && a.t < b.t);
-
-function step(scans: readonly Segment[], p: Pos, dir: 1 | -1): Pos | null {
-  let { p: s, t } = p;
-  t += dir;
-  while (s >= 0 && s < scans.length) {
-    const n = scans[s]?.tokens.length ?? 0;
-    if (t >= 0 && t < n) return { p: s, t };
-    s += dir;
-    t = dir > 0 ? 0 : (scans[s]?.tokens.length ?? 0) - 1;
-  }
-  return null;
+  /**
+   * The transaction's regions, this one's successors from index `next`: a later region the range reaches joins it (its
+   * changes may hold new marks), as one region spanning them would.
+   */
+  readonly regions: readonly Region[];
+  readonly next: number;
+  /** Folds the marks `inert` of segments `[p0, p1]` (deferred by the caller: it keeps the new token positions). */
+  readonly fold: (p0: number, p1: number, inert: ReadonlySet<BlockId>) => void;
 }
 
 const isMark = (t: Token | undefined): t is TerminatorToken => t !== undefined && t.k !== "run" && t.mark !== undefined;
 
-/** Try rung 1; true when it applied the change (the flow state is written). */
-export function rowSplice(inp: RowSpliceInput): boolean {
+/**
+ * Try rung 1. When it applied the change (the flow state is written): the range's end, the position of the mark
+ * ending it (not re-read); every token before it from the range's start is applied. Else null.
+ */
+export function rowSplice(inp: RowSpliceInput): Pos | null {
   const { fs, L } = inp;
-  if (L === null || isSectionBreak(L.tok.k) || fs.leadsAfter.has(L.tok.id)) return false;
+  if (L === null || isSectionBreak(L.tok.k) || fs.leadsAfter.has(L.tok.id)) return null;
   for (const id of enclosingTables(inp, L)) {
     const form = fs.tables.get(id);
-    if (form !== undefined && spliceRows(inp, id, form)) return true;
+    const end = form === undefined ? null : spliceRows(inp, id, form);
+    if (end !== null) return end;
   }
-  return false;
+  return null;
 }
 
 /** The tables enclosing the region's start (just after L), innermost first. */
@@ -111,10 +107,12 @@ function subtree(w: Working, fs: FlowState, id: BlockId, ids: Set<BlockId>, bodi
   for (let c = b.firstChildId; c !== null; c = w.get(fs.tree, c)?.nextSiblingId ?? null) subtree(w, fs, c, ids, bodies);
 }
 
-function spliceRows(inp: RowSpliceInput, tableId: BlockId, form: TableForm): boolean {
-  const { w, fs, newScans, L, R } = inp;
+function spliceRows(inp: RowSpliceInput, tableId: BlockId, form: TableForm): Pos | null {
+  const { w, fs, newScans, L } = inp;
   // A row joining content into an earlier row's head: the rows holding it are not where it is stored.
-  if (L === null || R === null || columnCountOf(form) === 0 || form.joinsAbove > 0) return false;
+  if (L === null || inp.R === null || columnCountOf(form) === 0 || form.joinsAbove > 0) return null;
+  let R: Pos = inp.R;
+  let ri = inp.next;
   const dT = form.depth;
   const tree = fs.tree;
   // 1. The range start: the `⟨r⟩` of L's row in the table, or for row 0 (or its lead) just after the table's `⟦`.
@@ -126,20 +124,20 @@ function spliceRows(inp: RowSpliceInput, tableId: BlockId, form: TableForm): boo
     const role = roleOf(t);
     if (role === "newRow") {
       const i = form.rowIndex.get(t.id);
-      if (i === undefined) return false;
+      if (i === undefined) return null;
       if (i === 0) continue; // row 0: from the `⟦`, with the table's lead (which joins row 0)
       start = p;
       k = i;
       break;
     }
     if (role === "open") {
-      if (t.id !== tableId) return false;
+      if (t.id !== tableId) return null;
       start = step(newScans, p, 1);
       k = 0;
       break;
     }
   }
-  if (start === null) return false;
+  if (start === null) return null;
   // 2. Parse forward to the table's own `⟧`, or its OLD row's `⟨r⟩` past row k, at or after R (R itself included when
   // it is a mark) — so old row k (whose lead / content may have moved) is always in the range, and a new row's mark
   // never ends it. F4: the range's rows are formed from the stored carry of row k as they complete; at an old row
@@ -156,18 +154,22 @@ function spliceRows(inp: RowSpliceInput, tableId: BlockId, form: TableForm): boo
   for (let p: Pos | null = start; p !== null; p = step(newScans, p, 1)) {
     const t = at(newScans, p);
     if (t === undefined) continue;
+    for (let rg = inp.regions[ri]; rg !== undefined && rg.L !== null && before(rg.L, p); rg = inp.regions[++ri]) {
+      if (rg.R === null) return null;
+      R = rg.R;
+    }
     if (!before(p, R) && t.k !== "run") {
-      if (isSectionBreak(t.k)) return false;
+      if (isSectionBreak(t.k)) return null;
       const d = isMark(t) ? depthOf(t) : null;
       const role = isMark(t) ? roleOf(t) : null;
-      if (d !== null && d < dT && role !== null) return false; // the table ends unclosed there
+      if (d !== null && d < dT && role !== null) return null; // the table ends unclosed there
       if (isMark(t) && d === dT && role !== null && role !== "newCell") {
         // Past R every mark is old: one of this depth must be the table's own `⟧` or row, else its extent changed.
         const i = role === "newRow" ? (form.rowIndex.get(t.id) ?? -1) : -1;
         if (i !== k) {
-          if (!(t.id === form.closeId || i > k)) return false;
+          if (!(t.id === form.closeId || i > k)) return null;
           parsed = parser.endRows(t.id);
-          if (parsed === null) return false;
+          if (parsed === null) return null;
           const more = formRows(parsed.rows.slice(forms.length), carryOut);
           forms.push(...more.forms);
           slots.push(...more.slots);
@@ -182,9 +184,9 @@ function spliceRows(inp: RowSpliceInput, tableId: BlockId, form: TableForm): boo
         }
       }
     }
-    if (!parser.push(t)) return false;
+    if (!parser.push(t)) return null;
   }
-  if (boundary === null || bPos === null || parsed === null || parser.leadsAfter.size > 0) return false;
+  if (boundary === null || bPos === null || parsed === null || parser.leadsAfter.size > 0) return null;
   const after = form.rows[j];
   const widthCount = form.widthCount.slice();
   for (let i = k; i < j; i++) {
@@ -204,7 +206,7 @@ function spliceRows(inp: RowSpliceInput, tableId: BlockId, form: TableForm): boo
     joinsAbove: forms.filter((f) => f.joinsAbove).length,
   };
   const columnCount = columnCountOf(next);
-  if (columnCount === 0) return false; // the table becomes cell-less: its leads read after it
+  if (columnCount === 0) return null; // the table becomes cell-less: its leads read after it
   const widened = columnCount !== columnCountOf(form);
   const formed = formedRows(k === 0 ? parsed.lead : [], parsed.rows, forms, slots, {
     columnCount,
@@ -212,7 +214,7 @@ function spliceRows(inp: RowSpliceInput, tableId: BlockId, form: TableForm): boo
     rowCount: rows.length,
     nextMark: (i) => parsed.rows[i + 1]?.id ?? boundary.id,
   });
-  if (formed === null) return false;
+  if (formed === null) return null;
 
   // 4. Records: the old rows' subtrees out (ids not rewritten), the new rows in, links patched.
   const oldIds = new Set<BlockId>();
@@ -236,7 +238,7 @@ function spliceRows(inp: RowSpliceInput, tableId: BlockId, form: TableForm): boo
   for (const id of oldIds) if (!newIds.has(id)) w.del(tree, id);
   // The table record: its first / last row and RT4 (RT3 is unchanged with the column count).
   const tRec = w.get(tree, tableId);
-  if (tRec === undefined) return false;
+  if (tRec === undefined) return null;
   const attrs: Record<string, unknown> = { ...tRec.attrs };
   delete attrs["headerRowCount"];
   const h = headerCountOf(next);
@@ -280,14 +282,12 @@ function spliceRows(inp: RowSpliceInput, tableId: BlockId, form: TableForm): boo
   let tables = fs.tables.set(tableId, next);
   for (const id of oldIds) if (tables.has(id)) tables = tables.delete(id);
   for (const [id, f] of parser.tables) tables = tables.set(id, f);
-  if (parser.inert.size > 0) {
-    withInertMarks(newScans.slice(start.p, bPos.p + 1), parser.inert).forEach((sg, i) => (newScans[start.p + i] = sg));
-  }
+  if (parser.inert.size > 0) inp.fold(start.p, bPos.p, parser.inert);
   // A cell-less table's leads read in the old rows (a nested table's, in a cell) are gone with them; the new rows hold
   // none (declined above).
   let leadsAfter = fs.leadsAfter;
   if ([...oldIds].some((id) => leadsAfter.has(id))) leadsAfter = new Set([...leadsAfter].filter((id) => !oldIds.has(id)));
   w.flows = w.flows.set(fs.holderId, { ...fs, segments: newScans, segIndex: inp.newIdx, tables, leadsAfter });
   for (const [body, f] of newFn) if (!oldBodies.has(body)) deriveFootnote(w, f);
-  return true;
+  return bPos;
 }
