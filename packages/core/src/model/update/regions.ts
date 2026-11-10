@@ -18,12 +18,12 @@ export function regionsOf(newScans: readonly Segment[], splices: readonly Splice
   const out: Region[] = [];
   splices.forEach((sp, i) => {
     const n1 = n1s[i] ?? sp.o1;
-    const nLast = n1 + sp.segs.length - 1;
     for (const win of sp.windows) {
-      const L = leftAnchor(newScans, n1, win.startNew - 1);
-      const closingTok = win.closed ? newScans[nLast]?.tokens[win.endNew - 1] : undefined;
+      const L = leftAnchor(newScans, n1 + win.pStart, win.startNew - 1);
+      const pE = n1 + win.pEnd;
+      const closingTok = win.closed ? newScans[pE]?.tokens[win.endNew - 1] : undefined;
       const R: Anchor | null =
-        closingTok !== undefined && isTerminator(closingTok) ? { p: nLast, t: win.endNew - 1, tok: closingTok } : rightAnchor(newScans, nLast, win.endNew);
+        closingTok !== undefined && isTerminator(closingTok) ? { p: pE, t: win.endNew - 1, tok: closingTok } : rightAnchor(newScans, pE, win.endNew);
       const prev = out[out.length - 1];
       // Windows come in flow order, and so do their L: merge with the previous region when L is at or before its R.
       if (prev !== undefined && (prev.R === null || L === null || !before(prev.R, L))) {
@@ -49,18 +49,21 @@ export function oldPosOf(splices: readonly Splice[], n1s: readonly number[], pos
   if (sp === undefined || n1 === undefined) return pos;
   const n2 = n1 + sp.segs.length;
   if (pos.p >= n2) return { p: pos.p - n2 + sp.o2, t: pos.t };
-  if (sp.o2 - sp.o1 !== 1 || sp.segs.length !== 1) return null; // inserted / rebuilt segments: all new
-  // One rescanned segment: the last window starting at or before the token.
+  if (sp.o2 - sp.o1 !== 1) return null; // inserted segments: all new
+  // One old segment (rescanned, or a rebuilt subtree's whole window): the last window starting at or before the token.
+  const q = pos.p - n1;
   const ws = sp.windows;
   let a = 0;
   let b = ws.length;
   while (a < b) {
     const mid = (a + b) >> 1;
-    if ((ws[mid]?.startNew ?? 0) <= pos.t) a = mid + 1;
+    const w = ws[mid];
+    if (w !== undefined && (w.pStart < q || (w.pStart === q && w.startNew <= pos.t))) a = mid + 1;
     else b = mid;
   }
   const win = ws[a - 1];
-  if (win === undefined) return { p: sp.o1, t: pos.t };
-  if (pos.t >= win.endNew) return { p: sp.o1, t: pos.t - win.endNew + win.endOld };
-  return win.closed && pos.t === win.endNew - 1 ? { p: sp.o1, t: win.endOld - 1 } : null;
+  // Outside every window, a token is in the segment's old run of unchanged tokens (no split before / between windows).
+  if (win === undefined) return q === 0 ? { p: sp.o1, t: pos.t } : null;
+  if (q > win.pEnd || (q === win.pEnd && pos.t >= win.endNew)) return q === win.pEnd ? { p: sp.o1, t: pos.t - win.endNew + win.endOld } : null;
+  return win.closed && q === win.pEnd && pos.t === win.endNew - 1 ? { p: sp.o1, t: win.endOld - 1 } : null;
 }

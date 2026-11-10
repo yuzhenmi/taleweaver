@@ -2,9 +2,10 @@ import * as Y from "yjs";
 import { scanCtxOf } from "../derive/derive-flow";
 import type { Working } from "../derive/working";
 import type { FlowState } from "../document/types";
-import { flattenPiece } from "../scan/flatten-piece";
-import { scanRange } from "../scan/scan-range";
-import { type Segment, type Token, isTerminator } from "../scan/tokens";
+import { flattenPiece, isSubflow, subflowPieces } from "../scan/flatten-piece";
+import { scanRanges } from "../scan/scan-range";
+import { type ScanCtx, type Segment, type Token, isTerminator } from "../scan/tokens";
+import { SUBFLOW_DEPTH_CAP } from "../storage/limits";
 import type { DeltaOp, PieceChange } from "./flow-change";
 
 // ---------------------------------------------------------------------------
@@ -88,16 +89,20 @@ function lowerBound(lo: number, hi: number, pred: (i: number) => boolean): numbe
   return hi;
 }
 
+
 /**
- * A changed token window of a splice: tokens `[startOld, endOld)` became `[startNew, endNew)`. `start*` index the
- * splice's first segment, `end*` its last (old / new) one. `closed`: the window ends with an UNCHANGED terminator
- * (the delta path found one past its changes), which is its region's right anchor.
+ * A changed token window of a splice: tokens `[startOld, endOld)` of its one old segment became tokens `startNew` of
+ * `segs[pStart]` through `endNew` (exclusive) of `segs[pEnd]` (a window spans several new segments when a new
+ * sub-flow splits its segment). `closed`: the window ends with an UNCHANGED terminator (the delta path found one past
+ * its changes), which is its region's right anchor.
  */
 export interface Window {
   readonly startOld: number;
   readonly startNew: number;
+  readonly pStart: number;
   readonly endOld: number;
   readonly endNew: number;
+  readonly pEnd: number;
   readonly closed: boolean;
 }
 
@@ -110,11 +115,13 @@ export interface Splice {
 }
 
 /** The one window of a splice whose tokens are all new. */
-const wholeWindow = (endOld: number, endNew: number): Window[] => [{ startOld: 0, startNew: 0, endOld, endNew, closed: false }];
+const wholeWindow = (endOld: number, segs: readonly Segment[]): Window[] => [
+  { startOld: 0, startNew: 0, pStart: 0, endOld, endNew: segs[segs.length - 1]?.tokens.length ?? 0, pEnd: Math.max(0, segs.length - 1), closed: false },
+];
 
 /** Insert new segments before old segment `at`. */
 export function insertion(at: number, segs: readonly Segment[]): Splice {
-  return { o1: at, o2: at, segs, windows: wholeWindow(0, segs[segs.length - 1]?.tokens.length ?? 0) };
+  return { o1: at, o2: at, segs, windows: wholeWindow(0, segs) };
 }
 
 /** Replace a piece's whole subtree (its segments and its sub-flows' segments). */
@@ -124,15 +131,36 @@ export function subtreeSplice(fs: FlowState, piece: Y.Text, w: Working): Splice 
   const oLast = idx?.[idx.length - 1];
   if (o1 === undefined || oLast === undefined) return null;
   const segs = flattenPiece(piece, scanCtxOf(w, fs.tree), [], fs.segments[o1]?.depth ?? 0);
-  return { o1, o2: oLast + 1, segs, windows: wholeWindow(fs.segments[oLast]?.tokens.length ?? 0, segs[segs.length - 1]?.tokens.length ?? 0) };
+  return { o1, o2: oLast + 1, segs, windows: wholeWindow(fs.segments[oLast]?.tokens.length ?? 0, segs) };
 }
 
-type DeltaResult = { readonly splice: Splice; readonly shifted: readonly [number, Segment][] } | "none" | "structural";
+/** A sub-flow item a piece's delta inserted, at its new storage index. */
+interface NewSub {
+  readonly at: number;
+  readonly map: Y.Map<unknown>;
+}
+
+/** The read sub-flow items (`depth` under the cap) `delta` inserts, in order. */
+function newSubs(delta: readonly DeltaOp[] | null, depth: number): NewSub[] {
+  const out: NewSub[] = [];
+  if (depth >= SUBFLOW_DEPTH_CAP) return out; // inert: scanned as content
+  let pos = 0;
+  for (const op of delta ?? []) {
+    if (op.retain !== undefined) pos += op.retain;
+    else if (op.insert !== undefined) {
+      if (isSubflow(op.insert)) out.push({ at: pos, map: op.insert });
+      pos += insertLength(op.insert);
+    }
+  }
+  return out;
+}
+
+type DeltaResult = { readonly splices: readonly Splice[]; readonly shifted: readonly [number, Segment][] } | "none" | "structural";
 
 /**
- * Rescan the one segment a piece's delta falls in, window by window: each change run widens to whole entities (after
- * the last terminator ending at or before it, through the first terminator starting at or after its end); windows
- * that overlap or touch merge. "structural" when the changes are not one segment's.
+ * Rescan the segments a piece's delta falls in, one splice per touched segment (an insertion at a segment's end belongs
+ * to it). "structural" when a change is not one segment's: it crosses or deletes a sub-flow item. A new sub-flow item
+ * is read in place: its segment splits there, around the sub-flow's segments (N4b step b′).
  */
 export function deltaSplice(fs: FlowState, piece: Y.Text, pc: PieceChange, w: Working): DeltaResult {
   const idx = fs.segIndex.get(piece) ?? [];
@@ -142,19 +170,46 @@ export function deltaSplice(fs: FlowState, piece: Y.Text, pc: PieceChange, w: Wo
   const runs = changeRuns(pc);
   if (runs.length === 0) return oldLen === piece.length ? "none" : "structural";
   let d = 0;
-  let oa = Infinity;
-  let ob = -Infinity;
-  for (const r of runs) {
-    d += r.d;
-    oa = Math.min(oa, r.oa);
-    ob = Math.max(ob, r.ob);
-  }
+  for (const r of runs) d += r.d;
   if (oldLen + d !== piece.length) return "structural";
-  // The one segment holding every run (an insertion at a segment's end belongs to it).
-  const k = segs.findIndex((sg) => sg !== undefined && sg.start <= oa && ob <= sg.start + sg.len);
-  const os = segs[k];
-  const o1 = idx[k];
-  if (os === undefined || o1 === undefined) return "structural";
+  const ctx = scanCtxOf(w, fs.tree);
+  const subs = newSubs(pc.delta, segs[0]?.depth ?? SUBFLOW_DEPTH_CAP);
+  const splices: Splice[] = [];
+  const shifted: [number, Segment][] = [];
+  let base = 0; // storage length change of the piece's segments before this one
+  let ri = 0;
+  let si = 0; // the next new sub-flow item (each lies in its run's segment)
+  for (const [k, os] of segs.entries()) {
+    const o1 = idx[k];
+    if (os === undefined || o1 === undefined) return "structural";
+    const mine: Run[] = [];
+    for (let r = runs[ri]; r !== undefined && r.ob <= os.start + os.len; r = runs[++ri]) {
+      if (r.oa < os.start) return "structural";
+      mine.push(r);
+    }
+    if (mine.length === 0) {
+      if (base !== 0) shifted.push([o1, { ...os, start: os.start + base }]);
+      continue;
+    }
+    let dSeg = 0;
+    for (const r of mine) dSeg += r.d;
+    const ns = os.start + base;
+    const s0 = si;
+    while (subs[si] !== undefined && (subs[si]?.at ?? 0) < ns + os.len + dSeg) si++;
+    const sp = segmentSplice(piece, os, o1, mine, ns, dSeg, subs.slice(s0, si), ctx);
+    if (sp === null) return "structural";
+    splices.push(sp);
+    base += dSeg;
+  }
+  return ri < runs.length || si < subs.length ? "structural" : { splices, shifted };
+}
+
+/**
+ * One segment's splice: each change run widens to whole entities (after the last terminator ending at or before it,
+ * through the first terminator starting at or after its end); windows that overlap or touch merge. `ns`: the segment's
+ * new start, `dSeg` its length change, `subs` the new sub-flow items in it.
+ */
+function segmentSplice(piece: Y.Text, os: Segment, o1: number, runs: readonly Run[], ns: number, dSeg: number, subs: readonly NewSub[], ctx: ScanCtx): Splice | null {
   const toks = os.tokens;
   const n = toks.length;
   // Token start offsets (segment-relative), the last terminator before each index, the first at or after it.
@@ -162,7 +217,7 @@ export function deltaSplice(fs: FlowState, piece: Y.Text, pc: PieceChange, w: Wo
   const prevTerm: number[] = [-1];
   for (let i = 0, pos = 0, last = -1; i < n; i++) {
     const t = toks[i];
-    if (t === undefined) return "structural";
+    if (t === undefined) return null;
     pos += t.len;
     if (isTerminator(t)) last = i;
     offs.push(pos);
@@ -204,39 +259,64 @@ export function deltaSplice(fs: FlowState, piece: Y.Text, pc: PieceChange, w: Wo
       }
     }
   }
-  const tokens: Token[] = [];
-  const windows: Window[] = [];
+  // Each window's new storage range, cut at the new sub-flow items in it: its parts, scanned in one walk of the piece.
+  const parts: [number, number][] = [];
+  const cuts: number[] = []; // per window, its number of parts
+  let si = 0;
   let shift = 0; // storage length change of the windows so far
-  let prevEnd = 0;
   for (const wn of wins) {
-    const iL = off(wn.start);
-    const fresh = scanRange(piece, os.start + iL + shift, os.start + wn.iR + shift + wn.d, scanCtxOf(w, fs.tree), os.depth);
-    if (fresh === null) return "structural";
-    // The closing terminator is outside the runs, so it must rescan as the window's last token.
-    const lastFresh = fresh[fresh.length - 1];
-    if (wn.closed && (lastFresh === undefined || !isTerminator(lastFresh))) return "structural";
-    for (let i = prevEnd; i < wn.start; i++) {
-      const t = toks[i];
-      if (t !== undefined) tokens.push(t);
+    let from = ns + off(wn.start) + shift;
+    const to = ns + wn.iR + shift + wn.d;
+    let k = 1;
+    for (let sub = subs[si]; sub !== undefined && sub.at < to; sub = subs[++si], k++) {
+      if (sub.at < from) return null; // defensive: every new sub-flow item is inside a window
+      parts.push([from, sub.at]);
+      from = sub.at + 1;
     }
-    const startNew = tokens.length;
-    tokens.push(...fresh);
-    windows.push({ startOld: wn.start, startNew, endOld: wn.endOld, endNew: tokens.length, closed: wn.closed });
-    prevEnd = wn.endOld;
+    parts.push([from, to]);
+    cuts.push(k);
     shift += wn.d;
   }
-  for (let i = prevEnd; i < n; i++) {
-    const t = toks[i];
-    if (t !== undefined) tokens.push(t);
-  }
-  const seg: Segment = { piece, depth: os.depth, start: os.start, len: os.len + d, tokens };
-  const shifted: [number, Segment][] = [];
-  if (d !== 0) {
-    for (let j = k + 1; j < segs.length; j++) {
-      const sg = segs[j];
-      const at = idx[j];
-      if (sg !== undefined && at !== undefined) shifted.push([at, { ...sg, start: sg.start + d }]);
+  if (si < subs.length) return null; // defensive, as above
+  const scanned = scanRanges(piece, parts, ctx, os.depth);
+  if (scanned === null) return null;
+  // The new segments: the open one (`cur` from `curStart`) closes at each new sub-flow item, whose pieces' segments
+  // follow it (as `flattenPiece` reads them).
+  const segs: Segment[] = [];
+  let cur: Token[] = [];
+  let curStart = ns;
+  const windows: Window[] = [];
+  let pi = 0; // the next part
+  let sj = 0; // the next new sub-flow item
+  let prevEnd = 0;
+  for (const [i, wn] of wins.entries()) {
+    for (let j = prevEnd; j < wn.start; j++) {
+      const t = toks[j];
+      if (t !== undefined) cur.push(t);
     }
+    const pStart = segs.length;
+    const startNew = cur.length;
+    for (let k = (cuts[i] ?? 1) - 1; k > 0; k--) {
+      cur.push(...(scanned[pi++] ?? []));
+      const sub = subs[sj++];
+      if (sub === undefined) return null;
+      segs.push({ piece, depth: os.depth, start: curStart, len: sub.at - curStart, tokens: cur });
+      for (const p of subflowPieces(sub.map)) flattenPiece(p, ctx, segs, os.depth + 1);
+      cur = [];
+      curStart = sub.at + 1;
+    }
+    // The closing terminator is outside the runs, so it must rescan as the window's last token.
+    const fresh = scanned[pi++] ?? [];
+    const lastFresh = fresh[fresh.length - 1];
+    if (wn.closed && (lastFresh === undefined || !isTerminator(lastFresh))) return null;
+    cur.push(...fresh);
+    windows.push({ startOld: wn.start, startNew, pStart, endOld: wn.endOld, endNew: cur.length, pEnd: segs.length, closed: wn.closed });
+    prevEnd = wn.endOld;
   }
-  return { splice: { o1, o2: o1 + 1, segs: [seg], windows }, shifted };
+  for (let j = prevEnd; j < n; j++) {
+    const t = toks[j];
+    if (t !== undefined) cur.push(t);
+  }
+  segs.push({ piece, depth: os.depth, start: curStart, len: ns + os.len + dSeg - curStart, tokens: cur });
+  return { o1, o2: o1 + 1, segs, windows };
 }

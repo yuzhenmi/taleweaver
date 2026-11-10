@@ -10,8 +10,9 @@
  * container links patched.
  *
  * A flow reads as SEGMENTS (`scan/`): every piece, nested sub-flow pieces included,
- * is rescanned on its own delta. A change a single segment cannot absorb — a
- * sub-flow item inserted / deleted / re-kinded, an unrecognised change — rebuilds that
+ * is rescanned on its own delta, segment by segment. A new sub-flow item splits its segment and reads in place (its
+ * pieces' segments are spliced in: an insert of its tokens). A change a segment cannot absorb — a
+ * sub-flow item deleted / re-kinded, an unrecognised change — rebuilds that
  * piece's subtree (its segments + its sub-flows'). New pieces of any piece array (the
  * flow's or a sub-flow's) are scanned and spliced in next to their existing siblings.
  *
@@ -108,7 +109,7 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   // 1. Splices: whole subtrees (structural changes, new top-level pieces) and single-segment deltas.
   const structural = new Set<Y.Text>();
   for (const [piece, pc] of ch.pieces) if (pc.full && (fs.segIndex.has(piece) || pieceDepthOrNull(piece) !== null)) structural.add(piece);
-  const deltas: { splice: Splice; shifted: readonly [number, Segment][] }[] = [];
+  const deltas: { splices: readonly Splice[]; shifted: readonly [number, Segment][] }[] = [];
   for (const [piece, pc] of ch.pieces) {
     if (structural.has(piece)) continue;
     if (!fs.segIndex.has(piece)) {
@@ -171,8 +172,10 @@ export function updateFlow(w: Working, holderId: BlockId, ch: FlowChange): void 
   const wide = splices.filter((a) => !splices.some((b) => inside(a, b)));
   const shifted = new Map<number, Segment>();
   for (const d of deltas) {
-    if (wide.some((b) => b.o1 <= d.splice.o1 && d.splice.o2 <= b.o2 && b.o2 > b.o1)) continue;
-    wide.push(d.splice);
+    // A piece's splices are all inside a rebuilt subtree, or none is.
+    const first = d.splices[0];
+    if (first === undefined || wide.some((b) => b.o1 <= first.o1 && first.o2 <= b.o2 && b.o2 > b.o1)) continue;
+    wide.push(...d.splices);
     for (const [i, sg] of d.shifted) shifted.set(i, sg);
   }
   wide.sort((a, b) => a.o1 - b.o1 || a.o2 - b.o2);

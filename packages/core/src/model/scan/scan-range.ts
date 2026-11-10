@@ -168,13 +168,33 @@ function inlineEmbed(st: ScanState, k: FlowKind, item: Y.Item, m: Y.Map<unknown>
   }
 }
 
-/** Scan `[from, to)` of `piece` (storage index units) into `st`. False = aborted on a sub-flow. */
-function scanInto(st: ScanState, piece: Y.Text, from: number, to: number): boolean {
+function newState(ctx: ScanCtx, inertSubs: boolean): ScanState {
+  return { ctx, inertSubs, tokens: [], items: [], footnotes: [], inert: [], runLen: 0, hasRun: false };
+}
+
+/** Tokens of `[from, to)` of `piece` at sub-flow `depth`, or null when the range holds a read sub-flow item. */
+export function scanRange(piece: Y.Text, from: number, to: number, ctx: ScanCtx, depth: number): Token[] | null {
+  return scanRanges(piece, [[from, to]], ctx, depth)?.[0] ?? null;
+}
+
+/**
+ * {@link scanRange} of each of the sorted, disjoint `ranges` (storage index units), in one walk of the piece; null when
+ * one holds a read sub-flow item.
+ */
+export function scanRanges(piece: Y.Text, ranges: readonly (readonly [number, number])[], ctx: ScanCtx, depth: number): Token[][] | null {
+  const out: Token[][] = [];
+  const inertSubs = depth >= SUBFLOW_DEPTH_CAP;
+  let st = newState(ctx, inertSubs);
+  const finish = (): void => {
+    flushRun(st);
+    out.push(st.tokens);
+    st = newState(ctx, inertSubs);
+  };
   const fmt = new Map<string, unknown>();
   let snapshot: ReadonlyAttrs | null = null;
   const attrs = (): ReadonlyAttrs => (snapshot ??= Object.freeze(Object.fromEntries(fmt)));
   let idx = 0;
-  for (let it = piece._start; it !== null && idx < to; it = it.right) {
+  for (let it = piece._start; it !== null && out.length < ranges.length; it = it.right) {
     const c = it.content;
     if (c instanceof Y.ContentFormat) {
       if (!it.deleted) {
@@ -186,31 +206,25 @@ function scanInto(st: ScanState, piece: Y.Text, from: number, to: number): boole
     }
     if (it.deleted || !it.countable) continue;
     const len = it.length;
-    if (idx + len <= from) {
-      idx += len;
-      continue;
-    }
-    if (c instanceof Y.ContentString) {
-      const s = c.str.slice(Math.max(0, from - idx), Math.min(len, to - idx));
-      pushItem(st, { kind: "text", text: s, attrs: attrs() }, s.length);
-    } else if (c instanceof Y.ContentType && c.type instanceof Y.Map) {
-      if (!scanMap(st, it, c.type, attrs)) return false;
-    } else {
-      pushItem(st, null, len);
+    // The item's part in each range it overlaps (a string can span several).
+    for (let r = ranges[out.length]; r !== undefined; r = ranges[out.length]) {
+      const [from, to] = r;
+      if (idx + len <= from) break;
+      if (idx < to) {
+        if (c instanceof Y.ContentString) {
+          const sl = c.str.slice(Math.max(0, from - idx), Math.min(len, to - idx));
+          pushItem(st, { kind: "text", text: sl, attrs: attrs() }, sl.length);
+        } else if (c instanceof Y.ContentType && c.type instanceof Y.Map) {
+          if (!scanMap(st, it, c.type, attrs)) return null;
+        } else {
+          pushItem(st, null, Math.min(len, to - idx) - Math.max(0, from - idx));
+        }
+        if (idx + len <= to) break;
+      }
+      finish();
     }
     idx += len;
   }
-  return true;
-}
-
-function newState(ctx: ScanCtx, inertSubs: boolean): ScanState {
-  return { ctx, inertSubs, tokens: [], items: [], footnotes: [], inert: [], runLen: 0, hasRun: false };
-}
-
-/** Tokens of `[from, to)` of `piece` at sub-flow `depth`, or null when the range holds a read sub-flow item. */
-export function scanRange(piece: Y.Text, from: number, to: number, ctx: ScanCtx, depth: number): Token[] | null {
-  const st = newState(ctx, depth >= SUBFLOW_DEPTH_CAP);
-  if (!scanInto(st, piece, from, to)) return null;
-  flushRun(st);
-  return st.tokens;
+  while (out.length < ranges.length) finish();
+  return out;
 }

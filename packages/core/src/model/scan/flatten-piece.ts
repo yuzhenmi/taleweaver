@@ -13,6 +13,9 @@ export function subflowPieces(m: Y.Map<unknown>): Y.Text[] {
   return out;
 }
 
+/** A sub-flow item's map. */
+export const isSubflow = (v: unknown): v is Y.Map<unknown> => v instanceof Y.Map && kindOf(v) === ITEM_KINDS.sub;
+
 /** Live sub-flow items of `piece`: their storage index and map. */
 function subflowItems(piece: Y.Text): { index: number; map: Y.Map<unknown> }[] {
   const out: { index: number; map: Y.Map<unknown> }[] = [];
@@ -20,7 +23,7 @@ function subflowItems(piece: Y.Text): { index: number; map: Y.Map<unknown> }[] {
   for (let it = piece._start; it !== null; it = it.right) {
     if (it.deleted || !it.countable) continue;
     const c = it.content;
-    if (c instanceof Y.ContentType && c.type instanceof Y.Map && kindOf(c.type) === ITEM_KINDS.sub) out.push({ index: idx, map: c.type });
+    if (c instanceof Y.ContentType && isSubflow(c.type)) out.push({ index: idx, map: c.type });
     idx += it.length;
   }
   return out;

@@ -9,7 +9,21 @@ import { mapOf, newFootnoteOf, newParagraphMark } from "./storage/new-items";
 import { expectSameVersion } from "./test-helpers/expect-same-version";
 import { fixture, idOf } from "./test-helpers/fixture";
 import { insertUnits, mapsOf, units } from "./test-helpers/table";
+import { insertColumn } from "./commands/table/insert-column";
+import { applyPlan } from "./plan";
+import { caretAt } from "./position/model-position";
+import { getDocMap } from "./storage/doc-map";
+import { createEditorOrigin } from "./storage/history-hooks";
+import { ITEM_KINDS, KIND_KEY } from "./storage/keys";
+import { PIECE_SOFT_MAX } from "./storage/limits";
+import { flowOf } from "./storage/map-reads";
+import { newSubflow } from "./storage/new-items";
+import { pieceStructCount } from "./storage/pieces";
+import { newCellMark } from "./storage/table-marks";
+import { writablePoint } from "./storage/writable-point";
+import { buildTable } from "./test-helpers/build-table";
 import { cellSplice } from "./update/cell-splice";
+import { subtreeSplice } from "./update/piece-splice";
 import { rowSplice } from "./update/row-splice";
 
 // Spies on the rungs (calling through): which one applied a step.
@@ -20,6 +34,10 @@ vi.mock("./update/cell-splice", async (orig) => {
 vi.mock("./update/row-splice", async (orig) => {
   const m = await orig<typeof import("./update/row-splice")>();
   return { ...m, rowSplice: vi.fn(m.rowSplice) };
+});
+vi.mock("./update/piece-splice", async (orig) => {
+  const m = await orig<typeof import("./update/piece-splice")>();
+  return { ...m, subtreeSplice: vi.fn(m.subtreeSplice) };
 });
 beforeEach(() => vi.clearAllMocks());
 
@@ -434,5 +452,98 @@ describe("rung 1c: whole cells inserted / deleted, one batch per table (N4b step
     t.step(() => cellAt(t, t.maps[6]), true);
     expect(rowSplice).toHaveBeenCalled();
     t.destroy();
+  });
+});
+
+describe("a new sub-flow derives as an insert at its point (N4b step b′)", () => {
+  /** `fn` in one transaction reads as from scratch, with no subtree rebuild, and `keep`'s record kept (no re-derive). */
+  const subStep = (doc: Y.Doc, model: Model, keep: string, fn: () => void, wrap = true): void => {
+    vi.clearAllMocks();
+    const before = model.version.trees.block.get(keep);
+    if (wrap) doc.transact(fn);
+    else fn();
+    expectSameVersion(model.version, deriveDocument(doc, BUILTIN_OBJECT_KINDS));
+    expect(subtreeSplice).not.toHaveBeenCalled();
+    expect(model.version.trees.block.get(keep)).toBe(before);
+  };
+  /** The body's pieces. */
+  const piecesOf = (doc: Y.Doc): Y.Text[] => {
+    const docMap = getDocMap(doc);
+    const flow = docMap === null ? null : flowOf(docMap);
+    return (flow?.toArray() ?? []).filter((p): p is Y.Text => p instanceof Y.Text);
+  };
+
+  it("a mid-piece write into a full piece of paragraphs; then one into a full sub-flow piece (depth 2)", () => {
+    const f = fixture();
+    const model = new Model(f.doc);
+    const us = units(`far¶ ${"ab¶ ".repeat(PIECE_SOFT_MAX / 2)}`);
+    f.doc.transact(() => insertUnits(f.piece, 0, us));
+    const keep = idOf(mapsOf(us)[0] ?? new Y.Map());
+    expect(pieceStructCount(f.piece)).toBeGreaterThan(PIECE_SOFT_MAX);
+    // Mid-paragraph ("a|b"), as the piece-size rule writes it.
+    subStep(f.doc, model, keep, () => {
+      const p = writablePoint({ piece: f.piece, index: 401 }, 2);
+      expect(p.piece).not.toBe(f.piece);
+      insertUnits(p.piece, 0, units("Q¶ R"));
+    });
+    // A full piece in a new sub-flow (between two paragraphs), then a mid-piece write into it: a sub-flow at depth 2.
+    const inner = new Y.Text();
+    subStep(f.doc, model, keep, () => {
+      f.piece.insertEmbed(600, newSubflow(inner));
+      insertUnits(inner, 0, units("cd¶ ".repeat(PIECE_SOFT_MAX / 2)));
+    });
+    subStep(f.doc, model, keep, () => insertUnits(writablePoint({ piece: inner, index: 31 }, 3).piece, 0, units("x¶ y")));
+    // Two new sub-flows in different segments of one piece, and a plain insert in a third.
+    subStep(f.doc, model, keep, () => {
+      for (const at of [800, 300]) insertUnits(writablePoint({ piece: f.piece, index: at }, 2).piece, 0, units("s¶"));
+      f.piece.insert(5, "t");
+    });
+    expect(model.version.flows.get(f.rootId)?.segments.some((sg) => sg.depth === 2)).toBe(true);
+    model.destroy();
+  });
+
+  it("a cell inserted mid-piece into a full piece of a table reaches rung 1c", () => {
+    const doc = buildTable(300, 3, "ab");
+    const model = new Model(doc);
+    const pieces = piecesOf(doc);
+    const mid = pieces[1];
+    const last = pieces[pieces.length - 1];
+    if (mid === undefined || last === undefined) throw new Error("no pieces");
+    const keep = model.version.trees.block.get(model.version.rootId)?.lastChildId ?? "";
+    // Before the first ⟨c⟩ past the piece's start: whole cells of one row.
+    let at = 1;
+    for (const op of mid.toDelta() as { insert: unknown }[]) {
+      if (at > 1 && op.insert instanceof Y.Map && op.insert.get(KIND_KEY) === ITEM_KINDS.cell) break;
+      at += typeof op.insert === "string" ? op.insert.length : 1;
+    }
+    subStep(doc, model, keep, () => {
+      // A write past the piece's room (as a column insert's later rows find it).
+      const p = writablePoint({ piece: mid, index: at - 1 }, PIECE_SOFT_MAX - pieceStructCount(mid) + 1);
+      expect(p.piece).not.toBe(mid);
+      insertUnits(p.piece, 0, [newCellMark(0), ...units("z¶")]);
+    });
+    expect(vi.mocked(cellSplice).mock.results.some((r) => r.value !== null)).toBe(true);
+    expect(rowSplice).not.toHaveBeenCalled();
+    model.destroy();
+  });
+
+  it("insertColumn on a table of full pieces: one sub-flow per row, rung 1c; twice (new sub-flows next to old ones)", () => {
+    const doc = buildTable(300, 3, "ab");
+    const model = new Model(doc);
+    const keep = model.version.trees.block.get(model.version.rootId)?.lastChildId ?? "";
+    for (const side of ["right", "left"] as const) {
+      const d = model.version;
+      const tableId = d.trees.block.get(d.trees.block.get(d.rootId)?.firstChildId ?? "")?.firstChildId ?? "";
+      let row = d.trees.block.get(tableId)?.firstChildId ?? null;
+      for (let i = 0; i < 150 && row !== null; i++) row = d.trees.block.get(row)?.nextSiblingId ?? null;
+      const cell = d.trees.block.get(d.trees.block.get(row ?? "")?.firstChildId ?? "")?.nextSiblingId ?? "";
+      const para = d.trees.block.get(cell)?.firstChildId ?? "";
+      const plan = insertColumn({ version: d, selection: caretAt(para, 0) }, side);
+      if (plan === null) throw new Error("insertColumn: no plan");
+      subStep(doc, model, keep, () => expect(applyPlan(model, plan, createEditorOrigin())).not.toBeNull(), false);
+      expect(vi.mocked(cellSplice).mock.results.some((r) => r.value !== null)).toBe(true);
+      expect(rowSplice).not.toHaveBeenCalled();
+    }
+    model.destroy();
   });
 });
