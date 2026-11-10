@@ -7,7 +7,8 @@ import { newCellMark } from "../../storage/table-marks";
 import type { CommandContext } from "../command-context";
 import { plan } from "../helpers/build-plan";
 import { insertAt, keysWrite } from "../helpers/writes";
-import { attrKeys, keptSelection, markOf, markPoint, rowEndPoint, selectedCell, slotsOf } from "./table-at";
+import { attrKeys, keptSelection, selectedCell, slotsOf } from "./table-at";
+import { tableMarks } from "./table-mark-walk";
 
 /**
  * T1: insert a column left / right of the selected cell (a merged cell: left / right of all its columns; GDocs), at
@@ -19,7 +20,9 @@ import { attrKeys, keptSelection, markOf, markPoint, rowEndPoint, selectedCell, 
 export function insertColumn(ctx: CommandContext, side: "left" | "right"): Plan | null {
   const c = selectedCell(ctx);
   if (c === null || c.columnCount >= TABLE_COLUMN_CAP) return null;
-  const { d, fs, form } = c;
+  const marks = tableMarks(c);
+  if (marks === null) return null;
+  const { d, form } = c;
   const j = side === "left" ? c.col : c.col + c.colSpan;
   const refCol = side === "left" ? j : j - 1;
   const writes: Write[] = [];
@@ -31,17 +34,17 @@ export function insertColumn(ctx: CommandContext, side: "left" | "right"): Plan 
     if (left !== undefined && left === slots[j]) {
       // Straddled: its head grows, in the head's own row (rows below are covered by it).
       const p = row.placed.find((x) => x.cellId === left);
-      const m = p === undefined ? null : markOf(d, fs, left);
+      const m = p === undefined ? null : marks.map(left);
       if (p !== undefined && m !== null) writes.push(...keysWrite(m, { [COL_SPAN_KEY]: p.colSpan + 1 }));
       continue;
     }
     if (slots.length < j) continue; // ends before j: pads virtually
     const before = row.placed.find((x) => x.gridCol >= j);
-    const at = before === undefined ? rowEndPoint(c, i) : markPoint(d, fs, before.cellId);
+    const at = before === undefined ? marks.rowEnd(i) : marks.point(before.cellId);
     if (at === null) return null;
     const ref = slots[refCol];
     const units: InsertUnit[] = [
-      { embed: newCellMark(form.depth, attrKeys(ref === undefined ? null : markOf(d, fs, ref))), attrs: {} },
+      { embed: newCellMark(form.depth, attrKeys(ref === undefined ? null : marks.map(ref))), attrs: {} },
       { embed: newParagraphMark(), attrs: {} },
     ];
     writes.push(insertAt(at, units));

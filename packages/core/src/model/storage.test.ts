@@ -9,6 +9,7 @@ import { BODY_KEY, COLS_KEY } from "./storage/keys";
 import { childMap, flowOf } from "./storage/map-reads";
 import { newTableStart } from "./storage/table-marks";
 import { insertPieceAfter, pieceDepth, pieceIndex, pieceStructCount } from "./storage/pieces";
+import { PieceSizes, fitsExact } from "./storage/piece-sizes";
 import { writablePoint } from "./storage/writable-point";
 import { fixture } from "./test-helpers/fixture";
 
@@ -38,6 +39,25 @@ describe("pieces (X11) and sub-flows (X12)", () => {
     });
     const small = writablePoint({ piece: new Y.Text(), index: 0 });
     expect(small.index).toBe(0);
+  });
+
+  it("PieceSizes decides exactly as a walk per write, across one transaction's writes into one piece up to the cap", () => {
+    const f = fixture();
+    f.piece.insert(0, "x".repeat(4 * PIECE_SOFT_MAX)); // one struct: each mid-string insert splits it
+    const sizes = new PieceSizes();
+    let full = 0;
+    f.doc.transact(() => {
+      for (let i = 0; i < PIECE_SOFT_MAX; i++) {
+        for (const b of [1, 7]) expect(sizes.fits(f.piece, b)).toBe(fitsExact(f.piece, b));
+        if (!fitsExact(f.piece, 1)) full++;
+        f.piece.insert(3 * i + 1, "y", i % 3 === 0 ? { bold: true } : {});
+        if (i % 50 === 0) {
+          f.piece.delete(2 * i, 1);
+          sizes.forget(f.piece);
+        }
+      }
+    });
+    expect(full).toBeGreaterThan(0);
   });
 });
 

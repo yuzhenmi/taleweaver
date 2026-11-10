@@ -26,8 +26,11 @@ export interface TableExtent {
   readonly close: TerminatorRef | null;
 }
 
-/** The extent of the table whose `⟦` is `open`; null when `open` is not a bound `⟦` of `fs`. */
-export function tableExtent(fs: FlowState, open: TerminatorRef): TableExtent | null {
+/**
+ * The extent of the table whose `⟦` is `open`; null when `open` is not a bound `⟦` of `fs`. `each`: called with every
+ * mark of the table's own depth after `open` (its `⟨r⟩`s, `⟨c⟩`s and `⟧`), in order, in the same walk.
+ */
+export function tableExtent(fs: FlowState, open: TerminatorRef, each?: (t: TerminatorRef) => void): TableExtent | null {
   const d = depthOf(open.token);
   if (d === null) return null;
   let last: StoragePoint | null = null;
@@ -45,6 +48,7 @@ export function tableExtent(fs: FlowState, open: TerminatorRef): TableExtent | n
       const dd = depthOf(token);
       if (dd === null || dd > d) continue;
       if (dd < d) return { end: here, next: { seg: j, tok: t }, close: null };
+      each?.({ seg: j, tok: t, index, token });
       if (roleOf(token) === "close") return { end: { ...here, index: index + token.len }, next: tokenAfter(fs, j, t), close: { seg: j, tok: t, index, token } };
     }
     last = { piece: seg.piece, index: seg.start + seg.len, seg: j };

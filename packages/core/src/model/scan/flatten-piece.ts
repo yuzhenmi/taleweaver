@@ -2,7 +2,7 @@ import * as Y from "yjs";
 import { ITEM_KINDS, PIECES_KEY } from "../storage/keys";
 import { SUBFLOW_DEPTH_CAP } from "../storage/limits";
 import { kindOf } from "../storage/map-reads";
-import { scanRange } from "./scan-range";
+import { scanRanges } from "./scan-range";
 import type { ScanCtx, Segment } from "./tokens";
 
 /** The pieces of a sub-flow item's map, in order. */
@@ -34,15 +34,20 @@ function subflowItems(piece: Y.Text): { index: number; map: Y.Map<unknown> }[] {
  * {@link SUBFLOW_DEPTH_CAP} levels) between them. `depth`: the piece's sub-flow depth.
  */
 export function flattenPiece(piece: Y.Text, ctx: ScanCtx, out: Segment[] = [], depth = 0): Segment[] {
+  const subs = depth >= SUBFLOW_DEPTH_CAP ? [] : subflowItems(piece);
+  const ranges: [number, number][] = [];
   let start = 0;
-  const seg = (end: number): void => {
-    out.push({ piece, depth, start, len: end - start, tokens: scanRange(piece, start, end, ctx, depth) ?? [] });
-  };
-  for (const sub of depth >= SUBFLOW_DEPTH_CAP ? [] : subflowItems(piece)) {
-    seg(sub.index);
-    for (const p of subflowPieces(sub.map)) flattenPiece(p, ctx, out, depth + 1);
+  for (const sub of subs) {
+    ranges.push([start, sub.index]);
     start = sub.index + 1;
   }
-  seg(piece.length);
+  ranges.push([start, piece.length]);
+  // One walk for all ranges (no range holds a read sub-flow item, so it never aborts).
+  const tokens = scanRanges(piece, ranges, ctx, depth);
+  ranges.forEach(([from, to], i) => {
+    out.push({ piece, depth, start: from, len: to - from, tokens: tokens?.[i] ?? [] });
+    const sub = subs[i];
+    if (sub !== undefined) for (const p of subflowPieces(sub.map)) flattenPiece(p, ctx, out, depth + 1);
+  });
   return out;
 }

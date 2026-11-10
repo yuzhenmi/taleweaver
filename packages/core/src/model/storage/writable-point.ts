@@ -1,7 +1,8 @@
 import * as Y from "yjs";
-import { PIECE_SOFT_MAX, SUBFLOW_DEPTH_CAP } from "./limits";
+import { SUBFLOW_DEPTH_CAP } from "./limits";
 import { newSubflow } from "./new-items";
-import { insertPieceAfter, insertPieceBefore, pieceDepth, pieceStructCount } from "./pieces";
+import { type PieceFits, fitsExact } from "./piece-sizes";
+import { insertPieceAfter, insertPieceBefore, pieceDepth } from "./pieces";
 
 export interface PiecePoint {
   readonly piece: Y.Text;
@@ -12,10 +13,11 @@ export interface PiecePoint {
  * The piece-size rule (X11/X12): the point a write of `budget` structs at `p`
  * actually goes to. A full piece gets a fresh piece after / before it, or (mid
  * piece) a fresh piece inside a new sub-flow, up to {@link SUBFLOW_DEPTH_CAP}.
- * Must run inside the write's transaction.
+ * Must run inside the write's transaction. `fits`: the size check (many writes in one transaction: a
+ * `PieceSizes`).
  */
-export function writablePoint(p: PiecePoint, budget = 1): PiecePoint {
-  if (pieceStructCount(p.piece) + budget <= PIECE_SOFT_MAX) return p;
+export function writablePoint(p: PiecePoint, budget = 1, fits: PieceFits = fitsExact): PiecePoint {
+  if (fits(p.piece, budget)) return p;
   if (p.index >= p.piece.length) {
     const fresh = new Y.Text();
     insertPieceAfter(p.piece, fresh);

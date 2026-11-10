@@ -26,6 +26,7 @@ import { PIECE_SOFT_MAX, SUBFLOW_DEPTH_CAP } from "./storage/limits";
 import { newSubflow } from "./storage/new-items";
 import { arrayOfPiece, pieceDepth, pieceIndex } from "./storage/pieces";
 import type { Scalar } from "./storage/scalar";
+import { PieceSizes } from "./storage/piece-sizes";
 import { writablePoint } from "./storage/writable-point";
 
 /** One inserted storage unit: text with its exact formatting, or an embedded item map (detached). */
@@ -106,10 +107,10 @@ export function chunked(units: readonly InsertUnit[]): Y.Text[] {
 }
 
 /** Insert `units` at `index` of `piece` under the piece-size rule. */
-function insertUnits(piece: Y.Text, index: number, units: readonly InsertUnit[]): void {
+function insertUnits(piece: Y.Text, index: number, units: readonly InsertUnit[], sizes: PieceSizes): void {
   const budget = unitBudget(units);
   if (budget <= PIECE_SOFT_MAX / 2) {
-    const p = writablePoint({ piece, index }, budget);
+    const p = writablePoint({ piece, index }, budget, sizes.fits);
     writeUnits(p.piece, p.index, units);
     return;
   }
@@ -121,10 +122,11 @@ function insertUnits(piece: Y.Text, index: number, units: readonly InsertUnit[])
   else writeUnits(piece, index, units);
 }
 
-function runIndexWrite(w: IndexWrite): void {
+function runIndexWrite(w: IndexWrite, sizes: PieceSizes): void {
+  if (w.k === "insert") return insertUnits(w.piece, w.index, w.units, sizes);
+  sizes.forget(w.piece);
   if (w.k === "delete") w.piece.delete(w.index, w.len);
-  else if (w.k === "format") w.piece.format(w.index, w.len, { ...w.attrs });
-  else insertUnits(w.piece, w.index, w.units);
+  else w.piece.format(w.index, w.len, { ...w.attrs });
 }
 
 /**
@@ -145,6 +147,7 @@ export function applyPlan(model: Model, plan: Plan, origin: symbol): ModelSelect
       else xs.push(w);
     } else other.push(w);
   }
+  const sizes = new PieceSizes();
   model.doc.transact(() => {
     for (const w of other) {
       if (w.k === "keys") {
@@ -168,7 +171,7 @@ export function applyPlan(model: Model, plan: Plan, origin: symbol): ModelSelect
         const cur = sorted[j]?.w;
         if (cur === undefined) continue;
         if (cur.k !== "insert") {
-          runIndexWrite(cur);
+          runIndexWrite(cur, sizes);
           continue;
         }
         // Concatenate the inserts at one index, in plan order.
@@ -179,7 +182,7 @@ export function applyPlan(model: Model, plan: Plan, origin: symbol): ModelSelect
           units.push(...nx.units);
           j++;
         }
-        insertUnits(cur.piece, cur.index, units);
+        insertUnits(cur.piece, cur.index, units, sizes);
       }
     }
   }, origin);
