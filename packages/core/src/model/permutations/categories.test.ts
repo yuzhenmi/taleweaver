@@ -47,7 +47,7 @@ import { positionAtPoint } from "../position/position-at-point";
 import { resolvePosition } from "../position/resolve-position";
 import { CATEGORIES, type Category, type Container } from "../scan/kinds";
 import { expectSameVersion } from "../test-helpers/expect-same-version";
-import { readOf, selectionOf } from "../test-helpers/harness";
+import { caretErrors, readOf, selectionOf } from "../test-helpers/harness";
 import { type Effect, type Expectation, type Unit, caretStop, expectation, objectSpan } from "./expectations";
 import { CATEGORY_LIST, CONTAINERS, type Case, type Linear, build, flowOf, linear, placeable, sequence, storageLength, unreachable } from "./fixtures";
 
@@ -178,14 +178,6 @@ function validity(d: Document, allowed: ReadonlySet<string> = new Set()): string
   return out;
 }
 
-function caretOk(d: Document, sel: ModelSelection): string[] {
-  if (!isTextSelection(sel)) return [];
-  return [sel.anchor, sel.focus].flatMap((p) => {
-    const r = resolvePosition(d, p, OPTIONS);
-    return r === null ? [`caret ${p.blockId}:${p.offset} does not resolve`] : r.offset !== p.offset ? [`caret ${p.blockId}:${p.offset} is no stop (→ ${r.offset})`] : [];
-  });
-}
-
 interface Stats {
   cases: number;
   failures: Map<string, string[]>;
@@ -261,7 +253,7 @@ function runCase(container: Container, l: Category, r: Category, cmd: Command): 
     const same = sameRead(read1, read0);
     // The adjacent-objects fixture's own W2 break may stand (by identity); any other W2 break fails.
     const verdict = judge(x, L1, same, caret);
-    for (const m of [...validity(d1, fixtureW2), ...caretOk(d1, hs), ...verdict]) fail(m);
+    for (const m of [...validity(d1, fixtureW2), ...caretErrors(d1, hs), ...verdict]) fail(m);
     if (h.history.depths().undo === 0) {
       if (!sameRead(read1, read0)) fail("changed the read but recorded no undo entry");
       continue;

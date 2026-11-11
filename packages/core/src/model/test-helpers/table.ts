@@ -6,6 +6,7 @@ import { COL_SPAN_KEY, DEPTH_KEY, HEADER_KEY, ROW_SPAN_KEY } from "../storage/ke
 import { newParagraphMark, newSectionBreak } from "../storage/new-items";
 import { newCellMark, newRowMark, newTableEnd, newTableStart } from "../storage/table-marks";
 import { childrenOf, textOf } from "./fixture";
+import { Harness } from "./harness";
 
 export type Unit = string | Y.Map<unknown>;
 
@@ -52,6 +53,16 @@ export function insertUnits(piece: Y.Text, index: number, us: readonly Unit[]): 
 
 /** The maps of `us` (marks, ¶s, `[S]`s), in order. */
 export const mapsOf = (us: readonly Unit[]): Y.Map<unknown>[] => us.filter((u): u is Y.Map<unknown> => typeof u !== "string");
+
+/** A harness whose body holds `spec` before its final ¶; `edit` may set keys on the spec's maps first. */
+export function raw(spec: string | Unit[], edit?: (maps: Y.Map<unknown>[]) => void): Harness {
+  const h = new Harness();
+  const us = typeof spec === "string" ? units(spec) : spec;
+  edit?.(mapsOf(us));
+  h.f.doc.transact(() => insertUnits(h.f.piece, 0, us));
+  h.history.clear();
+  return h;
+}
 
 /** A cell's content as text: its blocks' texts joined by `|`, a nested table as `T`. */
 const cellText = (d: Document, tree: TreeKind, cell: Block): string =>

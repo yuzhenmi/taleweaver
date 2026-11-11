@@ -6,6 +6,7 @@ import { itemId } from "../storage/item-id";
 import { ITEM_KINDS, KIND_KEY, PIECES_KEY } from "../storage/keys";
 import { SUBFLOW_DEPTH_CAP } from "../storage/limits";
 import { markRole } from "../storage/table-marks";
+import { follows } from "./document-probes";
 
 /** A firing of a read rule (or an A1 / A2 / W2 break) in one flow's storage. */
 export interface Firing {
@@ -55,6 +56,8 @@ export function firingsOf(fs: FlowState, restores: Map<string, string> = new Map
   let gap: string[] = [];
   let any = false;
   let open = 0;
+  /** Per open table: whether it bound a `⟨c⟩` yet. */
+  const cells: boolean[] = [];
   const awaiting = (): boolean => left.k === "newRow" || left.k === "newCell";
   /** A table broken by its faces (a lead, a missing row / cell mark, an empty cell, an unbalanced bracket): A1-like. */
   const broken = (right: Y.ID | null): void => void pending.push({ type: "empty", end: "end", where, left: [], right, gap });
@@ -96,16 +99,25 @@ export function firingsOf(fs: FlowState, restores: Map<string, string> = new Map
         // A table mark: `⟦` ends what precedes as the table (a block object); `⟨r⟩` / `⟨c⟩` / `⟧` end a container,
         // as the flow end does. (Inert marks are not modelled: concurrency only.)
         any = true;
-        const misplaced = awaiting() ? role !== left.k : left.k === "inCell" && role !== "open";
+        const misplaced = left.k === "newRow" || left.k === "newCell" ? !follows(left.k, role) : left.k === "inCell" && role !== "open";
         open += role === "open" ? 1 : role === "close" ? -1 : 0;
-        if (run.length === 0 && (misplaced || open < 0 || (open === 0 && role !== "open" && role !== "close"))) broken(it.id);
+        // A table that bound no `⟨c⟩` (`⟦ ⟨r⟩ ⟧`): no column, no caret stop. A cell-less ROW is fine (F1).
+        const cellLess = role === "close" && cells.pop() === false;
+        if (role === "open") cells.push(false);
+        else if (role === "newCell" && cells.length > 0) cells[cells.length - 1] = true;
+        if (run.length === 0 && (misplaced || cellLess || open < 0 || (open === 0 && role !== "open" && role !== "close"))) broken(it.id);
         else terminate(role === "open" ? "blockObject" : "end", it.id);
         left = role === "close" ? { k: "blockObject", id: it.id } : { k: role === "newCell" ? "inCell" : role === "open" ? "newRow" : "newCell", id: null };
         run = [];
         gap = [];
         continue;
       }
-      if (awaiting()) broken(it.id); // a table / row lead (F2)
+      if (isSectionBreak(fk) && open > 0) {
+        // RT1: `[S]` closes every open table (unclosed: broken, once).
+        broken(it.id);
+        open = 0;
+        cells.length = 0;
+      } else if (awaiting()) broken(it.id); // a table / row lead (F2)
       if (isParagraphBreak(fk)) {
         any = true;
         left = { k: "paragraphBreak", id: it.id };

@@ -12,6 +12,8 @@ import { deriveDocument } from "../derive/derive-document";
 import { BUILTIN_OBJECT_KINDS } from "../object-kinds";
 import { ITEM_KINDS, KIND_KEY } from "../storage/keys";
 import { fixture } from "../test-helpers/fixture";
+import { insertUnits, units } from "../test-helpers/table";
+import { wellFormed } from "./document-probes";
 import { envNumber } from "./random";
 import { firingsOf } from "./firings";
 import { runSeed } from "./run-seed";
@@ -38,6 +40,27 @@ describe("oracle: firingsOf", () => {
       const fs = deriveDocument(f.doc, BUILTIN_OBJECT_KINDS).flows.get(f.rootId);
       expect(fs).toBeDefined();
       if (fs !== undefined) expect(firingsOf(fs)).toEqual([]);
+    }
+  });
+
+  it("a cell-less row (covered from above, F1) is well formed with no firing; a lead, a table with no row or no cell, and a table left open at an [S] still fire", () => {
+    const cases: [string, boolean][] = [
+      ["⟦ ⟨r⟩ ⟨c⟩r2 a¶ ⟨r⟩ ⟧ q¶", true],
+      ["⟦ ⟨r⟩ ⟨c⟩r3 a¶ ⟨r⟩ ⟨r⟩ ⟧ q¶", true],
+      ["⟦ ⟨r⟩ x ⟨c⟩ a¶ ⟧ q¶", false],
+      ["⟦ x ⟨r⟩ ⟨c⟩ a¶ ⟧ q¶", false],
+      ["⟦ ⟧ q¶", false],
+      ["⟦ ⟨r⟩ ⟧ q¶", false],
+      ["⟦ ⟨r⟩ ⟨r⟩ ⟧ q¶", false],
+      // `[S]` closes the open table (RT1); the later `⟧` is a stray, not its close.
+      ["⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨r⟩ [S] ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟧ b¶ ⟧ q¶", false],
+    ];
+    for (const [spec, ok] of cases) {
+      const f = fixture(1, undefined, false);
+      f.doc.transact(() => insertUnits(f.piece, 0, units(spec)));
+      const fs = deriveDocument(f.doc, BUILTIN_OBJECT_KINDS).flows.get(f.rootId);
+      if (fs === undefined) throw new Error("no flow");
+      expect({ spec, wellFormed: wellFormed(fs), fires: firingsOf(fs).length > 0 }).toEqual({ spec, wellFormed: ok, fires: !ok });
     }
   });
 });

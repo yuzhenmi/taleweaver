@@ -18,11 +18,14 @@ export function lengthOf(d: Document, id: string): number {
   return n;
 }
 
+/** Mark `role` may come right after a `⟦` (`newRow`) / `⟨r⟩` (`newCell`): its `⟨r⟩` / a `⟨c⟩`, or after a `⟨r⟩` the next `⟨r⟩` / `⟧` (a cell-less row, F1). */
+export const follows = (awaiting: MarkRole, role: MarkRole): boolean => role === awaiting || (awaiting === "newCell" && (role === "newRow" || role === "close"));
+
 /**
  * O5(a) subset / O7 on one flow's tokens, as the model reads them: not synthetic (R17),
  * no debris (R2), a ¶ before every `[S]` (A2), only a paragraph after a block object (W2), the
  * flow ends in a ¶ (A1); tables by their faces: balanced brackets, `⟦ ⟨r⟩ ⟨c⟩` in order, a paragraph in every cell
- * and after a `⟧` (as after any block object; a cell end is a flow end). Agrees with `firingsOf`.
+ * and after a `⟧` (as after any block object; a cell end is a flow end); a row may hold no cell (F1), a table may not. Agrees with `firingsOf`.
  */
 export function wellFormed(fs: FlowState): boolean {
   if (fs.synthetic) return false;
@@ -31,6 +34,8 @@ export function wellFormed(fs: FlowState): boolean {
   let left: "start" | "afterPara" | "afterObject" | "afterSection" | "inCell" | MarkRole = "start";
   let run = false;
   let open = 0;
+  /** Per open table: whether it bound a `⟨c⟩` yet. */
+  const cells: boolean[] = [];
   let last: Token["k"] | null = null;
   for (const seg of fs.segments) {
     for (const t of seg.tokens) {
@@ -52,13 +57,18 @@ export function wellFormed(fs: FlowState): boolean {
       if (run || left === "afterObject") return false;
       const role = roleOf(t);
       if (role !== null) {
-        // After `⟦` a `⟨r⟩`, after `⟨r⟩` a `⟨c⟩`; a cell holds a paragraph (or a table) before its container ends.
-        if (awaiting ? role !== left : left === "inCell" && role !== "open") return false;
+        // After `⟦` a `⟨r⟩`; after `⟨r⟩` a `⟨c⟩`, or (a cell-less row: covered from above, F1) the next `⟨r⟩` / `⟧`; a
+        // cell holds a paragraph (or a table) before its container ends.
+        if (left === "newRow" || left === "newCell" ? !follows(left, role) : left === "inCell" && role !== "open") return false;
         open += role === "open" ? 1 : role === "close" ? -1 : 0;
         if (open < 0 || (open === 0 && role !== "open" && role !== "close")) return false;
+        // A table that bound no `⟨c⟩` (`⟦ ⟨r⟩ ⟧`) has no column; a cell-less ROW is fine (F1).
+        if (role === "close" && cells.pop() !== true) return false;
+        if (role === "open") cells.push(false);
+        else if (role === "newCell") cells[cells.length - 1] = true;
         left = role === "close" ? "afterObject" : role === "newCell" ? "inCell" : role === "open" ? "newRow" : "newCell";
       } else if (isSectionBreak(t.k)) {
-        if (left !== "afterPara") return false;
+        if (left !== "afterPara" || open > 0) return false; // RT1: `[S]` closes every open table (unclosed)
         left = "afterSection";
       } else {
         if (awaiting) return false;

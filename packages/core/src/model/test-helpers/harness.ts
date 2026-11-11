@@ -11,9 +11,10 @@ import type { Document, TreeKind } from "../document/types";
 import { type HistoryStep, ModelHistory } from "../history";
 import { Model } from "../model";
 import { BUILTIN_OBJECT_KINDS } from "../object-kinds";
-import { editKindOf } from "../oracle/random-command";
+import { OPTIONS, editKindOf } from "../oracle/random-command";
 import type { Plan } from "../plan";
-import { type ModelPosition, type ModelSelection, caretAt, isAllSelection, isObjectSelection } from "../position/model-position";
+import { type ModelPosition, type ModelSelection, caretAt, isAllSelection, isObjectSelection, isTextSelection } from "../position/model-position";
+import { resolvePosition } from "../position/resolve-position";
 import { createEditorOrigin } from "../storage/history-hooks";
 import { expectSameVersion } from "./expect-same-version";
 import { type Fixture, childrenOf, fixture } from "./fixture";
@@ -210,6 +211,15 @@ export function line(b: Block): string {
     .map(([k, v]) => `${k}=${String(v)}`)
     .join(",");
   return `${b.type}${attrs === "" ? "" : `(${attrs})`}:${text}`;
+}
+
+/** The ends of a text selection that are no caret stop of `d` (each as a message). */
+export function caretErrors(d: Document, sel: ModelSelection): string[] {
+  if (!isTextSelection(sel)) return [];
+  return [sel.anchor, sel.focus].flatMap((p) => {
+    const r = resolvePosition(d, p, OPTIONS);
+    return r === null ? [`caret ${p.blockId}:${p.offset} does not resolve`] : r.offset !== p.offset ? [`caret ${p.blockId}:${p.offset} is no stop (→ ${r.offset})`] : [];
+  });
 }
 
 /** Sync every pending update between the harnesses (all pairs). */

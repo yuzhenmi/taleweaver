@@ -11,18 +11,8 @@ import { markerRanges } from "./document/markers";
 import { type AllSelection, caretAt, isTextSelection } from "./position/model-position";
 import { mapOf, newFootnoteOf, newMarker, newParagraphMark } from "./storage/new-items";
 import { childrenOf, textOf } from "./test-helpers/fixture";
-import { Harness } from "./test-helpers/harness";
-import { type Unit, insertUnits, mapsOf, units } from "./test-helpers/table";
-
-/** A harness whose body holds `spec` before its final ¶; `edit` may set keys on the spec's maps first. */
-function raw(spec: string | Unit[], edit?: (maps: Y.Map<unknown>[]) => void): Harness {
-  const h = new Harness();
-  const us = typeof spec === "string" ? units(spec) : spec;
-  edit?.(mapsOf(us));
-  h.f.doc.transact(() => insertUnits(h.f.piece, 0, us));
-  h.history.clear();
-  return h;
-}
+import type { Harness } from "./test-helpers/harness";
+import { type Unit, raw, units } from "./test-helpers/table";
 
 const tablesOf = (h: Harness, parent?: string): Block[] =>
   (parent === undefined ? h.paragraphs() : childrenOf(h.version, "block", parent)).filter((b) => b.type === BLOCK_TYPES.table);
