@@ -17,7 +17,8 @@ export function copyUnits(fs: FlowState, a: StoragePoint, b: StoragePoint): Inse
 
 /** The zero-width units (anchor edges) of storage `[a, b)` of `fs`, deep-cloned (a marker is its `{ns, id, edge}`: the same anchor), in order. */
 export function anchorUnits(fs: FlowState, a: StoragePoint, b: StoragePoint): InsertUnit[] {
-  return unitsOf(fs, a, b, keysOf(fs, a, b), true);
+  const keys = keysOf(fs, a, b);
+  return keys.size === 0 ? [] : unitsOf(fs, a, b, keys, true); // no anchors: no piece delta read
 }
 
 /** The `seg:index` keys of the zero-width units of `[a, b)`. */

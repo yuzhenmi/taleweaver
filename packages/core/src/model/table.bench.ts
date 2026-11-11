@@ -12,11 +12,15 @@
  *   - a first keystroke into an empty cell (`⟨c⟩¶`) at row 5000: ≤ 0.1 ms;
  *   - insert / delete a row at row 5000 of 10⁴ × 3: ≤ 30 ms each.
  * N4 (the real command, plan + apply + derive; a fresh document each iteration, not timed):
- *   - insert a column (`insertColumn`, caret in a middle-row cell) in 1000 × 50: ≤ 100 ms. 10⁴ × 3 is reported, not
- *     budgeted: tables past ~1000 rows are not realistic in a word processor, and the cost is O(rows) as in Word.
+ *   - insert a column (`insertColumn`, caret in a middle-row cell) in 1000 × 50: ≤ 100 ms. Both ops' 10⁴ × 3 is
+ *     reported, not budgeted: tables past ~1000 rows are not realistic in a word processor; the cost is O(rows), as in Word.
+ *   - delete a column (`deleteColumn`): reported, not budgeted. About half its time is Yjs's own transaction cleanup
+ *     (`tryToMergeWithLefts` splicing the struct array once per deleted cell range), outside the engine.
  */
 import { afterAll, bench, describe, expect } from "vitest";
 import * as Y from "yjs";
+import type { CommandContext } from "./commands/command-context";
+import { deleteColumn } from "./commands/table/delete-column";
 import { insertColumn } from "./commands/table/insert-column";
 import { Model } from "./model";
 import { applyPlan } from "./plan";
@@ -121,15 +125,20 @@ describe("N2 K-d: keystrokes and row edits in a large table", () => {
   bench("insert / delete a row at row ≈ 5000, 10⁴ × 3", timed("row", rowEdit), { iterations: 40, warmupIterations: 4, time: 0 });
 });
 
-describe("N4: insert a column through the command", () => {
-  for (const s of SHAPES) {
+const COLUMN_OPS = [
+  { key: "col", label: "insert a column", run: (ctx: CommandContext) => insertColumn(ctx, "right") },
+  { key: "del", label: "delete a column", run: deleteColumn },
+] as const;
+
+describe("N4: insert / delete a column through the command", () => {
+  for (const { op, s } of COLUMN_OPS.flatMap((op) => SHAPES.map((s) => ({ op, s })))) {
     const update = updates.get(s.name) ?? new Uint8Array();
     const all: number[] = [];
     const plans: number[] = [];
-    samples.set(`col ${s.name}`, all);
-    samples.set(`colPlan ${s.name}`, plans);
+    samples.set(`${op.key} ${s.name}`, all);
+    samples.set(`${op.key}Plan ${s.name}`, plans);
     bench(
-      `insert a column, ${s.name}`,
+      `${op.label}, ${s.name}`,
       () => {
         const doc = new Y.Doc();
         Y.applyUpdate(doc, update);
@@ -142,9 +151,9 @@ describe("N4: insert a column through the command", () => {
         const cell = d.trees.block.get(row ?? "")?.firstChildId ?? "";
         const para = d.trees.block.get(cell)?.firstChildId ?? "";
         const t0 = performance.now();
-        const plan = insertColumn({ version: d, selection: caretAt(para, 0) }, "right");
+        const plan = op.run({ version: d, selection: caretAt(para, 0) });
         const t1 = performance.now();
-        if (plan === null || applyPlan(model, plan, origin) === null) throw new Error("bench: insertColumn did not apply");
+        if (plan === null || applyPlan(model, plan, origin) === null) throw new Error(`bench: ${op.label} did not apply`);
         all.push(performance.now() - t0);
         plans.push(t1 - t0);
         model.destroy();
@@ -159,10 +168,11 @@ afterAll(() => {
   console.log(`N1 tables: load 10⁴×3 ${median("10⁴ × 3").toFixed(0)} ms, 50×10³ ${median("50 × 10³").toFixed(0)} ms; 50×10³ encoded ${(size / 1e6).toFixed(2)} MB`);
   for (const s of SHAPES) if (samples.has(s.name)) expect(median(s.name)).toBeLessThanOrEqual(1500);
   if (samples.has("10⁴ × 3")) expect(size).toBeLessThanOrEqual(6e6);
-  if ((samples.get("col 10⁴ × 3")?.length ?? 0) > 0) {
-    const line = SHAPES.map((x) => `${x.name} ${median(`col ${x.name}`).toFixed(1)} ms (plan ${median(`colPlan ${x.name}`).toFixed(1)} ms)`).join(", ");
-    console.log(`N4 insert a column: ${line}`);
-    expect(median("col 50 × 10³")).toBeLessThanOrEqual(100);
+  for (const op of COLUMN_OPS) {
+    if ((samples.get(`${op.key} 10⁴ × 3`)?.length ?? 0) === 0) continue;
+    const line = SHAPES.map((x) => `${x.name} ${median(`${op.key} ${x.name}`).toFixed(1)} ms (plan ${median(`${op.key}Plan ${x.name}`).toFixed(1)} ms)`).join(", ");
+    console.log(`N4 ${op.label}: ${line}`);
+    if (op.key === "col") expect(median("col 50 × 10³")).toBeLessThanOrEqual(100);
   }
   if (samples.has("k10000")) {
     console.log(
