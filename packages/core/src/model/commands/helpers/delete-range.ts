@@ -61,6 +61,18 @@ export function deleteRange(start: At, end: At, tailKeys?: Keys): Deletion | nul
 
 /** Delete storage `[a, b)` except the zero-width units in it. */
 export function deleteKeepingAnchors(fs: FlowState, a: StoragePoint, b: StoragePoint): Write[] {
+  const out: Write[] = [];
+  let from = a;
+  for (const p of zeroWidthPoints(fs, a, b)) {
+    out.push(...deleteBetween(fs, from, p));
+    from = { ...p, index: p.index + 1 };
+  }
+  out.push(...deleteBetween(fs, from, b));
+  return out;
+}
+
+/** The storage points of the zero-width units (anchor edges) in storage `[a, b)` of `fs`, in order. */
+export function zeroWidthPoints(fs: FlowState, a: StoragePoint, b: StoragePoint): StoragePoint[] {
   const keep: StoragePoint[] = [];
   for (let j = a.seg; j <= b.seg; j++) {
     const seg = fs.segments[j];
@@ -76,14 +88,7 @@ export function deleteKeepingAnchors(fs: FlowState, a: StoragePoint, b: StorageP
       }
     });
   }
-  const out: Write[] = [];
-  let from = a;
-  for (const p of keep) {
-    out.push(...deleteBetween(fs, from, p));
-    from = { ...p, index: p.index + 1 };
-  }
-  out.push(...deleteBetween(fs, from, b));
-  return out;
+  return keep;
 }
 
 /** `offset` moved over the zero-width units next to it, forward (`dir` 1) or backward (-1), within `L`. */

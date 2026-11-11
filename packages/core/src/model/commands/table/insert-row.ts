@@ -1,15 +1,13 @@
-import type { BlockId } from "../../block";
 import { spanOf } from "../../derive/table/form-table";
 import { headerCountOf } from "../../derive/table/table-form";
 import type { InsertUnit, Plan, Write } from "../../plan";
 import { HEADER_KEY, ROW_SPAN_KEY } from "../../storage/keys";
 import { newParagraphMark } from "../../storage/new-items";
-import type { Carry } from "../../../table-grid/assign-table-grid";
 import { newCellMark, newRowMark } from "../../storage/table-marks";
 import type { CommandContext } from "../command-context";
 import { plan } from "../helpers/build-plan";
 import { insertAt, keysWrite } from "../helpers/writes";
-import { attrKeys, keptSelection, markOf, markPoint, rowEndPoint, selectedCell, slotsOf, spanValue } from "./table-at";
+import { attrKeys, headsIn, keptSelection, markOf, markPoint, rowEndPoint, selectedCell, slotsOf, spanValue } from "./table-at";
 
 /**
  * T1: insert a row above / below the selected cell (a merged cell: above / below all its rows; GDocs). The new row
@@ -49,11 +47,4 @@ export function insertRow(ctx: CommandContext, side: "above" | "below"): Plan | 
   }
   writes.push(insertAt(at, units));
   return plan(d, writes, keptSelection(ctx, c, side === "above" ? 1 : 0, 0));
-}
-
-/** The distinct heads of a carry, each with its rows left at that carry's row. */
-function headsIn(carry: Carry<BlockId>): { head: BlockId; rowsLeft: number }[] {
-  const seen = new Map<BlockId, number>();
-  for (const s of carry) if (s !== undefined && !seen.has(s.head)) seen.set(s.head, s.rowsLeft);
-  return [...seen].map(([head, rowsLeft]) => ({ head, rowsLeft }));
 }

@@ -3,18 +3,20 @@ import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { BLOCK_TYPES, type Block } from "./block";
 import { selectAll } from "./commands/selections";
+import { deleteRow } from "./commands/table/delete-row";
 import { insertColumn } from "./commands/table/insert-column";
 import { insertRow } from "./commands/table/insert-row";
+import { markerRanges } from "./document/markers";
 import { type AllSelection, caretAt, isTextSelection } from "./position/model-position";
-import { mapOf } from "./storage/new-items";
+import { mapOf, newFootnoteOf, newMarker, newParagraphMark } from "./storage/new-items";
 import { childrenOf, textOf } from "./test-helpers/fixture";
 import { Harness } from "./test-helpers/harness";
-import { insertUnits, mapsOf, units } from "./test-helpers/table";
+import { type Unit, insertUnits, mapsOf, units } from "./test-helpers/table";
 
 /** A harness whose body holds `spec` before its final ¶; `edit` may set keys on the spec's maps first. */
-function raw(spec: string, edit?: (maps: Y.Map<unknown>[]) => void): Harness {
+function raw(spec: string | Unit[], edit?: (maps: Y.Map<unknown>[]) => void): Harness {
   const h = new Harness();
-  const us = units(spec);
+  const us = typeof spec === "string" ? units(spec) : spec;
   edit?.(mapsOf(us));
   h.f.doc.transact(() => insertUnits(h.f.piece, 0, us));
   h.history.clear();
@@ -318,5 +320,199 @@ describe("insertColumn (T1)", () => {
     g.run(insertColumn, "right");
     expect(grid(g, inner)).toEqual([["x", ""]]);
     expect(grid(g, outer)).toEqual([["T|"]]);
+  });
+});
+
+/** `spec` (a depth-0 table) as the only content of a depth-0 table's cell: its marks at depth 1. */
+const nested = (spec: string): string => `⟦ ⟨r⟩ ⟨c⟩ ${spec.replace(/(^|\s)(⟦|⟨r⟩|⟨c⟩|⟧)(\S*)/g, "$1$2$3@1")} ¶ ⟧ q¶`;
+
+/** Runs `step`, checks undo restores everything a reader sees and redo the result. */
+function undoableRead(h: Harness, step: () => void): void {
+  const before = h.read();
+  step();
+  const after = h.read();
+  expect(h.undo()).toBe(true);
+  expect(h.read()).toEqual(before);
+  expect(h.redo()).toBe(true);
+  expect(h.read()).toEqual(after);
+}
+
+/** `spec`'s units, a word `†<id>` / `‡<id>` a comment anchor's start / end marker. */
+const marked = (spec: string): Unit[] =>
+  units(spec).map((u) => (typeof u === "string" && (u.startsWith("†") || u.startsWith("‡")) ? newMarker("c", u.slice(1), u.startsWith("†") ? "start" : "end") : u));
+
+/** A cell's blocks as words: text, `†<id>` per marker, `[fn]` per footnote; a table `T`. */
+const paragraphsOf = (h: Harness, c: Block): string[] =>
+  childrenOf(h.version, "block", c.id).map((b) =>
+    b.type === BLOCK_TYPES.table
+      ? "T"
+      : (b.inlineContent?.items ?? [])
+          .map((i) => (i.kind === "text" ? i.text : i.kind === "embed" && i.embedType === "marker" ? `${i.properties["edge"] === "end" ? "‡" : "†"}${String(i.properties["id"])}` : i.kind === "embed" && i.embedType === "footnote-anchor" ? "[fn]" : "?"))
+          .join(" "),
+  );
+
+const markerCount = (h: Harness): number => JSON.stringify(h.read()).split('"embedType":"marker"').length - 1;
+
+describe.each(["body", "nested"] as const)("deleteRow (T2), in a %s table", (where) => {
+  const make = (spec: string): Harness => raw(marked(where === "body" ? `${spec} q¶` : nested(spec)));
+  /** The table under test (the inner one when nested); undefined once it is gone. */
+  const target = (h: Harness): Block | undefined => (where === "body" ? tablesOf(h)[0] : tablesOf(h, cell(h, tableOf(h), 0, 0).id)[0]);
+  const the = (h: Harness): Block => {
+    const t = target(h);
+    if (t === undefined) throw new Error("no target table");
+    return t;
+  };
+  /** Delete the rows of cell (r, c); expects grid `g` and the caret at the start of cell `to`. */
+  function del(spec: string, [r, c]: [number, number], g: string[][], to: [number, number]): Harness {
+    const h = make(spec);
+    inCell(h, the(h), r, c);
+    undoableRead(h, () => expect(h.run(deleteRow)).toBe(true));
+    const t = the(h);
+    expect(grid(h, t)).toEqual(g);
+    expect(focusId(h)).toBe(childrenOf(h.version, "block", cell(h, t, ...to).id)[0]?.id);
+    return h;
+  }
+
+  const P3 = "⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟨c⟩ d¶ ⟨r⟩ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧";
+  const RS = "⟦ ⟨r⟩ ⟨c⟩r2 a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ d¶ ⟨r⟩ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧";
+  const H22 = "⟦ ⟨r⟩ ⟨c⟩r2c2 a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ d¶ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧";
+
+  it("a plain cell's row (middle, first, last): the caret goes to the same column below, or above for the last row", () => {
+    del(P3, [1, 1], [["a", "b"], ["e", "f"]], [1, 1]);
+    del(P3, [0, 0], [["c", "d"], ["e", "f"]], [0, 0]);
+    del(P3, [2, 0], [["a", "b"], ["c", "d"]], [1, 0]);
+  });
+
+  it("a colSpan head's row; a row below it (the caret: the head covering the column)", () => {
+    del("⟦ ⟨r⟩ ⟨c⟩c2 a¶ ⟨r⟩ ⟨c⟩ c¶ ⟨c⟩ d¶ ⟧", [0, 0], [["c", "d"]], [0, 0]);
+    del("⟦ ⟨r⟩ ⟨c⟩c2 a¶ ⟨r⟩ ⟨c⟩ c¶ ⟨c⟩ d¶ ⟧", [1, 1], [["a→2"]], [0, 0]);
+  });
+
+  it("a rowSpan head: its anchor row moves it down (with its content) before the next real cell; a covered row shrinks it; the head deletes all its rows", () => {
+    del(RS, [0, 1], [["a", "d"], ["e", "f"]], [0, 1]);
+    del(RS, [1, 0], [["a", "b"], ["e", "f"]], [1, 1]);
+    del(RS, [0, 0], [["e", "f"]], [0, 0]);
+  });
+
+  it("a head re-created at its row's end; past a ragged row's end its slot is padded with empty cells", () => {
+    del("⟦ ⟨r⟩ ⟨c⟩ x¶ ⟨c⟩r3 a¶ ⟨r⟩ ⟨c⟩ d¶ ⟨r⟩ ⟨c⟩ e¶ ⟧", [0, 0], [["d", "a↓2"], ["e"]], [0, 0]);
+    del("⟦ ⟨r⟩ ⟨c⟩ x¶ ⟨c⟩ y¶ ⟨c⟩r2 a¶ ⟨r⟩ ⟨c⟩ d¶ ⟧", [0, 1], [["d", "", "a"]], [0, 1]);
+  });
+
+  it("heads moved from several deleted rows land left to right", () => {
+    del("⟦ ⟨r⟩ ⟨c⟩ x¶ ⟨c⟩r3 a¶ ⟨c⟩r2 s¶ ⟨r⟩ ⟨c⟩r2 y¶ ⟨r⟩ ⟨c⟩ e¶ ⟨r⟩ ⟨c⟩ f¶ ⟧", [0, 2], [["y", "a", "e"], ["f", "", ""]], [0, 2]);
+  });
+
+  it("a 2×2 head: moved down keeping its width; a covered row shrinks it", () => {
+    del(H22, [0, 1], [["a→2", "c"], ["d", "e", "f"]], [0, 1]);
+    del(H22, [1, 0], [["a→2", "b"], ["d", "e", "f"]], [1, 2]);
+  });
+
+  it("a virtual cell's row; a caret landing in a virtual cell; past a column the table lost, the caret takes the last one", () => {
+    const V = "⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧";
+    del(V, [1, 1], [["a", "b"], ["e", "f"]], [1, 1]);
+    del(V, [0, 1], [["c", ""], ["e", "f"]], [0, 1]);
+    del("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟧", [0, 1], [["c"]], [0, 0]);
+  });
+
+  it("the deleted rows' anchors move to the start of row b's first paragraph, or (the last row) the end of row a − 1's last one", () => {
+    const M = "⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ †1 c¶ ⟨c⟩ d †2 ¶ ⟨r⟩ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧";
+    let h = del(M, [1, 1], [["a", "b"], ["\ufffc\ufffce", "f"]], [1, 1]);
+    expect(paragraphsOf(h, cell(h, the(h), 1, 0))).toEqual(["†1 †2 e"]);
+    const L = "⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ †1 c¶ ⟨c⟩ †2 d¶ ⟧";
+    h = del(L, [1, 0], [["a", "b\ufffc\ufffc"]], [0, 0]);
+    expect(paragraphsOf(h, cell(h, the(h), 0, 1))).toEqual(["b †1 †2"]);
+    h = del(L, [0, 0], [["\ufffcc", "\ufffcd"]], [0, 0]);
+    expect(paragraphsOf(h, cell(h, the(h), 0, 0))).toEqual(["†1 c"]);
+  });
+
+  it("a moved head's anchors are not copied: they go, with the range's others in storage order, to row b's first real cell", () => {
+    const h = del("⟦ ⟨r⟩ ⟨c⟩r2 †1 a¶ ⟨c⟩ †2 b¶ ⟨r⟩ ⟨c⟩ d¶ ⟨r⟩ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧", [0, 1], [["a", "\ufffc\ufffcd"], ["e", "f"]], [0, 1]);
+    expect(paragraphsOf(h, cell(h, the(h), 0, 0))).toEqual(["a"]);
+    expect(paragraphsOf(h, cell(h, the(h), 0, 1))).toEqual(["†1 †2 d"]);
+    expect(markerCount(h)).toBe(2);
+  });
+
+  it("a comment from a moved head to the row below keeps a valid range (start before end)", () => {
+    const h = del("⟦ ⟨r⟩ ⟨c⟩ x¶ ⟨c⟩r2 †1 a¶ ⟨r⟩ ⟨c⟩ ‡1 d¶ ⟨r⟩ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧", [0, 0], [["\ufffc\ufffcd", "a"], ["e", "f"]], [0, 0]);
+    expect(paragraphsOf(h, cell(h, the(h), 0, 0))).toEqual(["†1 ‡1 d"]);
+    expect([...markerRanges(h.version).values()].map((r) => r.id)).toEqual(["1"]);
+  });
+
+  it("every row of the table (one row; a head spanning all) → C10: the table is gone, the caret where it was", () => {
+    for (const spec of ["⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟧", "⟦ ⟨r⟩ ⟨c⟩r2 a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ d¶ ⟧"]) {
+      const h = make(spec);
+      inCell(h, the(h), 0, 0);
+      undoableRead(h, () => expect(h.run(deleteRow)).toBe(true));
+      expect(target(h)).toBeUndefined();
+      const p = where === "body" ? h.paragraphs()[0] : childrenOf(h.version, "block", cell(h, tableOf(h), 0, 0).id)[0];
+      expect(p === undefined ? "" : textOf(p)).toBe(where === "body" ? "q" : "");
+      expect(focusId(h)).toBe(p?.id);
+    }
+  });
+});
+
+describe("deleteRow (T2)", () => {
+  it("a header row: the header count drops", () => {
+    const h = raw("⟦ ⟨r⟩h ⟨c⟩ a¶ ⟨r⟩h ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟧ q¶");
+    inCell(h, tableOf(h), 0, 0);
+    h.run(deleteRow);
+    expect(tableOf(h).attrs["headerRowCount"]).toBe(1);
+    expect(grid(h, tableOf(h))).toEqual([["b"], ["c"]]);
+  });
+
+  it("a re-created head keeps its a:* keys, all its content and its footnotes; every anchor of the range (its own too) goes to row b's first paragraph start", () => {
+    const body = new Y.Text();
+    body.insert(0, "n");
+    body.insertEmbed(1, newParagraphMark());
+    const us = units("⟦ ⟨r⟩ ⟨c⟩ x¶ ⟨c⟩r2 a¶ z¶ ⟨r⟩ ⟨c⟩ d¶ ⟧ q¶");
+    // `a`, a footnote, then a marker, in the head's first paragraph; a marker in the deleted cell `x`.
+    const at = us.indexOf("a");
+    const headMark = us[at - 1];
+    if (!(headMark instanceof Y.Map)) throw new Error("no head mark");
+    headMark.set("a:bg", "red");
+    us.splice(at + 1, 0, newFootnoteOf(body), newMarker("c", "b1", "start"));
+    us.splice(us.indexOf("x") + 1, 0, newMarker("c", "b2", "start"));
+    const h = raw(us);
+    inCell(h, tableOf(h), 0, 0);
+    undoableRead(h, () => expect(h.run(deleteRow)).toBe(true));
+    const t = tableOf(h);
+    expect(grid(h, t)).toEqual([["\ufffc\ufffcd", "a\ufffc|z"]]);
+    expect(paragraphsOf(h, cell(h, t, 0, 0))).toEqual(["†b2 †b1 d"]);
+    const head = cell(h, t, 0, 1);
+    expect(head.attrs["bg"]).toBe("red");
+    expect(paragraphsOf(h, head)).toEqual(["a [fn]", "z"]);
+    const items = childrenOf(h.version, "block", head.id)[0]?.inlineContent?.items ?? [];
+    const fn = items.find((i) => i.kind === "embed" && i.embedType === "footnote-anchor");
+    const fnBody = fn?.kind === "embed" ? fn.properties["contentBlockId"] : undefined;
+    expect(typeof fnBody === "string" ? childrenOf(h.version, "embedContent", fnBody).map(textOf) : null).toEqual(["n"]);
+    expect(markerCount(h)).toBe(2);
+  });
+
+  it("anchors go to the deepest first paragraph when row b's first cell starts with a nested table", () => {
+    const h = raw(marked("⟦ ⟨r⟩ ⟨c⟩ †1 a¶ ⟨r⟩ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 x¶ ⟧@1 ¶ ⟧ q¶"));
+    inCell(h, tableOf(h), 0, 0);
+    undoableRead(h, () => expect(h.run(deleteRow)).toBe(true));
+    const inner = tablesOf(h, cell(h, tableOf(h), 0, 0).id)[0];
+    if (inner === undefined) throw new Error("no inner table");
+    expect(paragraphsOf(h, cell(h, inner, 0, 0))).toEqual(["†1 x"]);
+    expect(paragraphsOf(h, cell(h, tableOf(h), 0, 0))).toEqual(["T", ""]);
+  });
+
+  it("the last row of an unclosed table (closed by [S])", () => {
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨r⟩ ⟨c⟩ c¶ [S] q¶");
+    const t = tableOf(h);
+    inCell(h, t, 1, 0);
+    undoableRead(h, () => expect(h.run(deleteRow)).toBe(true));
+    expect(grid(h, t)).toEqual([["a"]]);
+    expect(focusId(h)).toBe(childrenOf(h.version, "block", cell(h, t, 0, 0).id)[0]?.id);
+  });
+
+  it("is a no-op outside a cell and for a body select-all", () => {
+    const h = raw(T22);
+    h.caret(1, 0);
+    expect(h.run(deleteRow)).toBe(false);
+    h.selection = all(h);
+    expect(h.run(deleteRow)).toBe(false);
   });
 });
