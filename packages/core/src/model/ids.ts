@@ -29,4 +29,9 @@ export const finalSectionId = (rootId: string): BlockId => `${rootId}/final`;
 export const footnoteBodyId = (anchorId: string): BlockId => `${anchorId}/body`;
 export const virtualCellId = (nextMarkId: string, col: number): BlockId => `${nextMarkId}/fill${col}`;
 export const emptyCellParagraphId = (cellId: string): BlockId => `${cellId}/empty`;
+/** The next mark and column of a virtual end cell's paragraph id (`${M}/fill<col>/empty`); null for any other id. */
+export function virtualCellParagraphOf(id: BlockId): { readonly mark: string; readonly col: number } | null {
+  const m = /^(.*)\/fill(\d+)\/empty$/.exec(id);
+  return m === null || m[1] === undefined || m[2] === undefined ? null : { mark: m[1], col: Number(m[2]) };
+}
 export const templateBodyId = (bodyId: string): BlockId => `h/${bodyId.replace(/%/g, "%25").replace(/\//g, "%2F")}`;

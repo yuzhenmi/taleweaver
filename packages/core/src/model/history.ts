@@ -33,6 +33,7 @@ import { paragraphLayout } from "./position/paragraph-layout";
 import { positionAtPoint, terminatorAtPoint } from "./position/position-at-point";
 import { comparePoints } from "./position/storage-points";
 import { anchorPoint, fromRelativePosition, pointOfRelative, relativeItemLive, toRelativePosition } from "./mapping/relative-position";
+import { emptyCellParagraphId, virtualCellId, virtualCellParagraphOf } from "./ids";
 import { isBlockObject } from "./scan/kinds";
 import { flowContainerDeleteFilter } from "./storage/history-hooks";
 import { ROOT_MAP } from "./storage/keys";
@@ -46,6 +47,8 @@ export type EditKind = "insert" | "delete" | "command";
 interface StoredPosition {
   readonly rel: Y.RelativePosition;
   readonly assoc: Assoc;
+  /** A virtual end cell's column: all of a row's virtual cells share their storage point (the row's next mark). */
+  readonly fill?: number;
 }
 /** A text selection's ends; an object selection as a RelativePosition AT its object's item (Yjs follows a re-created object's `redone` chain); a select-all as its flow. */
 type StoredSelection =
@@ -73,7 +76,8 @@ function inOrder(d: Document, a: ModelPosition, b: ModelPosition): boolean {
 
 function storePosition(d: Document, p: ModelPosition, assoc: Assoc): StoredPosition | null {
   const rel = toRelativePosition(d, p, assoc);
-  return rel === null ? null : { rel, assoc };
+  const fill = virtualCellParagraphOf(p.blockId)?.col;
+  return rel === null ? null : fill === undefined ? { rel, assoc } : { rel, assoc, fill };
 }
 
 /**
@@ -96,7 +100,14 @@ function storeSelection(d: Document, sel: ModelSelection): StoredSelection | nul
 
 function restorePosition(d: Document, s: StoredPosition): ModelPosition | null {
   const p = fromRelativePosition(d, s.rel, s.assoc);
-  return p === null || paragraphLayout(d, p.blockId) === null ? null : p;
+  if (p === null || paragraphLayout(d, p.blockId) === null) return null;
+  // The point names the row's first virtual cell: back to the stored column, or the nearest one left of it that reads.
+  const v = s.fill === undefined ? null : virtualCellParagraphOf(p.blockId);
+  for (let col = s.fill ?? 0; v !== null && col > v.col; col--) {
+    const id = emptyCellParagraphId(virtualCellId(v.mark, col));
+    if (paragraphLayout(d, id) !== null) return { blockId: id, offset: p.offset };
+  }
+  return p;
 }
 
 /** An object selection's restore: the object at its point while it is the stored object or its re-created copy (an undo's: its new id), else a caret there (mapSelection's deleted guard). */

@@ -319,15 +319,16 @@ describe("H1 coalescing (today's rule)", () => {
 });
 
 describe("M3a: a caret in a table cell with nothing stored (N2)", () => {
-  it("in an empty cell (`/empty`) and in a virtual end cell: typing makes the cell real; undo restores the read and the caret", () => {
+  it("in an empty cell (`/empty`) and in a virtual end cell (also one after another, sharing its point): typing makes the cell real; undo restores the read and the caret", () => {
     const h = new Harness();
-    const us = units("⟦ ⟨r⟩ ⟨c⟩ ⟨c⟩ a¶ ⟨r⟩ ⟨c⟩ b¶ ⟧");
+    const us = units("⟦ ⟨r⟩ ⟨c⟩ ⟨c⟩ a¶ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ b¶ ⟧");
     h.f.doc.transact(() => insertUnits(h.f.piece, 0, us));
-    const [table, , c0, , , , , , end] = mapsOf(us);
+    const [table, , c0, , , , , , , , end] = mapsOf(us);
     const tableId = idOf(table ?? new Y.Map());
     const cases: [string, string[][]][] = [
-      [emptyCellParagraphId(idOf(c0 ?? new Y.Map())), [["z", "a"], ["b", ""]]],
-      [emptyCellParagraphId(virtualCellId(idOf(end ?? new Y.Map()), 1)), [["", "a"], ["b", "z"]]],
+      [emptyCellParagraphId(idOf(c0 ?? new Y.Map())), [["z", "a", "c"], ["b", "", ""]]],
+      [emptyCellParagraphId(virtualCellId(idOf(end ?? new Y.Map()), 1)), [["", "a", "c"], ["b", "z", ""]]],
+      [emptyCellParagraphId(virtualCellId(idOf(end ?? new Y.Map()), 2)), [["", "a", "c"], ["b", "", "z"]]],
     ];
     for (const [id, typed] of cases) {
       const before = h.read();
