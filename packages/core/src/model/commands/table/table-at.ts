@@ -12,8 +12,8 @@ import type { Carry } from "../../../table-grid/assign-table-grid";
 import { virtualCellId } from "../../ids";
 import { edgeParagraphOf } from "../../position/block-object";
 import { type ModelSelection, caretAt, isAllSelection, isTextSelection } from "../../position/model-position";
-import { type StoragePoint, terminatorOf } from "../../position/paragraph-layout";
-import { pointOf } from "../../position/storage-points";
+import { type StoragePoint, paragraphLayout, terminatorOf } from "../../position/paragraph-layout";
+import { pointBefore, pointOf } from "../../position/storage-points";
 import { tableExtent } from "../../position/table-extent";
 import { isWriteScalar } from "../../storage/scalar";
 import type { Scalar } from "../../storage/scalar";
@@ -138,4 +138,11 @@ export function keptSelection(ctx: CommandContext, c: CellAt, dRow: number, dCol
     const p = cellParagraphAt(after, c.fs.holderId, c.tableId, c.row + dRow, c.col + dCol);
     return p === null ? sel : caretAt(p, 0);
   };
+}
+
+/** The start (`side` 1) or the end, before its ¶ (−1), of cell `cellId`'s first / last paragraph, through nested tables. */
+export function edgePoint(d: Document, cellId: BlockId, side: 1 | -1): StoragePoint | null {
+  const id = edgeParagraphOf(d, cellId, side);
+  const L = id === null ? null : paragraphLayout(d, id);
+  return L === null ? null : side > 0 ? L.head : pointBefore(L, L.length);
 }

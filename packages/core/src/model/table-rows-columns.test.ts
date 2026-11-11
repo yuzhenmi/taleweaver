@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { BLOCK_TYPES, type Block } from "./block";
 import { selectAll } from "./commands/selections";
+import { deleteColumn } from "./commands/table/delete-column";
 import { deleteRow } from "./commands/table/delete-row";
 import { insertColumn } from "./commands/table/insert-column";
 import { insertRow } from "./commands/table/insert-row";
@@ -514,5 +515,132 @@ describe("deleteRow (T2)", () => {
     expect(h.run(deleteRow)).toBe(false);
     h.selection = all(h);
     expect(h.run(deleteRow)).toBe(false);
+  });
+});
+
+describe.each(["body", "nested"] as const)("deleteColumn (T3), in a %s table", (where) => {
+  const make = (spec: string): Harness => raw(marked(where === "body" ? `${spec} q¶` : nested(spec)));
+  const target = (h: Harness): Block | undefined => (where === "body" ? tablesOf(h)[0] : tablesOf(h, cell(h, tableOf(h), 0, 0).id)[0]);
+  const the = (h: Harness): Block => {
+    const t = target(h);
+    if (t === undefined) throw new Error("no target table");
+    return t;
+  };
+  /** Delete the columns of cell (r, c) (read order); expects grid `g` and the caret at the start of cell `to`. */
+  function del(spec: string, [r, c]: [number, number], g: string[][], to: [number, number]): Harness {
+    const h = make(spec);
+    inCell(h, the(h), r, c);
+    undoableRead(h, () => expect(h.run(deleteColumn)).toBe(true));
+    const t = the(h);
+    expect(grid(h, t)).toEqual(g);
+    expect(focusId(h)).toBe(childrenOf(h.version, "block", cell(h, t, ...to).id)[0]?.id);
+    return h;
+  }
+
+  const P = "⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ d¶ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧";
+  const H22 = "⟦ ⟨r⟩ ⟨c⟩r2c2 a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ d¶ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧";
+
+  it("a plain cell's column (middle, first, last): the caret goes to the same row at column j, or j − 1 for the last", () => {
+    del(P, [0, 1], [["a", "c"], ["d", "f"]], [0, 1]);
+    del(P, [1, 0], [["b", "c"], ["e", "f"]], [1, 0]);
+    del(P, [0, 2], [["a", "b"], ["d", "e"]], [0, 1]);
+  });
+
+  it("a colSpan head straddling the column shrinks (its key goes at 1); deleting from a colSpan head deletes all its columns", () => {
+    const S = "⟦ ⟨r⟩ ⟨c⟩c2 a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ d¶ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧";
+    del(S, [1, 1], [["a", "b"], ["d", "f"]], [1, 1]);
+    del("⟦ ⟨r⟩ ⟨c⟩c3 a¶ ⟨r⟩ ⟨c⟩ d¶ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧", [1, 0], [["a→2"], ["e", "f"]], [1, 0]);
+    del(S, [0, 0], [["b"], ["f"]], [0, 0]);
+  });
+
+  it("a rowSpan head goes once, from its anchor row; a caret past the end lands in a head from above", () => {
+    const RS = "⟦ ⟨r⟩ ⟨c⟩ x¶ ⟨c⟩r2 a¶ ⟨c⟩ y¶ ⟨r⟩ ⟨c⟩ d¶ ⟨c⟩ e¶ ⟧";
+    del(RS, [0, 1], [["x", "y"], ["d", "e"]], [0, 1]);
+    del(RS, [1, 1], [["x", "a↓2"], ["d"]], [0, 1]);
+    // A span the grid clipped (b's c3 at width 2) keeps what read: the table does not widen once `a` goes.
+    del("⟦ ⟨r⟩ ⟨c⟩ x¶ ⟨c⟩r2 a¶ ⟨r⟩ ⟨c⟩c3 b¶ ⟧", [0, 1], [["x"], ["b"]], [0, 0]);
+  });
+
+  it("a 2×2 head: a column under it shrinks it; deleting from it deletes both its columns", () => {
+    del(H22, [2, 1], [["a↓2", "b"], ["c"], ["d", "f"]], [2, 1]);
+    del(H22, [0, 0], [["b"], ["c"], ["f"]], [0, 0]);
+  });
+
+  it("a virtual cell's column (nothing to delete in its row); a ragged row shorter than j is untouched", () => {
+    del("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟧", [1, 1], [["a"], ["c"]], [1, 0]);
+    del("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨c⟩ e¶ ⟨r⟩ ⟨c⟩ c¶ ⟧", [0, 2], [["a", "b"], ["c", ""]], [0, 1]);
+  });
+
+  it("a deleted cell's anchors go to the start of the next cell's first paragraph, or (the last column) the end of the previous cell's last one; a comment across rows keeps its range", () => {
+    let h = del("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ †1 b¶ ⟨c⟩ c¶ w¶ ⟨r⟩ ⟨c⟩ d¶ ⟨c⟩ e ‡1 ¶ ⟨c⟩ f¶ ⟧", [0, 1], [["a", "\ufffcc|w"], ["d", "\ufffcf"]], [0, 1]);
+    expect(paragraphsOf(h, cell(h, the(h), 0, 1))).toEqual(["†1 c", "w"]);
+    expect(paragraphsOf(h, cell(h, the(h), 1, 1))).toEqual(["‡1 f"]);
+    expect([...markerRanges(h.version).values()].map((r) => r.id)).toEqual(["1"]);
+    h = del("⟦ ⟨r⟩ ⟨c⟩ z¶ a¶ ⟨c⟩ †1 b¶ ⟨r⟩ ⟨c⟩ c¶ ⟨c⟩ d ‡1 ¶ ⟧", [0, 1], [["z|a\ufffc"], ["c\ufffc"]], [0, 0]);
+    expect(paragraphsOf(h, cell(h, the(h), 0, 0))).toEqual(["z", "a †1"]);
+    expect(paragraphsOf(h, cell(h, the(h), 1, 0))).toEqual(["c ‡1"]);
+    expect([...markerRanges(h.version).values()].map((r) => r.id)).toEqual(["1"]);
+  });
+
+  it("a row left with no real cell: its anchors go to the previous surviving cell's end, or (none yet) the next one's start", () => {
+    let h = del("⟦ ⟨r⟩ ⟨c⟩r2 a¶ ⟨c⟩ †1 b¶ ⟨r⟩ ⟨c⟩ ‡1 d¶ ⟧", [0, 1], [["a\ufffc\ufffc↓2"], []], [0, 0]);
+    expect(paragraphsOf(h, cell(h, the(h), 0, 0))).toEqual(["a †1 ‡1"]);
+    h = del("⟦ ⟨r⟩ ⟨c⟩ †1 a¶ ⟨r⟩ ⟨c⟩ ‡1 c¶ ⟨c⟩ d¶ ⟧", [0, 0], [[""], ["\ufffc\ufffcd"]], [0, 0]);
+    expect(paragraphsOf(h, cell(h, the(h), 1, 0))).toEqual(["†1 ‡1 d"]);
+    expect(markerCount(h)).toBe(2);
+  });
+
+  it("every column (one column; a head spanning all) → C10: the table is gone, the caret where it was", () => {
+    for (const spec of ["⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨r⟩ ⟨c⟩ b¶ ⟧", "⟦ ⟨r⟩ ⟨c⟩c2 a¶ ⟨r⟩ ⟨c⟩ c¶ ⟨c⟩ d¶ ⟧"]) {
+      const h = make(spec);
+      inCell(h, the(h), 0, 0);
+      undoableRead(h, () => expect(h.run(deleteColumn)).toBe(true));
+      expect(target(h)).toBeUndefined();
+      const p = where === "body" ? h.paragraphs()[0] : childrenOf(h.version, "block", cell(h, tableOf(h), 0, 0).id)[0];
+      expect(p === undefined ? "" : textOf(p)).toBe(where === "body" ? "q" : "");
+      expect(focusId(h)).toBe(p?.id);
+    }
+  });
+});
+
+describe("deleteColumn (T3)", () => {
+  it("cols: the entries in [j, k) go; none past a short cols", () => {
+    const T3 = "⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨c⟩ c¶ ⟧ q¶";
+    const h = raw(T3, (m) => setCols(m[0], [3, 2, 1]));
+    inCell(h, tableOf(h), 0, 0);
+    h.run(deleteColumn);
+    expect(widths(h)).toEqual([2 / 3, 1 / 3]);
+    const s = raw(T3, (m) => setCols(m[0], [2, 1]));
+    inCell(s, tableOf(s), 0, 1);
+    s.run(deleteColumn);
+    expect(widths(s)).toEqual([0.5, 0.5]);
+    const e = raw(T3, (m) => setCols(m[0], [2, 1]));
+    inCell(e, tableOf(e), 0, 2);
+    e.run(deleteColumn);
+    expect(widths(e)).toEqual([2 / 3, 1 / 3]);
+    const w = raw("⟦ ⟨r⟩ ⟨c⟩c2 a¶ ⟨c⟩ b¶ ⟨c⟩ c¶ ⟧ q¶", (m) => setCols(m[0], [3, 2, 1, 1]));
+    inCell(w, tableOf(w), 0, 0);
+    w.run(deleteColumn);
+    expect(widths(w)).toEqual([0.5, 0.5]);
+    const n = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩c2 b¶ ⟧ q¶", (m) => setCols(m[0], [1, 2]));
+    inCell(n, tableOf(n), 0, 1);
+    n.run(deleteColumn);
+    expect(widths(n)).toEqual([1]);
+  });
+
+  it("the header band is unchanged", () => {
+    const h = raw("⟦ ⟨r⟩h ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟨c⟩ d¶ ⟧ q¶");
+    inCell(h, tableOf(h), 1, 0);
+    h.run(deleteColumn);
+    expect(tableOf(h).attrs["headerRowCount"]).toBe(1);
+    expect(grid(h, tableOf(h))).toEqual([["b"], ["d"]]);
+  });
+
+  it("is a no-op outside a cell and for a body select-all", () => {
+    const h = raw(T22);
+    h.caret(1, 0);
+    expect(h.run(deleteColumn)).toBe(false);
+    h.selection = all(h);
+    expect(h.run(deleteColumn)).toBe(false);
   });
 });

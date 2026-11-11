@@ -1,12 +1,8 @@
-import type { BlockId } from "../../block";
-import type { Document } from "../../document/types";
 import { spanOf } from "../../derive/table/form-table";
 import type { RowForm } from "../../derive/table/table-form";
 import type { InsertUnit, Plan } from "../../plan";
-import { edgeParagraphOf } from "../../position/block-object";
 import { caretAt } from "../../position/model-position";
-import { type StoragePoint, paragraphLayout } from "../../position/paragraph-layout";
-import { pointBefore } from "../../position/storage-points";
+import type { StoragePoint } from "../../position/paragraph-layout";
 import { COL_SPAN_KEY, ROW_SPAN_KEY } from "../../storage/keys";
 import { newParagraphMark } from "../../storage/new-items";
 import type { Scalar } from "../../storage/scalar";
@@ -16,7 +12,7 @@ import { deleteBlockObject } from "../delete-block-object";
 import { plan } from "../helpers/build-plan";
 import { anchorUnits, copyUnits } from "../helpers/copy-units";
 import { deleteBetween, insertAt, keysWrite } from "../helpers/writes";
-import { type CellAt, attrKeys, cellParagraphAt, headsIn, selectedCell, slotsOf, spanValue } from "./table-at";
+import { type CellAt, attrKeys, cellParagraphAt, edgePoint, headsIn, selectedCell, slotsOf, spanValue } from "./table-at";
 import { type TableMarks, tableMarks } from "./table-mark-walk";
 
 /**
@@ -68,13 +64,6 @@ export function deleteRow(ctx: CommandContext): Plan | null {
     }
     return sel;
   });
-}
-
-/** The start (`side` 1) or the end, before its ¶ (−1), of cell `cellId`'s first / last paragraph, through nested tables. */
-function edgePoint(d: Document, cellId: BlockId, side: 1 | -1): StoragePoint | null {
-  const id = edgeParagraphOf(d, cellId, side);
-  const L = id === null ? null : paragraphLayout(d, id);
-  return L === null ? null : side > 0 ? L.head : pointBefore(L, L.length);
 }
 
 /** A head moved into row b. */
