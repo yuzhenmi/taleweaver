@@ -27,8 +27,13 @@ export function checkKeys(keys: FlatKeys, prefixes: readonly string[], what: str
 }
 
 export function validObject(ctx: CommandContext, kind: string, o: ObjectProps): void {
-  const props: Record<string, unknown> = checkScalars(o.props ?? {}, "object prop");
-  if (resolveObjectProps(ctx.version.registry, kind, props) === null) throw new Error(`model: object kind ${kind} is unregistered or misses a required prop`);
+  validObjectShape(o);
+  if (resolveObjectProps(ctx.version.registry, kind, o.props ?? {}) === null) throw new Error(`model: object kind ${kind} is unregistered or misses a required prop`);
+}
+
+/** Scalar props and sizes ≥ 0 (a pasted object whose kind does not resolve is kept: it reads as a placeholder, as a peer's does). */
+export function validObjectShape(o: ObjectProps): void {
+  checkScalars(o.props ?? {}, "object prop");
   for (const n of [o.w, o.h]) if (n !== undefined && !(Number.isFinite(n) && n >= 0)) throw new Error("model: object size must be a finite number ≥ 0");
 }
 

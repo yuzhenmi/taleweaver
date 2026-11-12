@@ -10,7 +10,7 @@ import { childMap } from "../../storage/map-reads";
 import { freshBodyId } from "./body-id";
 import { linkKey } from "./header-footer-link";
 import { placeFragment } from "./fragment-table";
-import { checkKeys, checkScalars, validField, validObject } from "./validate";
+import { checkKeys, checkScalars, validField, validObjectShape } from "./validate";
 
 // ---------------------------------------------------------------------------
 // C17 paste
@@ -144,7 +144,7 @@ export function units(ctx: CommandContext, items: readonly FragmentItem[], depth
         out.push({ embed: newParagraphMark(checkKeys(i.keys ?? {}, ["p:", "m:"], "paragraph")), attrs: {} });
         break;
       case "object":
-        validObject(ctx, i.kind, i.props ?? {});
+        validObjectShape(i.props ?? {});
         out.push({ embed: newObject(i.kind, i.props ?? {}), attrs });
         break;
       case "hr":
