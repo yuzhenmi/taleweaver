@@ -22,6 +22,7 @@ import { layoutInlineContent } from "./ifc";
 import { makeRootContext, makeChildContext } from "./layout-context";
 import { computeUsedStyle } from "./used-style";
 import { borderBoxInlineSize, inlineDecoration } from "./box-inline-decoration";
+import { blockEndDecoration, contentBlockStart } from "./box-block-decoration";
 import { normalizeBreakValue } from "./fragmentation";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import type { ComputedStyle } from "@taleweaver/core";
@@ -430,24 +431,21 @@ function buildChildMeta(
 
   // Container block: recurse into its block children.
   const children = buildMetasForChildren(child, shaper, hyphenator, contentInlineSizeOf(childCs, pageContentInlineSize));
-  // Block-axis padding insets the children's fragmentation space by
-  // `paddingBlockStart` (bfc.ts:229/350/540). `paddingBlockEnd` is added to the
-  // container height after children are placed (bfc.ts:728) — already folded
-  // into `totalBlockSize`; it ALSO inflates a fragmenting container's PARTIAL
-  // height (bfc.ts:299), which `fitOnePage`'s last-fragment check needs. `noBottomBoundary`
-  // (bfc.ts:224) decides whether the trailing child margin is suppressed in that
-  // partial height. Border-block-width never shifts block-axis geometry in this
-  // engine; it participates ONLY here, as a margin-collapse-through boundary.
-  const noBottomBoundary =
-    used.paddingBlockEnd === 0 && childCs.borderBlockEndWidth === 0;
+  // The block-start border + padding insets the children's fragmentation space
+  // (bfc's `childBlockOffset` starts at `contentBlockStart`); the end padding +
+  // border is added to the container height after its children — already folded
+  // into `totalBlockSize`, and ALSO inflating a fragmenting container's PARTIAL
+  // height, which `fitOnePage`'s last-fragment check needs. `noBottomBoundary`
+  // decides whether the trailing child margin is suppressed in that partial height.
+  const blockEnd = blockEndDecoration(used);
   return {
     kind: "block",
     ...common,
     totalBlockSize: placed.blockSize,
     children,
-    paddingBlockStart: used.paddingBlockStart,
-    paddingBlockEnd: used.paddingBlockEnd,
-    noBottomBoundary,
+    blockStartDecoration: contentBlockStart(used),
+    blockEndDecoration: blockEnd,
+    noBottomBoundary: blockEnd === 0,
   };
 }
 

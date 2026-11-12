@@ -7,6 +7,7 @@ import { layoutBlock } from "./bfc";
 import { makeRootContext } from "./layout-context";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import { rootFrame } from "./parent-frame";
+import { physicalizeVertical } from "./physicalize-vertical";
 
 const shaper = createMockShaper(8, 16);
 
@@ -174,6 +175,26 @@ describe("layoutBlock — vertical-lr block advancement (P3.2)", () => {
     // The container's block extent (logical) sums the children's blockSizes.
     expect(out.blockSize).toBe(80);
     expect(out.width).toBe(80);                // physical width === blockSize
+  });
+});
+
+describe("layoutBlock — vertical block-axis border (BM3)", () => {
+  it("the block borders take block space (physical x in vertical-lr and vertical-rl)", () => {
+    for (const writingMode of ["vertical-lr", "vertical-rl"] as const) {
+      const cascaded = cascadePass(createElementBox("root", {
+        display: "block", writingMode,
+        borderBlockStartWidth: 4, borderBlockStartStyle: "solid", borderBlockEndWidth: 2, borderBlockEndStyle: "solid",
+      }, [createElementBox("c1", { display: "block", blockSize: 50 }, [])]));
+      if (cascaded.type !== "element") throw new Error("?");
+      const ctx = makeRootContext({ ...INITIAL_COMPUTED_STYLE, writingMode }, 600);
+      const laid = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined).box;
+      if (laid === null) throw new Error("?");
+      // The block-axis mirror of vertical-rl is the physicalize pass's.
+      const out = physicalizeVertical(laid, laid.blockSize);
+      if (out.type !== "block") throw new Error("?");
+      // vertical-rl's block start is the right edge: the child sits 4px left of it.
+      expect([nth(out.children, 0, "child").x, out.width]).toEqual([writingMode === "vertical-lr" ? 4 : 2, 56]);
+    }
   });
 });
 
@@ -2145,5 +2166,90 @@ describe("B5 — a box sits in its parent's border-box frame, in the parent's di
     expect(at0("rtl").x).toBe(600 - 5 - 100);
     const fill = absChild(rootOf("ltr", [block("abs", "ltr", { position: "absolute", insetInlineStart: 0, insetInlineEnd: 0, blockSize: 10 })], { ...DECO, position: "relative" }));
     expect([fill.x, fill.width]).toEqual([5, 600 - 12]);
+  });
+
+  // BM3: borders take block space (CSS 2.1 §8): content origin = border + padding on the block axis.
+  const BLOCK_DECO = {
+    borderBlockStartWidth: 3, borderBlockEndWidth: 5, borderBlockStartStyle: "solid", borderBlockEndStyle: "solid",
+    paddingBlockStart: 10, paddingBlockEnd: 20,
+  } as const;
+
+  it("BM3: a bordered paragraph's first line starts below its top border and padding; the end adds padding + border", () => {
+    const p = get(rootOf("ltr", [createElementBox("p", { display: "block", ...BLOCK_DECO }, [createTextBox("t", {}, "abc")])], {}), "p");
+    expect([line(p).y, p.height]).toEqual([13, 13 + 16 + 25]);
+  });
+
+  it("BM3: a nested block starts below its parent's top border; a border stops margin collapse", () => {
+    const B = { borderBlockStartWidth: 4, borderBlockEndWidth: 6, borderBlockStartStyle: "solid", borderBlockEndStyle: "solid" } as const;
+    const kid = block("c", "ltr", { blockSize: 20, marginBlockStart: 30, marginBlockEnd: 7 });
+    const bordered = rootOf("ltr", [kid], B);
+    expect([get(bordered, "c").y, bordered.height]).toEqual([4 + 30, 4 + 30 + 20 + 7 + 6]);
+    const plain = rootOf("ltr", [kid], {});
+    expect([get(plain, "c").y, plain.height]).toEqual([0, 20]);
+    // An empty block with a border does not collapse through: it is as tall as its border.
+    const root = rootOf("ltr", [
+      block("a", "ltr", { blockSize: 10 }),
+      block("e", "ltr", { blockSize: "auto", marginBlockStart: 20, marginBlockEnd: 30, borderBlockStartWidth: 2, borderBlockStartStyle: "solid" }),
+      block("b", "ltr", { blockSize: 10 }),
+    ], {});
+    expect([get(root, "e").height, get(root, "b").y]).toEqual([2, 10 + 20 + 2 + 30]);
+  });
+
+  it("BM3: box-sizing — an explicit block size is the content height (content-box) or the border-box height", () => {
+    const sized = {
+      blockSize: 100, paddingBlockStart: 10, paddingBlockEnd: 10,
+      borderBlockStartWidth: 2, borderBlockEndWidth: 2, borderBlockStartStyle: "solid", borderBlockEndStyle: "solid",
+    } as const;
+    expect(get(rootOf("ltr", [block("c", "ltr", sized)], {}), "c").height).toBe(124);
+    expect(get(rootOf("ltr", [block("c", "ltr", { ...sized, boxSizing: "border-box" })], {}), "c").height).toBe(100);
+    // A picture: the height is the picture; a border adds outside it (block, float and inline).
+    const pictureBorder = {
+      inlineSize: 200, blockSize: 100,
+      borderBlockStartWidth: 2, borderBlockEndWidth: 2, borderBlockStartStyle: "solid", borderBlockEndStyle: "solid",
+    } as const;
+    expect(get(rootOf("ltr", [block("img", "ltr", pictureBorder)], {}), "img").height).toBe(104);
+    expect(get(rootOf("ltr", [block("img", "ltr", { ...pictureBorder, float: "inline-start" })], {}), "img").height).toBe(104);
+    const inlineImage = rootOf("ltr", [createElementBox("p", { display: "block" }, [
+      createElementBox("pic", { display: "inline-block", ...pictureBorder }, []),
+    ])], {});
+    expect(findBoxByKey(inlineImage, "pic")?.height).toBe(104);
+    // border-box never shrinks the content below 0 (css-box-sizing §3): a float
+    // smaller than its padding is as tall / wide as its padding.
+    const tiny = {
+      boxSizing: "border-box", float: "inline-start", blockSize: 4, inlineSize: 4,
+      paddingBlockStart: 10, paddingBlockEnd: 10, paddingInlineStart: 10, paddingInlineEnd: 10,
+    } as const;
+    const f = get(rootOf("ltr", [block("f", "ltr", tiny)], {}), "f");
+    expect([f.width, f.height]).toEqual([20, 20]);
+  });
+
+  it("BM3: a table row's height includes its cells' block borders and padding", () => {
+    const table = createElementBox("tbl", { display: "table" }, [
+      createElementBox("r", { display: "table-row" }, [
+        createElementBox("cell", { display: "table-cell", ...BLOCK_DECO }, [createTextBox("t", {}, "abc")]),
+      ]),
+    ]);
+    const row = get(get(rootOf("ltr", [table], {}), "tbl"), "r");
+    const cell = get(row, "cell");
+    expect([row.height, cell.height, line(cell).y]).toEqual([54, 54, 13]);
+  });
+
+  it("BM3: an abs-pos box's containing block is the padding box on the block axis", () => {
+    const container = {
+      position: "relative", paddingBlockStart: 10, paddingBlockEnd: 10,
+      borderBlockStartWidth: 6, borderBlockEndWidth: 4, borderBlockStartStyle: "solid", borderBlockEndStyle: "solid",
+    } as const;
+    const absAt = (inset: Record<string, unknown>) => {
+      const root = rootOf("ltr", [block("c", "ltr"), block("abs", "ltr", { position: "absolute", blockSize: 10, ...inset })], container);
+      // Border box 6 + 10 + 40 + 10 + 4 = 70; the padding box spans 6..66.
+      expect(root.height).toBe(70);
+      const a = root.absoluteChildren?.[0];
+      if (a === undefined) throw new Error("no abs child");
+      return a.y;
+    };
+    expect(absAt({ insetBlockStart: 0 })).toBe(6);
+    expect(absAt({ insetBlockEnd: 0 })).toBe(66 - 10);
+    // Its explicit block size is its content height: a 1px border each side adds 2.
+    expect(absAt({ insetBlockEnd: 0, borderBlockStartWidth: 1, borderBlockEndWidth: 1, borderBlockStartStyle: "solid", borderBlockEndStyle: "solid" })).toBe(66 - 12);
   });
 });

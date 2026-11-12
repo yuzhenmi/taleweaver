@@ -22,8 +22,10 @@ export function inlineDecoration(us: InlineBoxModel): number {
 /**
  * A specified inline size as the box's border-box size (css-box-sizing §3):
  * under `content-box` the number is the content width, so the padding and
- * borders add to it; under `border-box` it already includes them.
+ * borders add to it; under `border-box` it already includes them, and the
+ * content is floored at 0 (never smaller than the padding + borders).
  */
 export function borderBoxInlineSize(specified: number, us: InlineBoxModel): number {
-  return us.boxSizing === "border-box" ? specified : specified + inlineDecoration(us);
+  const deco = inlineDecoration(us);
+  return us.boxSizing === "border-box" ? Math.max(specified, deco) : specified + deco;
 }

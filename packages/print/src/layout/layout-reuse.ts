@@ -23,7 +23,7 @@ export interface LayoutBoxCacheEntry {
    * it ON THE BOX (`BlockBox.inFlowConsumed`) at its full / partial-fragment
    * return sites, so the cache reads it back EXACTLY. For a box enclosing a
    * float TALLER than its in-flow content, `box.blockSize`
-   * (`Math.max(inFlow, lowestFloatBlockEdge + paddingBlockEnd)`) over-states the
+   * (`Math.max(inFlow, lowestFloatBlockEdge + blockEndDecoration)`) over-states the
    * in-flow value; the on-box `inFlowConsumed` does not. A BlockBox that never
    * enclosed a float carries no on-box scalar (it equals `blockSize` by
    * construction), and any non-BlockBox box (line/table inner) has no float

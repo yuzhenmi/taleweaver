@@ -4,7 +4,7 @@ import { createIFCStateCache, type IFCState } from "./ifc-state";
 describe("IFCStateCache", () => {
   function makeState(): IFCState {
     return {
-      tokens: [], lines: [], availableInlineSize: 500, inlineOffset: 0, frameInlineSize: 500,
+      tokens: [], lines: [], availableInlineSize: 500, inlineOffset: 0, blockOffset: 0, frameInlineSize: 500,
       textAlign: "start", direction: "ltr", textIndent: 0,
       tabStops: [], defaultTabStop: 48, hasTab: false,
     };
@@ -12,7 +12,7 @@ describe("IFCStateCache", () => {
 
   it("IFCState carries tabStops/defaultTabStop/hasTab", () => {
     const s: IFCState = {
-      tokens: [], lines: [], availableInlineSize: 100, inlineOffset: 0, frameInlineSize: 100,
+      tokens: [], lines: [], availableInlineSize: 100, inlineOffset: 0, blockOffset: 0, frameInlineSize: 100,
       textAlign: "start", direction: "ltr", textIndent: 0,
       tabStops: [], defaultTabStop: 48, hasTab: false,
     };

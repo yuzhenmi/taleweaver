@@ -556,8 +556,8 @@ describe("fitOnePage (fit-core, block packing)", () => {
     const spacer = blockMeta(30);
     const padded = blockMeta(10 + 64 + 10, {
       children: [ifcMeta(2, 16), ifcMeta(2, 16)],
-      paddingBlockStart: 10,
-      paddingBlockEnd: 10,
+      blockStartDecoration: 10,
+      blockEndDecoration: 10,
       noBottomBoundary: false,
     });
     const result = fitOnePage([spacer, padded], 0, null, 100, 0);

@@ -260,9 +260,8 @@ function computeBlockContribution(
   // indefinite during an intrinsic query, so only the numeric case short-circuits.
   if (cs && typeof cs.inlineSize === "number") {
     // The border-box size (css-box-sizing §3), as layout resolves it.
-    const definite = cs.boxSizing === "border-box"
-      ? cs.inlineSize
-      : cs.inlineSize + intrinsicInlineDecoration(node, cs, shaper);
+    const deco = intrinsicInlineDecoration(node, cs, shaper);
+    const definite = cs.boxSizing === "border-box" ? Math.max(cs.inlineSize, deco) : cs.inlineSize + deco;
     const isInlineBlockBox = cs.display === "inline-block";
     return {
       minContent: definite,

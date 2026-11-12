@@ -843,6 +843,8 @@ describe("computeIntrinsicSizes — box model and floats (P3 M1e)", () => {
     // A definite 50: content-box → + padding + borders; border-box → 50.
     expect(sizes(createElementBox("c", { display: "block", inlineSize: 50, ...deco }, []))).toEqual({ minContent: 64, maxContent: 64 });
     expect(sizes(createElementBox("c", { display: "block", inlineSize: 50, boxSizing: "border-box", ...deco }, []))).toEqual({ minContent: 50, maxContent: 50 });
+    // border-box never shrinks the content below 0: a definite 4 is the decoration (14).
+    expect(sizes(createElementBox("c", { display: "block", inlineSize: 4, boxSizing: "border-box", ...deco }, []))).toEqual({ minContent: 14, maxContent: 14 });
   });
 
   it("N2: an outside list marker wider than the item's padding widens its gutter (as layout does)", () => {

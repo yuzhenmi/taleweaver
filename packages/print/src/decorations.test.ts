@@ -880,6 +880,8 @@ describe("print decorations — geometry across pages and regions", () => {
     // The cell's text starts inside its 1px border + 8px padding (table-cell component).
     const cellFill = fills(ctx, "rgb(2, 0, 0)")[0];
     expect(glyph(ctx, "c").x).toBe((cellFill?.x ?? NaN) + 9);
+    // ... and below its 1px top border + 4px padding (BM3).
+    expect(fills(ctx, "rgb(3, 0, 0)")[0]?.y).toBe((cellFill?.y ?? NaN) + 5);
     controller.destroy();
   });
 

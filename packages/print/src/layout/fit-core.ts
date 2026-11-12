@@ -46,35 +46,24 @@ export interface BlockFitMeta {
   readonly children?: readonly BlockFitMeta[];
 
   /**
-   * `block` (container) only: the container's own block-axis padding. bfc insets
-   * its children's flow by `paddingBlockStart` (bfc.ts:229 — `childBlockOffset`
-   * starts there) so the children's available block-size on a fragment is
-   * `remaining − paddingBlockStart`. `paddingBlockEnd` is added to the
-   * container's consumed height AFTER all children are placed (bfc.ts:728), so
-   * it does NOT reduce the children's fragmentation space — it is carried only
-   * for the whole-fit accounting, which already lives in `totalBlockSize`.
-   *
-   * Border-block-width is deliberately NOT modeled: in this engine border does
-   * NOT shift block-axis geometry (it is absent from `childBlockOffset` and
-   * from `inFlowBlockSize`); its only role is governing margin-collapse-through
-   * via `noTopBoundary`/`noBottomBoundary`, which the §5.4 truncation already
-   * makes a no-op in the paginated path. The oracle confirms a bordered-only
-   * container produces identical boundaries to an unbordered one.
-   *
-   * Absent (0) for leaves and unpadded containers.
+   * `block` (container) only: the container's block-start border + padding
+   * (CSS 2.1 §8). bfc starts its children's flow there (`childBlockOffset`
+   * starts at `contentBlockStart`), so the children's available block-size on a
+   * fragment is `remaining − blockStartDecoration`. Absent (0) for leaves and
+   * undecorated containers.
    */
-  readonly paddingBlockStart?: number;
+  readonly blockStartDecoration?: number;
 
   /**
-   * `block` (container) only: the container's own block-axis end padding. Added
-   * to the container's height AFTER all children are placed (bfc.ts:728/299).
-   * It is already folded into `totalBlockSize` (whole-fit path), but it ALSO
-   * inflates a fragmenting container's PARTIAL-fragment height (bfc.ts:299
-   * `childBlockOffset + lastMarginBlockEndPartial + paddingBlockEnd`), which is
-   * what the parent's overflow-rule whole-block-fit overflow check compares against
-   * `remaining`. Absent (0) for leaves and containers with no end padding.
+   * `block` (container) only: the container's block-end padding + border. Added
+   * to the container's height AFTER all children are placed — already folded
+   * into `totalBlockSize` (whole-fit path), but it ALSO inflates a fragmenting
+   * container's PARTIAL-fragment height (bfc `childBlockOffset +
+   * lastMarginBlockEndPartial + blockEndDecoration`), which the parent's
+   * overflow-rule whole-block-fit check compares against `remaining`. Absent (0)
+   * for leaves and containers with no end decoration.
    */
-  readonly paddingBlockEnd?: number;
+  readonly blockEndDecoration?: number;
 
   /**
    * `block` (container) only: bfc's `noBottomBoundary` — true when the container
@@ -154,11 +143,11 @@ export interface FitPageResult {
    * In-flow block-size consumed by this flow on this page — the recursion's
    * `runningOffset` at the moment it returned. A PARENT container reads this to
    * reconstruct the bfc partial-fragment height of a fragmenting child container
-   * (`paddingBlockStart + consumedBlockSize + trailingMarginBlockEnd +
-   * paddingBlockEnd`, bfc.ts:298–299), so it can run the same overflow-rule
+   * (`blockStartDecoration + consumedBlockSize + trailingMarginBlockEnd +
+   * blockEndDecoration`), so it can run the same overflow-rule
    * whole-block-fit / overflow check bfc does at bfc.ts:626–642. Does NOT
-   * include the flow's own padding (the flow models a container's *children*;
-   * the parent adds the container's padding).
+   * include the flow's own border / padding (the flow models a container's
+   * *children*; the parent adds the container's decoration).
    */
   readonly consumedBlockSize: number;
   /**
@@ -413,7 +402,7 @@ function fitOnePageRecursive(
   // seeded with the page-cumulative `pageFlowBase` (gapless Σ prior pages'
   // in-flow content) supplied by the measure pass — bfc's `blockFlowBase` at the
   // page root is exactly `pageFlowBase + 0`. Nested container calls pass
-  // `contentFlowBase + runningOffset + paddingBlockStart` (accumulating through
+  // `contentFlowBase + runningOffset + blockStartDecoration` (accumulating through
   // ancestors), mirroring bfc's per-container `blockFlowBase`.
   contentFlowBase = 0,
 ): FitPageResult {
@@ -579,8 +568,10 @@ function fitOnePageRecursive(
       //   - PARAGRAPH leaf: bfc lays the paragraph via its OWN `layoutBlock`,
       //     whose `blockFlowBase` includes the paragraph's flow position
       //     (`contentFlowBase + runningOffset`) and whose IFC `blockOffset` is the
-      //     paragraph's local `paddingBlockStart`. So the cumulative stamp is
-      //     `contentFlowBase + runningOffset + paddingBlockStart`.
+      //     paragraph's local block-start border + padding. So the cumulative
+      //     stamp is `contentFlowBase + runningOffset + blockStartDecoration`.
+      //     (build-fit-metas does not yet carry a leaf's decoration — ticket T-s:
+      //     a decorated paragraph leaf diverges from bfc, padding and border alike.)
       //   - ANONYMOUS inline-run leaf: the run is a direct child group of the
       //     container at the cumulative offset `contentFlowBase + runningOffset`,
       //     matching bfc's cumulative `childBlockOffset` for that run.
@@ -594,7 +585,7 @@ function fitOnePageRecursive(
       const carriedParaFlowStart = paraFlowStartFromResumeToken(leafResumeToken);
       const freshParaFlowStart = isAnonRun
         ? contentFlowBase + runningOffset
-        : contentFlowBase + runningOffset + (meta.paddingBlockStart ?? 0);
+        : contentFlowBase + runningOffset + (meta.blockStartDecoration ?? 0);
       const ifcParaFlowStart = carriedParaFlowStart ?? freshParaFlowStart;
       const makeIfcResumeToken = (resumeAtLine: number): BreakToken =>
         isAnonRun
@@ -817,13 +808,13 @@ function fitOnePageRecursive(
     const childResume =
       leafResumeToken !== null && leafResumeToken.type === "block" ? leafResumeToken : null;
     const childChildren = meta.children ?? [];
-    // bfc insets the container's children by `paddingBlockStart` (bfc.ts:229/350/
-    // 540): the children's available block-size is `remaining − paddingBlockStart`.
-    // `paddingBlockEnd` is added to the container height AFTER all children are
-    // placed (bfc.ts:728), so it does NOT reduce the children's fragmentation
-    // space and is folded into `totalBlockSize` for the whole-fit path below.
-    const containerPaddingBlockStart = meta.paddingBlockStart ?? 0;
-    const childAvailable = remaining - containerPaddingBlockStart;
+    // bfc insets the container's children by its block-start border + padding:
+    // the children's available block-size is `remaining − blockStartDecoration`.
+    // The end decoration is added to the container height AFTER all children are
+    // placed, so it does NOT reduce the children's fragmentation space and is
+    // folded into `totalBlockSize` for the whole-fit path below.
+    const containerBlockStart = meta.blockStartDecoration ?? 0;
+    const childAvailable = remaining - containerBlockStart;
     // The recursion relies on the §5.4 truncation (which always zeroes the first
     // child of a fresh fragment) for the page-break-relevant first-child margin
     // case — matching bfc, which truncates the first child of every fragment
@@ -840,17 +831,17 @@ function fitOnePageRecursive(
       // The child container's content-box CUMULATIVE offset. bfc lays each nested
       // container via a fresh `layoutBlock` whose `blockFlowBase` accumulates the
       // container's position in the flow (`contentFlowBase + runningOffset`, the
-      // container's border-box top) plus the container's own `paddingBlockStart`
+      // container's border-box top) plus the container's own `blockStartDecoration`
       // (the content-box top). So this base IS a page-cumulative sum — it
       // accumulates through ancestors, matching bfc's cumulative `blockFlowBase`
       // for the nested container.
-      contentFlowBase + runningOffset + containerPaddingBlockStart,
+      contentFlowBase + runningOffset + containerBlockStart,
     );
 
     // When the container fragmented (resumeOut !== null), reconstruct the bfc
     // PARTIAL-fragment height of the container box (bfc.ts:298–299):
-    //   childBlockOffset + lastMarginBlockEndPartial + paddingBlockEnd
-    // where childBlockOffset = paddingBlockStart + children's consumed offset
+    //   childBlockOffset + lastMarginBlockEndPartial + blockEndDecoration
+    // where childBlockOffset = blockStartDecoration + children's consumed offset
     // and lastMarginBlockEndPartial = noBottomBoundary ? 0 : prevMarginBlockEnd.
     // bfc's per-child whole-block-fit check (bfc.ts:626–642) compares THIS
     // partial height against `remaining` BEFORE the break-inside / nested-resume
@@ -858,16 +849,16 @@ function fitOnePageRecursive(
     // partial over the page bottom, triggering the overflow rule the same way an oversized
     // leaf does.
     if (childResult.resumeOut !== null) {
-      const containerPaddingBlockEnd = meta.paddingBlockEnd ?? 0;
+      const containerBlockEnd = meta.blockEndDecoration ?? 0;
       // Default true: an absent flag means no bottom boundary (the common case),
       // so the trailing margin is suppressed.
       const noBottomBoundary = meta.noBottomBoundary ?? true;
       const lastMarginBlockEndPartial = noBottomBoundary ? 0 : childResult.trailingMarginBlockEnd;
       const partialContainerHeight =
-        containerPaddingBlockStart +
+        containerBlockStart +
         childResult.consumedBlockSize +
         lastMarginBlockEndPartial +
-        containerPaddingBlockEnd;
+        containerBlockEnd;
 
       // bfc.ts:626–642 whole-block fit check on the PARTIAL box height. When it
       // overflows `remaining`, the partial fragment is treated like an oversized

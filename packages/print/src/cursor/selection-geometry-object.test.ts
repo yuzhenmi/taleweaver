@@ -253,7 +253,7 @@ function boxesOf(ctx: NavCtx, tree: LayoutBox, id: BlockId): SelectionRect[] {
 // "bcd" + the ¶ extension (8px glyphs, 16px lines; "abcd" is the first line).
 const BCD_WITH_PILCROW: SelectionRect = { x: 8, y: 0, width: 40, height: 16, pageIndex: 0 };
 const BCD: SelectionRect = { x: 8, y: 0, width: 24, height: 16, pageIndex: 0 };
-const OBJECT_HEIGHT: Record<ObjectKind, number> = { rule: 16, image: 40, table: 32 };
+const OBJECT_HEIGHT: Record<ObjectKind, number> = { rule: 16, image: 40, table: 34 };
 // A block image's box is its own 50px width (explicit width + height); rules and tables fill the column.
 const OBJECT_WIDTH: Record<ObjectKind, number> = { rule: 800, image: 50, table: 800 };
 

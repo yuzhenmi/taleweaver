@@ -19,9 +19,8 @@ import { createAbsPosEnvironment } from "./abs-pos-context";
  *
  * `origin` is the abc's top-left, expressed in the ESTABLISHING box's OWN
  * coordinate frame (the frame `absoluteChildren` are pushed into and the
- * painter recurses them with): on the inline axis its padding edge (CSS 2.1
- * §10.1, `borderInlineStartWidth`), on the block axis its content edge
- * (`paddingBlockStart`) until block-axis borders take space.
+ * painter recurses them with): its padding edge (CSS 2.1 §10.1,
+ * `borderInlineStartWidth` / `borderBlockStartWidth`).
  * The second pass resolves an abs child's position as `origin.inlineOffset +
  * insetStart` etc., yielding offsets in the establishing box's frame.
  *

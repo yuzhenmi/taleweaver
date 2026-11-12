@@ -127,7 +127,7 @@ describe("print — range selections over object blocks through the controller",
     if (cell === null) throw new Error("no cell paragraph");
     drag(m, pointAt(m, at(m.text, 1)), pointAt(m, at(cell, 0)));
     expect(m.get().selection).toEqual(core.createSpan(at(m.text, 1), at(m.obj, 0)));
-    expect(m.selectionFills()).toEqual([BCD, { x: 0, y: 24, w: 600, h: 32 }]);
+    expect(m.selectionFills()).toEqual([BCD, { x: 0, y: 24, w: 600, h: 34 }]);
     m.controller.destroy();
   });
 

@@ -19,6 +19,7 @@ import type { WritingMode, Direction } from "@taleweaver/core";
 import { axisMapFor } from "@taleweaver/core";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
 import { borderBoxInlineSize } from "./box-inline-decoration";
+import { borderBoxBlockSize } from "./box-block-decoration";
 import type { LayoutContext } from "./layout-context";
 import { makeRootContext, makeChildContext } from "./layout-context";
 import { contentFrame, floatIntrusionAt } from "./float-frame";
@@ -1183,7 +1184,8 @@ function collectInlineTokens(
       const finalInlineSize = inlineSizePx > 0 ? inlineSizePx : childInlineFromPhysical;
       let finalBlockSize: number;
       if (typeof cs.blockSize === "number") {
-        finalBlockSize = cs.blockSize;
+        // Its border box per box-sizing (a picture's border adds outside it).
+        finalBlockSize = borderBoxBlockSize(cs.blockSize, bfc.usedStyle);
       } else {
         finalBlockSize = childBlockFromPhysical;
       }
@@ -1555,6 +1557,7 @@ export function layoutInlineContent(
     prevState !== undefined &&
     prevState.availableInlineSize === availableInlineSize &&
     prevState.inlineOffset === inlineOffset &&
+    prevState.blockOffset === blockOffset &&
     prevState.frameInlineSize === frame.inlineSize &&
     prevState.textAlign === textAlign &&
     prevState.direction === direction &&
@@ -2911,6 +2914,7 @@ export function layoutInlineContent(
       lines: resultLines,
       availableInlineSize,
       inlineOffset,
+      blockOffset,
       frameInlineSize: frame.inlineSize,
       textAlign,
       direction,

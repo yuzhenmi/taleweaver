@@ -98,7 +98,7 @@ export interface BlockBox extends LayoutBoxBase {
    * BOX so the layout-box cache can read it back EXACTLY after the original
    * in-flow scalar is gone (`buildLayoutBoxCacheFromTree`).
    *
-   * `blockSize` is `Math.max(inFlowBlockSize, lowestFloatBlockEdge + paddingBlockEnd)`,
+   * `blockSize` is `Math.max(inFlowBlockSize, lowestFloatBlockEdge + blockEndDecoration)`,
    * so a box enclosing a float TALLER than its in-flow content has
    * `blockSize > inFlowConsumed`. Stamped only at the `bfc.layoutBlock` full /
    * partial-fragment return sites (and threaded verbatim through the

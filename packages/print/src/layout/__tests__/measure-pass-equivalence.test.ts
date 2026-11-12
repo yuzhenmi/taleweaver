@@ -450,10 +450,8 @@ describe("measure-pass equivalence — (e) mixed block+inline container content"
 // ---------------------------------------------------------------------------
 // (f) PADDED / BORDERED container (#254): block-axis padding/border insets the
 // children's available space and adds to the container's consumed height.
-// bfc starts `childBlockOffset` at paddingBlockStart and ends the box at
-// childBlockOffset + paddingBlockEnd; border-block-width does NOT shift block-
-// axis geometry in this engine (it only governs margin-collapse-through via
-// noTopBoundary/noBottomBoundary). The oracle settles the border question.
+// bfc starts `childBlockOffset` at border + padding block-start and ends the box
+// at childBlockOffset + padding + border block-end (BM3: borders take block space).
 // ---------------------------------------------------------------------------
 
 describe("measure-pass equivalence — (f) padded/bordered container space", () => {

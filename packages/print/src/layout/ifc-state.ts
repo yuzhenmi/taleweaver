@@ -21,6 +21,11 @@ export interface IFCState {
    * change with the same content width must re-lay them.
    */
   readonly inlineOffset: number;
+  /**
+   * The first line's block offset in the block's frame (its content edge:
+   * border + padding block-start). The cached lines bake it in too (T-r).
+   */
+  readonly blockOffset: number;
   /** The block's border-box inline size: RTL lines' physical x mirror against it. */
   readonly frameInlineSize: number;
   /**

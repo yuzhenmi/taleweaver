@@ -4053,3 +4053,22 @@ describe("IFC — wrap cache gates on the lines' inline offset (T-m)", () => {
     expect(lineOffset(20, 10)).toBe(20);
   });
 });
+
+describe("IFC — wrap cache gates on the lines' block offset (T-r)", () => {
+  it("a padding-block-start change and nothing else re-lays the lines at the new y", () => {
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const p = cascadePass(createElementBox("p", { display: "block" }, [createTextBox("t", {}, "abc")]));
+    if (p.type !== "element" || p.computedStyle === undefined) throw new Error("?");
+    const cs = p.computedStyle;
+    const lineY = (paddingBlockStart: number): number => {
+      const padded = { ...p, computedStyle: { ...cs, paddingBlockStart } };
+      const box = layoutBlock(padded, 0, 0, rootFrame(ctx), ctx, shaper, undefined).box;
+      const l = box !== null && "children" in box ? box.children[0] : undefined;
+      if (l === undefined) throw new Error("no line");
+      return l.blockOffset;
+    };
+    expect(lineY(10)).toBe(10);
+    // Shared IFC cache, same tokens and content width: the lines move to 20.
+    expect(lineY(20)).toBe(20);
+  });
+});

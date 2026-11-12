@@ -148,6 +148,30 @@ describe("BFC fragmentation — whole-block placement", () => {
   });
 });
 
+describe("BFC fragmentation — a block border takes fragmentainer space (BM3)", () => {
+  it("a bordered paragraph near the fragment end places fewer lines: the border makes the third line not fit", () => {
+    const text = Array.from({ length: 6 }, () => "x").join("\n");
+    const lay = (borderBlockStartWidth: number) => {
+      const root = cascadePass(createElementBox("root", { display: "block" }, [
+        createElementBox("b", { display: "block", blockSize: 50 }, []),
+        createElementBox("p", { display: "block", whiteSpace: "pre", borderBlockStartWidth, borderBlockStartStyle: "solid" } as Style, [
+          createTextBox("t", { whiteSpace: "pre" }, text),
+        ]),
+      ]));
+      if (root.type !== "element") throw new Error("?");
+      const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+      const fragmentation: FragmentationContext = { availableBlockSize: 100, pageIndex: 0, resumeFrom: null };
+      const p = nth(placed(layoutBlock(root, 0, 0, rootFrame(ctx), ctx, createMockShaper(8, 16), undefined, fragmentation).box).children, 1, "paragraph");
+      if (p.type !== "block") throw new Error("?");
+      const lines = p.children.filter((c) => c.type === "line");
+      return [lines.length, nth(lines, 0, "line").blockOffset];
+    };
+    // 50 + 3 × 16 = 98 fits three lines; a 4px border leaves room for two.
+    expect(lay(0)).toEqual([3, 0]);
+    expect(lay(4)).toEqual([2, 4]);
+  });
+});
+
 describe("BFC fragmentation — break-before", () => {
   it("forces a page break before child K when cs.breakBefore = 'page'", () => {
     // Children 0..3, 100 each. Child 2 has breakBefore: page.

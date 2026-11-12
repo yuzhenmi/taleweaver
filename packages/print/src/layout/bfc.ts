@@ -25,6 +25,7 @@ import { bfcRootFrame, childAreaLineLeft, contentFrame, envSide, fromEnvInline }
 import { isLayoutBoxReusable, renderNodesLayoutEquivalent } from "./layout-reuse";
 import type { ParentFrame } from "./parent-frame";
 import { borderBoxInlineSize, contentInlineStart, inlineDecoration } from "./box-inline-decoration";
+import { borderBoxBlockSize, blockEndDecoration, contentBlockStart } from "./box-block-decoration";
 import type { UsedStyle } from "@taleweaver/core";
 import { markStart, markEnd } from "@taleweaver/core";
 
@@ -362,8 +363,10 @@ export function layoutBlock(
   _layoutCacheStats.fullLayoutInvocations++;
   const usedStyle = computeUsedStyle(cs, availableInlineSize, "indefinite");
 
-  const paddingBlockStart  = usedStyle.paddingBlockStart;
-  const paddingBlockEnd    = usedStyle.paddingBlockEnd;
+  // The block axis likewise: the first child starts below the block-start
+  // border + padding; the end adds padding + border (CSS 2.1 §8).
+  const blockStartDecoration = contentBlockStart(usedStyle);
+  const blockEndDeco = blockEndDecoration(usedStyle);
   // The content edge in this box's border-box frame: its inline-start border +
   // padding (CSS 2.1 §8). Lines, block children, floats and markers sit from here.
   const contentStart = contentInlineStart(usedStyle);
@@ -372,8 +375,8 @@ export function layoutBlock(
   // if the parent has no top padding/border, the first child's marginBlockStart
   // is suppressed (collapses with parent's outside margin).
   // Symmetric for bottom.
-  const noTopBoundary = paddingBlockStart === 0 && usedStyle.borderBlockStartWidth === 0;
-  const noBottomBoundary = paddingBlockEnd === 0 && usedStyle.borderBlockEndWidth === 0;
+  const noTopBoundary = blockStartDecoration === 0;
+  const noBottomBoundary = blockEndDeco === 0;
 
   // A table cell's border box is its column slot, whatever its box-sizing
   // (CSS 2.1 §17.5.2, Blink): the table passes the slot as the available size.
@@ -385,7 +388,7 @@ export function layoutBlock(
   // boxes) are positioned in: its border box, in its own direction.
   const ownFrame: ParentFrame = { direction, inlineSize: finalInlineSize };
 
-  let childBlockOffset = paddingBlockStart;
+  let childBlockOffset = blockStartDecoration;
   const layoutChildren: LayoutBox[] = [];
   // Use the float environment from the context. If this block establishes a new
   // BFC, makeChildContext (called by our parent) already gave us a fresh env.
@@ -475,20 +478,20 @@ export function layoutBlock(
       return { box: null, breakToken, inFlowConsumed: 0 };
     }
     // TODO: per CSS Fragmentation L4 §5.4, the last placed
-    // child's bottom-margin and the parent's paddingBlockEnd should be
+    // child's bottom-margin and the parent's block-end padding + border should be
     // suppressed in non-final partial fragments (margin truncation across
     // breaks, bottom side). Only top-margin truncation is implemented;
     // the common case (parent with noBottomBoundary) already drops via the
     // existing collapse rule, so the visible bug is limited to parents with
     // bottom padding/border on a partial fragment.
     const lastMarginBlockEndPartial = noBottomBoundary ? 0 : prevMarginBlockEnd;
-    const inFlowBlockSizePartial = childBlockOffset + lastMarginBlockEndPartial + paddingBlockEnd;
+    const inFlowBlockSizePartial = childBlockOffset + lastMarginBlockEndPartial + blockEndDeco;
     let totalBlockSizePartial: number;
     if (isOwnBFC) {
       // Coherent float+pagination: `lowestFloatBlockEdge()` is now a CUMULATIVE
       // edge; the box-enclosure height is PAGE-RELATIVE, so subtract `blockFlowBase`.
       const floatBlockEnd = floatEnv.lowestFloatBlockEdge();
-      totalBlockSizePartial = Math.max(inFlowBlockSizePartial, (floatBlockEnd - blockFlowBase) + paddingBlockEnd);
+      totalBlockSizePartial = Math.max(inFlowBlockSizePartial, (floatBlockEnd - blockFlowBase) + blockEndDeco);
     } else {
       totalBlockSizePartial = inFlowBlockSizePartial;
     }
@@ -1132,7 +1135,8 @@ export function layoutBlock(
       childResultBreakToken = childResult.breakToken;
     }
 
-    const explicitBlockSize = resolveExplicitBlockSize(childCs.blockSize, contentInlineSize);
+    // Its border box per box-sizing (css-box-sizing §3).
+    const explicitBlockSize = borderBoxExplicitBlockSize(childCs.blockSize, contentInlineSize, childUsedStyle);
     // Apply an explicit block-size by re-creating the child box at that size — but
     // ONLY for a BlockBox child. Mirrors the float branch: a non-block child (a
     // `display:table` → TableBox) is used AS-IS, never re-wrapped in a BlockBox.
@@ -1304,7 +1308,7 @@ export function layoutBlock(
   }
 
   const lastMarginBlockEnd = noBottomBoundary ? 0 : prevMarginBlockEnd;
-  const inFlowBlockSize = childBlockOffset + lastMarginBlockEnd + paddingBlockEnd;
+  const inFlowBlockSize = childBlockOffset + lastMarginBlockEnd + blockEndDeco;
 
   // FLOAT ENCLOSURE: only a BFC root encloses its own floats. A non-BFC block
   // shares the parent BFC's float env — its floats belong to the ancestor BFC,
@@ -1314,7 +1318,7 @@ export function layoutBlock(
     // Coherent float+pagination: `lowestFloatBlockEdge()` is now a CUMULATIVE
     // edge; the box-enclosure height is PAGE-RELATIVE, so subtract `blockFlowBase`.
     const floatBlockEnd = floatEnv.lowestFloatBlockEdge();
-    totalBlockSize = Math.max(inFlowBlockSize, (floatBlockEnd - blockFlowBase) + paddingBlockEnd);
+    totalBlockSize = Math.max(inFlowBlockSize, (floatBlockEnd - blockFlowBase) + blockEndDeco);
   } else {
     totalBlockSize = inFlowBlockSize;
   }
@@ -1326,7 +1330,7 @@ export function layoutBlock(
   // float second pass (`floatEnv.lowestFloatBlockEdge()` above): the in-flow walk
   // is done, the box's size is known, so the deferred out-of-flow children are
   // resolved here. The abc frame is built from THIS box's RESOLVED locals — the
-  // authoritative content origin/sizes — not the placeholder carried in context.
+  // authoritative padding-box origin/sizes — not the placeholder carried in context.
   // A non-fragmented full layout only (paginated abs-pos splitting is not supported —
   // see the `buildPartialResult` note: a partial/fragmented return never reaches
   // this second pass, so abs children registered before a fragmentation break are
@@ -1337,7 +1341,8 @@ export function layoutBlock(
   if (ctx.ownsAbsoluteContainingBlock) {
     const pendingAbs = ctx.absoluteContainingBlock.pending.drain();
     if (pendingAbs.length > 0) {
-      const contentBlockResolved = Math.max(0, totalBlockSize - paddingBlockStart - paddingBlockEnd);
+      // The padding box (CSS 2.1 §10.1): the border box minus its block borders.
+      const paddingBlockSize = Math.max(0, totalBlockSize - usedStyle.borderBlockStartWidth - usedStyle.borderBlockEndWidth);
       // The percent-resolution base for block-axis insets: CSS §10.5 — a
       // percentage resolves against the abc's block size only when that size is
       // DEFINITE (an explicit `block-size`); against an auto-height abc the
@@ -1345,13 +1350,13 @@ export function layoutBlock(
       // null for `auto`/intrinsic → "indefinite".
       const explicitBlock = resolveExplicitBlockSizeOrNull(cs.blockSize, availableInlineSize);
       const abcBlockPercentBase: number | "indefinite" =
-        explicitBlock !== null && explicitBlock > 0 ? contentBlockResolved : "indefinite";
-      // Inline axis: the padding box (CSS 2.1 §10.1) — inside the border.
+        explicitBlock !== null && explicitBlock > 0 ? paddingBlockSize : "indefinite";
+      // Both axes: the padding box (CSS 2.1 §10.1) — inside the border.
       const abc: ResolvedAbc = {
         originInline: usedStyle.borderInlineStartWidth,
-        originBlock:  paddingBlockStart,
+        originBlock:  usedStyle.borderBlockStartWidth,
         inlineSize:   finalInlineSize - usedStyle.borderInlineStartWidth - usedStyle.borderInlineEndWidth,
-        contentBlockResolved,
+        paddingBlockSize,
         blockPercentBase: abcBlockPercentBase,
       };
       absoluteChildren = layoutAbsoluteChildren(pendingAbs, abc, ownFrame, ctx, shaper, hyphenator);
@@ -1435,7 +1440,7 @@ function sizeFloat(
     throw new Error("layoutBlock without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
   }
   const floatLayout = floatResult.box;
-  const floatExplicitBlockSize = resolveExplicitBlockSize(childCs.blockSize, contentInlineSize);
+  const floatExplicitBlockSize = borderBoxExplicitBlockSize(childCs.blockSize, contentInlineSize, floatLayout.usedStyle);
   const floatInlineSize = floatLayout.inlineSize;
   const floatBlockSize = floatExplicitBlockSize > 0 ? floatExplicitBlockSize : floatLayout.blockSize;
   const side = childCs.float === "inline-start" ? "inline-start" : "inline-end";
@@ -1684,6 +1689,19 @@ function resolveExplicitBlockSize(
 }
 
 /**
+ * An explicit block-size as the box's border-box size per its box-sizing
+ * (css-box-sizing §3); 0 for "auto" or intrinsic keywords ("use content height").
+ */
+function borderBoxExplicitBlockSize(
+  blockSize: ComputedStyle["blockSize"],
+  containingInlineSize: number,
+  us: UsedStyle,
+): number {
+  const specified = resolveExplicitBlockSize(blockSize, containingInlineSize);
+  return specified > 0 ? borderBoxBlockSize(specified, us) : 0;
+}
+
+/**
  * Resolve an explicit block-size, returning null for "auto" or intrinsic keywords.
  * Used to distinguish "no explicit size given" from "explicit size of 0".
  */
@@ -1706,12 +1724,12 @@ function resolveExplicitBlockSizeOrNull(
 interface ResolvedAbc {
   /** The abc padding-box inline-start, in the establishing box's frame (= borderInlineStartWidth). */
   readonly originInline: number;
-  /** The abc content-box block-start, in the establishing box's frame (= paddingBlockStart). */
+  /** The abc padding-box block-start, in the establishing box's frame (= borderBlockStartWidth). */
   readonly originBlock: number;
   /** The abc padding-box inline-size (definite): the border box minus its inline borders. */
   readonly inlineSize: number;
-  /** The abc content-area block-size, resolved at drain time (definite). Used for px end-anchoring / fill. */
-  readonly contentBlockResolved: number;
+  /** The abc padding-box block-size, resolved at drain time (definite). Used for px end-anchoring / fill. */
+  readonly paddingBlockSize: number;
   /**
    * The base a block-axis PERCENT inset resolves against: a definite number when
    * the abc has an explicit block-size, else `"indefinite"` (CSS §10.5 — a percent
@@ -1725,7 +1743,7 @@ interface ResolvedAbc {
  * just finished its in-flow layout. For each pending child:
  *   1. resolve inline + block insets against the abc (inline-axis against
  *      `abc.inlineSize`; block-axis against `abc.blockPercentBase` for percents,
- *      `abc.contentBlockResolved` for px end-anchoring/fill);
+ *      `abc.paddingBlockSize` for px end-anchoring/fill);
  *   2. resolve the used inline/block size (`auto` → fill-from-both-insets, else
  *      shrink-to-content via the BFC's intrinsic sizing);
  *   3. resolve the position (inset-start wins; else inset-end anchors the
@@ -1768,7 +1786,7 @@ function layoutAbsoluteChildren(
       usedInlineSize = resolveBoxInlineSize(childCs, childUsedStyle, abc.inlineSize, /* isShrinkToFit */ true, p.node, shaper, ctx);
     }
 
-    // Inline position (in the abc content frame): inset-inline-start wins; else
+    // Inline position (in the abc padding-box frame): inset-inline-start wins; else
     // inset-inline-end anchors the inline-end edge (start = size − end − used);
     // else the captured static inline offset (already abc-frame-relative).
     let inlineOffsetInAbcContent: number;
@@ -1778,7 +1796,7 @@ function layoutAbsoluteChildren(
       inlineOffsetInAbcContent = abc.inlineSize - insetInlineEnd - usedInlineSize;
     } else {
       // Static fallback: the captured static is in the establishing box's FRAME;
-      // subtract the abc content origin to express it in the abc CONTENT frame
+      // subtract the abc origin to express it in the abc PADDING-BOX frame
       // (the layout below re-adds the origin).
       inlineOffsetInAbcContent = p.staticInlineOffset - abc.originInline;
     }
@@ -1802,32 +1820,32 @@ function layoutAbsoluteChildren(
     const provisionalBox = provisional.box;
 
     // Used block-size. `auto` with BOTH block insets definite → fill
-    // (contentBlockResolved − start − end). Else use the content-measured block
+    // (paddingBlockSize − start − end). Else use the content-measured block
     // size from the provisional layout (or an explicit block-size if set).
     const explicitChildBlock = resolveExplicitBlockSizeOrNull(childCs.blockSize, abc.inlineSize);
     let usedBlockSize: number;
     if (childCs.blockSize === "auto" && insetBlockStart !== null && insetBlockEnd !== null) {
-      usedBlockSize = Math.max(0, abc.contentBlockResolved - insetBlockStart - insetBlockEnd);
+      usedBlockSize = Math.max(0, abc.paddingBlockSize - insetBlockStart - insetBlockEnd);
     } else if (explicitChildBlock !== null && explicitChildBlock > 0) {
-      usedBlockSize = explicitChildBlock;
+      usedBlockSize = borderBoxBlockSize(explicitChildBlock, provisionalBox.usedStyle);
     } else {
       usedBlockSize = provisionalBox.blockSize;
     }
 
-    // Block position (in the abc content frame): inset-block-start wins; else
+    // Block position (in the abc padding-box frame): inset-block-start wins; else
     // inset-block-end anchors the block-end edge; else the captured static block
-    // offset (abc-frame → abc-content-frame).
+    // offset (abc-frame → abc padding-box frame).
     let blockOffsetInAbcContent: number;
     if (insetBlockStart !== null) {
       blockOffsetInAbcContent = insetBlockStart;
     } else if (insetBlockEnd !== null) {
-      blockOffsetInAbcContent = abc.contentBlockResolved - insetBlockEnd - usedBlockSize;
+      blockOffsetInAbcContent = abc.paddingBlockSize - insetBlockEnd - usedBlockSize;
     } else {
       blockOffsetInAbcContent = p.staticBlockOffset - abc.originBlock;
     }
 
-    // Translate the abc-content-frame offsets into the establishing box's frame
-    // by adding the abc content origin, then lay the child out FINALLY at that
+    // Translate the abc padding-box offsets into the establishing box's frame
+    // by adding the abc origin, then lay the child out FINALLY at that
     // position (re-running so the box's own offsets/physical coords bake in).
     const finalInlineOffset = abc.originInline + inlineOffsetInAbcContent;
     const finalBlockOffset = abc.originBlock + blockOffsetInAbcContent;
