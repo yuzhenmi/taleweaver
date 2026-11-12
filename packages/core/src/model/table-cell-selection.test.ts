@@ -1,4 +1,5 @@
 /** N7 step 1: the CellSelection kind: its rectangle (cross-cell text ranges, nested lifting, the grow), history, mapping. */
+import * as Y from "yjs";
 import { describe, expect, it } from "vitest";
 import { BLOCK_TYPES, type Block } from "./block";
 import { selectedRect } from "./commands/table/cell-rect";
@@ -7,6 +8,8 @@ import { deleteBackward } from "./commands/delete-backward";
 import { deleteForward } from "./commands/delete-forward";
 import { deleteSelection } from "./commands/delete-selection";
 import { paste } from "./commands/paste";
+import type { FragmentCell, FragmentItem } from "./commands/helpers/fragment";
+import { TABLE_DEPTH_CAP } from "./storage/limits";
 import { splitParagraph } from "./commands/split-paragraph";
 import { setMarks } from "./commands/set-marks";
 import { setParagraphAttrs } from "./commands/set-paragraph-attrs";
@@ -14,11 +17,12 @@ import { setTableAttrs } from "./commands/table/set-table-attrs";
 import { deleteRow } from "./commands/table/delete-row";
 import { insertRow } from "./commands/table/insert-row";
 import { mergeCells } from "./commands/table/merge-cells";
+import { unmergeCell } from "./commands/table/unmerge-cell";
 import { mapSelection } from "./mapping/map-position";
 import { type CellSelection, type ModelSelection, caretAt, isCellSelection } from "./position/model-position";
 import { childrenOf } from "./test-helpers/fixture";
 import type { Harness } from "./test-helpers/harness";
-import { raw, selectCells, shape } from "./test-helpers/table";
+import { cellIdAt, raw, selectCells, shape } from "./test-helpers/table";
 
 const tableIn = (h: Harness, parent?: string): Block => {
   const t = (parent === undefined ? h.paragraphs() : childrenOf(h.version, "block", parent)).find((b) => b.type === BLOCK_TYPES.table);
@@ -269,5 +273,75 @@ describe("delete / type over cells (N7 step 4)", () => {
     expect(grid(h)).toEqual([["a", "b", "c"], ["d", "X", ""], ["g", "", ""]]);
     expect(h.undo()).toBe(true);
     expect(h.read()).toEqual(before);
+  });
+});
+
+describe("paste of table cells (N7 step 5)", () => {
+  const A = (text: string, keys?: Record<string, string>): FragmentCell => ({ items: [{ k: "text", text }, { k: "para" }], ...(keys === undefined ? {} : { keys }) });
+
+  it("outside a table, a table with content is pasted whole: spans, keys, header rows, widths, nested tables one level deeper; undo exact", () => {
+    const h = raw("p¶");
+    h.caret(1, 0);
+    const before = h.read();
+    const nested: FragmentItem = { k: "table", cells: [[A("n")]] };
+    const t: FragmentItem = {
+      k: "table",
+      cells: [[A("a", { "a:bg": "red" }), A("b")], [{ items: [{ k: "text", text: "c" }, { k: "para" }, nested, { k: "para" }], colSpan: 2 }]],
+      widths: [1, 2],
+      header: 1,
+      keys: { "a:style": "grid" },
+      rowKeys: [{ "a:h": 5 }],
+    };
+    expect(h.run(paste, [t])).toBe(true);
+    const want = raw("p¶ ⟦ ⟨r⟩h ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩c2 c¶ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 n¶ ⟧@1 ¶ ⟧", (m) => {
+      const cols = (ws: number[]): Y.Array<Y.Map<unknown>> => {
+        const a = new Y.Array<Y.Map<unknown>>();
+        a.insert(0, ws.map((w) => new Y.Map<unknown>([["w", w]])));
+        return a;
+      };
+      // Maps: p's ¶, ⟦, ⟨r⟩, ⟨c⟩ … the nested ⟦ at 10.
+      m[1]?.set("cols", cols([1, 2]));
+      m[1]?.set("a:style", "grid");
+      m[2]?.set("a:h", 5);
+      m[3]?.set("a:bg", "red");
+      m[10]?.set("cols", cols([1]));
+    });
+    expect(h.read()).toEqual(want.read());
+    expect(h.undo()).toBe(true);
+    expect(h.read()).toEqual(before);
+  });
+
+  it("a pasted table is placed as its form reads it: a colSpan stops at a slot covered from above; header flags only where they read", () => {
+    const h = raw("p¶");
+    h.caret(1, 0);
+    // b asks for two columns, but a covers (1,1): b is 1×1 and c at column 2, so three widths fit.
+    const t: FragmentItem = { k: "table", cells: [[A("x"), { ...A("a"), rowSpan: 2 }], [{ ...A("b"), colSpan: 2 }, A("c")]], widths: [1, 1, 1] };
+    expect(h.run(paste, [t])).toBe(true);
+    expect(h.read()).toEqual(raw("p¶ ⟦ ⟨r⟩ ⟨c⟩ x¶ ⟨c⟩r2 a¶ ⟨r⟩ ⟨c⟩ b¶ ⟨c⟩ c¶ ⟧", (m) => {
+      const cols = new Y.Array<Y.Map<unknown>>();
+      cols.insert(0, [1, 1, 1].map((w) => new Y.Map<unknown>([["w", w]])));
+      m[1]?.set("cols", cols);
+    }).read());
+    // A span crosses row 0's lower boundary: no header flag is stored, so none reads after the merge goes.
+    const g = raw("p¶");
+    g.caret(1, 0);
+    expect(g.run(paste, [{ k: "table", cells: [[{ ...A("x"), rowSpan: 2 }, A("y")], [A("z")]], header: 1 }])).toBe(true);
+    g.selection = { kind: "cells", anchor: cellIdAt(g, [0, 0]), head: cellIdAt(g, [0, 0]) };
+    expect(g.run(unmergeCell)).toBe(true);
+    expect(tableIn(g).attrs["headerRowCount"]).toBeUndefined();
+  });
+
+  it("a malformed table item throws; past the nesting cap a paste is refused", () => {
+    const h = raw("p¶");
+    h.caret(1, 0);
+    expect(() => h.run(paste, [{ k: "table", cells: [[{ items: [{ k: "text", text: "x" }] }]] }])).toThrow(); // no final ¶
+    expect(() => h.run(paste, [{ k: "table", cells: [[{ ...A("x"), colSpan: 0 }]] }])).toThrow();
+    expect(() => h.run(paste, [{ k: "table", cells: [[A("x")]], widths: [1, 1] }])).toThrow();
+    let deep: FragmentItem = { k: "table", cells: [[A("x")]] };
+    for (let i = 1; i < TABLE_DEPTH_CAP; i++) deep = { k: "table", cells: [[{ items: [deep, { k: "para" }] }]] };
+    expect(h.run(paste, [deep])).toBe(true);
+    const g = raw("p¶");
+    g.caret(1, 0);
+    expect(g.run(paste, [{ k: "table", cells: [[{ items: [deep, { k: "para" }] }]] }])).toBe(false);
   });
 });

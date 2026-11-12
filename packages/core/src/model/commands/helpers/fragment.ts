@@ -5,6 +5,8 @@ import { type ObjectProps, newField, newFootnoteOf, newHorizontalRule, newLineBr
 import type { FlatKeys } from "../../storage/scalar";
 import { newCellMark, newRowMark, newTableEnd, newTableStart } from "../../storage/table-marks";
 import type { CommandContext } from "../command-context";
+import { COL_SPAN_KEY, HEADER_KEY, ROW_SPAN_KEY } from "../../storage/keys";
+import { placeFragment } from "./fragment-table";
 import { checkKeys, checkScalars, validField, validObject } from "./validate";
 
 // ---------------------------------------------------------------------------
@@ -28,14 +30,37 @@ export type FragmentItem =
   /** A section break (`s:*` keys; a pasted `[S]` never carries `h:*`). */
   | { readonly k: "S"; readonly keys?: FlatKeys }
   /** A table of `rows` × `cols` empty cells, columns of equal weight (integers ≥ 1). */
-  | { readonly k: "table"; readonly rows: number; readonly cols: number };
+  | { readonly k: "table"; readonly rows: number; readonly cols: number }
+  | FragmentTable;
+
+/** A pasted table's cell: its content (a ¶-terminated payload), spans (default 1), and `a:*` keys. */
+export interface FragmentCell {
+  readonly items: readonly FragmentItem[];
+  readonly rowSpan?: number;
+  readonly colSpan?: number;
+  readonly keys?: FlatKeys;
+}
+
+/**
+ * A table with content (N7 step 5): rows of own cells, placed left to right into free slots ({@link placeFragment});
+ * `widths` one weight per grid column (default 1 each), `header` the header-row count, `keys` the table's `a:*`,
+ * `rowKeys` each row's `a:*`.
+ */
+export interface FragmentTable {
+  readonly k: "table";
+  readonly cells: readonly (readonly FragmentCell[])[];
+  readonly widths?: readonly number[];
+  readonly header?: number;
+  readonly keys?: FlatKeys;
+  readonly rowKeys?: readonly FlatKeys[];
+}
 
 /** Read units of a fragment item that is neither a ¶ nor structural. */
 export const fragmentUnits = (i: FragmentItem): number => ("text" in i ? i.text.length : 1);
 
 /** Can every item go in `container` (a footnote's body items in a footnote body)? A paste of a payload that cannot is refused whole. */
 export const placeable = (items: readonly FragmentItem[], container: Container): boolean =>
-  items.every((i) => allowedIn(i.k, container) && (!("body" in i) || placeable(i.body, "footnote")));
+  items.every((i) => allowedIn(i.k, container) && (!("body" in i) || placeable(i.body, "footnote")) && (!("cells" in i) || i.cells.every((r) => r.every((c) => placeable(c.items, "cell")))));
 
 /** Throws unless a table's row and column counts are integers ≥ 1. */
 export function checkTableSize(rows: number, cols: number): void {
@@ -49,6 +74,29 @@ function tableUnits(rows: number, cols: number, d: number): InsertUnit[] {
   for (let r = 0; r < rows; r++) {
     out.push({ embed: newRowMark(d), attrs: {} });
     for (let c = 0; c < cols; c++) out.push({ embed: newCellMark(d), attrs: {} }, { embed: newParagraphMark(), attrs: {} });
+  }
+  out.push({ embed: newTableEnd(d), attrs: {} });
+  return out;
+}
+
+/** A table with content at depth `d`: its marks (spans clipped, keys checked) and each cell's content one level deeper. */
+function contentTableUnits(ctx: CommandContext, t: FragmentTable, d: number): InsertUnit[] {
+  const g = placeFragment(t.cells);
+  const widths = t.widths ?? Array.from({ length: g.cols }, () => 1);
+  if (widths.length !== g.cols || !widths.every((w) => Number.isFinite(w) && w > 0)) throw new Error("model: a pasted table needs one positive width per column");
+  if (t.header !== undefined && (!Number.isInteger(t.header) || t.header < 0 || t.header > g.rows)) throw new Error("model: a pasted table's header count is out of range");
+  // Only flags that read are written (as setHeaderRows): no span crosses the header band's lower boundary.
+  const header = g.header(t.header ?? 0);
+  const out: InsertUnit[] = [{ embed: newTableStart(d, widths, checkKeys(t.keys ?? {}, ["a:"], "table")), attrs: {} }];
+  for (let i = 0; i < g.rows; i++) {
+    const keys = checkKeys(t.rowKeys?.[i] ?? {}, ["a:"], "row");
+    out.push({ embed: newRowMark(d, i < header ? { ...keys, [HEADER_KEY]: true } : keys), attrs: {} });
+    for (const p of g.cells) {
+      if (p.row !== i) continue;
+      if (p.cell.items.at(-1)?.k !== "para") throw new Error("model: a pasted cell's content must end in a ¶");
+      const spans = { ...(p.rowSpan > 1 ? { [ROW_SPAN_KEY]: p.rowSpan } : {}), ...(p.colSpan > 1 ? { [COL_SPAN_KEY]: p.colSpan } : {}) };
+      out.push({ embed: newCellMark(d, { ...checkKeys(p.cell.keys ?? {}, ["a:"], "cell"), ...spans }), attrs: {} }, ...units(ctx, p.cell.items, d + 1));
+    }
   }
   out.push({ embed: newTableEnd(d), attrs: {} });
   return out;
@@ -99,7 +147,7 @@ export function units(ctx: CommandContext, items: readonly FragmentItem[], depth
         out.push({ embed: newTableOfContents(checkKeys(i.keys ?? {}, ["a:"], "TOC")), attrs: {} });
         break;
       case "table":
-        out.push(...tableUnits(i.rows, i.cols, depth));
+        out.push(...("cells" in i ? contentTableUnits(ctx, i, depth) : tableUnits(i.rows, i.cols, depth)));
         break;
       case "S": {
         const keys = Object.fromEntries(Object.entries(i.keys ?? {}).filter(([k]) => !k.startsWith("h:")));
