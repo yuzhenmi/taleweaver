@@ -11,7 +11,7 @@ import { mapOf } from "./storage/new-items";
 import type { Scalar } from "./storage/scalar";
 import { childrenOf } from "./test-helpers/fixture";
 import type { Harness } from "./test-helpers/harness";
-import { raw } from "./test-helpers/table";
+import { cellIdAt, raw, selectCells } from "./test-helpers/table";
 
 /** The `i`-th table of `parent`'s children (the body by default). */
 function tableOf(h: Harness, parent?: string, i = 0): Block {
@@ -172,6 +172,40 @@ describe("setTableAttrs (T4)", () => {
     expect(h.selection).toEqual(caretAt(childrenOf(h.version, "block", cell(h, t, 1, 2).id)[0]?.id ?? "", 0));
     expect(h.undo()).toBe(true);
     expect(cell(h, t, 1, 2).attrs).toEqual({});
+  });
+
+  it("a cell selection: every cell of its rectangle (virtual ones made real once each, in one insert per row), every row of it", () => {
+    // Row 1 has virtual cells at columns 1 and 2.
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ d¶ ⟨r⟩ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟨c⟩ g¶ ⟧");
+    const t = tableOf(h);
+    selectCells(h, [0, 1], [1, 2]);
+    expect(h.run(setTableAttrs, "cell", { background: "#fee" })).toBe(true);
+    const attrs = (): unknown[][] => childrenOf(h.version, "block", t.id).map((r) => childrenOf(h.version, "block", r.id).map((c) => c.attrs));
+    const bg = { background: "#fee" };
+    expect(attrs()).toEqual([[{}, bg, bg], [{}, bg, bg], [{}, {}, {}]]);
+    // The selection maps: its virtual head is now the real cell made at its slot.
+    expect(h.selection).toEqual({ kind: "cells", anchor: cellIdAt(h, [0, 1]), head: cellIdAt(h, [1, 2]) });
+    expect(h.run(setTableAttrs, "row", { minHeight: 9 })).toBe(true);
+    expect(childrenOf(h.version, "block", t.id).map((r) => r.attrs)).toEqual([{ minHeight: 9 }, { minHeight: 9 }, {}]);
+    expect(h.undo()).toBe(true);
+    expect(h.undo()).toBe(true);
+    expect(attrs()).toEqual([[{}, {}, {}], [{}, {}, {}], [{}, {}, {}]]);
+  });
+
+  it("a cell selection over a row whose free slots sit around a covered one: exactly the free cells inside it", () => {
+    // Row 1's slots: D, free, C (covered from above), free.
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ A¶ ⟨c⟩ B¶ ⟨c⟩r2 C¶ ⟨c⟩ E¶ ⟨r⟩ ⟨c⟩ D¶ ⟧");
+    const t = tableOf(h);
+    const bg = { background: "#fee" };
+    const attrs = (): unknown[][] => childrenOf(h.version, "block", t.id).map((r) => childrenOf(h.version, "block", r.id).map((c) => c.attrs));
+    selectCells(h, [0, 2], [1, 3]);
+    expect(h.run(setTableAttrs, "cell", bg)).toBe(true);
+    // Row 1's records: D, (1,1) made real without attrs, (1,3) with them.
+    expect(attrs()).toEqual([[{}, {}, { ...bg, rowSpan: 2 }, bg], [{}, {}, bg]]);
+    expect(h.undo()).toBe(true);
+    selectCells(h, [0, 1], [1, 1]);
+    expect(h.run(setTableAttrs, "cell", bg)).toBe(true);
+    expect(attrs()).toEqual([[{}, bg, { rowSpan: 2 }, {}], [{}, bg, {}]]);
   });
 
   it("throws on an empty key, a value that is no write scalar, or an attr the read derives; a no-op outside a table", () => {

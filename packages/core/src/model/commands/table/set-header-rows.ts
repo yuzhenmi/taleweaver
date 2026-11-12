@@ -4,7 +4,7 @@ import { HEADER_KEY } from "../../storage/keys";
 import type { CommandContext } from "../command-context";
 import { plan } from "../helpers/build-plan";
 import { keysWrite } from "../helpers/writes";
-import { selectedCell } from "./table-at";
+import { selectedRect } from "./cell-rect";
 
 /**
  * T4: pin the first `count` rows of the selected cell's table as header rows (GDocs "Pin header rows"; Word's leading
@@ -12,7 +12,7 @@ import { selectedCell } from "./table-at";
  * (RT4 reads no more), so the stored flags are the ones that read. Rows past it lose their flag. The selection stays.
  */
 export function setHeaderRows(ctx: CommandContext, count: number): Plan | null {
-  const c = selectedCell(ctx);
+  const c = selectedRect(ctx)?.c ?? null;
   if (c === null || !Number.isInteger(count)) return null;
   const n = cleanHeaderCount(c.form, count);
   const writes: Write[] = c.form.rows.flatMap((r, i) => (r.header === i < n ? [] : keysWrite(r.map, { [HEADER_KEY]: i < n ? true : undefined })));

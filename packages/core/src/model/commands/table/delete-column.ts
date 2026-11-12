@@ -9,25 +9,27 @@ import { deleteBlockObject } from "../delete-block-object";
 import { plan } from "../helpers/build-plan";
 import { anchorUnits } from "../helpers/copy-units";
 import { deleteBetween, insertAt, keysWrite } from "../helpers/writes";
-import { cellParagraphAt, edgePoint, selectedCell, spanValue } from "./table-at";
+import { selectedRect } from "./cell-rect";
+import { cellParagraphAt, edgePoint, spanValue } from "./table-at";
 import { tableMarks } from "./table-mark-walk";
 
 /**
- * T3: delete the columns [j, k) the selected cell spans (GDocs). Each head intersecting them, once in its own row:
+ * T3: delete the columns [j, k) of the selection's rectangle (a cell: the columns it spans; GDocs). Each head intersecting them, once in its own row:
  * inside them, its items go (its `⟨c⟩` up to its row's next mark); else its colSpan drops by the overlap. A virtual
  * cell has no items, and a row ending before j is not written. `cols` loses its entries in [j, k). Every anchor of a
  * deleted cell moves, in storage order (GDocs, as deleteRow), to the start of the next surviving real cell's first
  * paragraph in its row, else the end of the last surviving one's last paragraph before it (in its row, else an
- * earlier one's), else the next surviving cell's start in a later row. The caret goes to the same row at column j
+ * earlier one's), else the next surviving cell's start in a later row. The caret goes to the rectangle's top row at column j
  * (what was k), or j − 1 when k is the end. Every column → C10. A no-op outside a table cell.
  */
 export function deleteColumn(ctx: CommandContext): Plan | null {
-  const c = selectedCell(ctx);
-  if (c === null) return null;
+  const rect = selectedRect(ctx);
+  if (rect === null) return null;
+  const { c, box } = rect;
   const { d, fs, form } = c;
   const C = c.columnCount;
-  const j = c.col;
-  const k = c.col + c.colSpan;
+  const j = box.c0;
+  const k = box.c1 + 1;
   if (j === 0 && k >= C) return deleteBlockObject(ctx, c.tableId);
   const marks = tableMarks(c);
   if (marks === null) return null;
@@ -76,7 +78,7 @@ export function deleteColumn(ctx: CommandContext): Plan | null {
   return plan(d, writes, (after) => {
     // Past the new last column the cell does not read: the loop steps to j − 1.
     for (let col = j; col >= 0; col--) {
-      const q = cellParagraphAt(after, fs.holderId, c.tableId, c.row, col);
+      const q = cellParagraphAt(after, fs.holderId, c.tableId, box.r0, col);
       if (q !== null) return caretAt(q, 0);
     }
     return sel;

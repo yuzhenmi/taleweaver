@@ -6,12 +6,12 @@ import type * as Y from "yjs";
 import type { BlockId } from "../../block";
 import { peekBlock } from "../../document/blocks";
 import type { Document, FlowState } from "../../document/types";
-import { type TableForm, columnCountOf } from "../../derive/table/table-form";
-import type { RowForm } from "../../derive/table/table-form";
+import { type TableForm, columnCountOf, nextMarkId, slotsOf } from "../../derive/table/table-form";
 import type { Carry } from "../../../table-grid/assign-table-grid";
 import { virtualCellId } from "../../ids";
 import { edgeParagraphOf } from "../../position/block-object";
-import { type ModelSelection, caretAt, isAllSelection, isTextSelection } from "../../position/model-position";
+import { type ModelSelection, caretAt, isAllSelection, isCellSelection, isTextSelection } from "../../position/model-position";
+import { mappedSelection } from "../helpers/build-plan";
 import { type StoragePoint, paragraphLayout, terminatorOf } from "../../position/paragraph-layout";
 import { pointBefore, pointOf } from "../../position/storage-points";
 import { tableExtent } from "../../position/table-extent";
@@ -71,15 +71,7 @@ export function cellAt(d: Document, fs: FlowState, cellId: BlockId): CellAt | nu
   return null;
 }
 
-/** The id of the mark after row `i` (the next `⟨r⟩`, the `⟧`, or the `⟦` of an unclosed table): virtual cell ids. */
-export const nextMarkId = (form: TableForm, tableId: BlockId, i: number): BlockId => form.rows[i + 1]?.id ?? form.closeId ?? tableId;
-
-/** A row's slot owners: the heads covering it from above, then its placed cells; undefined = free (a virtual cell). */
-export function slotsOf(row: RowForm): (BlockId | undefined)[] {
-  const out: (BlockId | undefined)[] = row.carryIn.map((c) => c?.head);
-  for (const p of row.placed) for (let dc = 0; dc < p.colSpan; dc++) out[p.gridCol + dc] = p.cellId;
-  return out;
-}
+export { nextMarkId, slotsOf } from "../../derive/table/table-form";
 
 /** The distinct heads of a carry, each with its rows left at that carry's row. */
 export function headsIn(carry: Carry<BlockId>): { head: BlockId; rowsLeft: number }[] {
@@ -131,6 +123,7 @@ export function cellParagraphAt(after: Document, holderId: BlockId, tableId: Blo
  */
 export function keptSelection(ctx: CommandContext, c: CellAt, dRow: number, dCol: number): (after: Document) => ModelSelection {
   const sel = ctx.selection;
+  if (isCellSelection(sel)) return (after) => mappedSelection(ctx.version, sel, after);
   return (after) => {
     const ids = isAllSelection(sel) ? [sel.container] : isTextSelection(sel) ? [sel.anchor.blockId, sel.focus.blockId] : [];
     // A virtual cell's id names a slot (`${nextMark}/fill<col>`), which may now be another cell: always re-found.

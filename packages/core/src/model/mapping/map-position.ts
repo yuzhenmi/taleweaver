@@ -1,4 +1,4 @@
-import { holdsAll } from "../document/blocks";
+import { holdsAll, peekBlock } from "../document/blocks";
 /**
  * Exact position mapping between versions (core-architecture D6 / D8), built from
  * the same Yjs deltas that drive change detection — no text diff, no heuristic.
@@ -23,7 +23,9 @@ import type { Document } from "../document/types";
 import { blockObjectAt } from "../position/block-object";
 import { type Assoc, type ModelPosition, type ModelSelection, caretAt, isAllSelection, isCellSelection, isObjectSelection } from "../position/model-position";
 import type { BlockId } from "../block";
-import { cellMarkAt, cellOf, cellSelectionOf, implicitAt, virtualCellParagraph } from "../position/cell-selection";
+import { cellMarkAt, cellOf, cellSelectionOf } from "../position/cell-selection";
+import { columnCountOf, nextMarkId, slotsOf } from "../derive/table/table-form";
+import { emptyCellParagraphId, virtualCellId, virtualCellParagraphOf } from "../ids";
 import { edgeParagraphOf } from "../position/block-object";
 import { roleOf } from "../scan/tokens";
 import { paragraphLayout } from "../position/paragraph-layout";
@@ -162,17 +164,13 @@ export function mapSelection(from: Document, to: Document, sel: ModelSelection):
   return { anchor: m(sel.anchor), focus: m(sel.focus) };
 }
 
-/** Cell `id` of `from` in `to`: the cell at its mapped `⟨c⟩` while it survives, else the cell holding the mapped point. */
+/**
+ * Cell `id` of `from` in `to`: the cell at its mapped `⟨c⟩` while it survives, else the cell holding the mapped point. A
+ * virtual end cell is a slot: its row (its `⟨r⟩`, mapped) at its column (the last one, past the column count).
+ */
 function mapCell(from: Document, to: Document, id: BlockId): BlockId | null {
   const m = cellMarkAt(from, id);
-  if (m === null) {
-    const p = virtualCellParagraph(from, id);
-    const q = p === null ? null : mapPosition(from, to, { blockId: p, offset: 0 }, 1).position;
-    // A row's virtual cells share one point, which resolves to the first: back to this one's column.
-    const at = q === null ? null : paragraphLayout(to, q.blockId)?.head;
-    const own = p === null || q === null ? null : (at == null ? null : implicitAt(to, p, q.blockId, at)) ?? q.blockId;
-    return own === null ? null : cellOf(to, own);
-  }
+  if (m === null) return mapSlot(from, to, id);
   const x = mapPoint(from, to, m.point.piece, m.point.index, 1);
   const fs = to.flows.get(m.fs.holderId);
   if (x === null || fs === undefined) return null;
@@ -180,4 +178,22 @@ function mapCell(from: Document, to: Document, id: BlockId): BlockId | null {
   if (t !== null && roleOf(t.token) === "newCell") return t.token.id;
   const p = positionAtPoint(to, fs, m.point.piece, x.index, 1);
   return p === null ? null : cellOf(to, p.blockId);
+}
+
+/** Virtual end cell `id` of `from` in `to`: the cell at its column of its mapped row; null when its row is gone. */
+function mapSlot(from: Document, to: Document, id: BlockId): BlockId | null {
+  const v = virtualCellParagraphOf(emptyCellParagraphId(id));
+  const rowId = peekBlock(from, id)?.parentId ?? null;
+  const tableId = rowId === null ? null : (peekBlock(from, rowId)?.parentId ?? null);
+  const r = rowId === null ? null : cellMarkAt(from, rowId);
+  if (v === null || r === null || tableId === null) return null;
+  const x = mapPoint(from, to, r.point.piece, r.point.index, 1);
+  const fs = to.flows.get(r.fs.holderId);
+  const t = x === null || x.deleted || fs === undefined ? null : terminatorAtPoint(fs, r.point.piece, x.index);
+  const form = fs?.tables.get(tableId);
+  const i = t === null || roleOf(t.token) !== "newRow" ? undefined : form?.rowIndex.get(t.token.id);
+  const row = i === undefined ? undefined : form?.rows[i];
+  if (form === undefined || row === undefined || i === undefined) return null;
+  const col = Math.min(v.col, columnCountOf(form) - 1);
+  return slotsOf(row)[col] ?? virtualCellId(nextMarkId(form, tableId, i), col);
 }

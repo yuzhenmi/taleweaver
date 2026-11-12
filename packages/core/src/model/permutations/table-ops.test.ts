@@ -22,7 +22,8 @@ import { wellFormed } from "../oracle/document-probes";
 import { validityErrors } from "../oracle/expect-valid";
 import { describeFiring, firingsOf, idKey } from "../oracle/firings";
 import type { Plan } from "../plan";
-import { caretAt, isTextSelection } from "../position/model-position";
+import { caretAt, isCellSelection, isTextSelection } from "../position/model-position";
+import { selectedRect } from "../commands/table/cell-rect";
 import { childrenOf, textOf } from "../test-helpers/fixture";
 import * as M from "../test-helpers/grid-model";
 import { type Harness, caretErrors } from "../test-helpers/harness";
@@ -158,14 +159,17 @@ function ancestors(d: Document, id: string): string[] {
 interface Op {
   readonly name: string;
   readonly run: (ctx: CommandContext) => Plan | null;
-  readonly model: (g: M.Grid, at: M.Slot) => M.Outcome;
+  /** The model's outcome for the rectangle `at`–`to` (one cell: `to` = `at`). */
+  readonly model: (g: M.Grid, at: M.Slot, to: M.Slot) => M.Outcome;
+  /** Run from a cell selection `at`–`to` instead of a caret at `at`. */
+  readonly to?: M.Slot;
 }
 
 const OPS: readonly Op[] = [
-  { name: "insertRow above", run: (c) => insertRow(c, "above"), model: (g, at) => M.insertRow(g, at, "above") },
-  { name: "insertRow below", run: (c) => insertRow(c, "below"), model: (g, at) => M.insertRow(g, at, "below") },
-  { name: "insertColumn left", run: (c) => insertColumn(c, "left"), model: (g, at) => M.insertColumn(g, at, "left") },
-  { name: "insertColumn right", run: (c) => insertColumn(c, "right"), model: (g, at) => M.insertColumn(g, at, "right") },
+  { name: "insertRow above", run: (c) => insertRow(c, "above"), model: (g, at, to) => M.insertRow(g, at, "above", to) },
+  { name: "insertRow below", run: (c) => insertRow(c, "below"), model: (g, at, to) => M.insertRow(g, at, "below", to) },
+  { name: "insertColumn left", run: (c) => insertColumn(c, "left"), model: (g, at, to) => M.insertColumn(g, at, "left", to) },
+  { name: "insertColumn right", run: (c) => insertColumn(c, "right"), model: (g, at, to) => M.insertColumn(g, at, "right", to) },
   { name: "deleteRow", run: deleteRow, model: M.deleteRow },
   { name: "deleteColumn", run: deleteColumn, model: M.deleteColumn },
   { name: "unmergeCell", run: unmergeCell, model: M.unmerge },
@@ -204,7 +208,11 @@ function runOp(h: Harness, s: Shape, w: Where, at: M.Slot, op: Op, g0: M.Grid = 
   expect(readTable(h, t0).slots).toEqual(M.slotsOf(g0));
   expect(invariants(h, s.unclosed)).toEqual([]);
   caretIn(h, t0, at);
-  const x = op.model(g0, at);
+  if (op.to !== undefined) {
+    const ids = readTable(h, t0).ids;
+    h.selection = { kind: "cells", anchor: ids[at[0]]?.[at[1]] ?? "?", head: ids[op.to[0]]?.[op.to[1]] ?? "?" };
+  }
+  const x = op.model(g0, at, op.to ?? at);
   if (x.grid === g0) {
     // A no-op (the column cap).
     expect(h.run(op.run)).toBe(false);
@@ -235,6 +243,11 @@ function judge(h: Harness, w: Where, s: Shape, t0: Block, x: M.Outcome): void {
   expect(got.slots).toEqual(M.slotsOf(x.grid));
   expect(got.header).toBe(M.headerCount(x.grid));
   const sel = h.selection;
+  // A cell selection that stays (inserts, attrs, unmerge): it still reads as a rectangle of this table.
+  if (isCellSelection(sel)) {
+    expect(selectedRect({ version: h.version, selection: sel })?.c.tableId).toBe(t1.id);
+    return;
+  }
   if (!isTextSelection(sel)) throw new Error("no text selection after the command");
   const owner = got.ids[x.caret[0]]?.[x.caret[1]];
   expect({ caretIn: ancestors(h.version, sel.focus.blockId).includes(owner ?? "?") ? x.caret : sel.focus.blockId }).toEqual({ caretIn: x.caret });
@@ -262,18 +275,24 @@ function rectanglesOf(g: M.Grid): [M.Slot, M.Slot][] {
 
 const unmergeOp: Op = { name: "unmergeCell", run: unmergeCell, model: M.unmerge };
 
-const mergeOp = (from: M.Slot, to: M.Slot): Op => ({ name: "mergeCells", run: (c) => mergeCells(c, from, to), model: (g) => M.merge(g, from, to) });
+const mergeOp: Op = { name: "mergeCells", run: mergeCells, model: M.merge };
 
 for (const s of SHAPES) {
   for (const w of s.nested ? (["body", "nested"] as const) : (["body"] as const)) {
-    describe(`${s.name} (${w}) merge`, () => {
+    describe(`${s.name} (${w}) rectangles`, () => {
       for (const [from, to] of rectanglesOf(modelOf(s))) {
         it(`${s.name} (${w}) × merge (${from.join(",")})–(${to.join(",")})`, () => {
           const h = build(s, w);
-          const x = runOp(h, s, w, from, mergeOp(from, to));
+          const x = runOp(h, s, w, from, { ...mergeOp, to });
           // Then unmerge the merged cell, from the merged grid.
           if (x !== null && x.grid !== null && x.caret !== null) runOp(h, s, w, x.caret, unmergeOp, x.grid);
         });
+        for (const op of OPS) {
+          const name = `${s.name} (${w}) × cells (${from.join(",")})–(${to.join(",")}) × ${op.name}`;
+          // Ticket (2026-11-11, N7 step 3): C10 of an unclosed table at the flow start leaves a leading [S] (caret too).
+          const ticket = s.unclosed === true && op.model(modelOf(s), from, to).grid === null;
+          (ticket ? it.skip : it)(name, () => runCase(s, w, from, { ...op, to }));
+        }
       }
     });
   }

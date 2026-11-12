@@ -7,6 +7,8 @@ import { newParagraphMark, newSectionBreak } from "../storage/new-items";
 import { newCellMark, newRowMark, newTableEnd, newTableStart } from "../storage/table-marks";
 import { childrenOf, textOf } from "./fixture";
 import { Harness } from "./harness";
+import { nextMarkId, slotsOf } from "../commands/table/table-at";
+import { virtualCellId } from "../ids";
 
 export type Unit = string | Y.Map<unknown>;
 
@@ -62,6 +64,24 @@ export function raw(spec: string | Unit[], edit?: (maps: Y.Map<unknown>[]) => vo
   h.f.doc.transact(() => insertUnits(h.f.piece, 0, us));
   h.history.clear();
   return h;
+}
+
+/**
+ * The cell owning slot `[row, col]` of the body's first table, or the first table under block `parent` (a virtual end
+ * cell's slot id when the slot is free).
+ */
+export function cellIdAt(h: Harness, [row, col]: readonly [number, number], parent?: string): string {
+  const d = h.version;
+  const t = (parent === undefined ? h.paragraphs() : childrenOf(d, "block", parent)).find((b) => b.type === BLOCK_TYPES.table);
+  const form = t === undefined ? undefined : d.flows.get(d.rootId)?.tables.get(t.id);
+  const r = form?.rows[row];
+  if (t === undefined || form === undefined || r === undefined) throw new Error(`no slot ${row},${col}`);
+  return slotsOf(r)[col] ?? virtualCellId(nextMarkId(form, t.id, row), col);
+}
+
+/** Select the cells from slot `from` to `to` of the body's first table (or the first under `parent`). */
+export function selectCells(h: Harness, from: readonly [number, number], to: readonly [number, number], parent?: string): void {
+  h.selection = { kind: "cells", anchor: cellIdAt(h, from, parent), head: cellIdAt(h, to, parent) };
 }
 
 /** A cell's content as text: its blocks' texts joined by `|`, a nested table as `T`. */

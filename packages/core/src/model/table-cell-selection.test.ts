@@ -1,7 +1,6 @@
 /** N7 step 1: the CellSelection kind: its rectangle (cross-cell text ranges, nested lifting, the grow), history, mapping. */
 import { describe, expect, it } from "vitest";
 import { BLOCK_TYPES, type Block } from "./block";
-import type { CommandContext } from "./commands/command-context";
 import { selectedRect } from "./commands/table/cell-rect";
 import { insertText } from "./commands/insert-text";
 import { deleteRow } from "./commands/table/delete-row";
@@ -31,6 +30,18 @@ const firstParagraph = (h: Harness, cellId: string): string => {
   const p = childrenOf(h.version, "block", cellId).find((b) => b.type !== BLOCK_TYPES.table);
   if (p === undefined) throw new Error("no paragraph");
   return p.id;
+};
+
+/** The table's cells (row-major): text, `↓n` for a rowSpan. */
+const cellsOf = (h: Harness): string[] => {
+  const t = tableIn(h);
+  return childrenOf(h.version, "block", t.id).flatMap((r) =>
+    childrenOf(h.version, "block", r.id).map((c) => {
+      const p = childrenOf(h.version, "block", c.id)[0];
+      const text = (p?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
+      return typeof c.attrs["rowSpan"] === "number" ? `${text}↓${c.attrs["rowSpan"]}` : text;
+    }),
+  );
 };
 
 const cells = (anchor: string, head: string): CellSelection => ({ kind: "cells", anchor, head });
@@ -67,12 +78,11 @@ describe("CellSelection (N7 step 1)", () => {
   it("undo restores a cell selection over cells the command deleted (their re-created ⟨c⟩), and over a virtual cell", () => {
     const h = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟧ q¶");
     const t = tableIn(h);
-    const caret = caretAt(firstParagraph(h, cell(h, t, 0, 0)), 0);
     // (1, 1) is a virtual end cell.
     h.selection = cells(cell(h, t, 0, 1), cell(h, t, 1, 1));
     expect(rectOf(h)).toBe("0,1-1,1");
-    const merge = (ctx: CommandContext) => mergeCells({ ...ctx, selection: caret }, [0, 0], [1, 1]);
-    expect(h.run(merge)).toBe(true);
+    expect(h.run(mergeCells)).toBe(true);
+    expect(cellsOf(h)).toEqual(["a", "b↓2", "c"]);
     expect(h.undo()).toBe(true);
     expect(isCellSelection(h.selection)).toBe(true);
     expect(rectOf(h)).toBe("0,1-1,1");

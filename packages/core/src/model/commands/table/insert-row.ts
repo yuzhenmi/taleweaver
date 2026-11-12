@@ -7,20 +7,23 @@ import { newCellMark, newRowMark } from "../../storage/table-marks";
 import type { CommandContext } from "../command-context";
 import { plan } from "../helpers/build-plan";
 import { insertAt, keysWrite } from "../helpers/writes";
-import { attrKeys, headsIn, keptSelection, markOf, markPoint, rowEndPoint, selectedCell, slotsOf, spanValue } from "./table-at";
+import { selectedRect } from "./cell-rect";
+import { attrKeys, headsIn, keptSelection, markOf, markPoint, rowEndPoint, slotsOf, spanValue } from "./table-at";
 
 /**
- * T1: insert a row above / below the selected cell (a merged cell: above / below all its rows; GDocs). The new row
- * holds one empty cell per grid column no head crossing its line covers; each crossing head grows by one row. Its
- * cells copy the `a:*` of the reference row's cell at their slot and its `⟨r⟩` the reference row's (Word); it is a
- * header row inside the header band. The caret stays. A no-op outside a table cell.
+ * T1: insert as many rows as the selection's rectangle has (one cell, merged or not: one; GDocs / Word "insert N rows") above /
+ * below it. Each new row holds one empty cell per grid column no head crossing its line covers; each crossing head
+ * grows by them. Its cells copy the `a:*` of the reference row's cell at their slot and its `⟨r⟩` the reference row's
+ * (Word); they are header rows inside the header band. The selection stays. A no-op outside a table cell.
  */
 export function insertRow(ctx: CommandContext, side: "above" | "below"): Plan | null {
-  const c = selectedCell(ctx);
-  if (c === null) return null;
+  const rect = selectedRect(ctx);
+  if (rect === null) return null;
+  const { c, box } = rect;
   const { d, fs, form } = c;
   const R = form.rows.length;
-  const p = side === "above" ? c.row : c.row + c.rowSpan;
+  const n = rect.one ? 1 : box.r1 - box.r0 + 1;
+  const p = side === "above" ? box.r0 : box.r1 + 1;
   const ref = form.rows[side === "above" ? p : p - 1];
   const next = form.rows[p];
   const at = next === undefined ? rowEndPoint(c, R - 1) : markPoint(d, fs, next.id);
@@ -35,16 +38,19 @@ export function insertRow(ctx: CommandContext, side: "above" | "below"): Plan | 
     if (m === null) return null;
     const stored = spanOf(m.get(ROW_SPAN_KEY));
     const clipped = Math.min(stored, R - (p + rowsLeft - stored));
-    writes.push(...keysWrite(m, { [ROW_SPAN_KEY]: spanValue(next === undefined ? clipped : clipped + 1) }));
+    writes.push(...keysWrite(m, { [ROW_SPAN_KEY]: spanValue(next === undefined ? clipped : clipped + n) }));
   }
   const refRow = markOf(d, fs, ref.id);
-  const units: InsertUnit[] = [{ embed: newRowMark(form.depth, { ...attrKeys(refRow), ...(p < headerCountOf(form) ? { [HEADER_KEY]: true } : {}) }), attrs: {} }];
   const refSlots = slotsOf(ref);
-  for (let col = 0; col < c.columnCount; col++) {
-    if (covered.has(col)) continue;
-    const owner = refSlots[col];
-    units.push({ embed: newCellMark(form.depth, attrKeys(owner === undefined ? null : markOf(d, fs, owner))), attrs: {} }, { embed: newParagraphMark(), attrs: {} });
+  const units: InsertUnit[] = [];
+  for (let k = 0; k < n; k++) {
+    units.push({ embed: newRowMark(form.depth, { ...attrKeys(refRow), ...(p < headerCountOf(form) ? { [HEADER_KEY]: true } : {}) }), attrs: {} });
+    for (let col = 0; col < c.columnCount; col++) {
+      if (covered.has(col)) continue;
+      const owner = refSlots[col];
+      units.push({ embed: newCellMark(form.depth, attrKeys(owner === undefined ? null : markOf(d, fs, owner))), attrs: {} }, { embed: newParagraphMark(), attrs: {} });
+    }
   }
   writes.push(insertAt(at, units));
-  return plan(d, writes, keptSelection(ctx, c, side === "above" ? 1 : 0, 0));
+  return plan(d, writes, keptSelection(ctx, c, side === "above" ? n : 0, 0));
 }

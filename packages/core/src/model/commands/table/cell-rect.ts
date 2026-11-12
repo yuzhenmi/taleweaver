@@ -19,10 +19,11 @@ export interface Box {
   readonly c1: number;
 }
 
-/** A rectangle of a table: `c` locates the table (its anchor cell), `box` the slots. */
+/** A rectangle of a table: `c` locates the table (its anchor cell), `box` the slots; `one`: it is one cell's own. */
 export interface CellRect {
   readonly c: CellAt;
   readonly box: Box;
+  readonly one: boolean;
 }
 
 /** The slots of one cell (clipped spans). */
@@ -45,7 +46,7 @@ export function selectedRect(ctx: CommandContext): CellRect | null {
   }
   if (ends === null) {
     const c = selectedCell(ctx);
-    return c === null ? null : { c, box: boxOf(c) };
+    return c === null ? null : { c, box: boxOf(c), one: true };
   }
   const cs = cellSelectionOf(d, ends[0], ends[1]);
   const fs = cs === null ? null : flowOfCell(d, cs.anchor);
@@ -53,7 +54,8 @@ export function selectedRect(ctx: CommandContext): CellRect | null {
   const h = cs === null || fs === null ? null : cellAt(d, fs, cs.head);
   if (a === null || h === null) return null;
   const [x, y] = [boxOf(a), boxOf(h)];
-  return { c: a, box: grown(a, [Math.min(x.r0, y.r0), Math.min(x.c0, y.c0)], [Math.max(x.r1, y.r1), Math.max(x.c1, y.c1)]) };
+  const box = grown(a, [Math.min(x.r0, y.r0), Math.min(x.c0, y.c0)], [Math.max(x.r1, y.r1), Math.max(x.c1, y.c1)]);
+  return { c: a, box, one: box.r0 === x.r0 && box.r1 === x.r1 && box.c0 === x.c0 && box.c1 === x.c1 };
 }
 
 /** The flow of cell `id` (real or virtual). */

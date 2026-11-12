@@ -8,10 +8,10 @@ import type { CellSelection } from "./model-position";
 import { type StoragePoint, flowOfBlock, paragraphLayout, terminatorOf } from "./paragraph-layout";
 import { pointOf } from "./storage-points";
 
-/** Real cell `id`'s `⟨c⟩`: its flow and the point right before it; null for a virtual cell or a non-cell. */
+/** Real cell `id`'s `⟨c⟩` (or real row `id`'s `⟨r⟩`): its flow and the point right before it; null for a virtual cell, an implicit row, or anything else. */
 export function cellMarkAt(d: Document, id: BlockId): { fs: FlowState; point: StoragePoint } | null {
   const b = resolveBlock(d, id);
-  if (b === null || b.block.type !== BLOCK_TYPES.tableCell) return null;
+  if (b === null || (b.block.type !== BLOCK_TYPES.tableCell && b.block.type !== BLOCK_TYPES.tableRow)) return null;
   const fs = flowOfBlock(d, b.block, b.kind);
   const t = fs === undefined ? null : terminatorOf(d, fs, id);
   const point = fs === undefined || t === null ? null : pointOf(fs, t);

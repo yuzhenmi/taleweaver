@@ -9,7 +9,7 @@ import { caretAt } from "./position/model-position";
 import { newMarker } from "./storage/new-items";
 import { childrenOf } from "./test-helpers/fixture";
 import { Harness, sync } from "./test-helpers/harness";
-import { type Unit, raw, units } from "./test-helpers/table";
+import { type Unit, raw, selectCells, units } from "./test-helpers/table";
 
 /** The table's cells (row-major) as their paragraphs: text with `†<id>` / `‡<id>` per marker, then `:type` if not a paragraph. */
 function cells(h: Harness): string[][] {
@@ -33,6 +33,12 @@ function caret(h: Harness, i: number, p: number, offset: number): void {
   h.selection = caretAt(q.id, offset);
 }
 
+/** Merge the cells from slot `from` to `to` (a cell selection) of the body's table. */
+const mergeAt = (h: Harness, from: [number, number], to: [number, number]): boolean => {
+  selectCells(h, from, to);
+  return h.run(mergeCells);
+};
+
 const noFirings = (h: Harness): void => {
   for (const [, fs] of h.version.flows.entries()) expect(firingsOf(fs)).toEqual([]);
 };
@@ -50,12 +56,12 @@ describe("mergeCells (T6)", () => {
     });
     caret(h, 0, 0, 0);
     const before = h.read();
-    expect(h.run((c) => mergeCells(c, [0, 0], [1, 0]))).toBe(true);
+    expect(mergeAt(h, [0, 0], [1, 0])).toBe(true);
     expect(cells(h)).toEqual([["a:heading", "c:quote"], ["b"], ["d"]]);
     expect(h.undo()).toBe(true);
     expect(h.read()).toEqual(before);
     caret(h, 0, 0, 0);
-    expect(h.run((c) => mergeCells(c, [0, 1], [1, 1]))).toBe(true);
+    expect(mergeAt(h, [0, 1], [1, 1])).toBe(true);
     expect(cells(h)).toEqual([["a:heading"], ["b", "d"], ["c:quote"]]);
   });
 
@@ -63,13 +69,13 @@ describe("mergeCells (T6)", () => {
     const h = raw("⟦ ⟨r⟩ ⟨c⟩ ¶ ⟨c⟩ b¶ ⟨c⟩ ¶ ⟨r⟩ ⟨c⟩ ¶ ⟨c⟩ e¶ ⟨c⟩ ¶ ⟧ q¶");
     caret(h, 0, 0, 0);
     const before = h.read();
-    expect(h.run((c) => mergeCells(c, [0, 0], [1, 2]))).toBe(true);
+    expect(mergeAt(h, [0, 0], [1, 2])).toBe(true);
     expect(cells(h)).toEqual([["b", "e"]]);
     noFirings(h);
     expect(h.undo()).toBe(true);
     expect(h.read()).toEqual(before);
     caret(h, 0, 0, 0);
-    expect(h.run((c) => mergeCells(c, [0, 2], [1, 2]))).toBe(true);
+    expect(mergeAt(h, [0, 2], [1, 2])).toBe(true);
     expect(cells(h)).toEqual([[""], ["b"], [""], [""], ["e"]]);
     noFirings(h);
   });
@@ -77,7 +83,7 @@ describe("mergeCells (T6)", () => {
   it("an anchor in a moved cell moves with its text (not copied, not left behind)", () => {
     const h = raw(marked("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨r⟩ ⟨c⟩ †1 d ‡1 ¶ ⟧ q¶"));
     caret(h, 0, 0, 0);
-    expect(h.run((c) => mergeCells(c, [0, 0], [1, 0]))).toBe(true);
+    expect(mergeAt(h, [0, 0], [1, 0])).toBe(true);
     expect(cells(h)).toEqual([["a", "†1 d ‡1"]]);
     expect(JSON.stringify(h.read()).split('"embedType":"marker"').length - 1).toBe(2);
   });
@@ -86,7 +92,7 @@ describe("mergeCells (T6)", () => {
     const a = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨r⟩ ⟨c⟩ d¶ ⟧ q¶");
     const b = new Harness(2, {}, a);
     caret(a, 0, 0, 0);
-    expect(a.run((c) => mergeCells(c, [0, 0], [1, 0]))).toBe(true);
+    expect(mergeAt(a, [0, 0], [1, 0])).toBe(true);
     sync(a, b);
     expect(cells(b)).toEqual([["a", "d"]]);
     caret(b, 0, 1, 1);

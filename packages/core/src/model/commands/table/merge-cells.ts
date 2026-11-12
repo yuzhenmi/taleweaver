@@ -13,28 +13,23 @@ import { plan } from "../helpers/build-plan";
 import { moveUnits } from "../helpers/copy-units";
 import { type Keys, diffKeys, scalar } from "../helpers/paragraph-keys";
 import { deleteBetween, insertAt, keysWrite, materialize } from "../helpers/writes";
-import { type CellAt, cellParagraphAt, nextMarkId, selectedCell, spanValue } from "./table-at";
+import { type CellAt, cellParagraphAt, nextMarkId, spanValue } from "./table-at";
 import { type TableMarks, tableMarks } from "./table-mark-walk";
-import { type Box, type Slot, grown } from "./cell-rect";
+import { type Box, selectedRect } from "./cell-rect";
 
 /**
- * T6: merge the rectangle `from`–`to` (two corner slots of the selected cell's table), grown until no cell crosses its
- * edge (GDocs). Its head is the cell at its top-left slot (a virtual one is made real). In the head's row the other
+ * T6: merge the selection's rectangle (a cell selection's, grown until no cell crosses its edge; GDocs). Its head is the cell at its top-left slot (a virtual one is made real). In the head's row the other
  * cells' `⟨c⟩`s go, so their content joins the head in place; an empty one (one ¶, nothing else) loses its ¶ too, and
  * so does an empty head when the row is not all empty (Word: empty cells add nothing). The rows below move their
  * non-empty content, anchors included, row-major, before the head's final ¶ F (r7 F5): a clone of F first ends the
  * head's own last paragraph (unless the head's row is empty), the moved run comes without its last ¶, and F takes that
  * ¶'s keys, so undo never leaves debris after F. The head gets the spans; the caret goes to the merged cell's start.
- * One cell (or one slot) is a no-op, as is a selection outside a table cell; a slot outside the table throws.
+ * One cell (or one slot) is a no-op, as is a selection outside a table cell.
  */
-export function mergeCells(ctx: CommandContext, from: Slot, to: Slot): Plan | null {
-  const c = selectedCell(ctx);
-  if (c === null) return null;
-  const R = c.form.rows.length;
-  for (const [r, col] of [from, to]) {
-    if (!Number.isInteger(r) || !Number.isInteger(col) || r < 0 || r >= R || col < 0 || col >= c.columnCount) throw new Error(`model: no slot (${r}, ${col}) in the table`);
-  }
-  const box = grown(c, from, to);
+export function mergeCells(ctx: CommandContext): Plan | null {
+  const rect = selectedRect(ctx);
+  if (rect === null) return null;
+  const { c, box } = rect;
   const marks = tableMarks(c);
   if (marks === null) return null;
   const rows: OwnCell[][] = [];

@@ -12,11 +12,12 @@ import { deleteBlockObject } from "../delete-block-object";
 import { plan } from "../helpers/build-plan";
 import { anchorUnits, copyUnits } from "../helpers/copy-units";
 import { deleteBetween, insertAt, keysWrite } from "../helpers/writes";
-import { type CellAt, attrKeys, cellParagraphAt, edgePoint, headsIn, selectedCell, slotsOf, spanValue } from "./table-at";
+import { selectedRect } from "./cell-rect";
+import { type CellAt, attrKeys, cellParagraphAt, edgePoint, headsIn, slotsOf, spanValue } from "./table-at";
 import { type TableMarks, tableMarks } from "./table-mark-walk";
 
 /**
- * T2: delete the rows [a, b) the selected cell spans (GDocs). A head from above crossing them shrinks by the rows it
+ * T2: delete the rows [a, b) of the selection's rectangle (a cell: the rows it spans; GDocs). A head from above crossing them shrinks by the rows it
  * covers there. A head anchored in them that reaches row b moves into row b at its slot (PM, Word): a new `⟨c⟩` with
  * its `a:*` and spans, then a copy of its content (G2), before row b's first cell right of it, or at row b's end
  * after empty cells padding a short row up to its slot. Every anchor of the range (a moved head's included) moves to
@@ -25,12 +26,13 @@ import { type TableMarks, tableMarks } from "./table-mark-walk";
  * to the same grid column in row b, or in row a − 1. Every row → C10. A no-op outside a table cell.
  */
 export function deleteRow(ctx: CommandContext): Plan | null {
-  const c = selectedCell(ctx);
-  if (c === null) return null;
+  const rect = selectedRect(ctx);
+  if (rect === null) return null;
+  const { c, box } = rect;
   const { d, fs, form } = c;
   const R = form.rows.length;
-  const a = c.row;
-  const b = c.row + c.rowSpan;
+  const a = box.r0;
+  const b = box.r1 + 1;
   if (a === 0 && b >= R) return deleteBlockObject(ctx, c.tableId);
   const marks = tableMarks(c);
   const first = form.rows[a];
@@ -58,7 +60,7 @@ export function deleteRow(ctx: CommandContext): Plan | null {
   for (const h of heads) writes.push(insertAt(h.at, headUnits(c, h)));
   const sel = ctx.selection;
   return plan(d, writes, (after) => {
-    for (let col = c.col; col >= 0; col--) {
+    for (let col = box.c0; col >= 0; col--) {
       const q = cellParagraphAt(after, fs.holderId, c.tableId, next === undefined ? a - 1 : a, col);
       if (q !== null) return caretAt(q, 0);
     }

@@ -5,7 +5,7 @@ import { mapOf } from "../../storage/new-items";
 import type { CommandContext } from "../command-context";
 import { plan } from "../helpers/build-plan";
 import { keysWrite } from "../helpers/writes";
-import { selectedCell } from "./table-at";
+import { selectedRect } from "./cell-rect";
 
 /**
  * T4: the column weights of the selected cell's table (GDocs `updateTableColumnProperties`, Word `gridCol`), one finite
@@ -14,7 +14,7 @@ import { selectedCell } from "./table-at";
  * them). The selection stays.
  */
 export function setColumnWidths(ctx: CommandContext, weights: readonly number[]): Plan | null {
-  const c = selectedCell(ctx);
+  const c = selectedRect(ctx)?.c ?? null;
   if (c === null) return null;
   // RT3 divides by their sum: it must be finite too.
   if (weights.length !== c.columnCount || !weights.every((w) => Number.isFinite(w) && w > 0) || !Number.isFinite(weights.reduce((s, w) => s + w, 0))) {

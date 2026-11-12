@@ -64,3 +64,13 @@ export function cleanHeaderCount(f: TableForm, n: number): number {
   while (h > 0 && (f.rows[h]?.carryIn.length ?? 0) > 0) h--;
   return h;
 }
+
+/** The id of the mark after row `i` (the next `⟨r⟩`, the `⟧`, or the `⟦` of an unclosed table): virtual cell ids. */
+export const nextMarkId = (form: TableForm, tableId: BlockId, i: number): BlockId => form.rows[i + 1]?.id ?? form.closeId ?? tableId;
+
+/** A row's slot owners: the heads covering it from above, then its placed cells; undefined = free (a virtual cell). */
+export function slotsOf(row: RowForm): (BlockId | undefined)[] {
+  const out: (BlockId | undefined)[] = row.carryIn.map((c) => c?.head);
+  for (const p of row.placed) for (let dc = 0; dc < p.colSpan; dc++) out[p.gridCol + dc] = p.cellId;
+  return out;
+}
