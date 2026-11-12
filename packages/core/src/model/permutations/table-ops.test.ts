@@ -232,7 +232,8 @@ function runOp(h: Harness, s: Shape, w: Where, at: M.Slot, op: Op, g0: M.Grid = 
 
 /** The version after a command against the model's outcome `x`. */
 function judge(h: Harness, w: Where, s: Shape, t0: Block, x: M.Outcome): void {
-  expect(invariants(h, s.unclosed)).toEqual([]);
+  // A deleted unclosed table leaves no unclosed table (C10 keeps a ¶ before its [S]): fully well formed.
+  expect(invariants(h, s.unclosed === true && x.grid !== null)).toEqual([]);
   const t1 = targetOf(h, w);
   if (x.grid === null || x.caret === null) {
     expect(t1 === undefined || t1.id !== t0.id).toBe(true);
@@ -287,12 +288,7 @@ for (const s of SHAPES) {
           // Then unmerge the merged cell, from the merged grid.
           if (x !== null && x.grid !== null && x.caret !== null) runOp(h, s, w, x.caret, unmergeOp, x.grid);
         });
-        for (const op of OPS) {
-          const name = `${s.name} (${w}) × cells (${from.join(",")})–(${to.join(",")}) × ${op.name}`;
-          // Ticket (2026-11-11, N7 step 3): C10 of an unclosed table at the flow start leaves a leading [S] (caret too).
-          const ticket = s.unclosed === true && op.model(modelOf(s), from, to).grid === null;
-          (ticket ? it.skip : it)(name, () => runCase(s, w, from, { ...op, to }));
-        }
+        for (const op of OPS) it(`${s.name} (${w}) × cells (${from.join(",")})–(${to.join(",")}) × ${op.name}`, () => runCase(s, w, from, { ...op, to }));
       }
     });
   }

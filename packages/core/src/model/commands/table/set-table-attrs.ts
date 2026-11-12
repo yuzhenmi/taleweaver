@@ -1,13 +1,12 @@
 import type * as Y from "yjs";
 import type { Plan, Write } from "../../plan";
-import { paragraphLayout } from "../../position/paragraph-layout";
-import { emptyCellParagraphId, virtualCellId } from "../../ids";
 import { type Scalar, isWriteScalar } from "../../storage/scalar";
 import type { CommandContext } from "../command-context";
 import { plan } from "../helpers/build-plan";
-import { keysWrite, materialize } from "../helpers/writes";
+import { keysWrite } from "../helpers/writes";
 import { selectedRect } from "./cell-rect";
-import { keptSelection, markOf, nextMarkId, slotsOf } from "./table-at";
+import { realizeVirtual } from "./over-cells";
+import { keptSelection, markOf } from "./table-at";
 
 /** What a {@link setTableAttrs} writes on: the table's `⟦`, the selected cell's row's `⟨r⟩`, or its `⟨c⟩`. */
 export type TablePart = "table" | "row" | "cell";
@@ -51,22 +50,10 @@ export function setTableAttrs(ctx: CommandContext, part: TablePart, attrs: Reado
       if (m === null) return null;
       writes.push(...keysWrite(m, changed(m)));
     }
-    // The row's virtual cells (its free slots; a covered slot may sit between them), in rank order: made real through
-    // the last one in the rectangle, with the attrs (none is null here) on those in it.
-    const slots = slotsOf(row);
-    const free: number[] = [];
-    for (let col = 0; col < c.columnCount; col++) if (slots[col] === undefined) free.push(col);
-    const last = free.filter((col) => col >= box.c0 && col <= box.c1).at(-1);
     const fresh = Object.fromEntries(Object.entries(changed(null)).filter((e): e is [string, Scalar] => e[1] !== undefined));
-    if (last === undefined || Object.keys(fresh).length === 0) continue;
-    const L = paragraphLayout(c.d, emptyCellParagraphId(virtualCellId(nextMarkId(form, c.tableId, i), last)));
-    const inBox = (rank: number): boolean => {
-      const col = free[rank - 1];
-      return col !== undefined && col >= box.c0 && col <= box.c1;
-    };
-    const m = L === null ? null : materialize(L, {}, [], undefined, (rank) => (inBox(rank) ? fresh : {}));
-    if (m === null) return null;
-    writes.push(...m.writes);
+    const v = realizeVirtual(rect, i, { cell: fresh });
+    if (v === null) return null;
+    writes.push(...v);
   }
   if (writes.length === 0) return null;
   return plan(c.d, writes, keptSelection(ctx, c, 0, 0));

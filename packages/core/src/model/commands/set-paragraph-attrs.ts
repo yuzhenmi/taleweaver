@@ -4,6 +4,8 @@ import type { Plan, Write } from "../plan";
 import { type Scalar, isWriteScalar } from "../storage/scalar";
 import type { CommandContext } from "./command-context";
 import { rangeOf } from "./helpers/at";
+import { cellsRect } from "./table/cell-rect";
+import { overCells } from "./table/over-cells";
 import { mappedSelection, plan } from "./helpers/build-plan";
 import { type Keys, diffKeys, keysOf } from "./helpers/paragraph-keys";
 import { paragraphsBetween } from "./helpers/paragraphs-between";
@@ -27,6 +29,13 @@ export function setParagraphAttrs(ctx: CommandContext, attrs: Readonly<Record<st
       throw new Error(`model: ${String(v)} is not a paragraph type`);
     }
     keys[`p:${k}`] = v === null || (k === "type" && v === BLOCK_TYPES.paragraph) ? undefined : v;
+  }
+  // A cell selection: every paragraph of every cell of its rectangle, virtual cells made real with the keys (GDocs / Word).
+  const cells = cellsRect(ctx);
+  if (cells !== null) {
+    const fresh: Keys = {};
+    for (const [k, v] of Object.entries(keys)) if (v !== undefined) fresh[k] = v;
+    return Object.keys(keys).length === 0 ? null : overCells(ctx, cells, (c) => setParagraphAttrs(c, attrs), { para: fresh });
   }
   const r = rangeOf(ctx);
   if (r === null || Object.keys(keys).length === 0) return null;

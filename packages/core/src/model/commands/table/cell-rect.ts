@@ -5,6 +5,7 @@ import { emptyCellParagraphId } from "../../ids";
 import { cellMarkAt, cellOf, cellSelectionOf } from "../../position/cell-selection";
 import { isCellSelection, isTextSelection, samePosition } from "../../position/model-position";
 import { paragraphLayout } from "../../position/paragraph-layout";
+import { edgeParagraphOf } from "../../position/block-object";
 import type { CommandContext } from "../command-context";
 import { type CellAt, cellAt, selectedCell } from "./table-at";
 
@@ -35,20 +36,35 @@ export const boxOf = (c: CellAt): Box => ({ r0: c.row, r1: c.row + c.rowSpan - 1
  * Null for anything else.
  */
 export function selectedRect(ctx: CommandContext): CellRect | null {
+  const cells = cellsRect(ctx);
+  if (cells !== null) return cells;
+  const c = selectedCell(ctx);
+  return c === null ? null : { c, box: boxOf(c), one: true };
+}
+
+/** A cell selection's two cells, or a text selection's whose ends are in different cells; null for any other selection. */
+function cellEnds(ctx: CommandContext): [BlockId, BlockId] | null {
   const d = ctx.version;
   const sel = ctx.selection;
-  let ends: [BlockId, BlockId] | null = null;
-  if (isCellSelection(sel)) ends = [sel.anchor, sel.head];
-  else if (isTextSelection(sel) && !samePosition(sel.anchor, sel.focus)) {
-    const a = cellOf(d, sel.anchor.blockId);
-    const f = cellOf(d, sel.focus.blockId);
-    if (a !== null && f !== null && a !== f) ends = [a, f];
-  }
-  if (ends === null) {
-    const c = selectedCell(ctx);
-    return c === null ? null : { c, box: boxOf(c), one: true };
-  }
+  if (isCellSelection(sel)) return [sel.anchor, sel.head];
+  if (!isTextSelection(sel) || samePosition(sel.anchor, sel.focus)) return null;
+  const a = cellOf(d, sel.anchor.blockId);
+  const f = cellOf(d, sel.focus.blockId);
+  return a !== null && f !== null && a !== f ? [a, f] : null;
+}
+
+/**
+ * The rectangle of a cell selection, or of a text selection whose ends are in different cells (one table holding both
+ * after lifting, {@link cellSelectionOf}); null for any other selection: a caret, a range in one cell, or a text range
+ * that lifts to one cell (from a cell's text into a table nested in it: a range of that cell, not a cell selection).
+ * Commands that act on content (formatting, delete, typing) act per cell over it.
+ */
+export function cellsRect(ctx: CommandContext): CellRect | null {
+  const d = ctx.version;
+  const ends = cellEnds(ctx);
+  if (ends === null) return null;
   const cs = cellSelectionOf(d, ends[0], ends[1]);
+  if (cs !== null && cs.anchor === cs.head && !isCellSelection(ctx.selection)) return null;
   const fs = cs === null ? null : flowOfCell(d, cs.anchor);
   const a = cs === null || fs === null ? null : cellAt(d, fs, cs.anchor);
   const h = cs === null || fs === null ? null : cellAt(d, fs, cs.head);
@@ -58,9 +74,10 @@ export function selectedRect(ctx: CommandContext): CellRect | null {
   return { c: a, box, one: box.r0 === x.r0 && box.r1 === x.r1 && box.c0 === x.c0 && box.c1 === x.c1 };
 }
 
-/** The flow of cell `id` (real or virtual). */
+/** The flow of cell `id` (real or virtual; a virtual one holding a row's lead reads paragraphs of its own). */
 function flowOfCell(d: Document, id: BlockId): FlowState | null {
-  return cellMarkAt(d, id)?.fs ?? paragraphLayout(d, emptyCellParagraphId(id))?.fs ?? null;
+  const first = edgeParagraphOf(d, id, 1);
+  return cellMarkAt(d, id)?.fs ?? paragraphLayout(d, emptyCellParagraphId(id))?.fs ?? (first === null ? null : (paragraphLayout(d, first)?.fs ?? null));
 }
 
 /** The rectangle `from`–`to` grown until no placed cell (clipped spans) of `c`'s table crosses its edge. */

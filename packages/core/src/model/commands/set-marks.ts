@@ -3,6 +3,8 @@ import { pointAfter, pointBefore } from "../position/storage-points";
 import type { Scalar } from "../storage/scalar";
 import type { CommandContext } from "./command-context";
 import { rangeOf } from "./helpers/at";
+import { cellsRect } from "./table/cell-rect";
+import { overCells } from "./table/over-cells";
 import { plan } from "./helpers/build-plan";
 import { keysOf } from "./helpers/paragraph-keys";
 import { paragraphsBetween } from "./helpers/paragraphs-between";
@@ -17,6 +19,9 @@ import { deleteBetween, keysWrite } from "./helpers/writes";
 /** Inline formatting over the selection: `attrs` values set (null removes). A caret has no stored marks in the model (an editor concern). */
 export function setMarks(ctx: CommandContext, attrs: Readonly<Record<string, Scalar>>): Plan | null {
   const values = checkScalars(attrs, "mark");
+  // A cell selection: every cell of its rectangle, whole (GDocs / Word / PM); empty virtual cells have nothing to mark.
+  const cells = cellsRect(ctx);
+  if (cells !== null) return overCells(ctx, cells, (c) => setMarks(c, attrs));
   const r = rangeOf(ctx);
   if (r === null || r.collapsed || Object.keys(values).length === 0) return null;
   const a = pointBefore(r.start.L, r.start.offset);

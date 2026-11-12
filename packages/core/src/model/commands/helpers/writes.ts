@@ -47,21 +47,29 @@ function tableClose(L: ParagraphLayout, deletedFrom?: StoragePoint): InsertUnit[
   return d === null ? [] : [{ embed: newTableEnd(d), attrs: {} }];
 }
 
+/** A virtual cell's keys when made real: its `⟨c⟩`'s and its ¶'s. */
+export interface LeadKeys {
+  readonly cell?: Keys;
+  readonly para?: Keys;
+}
+
 /**
  * A virtual end cell's paragraph made real (design: short rows): real `⟨c⟩¶` cells for the virtual cells before it
- * in its row, then its own `⟨c⟩` (its ¶ follows). `cellKeys`: its own `⟨c⟩`'s keys, or each one's by rank in the row's
- * virtual run (1 = the first; the lead cells get none otherwise). Nothing for any other paragraph.
+ * in its row, then its own `⟨c⟩` (its ¶ follows, with the paragraph's keys). `cellKeys`: its own `⟨c⟩`'s keys, or each
+ * one's `⟨c⟩` / ¶ keys by rank among the row's virtual cells (1 = the first; the lead cells get none otherwise). Nothing
+ * for any other paragraph.
  */
-function cellLead(L: ParagraphLayout, cellKeys: Keys | ((rank: number) => Keys)): InsertUnit[] {
+function cellLead(L: ParagraphLayout, cellKeys: Keys | ((rank: number) => LeadKeys)): InsertUnit[] {
   const v = L.virtualCell;
   if (v === undefined) return [];
-  const keysAt = (rank: number): Keys => (typeof cellKeys === "function" ? cellKeys(rank) : rank === v.rank ? cellKeys : {});
+  const keysAt = (rank: number): LeadKeys => (typeof cellKeys === "function" ? cellKeys(rank) : rank === v.rank ? { cell: cellKeys } : {});
   const out: InsertUnit[] = [];
   for (let i = 1; i < v.rank; i++) {
-    out.push({ embed: newCellMark(v.depth, keysAt(i)), attrs: {} });
-    if (!(i === 1 && v.firstHolds)) out.push({ embed: newParagraphMark({}), attrs: {} });
+    const k = keysAt(i);
+    out.push({ embed: newCellMark(v.depth, k.cell ?? {}), attrs: {} });
+    if (!(i === 1 && v.firstHolds)) out.push({ embed: newParagraphMark(k.para ?? {}), attrs: {} });
   }
-  out.push({ embed: newCellMark(v.depth, keysAt(v.rank)), attrs: {} });
+  out.push({ embed: newCellMark(v.depth, keysAt(v.rank).cell ?? {}), attrs: {} });
   return out;
 }
 
@@ -69,7 +77,7 @@ function cellLead(L: ParagraphLayout, cellKeys: Keys | ((rank: number) => Keys))
  * X2: the writes inserting a ¶ (with `keys`) at the end of debris / R17 paragraph `L`,
  * and the new map (a virtual end cell's own `⟨c⟩` gets `cellKeys`). Null when the flow cannot be written (a holder without a flow).
  */
-export function materialize(L: ParagraphLayout, keys: Keys, before: readonly InsertUnit[] = [], deletedFrom?: StoragePoint, cellKeys: Keys | ((rank: number) => Keys) = {}): { writes: Write[]; map: Y.Map<unknown> } | null {
+export function materialize(L: ParagraphLayout, keys: Keys, before: readonly InsertUnit[] = [], deletedFrom?: StoragePoint, cellKeys: Keys | ((rank: number) => LeadKeys) = {}): { writes: Write[]; map: Y.Map<unknown> } | null {
   const map = newParagraphMark(keys);
   const units: InsertUnit[] = [...tableClose(L, deletedFrom), ...cellLead(L, cellKeys), ...before, { embed: map, attrs: {} }];
   const p = pointAfter(L, L.length);
