@@ -79,6 +79,13 @@ function tableUnits(rows: number, cols: number, d: number): InsertUnit[] {
   return out;
 }
 
+/** A pasted cell at depth `d` with spans `rowSpan` × `colSpan`: its `⟨c⟩` (keys checked) and its content one level deeper. */
+export function cellUnits(ctx: CommandContext, cell: FragmentCell, rowSpan: number, colSpan: number, d: number): InsertUnit[] {
+  if (cell.items.at(-1)?.k !== "para") throw new Error("model: a pasted cell's content must end in a ¶");
+  const spans = { ...(rowSpan > 1 ? { [ROW_SPAN_KEY]: rowSpan } : {}), ...(colSpan > 1 ? { [COL_SPAN_KEY]: colSpan } : {}) };
+  return [{ embed: newCellMark(d, { ...checkKeys(cell.keys ?? {}, ["a:"], "cell"), ...spans }), attrs: {} }, ...units(ctx, cell.items, d + 1)];
+}
+
 /** A table with content at depth `d`: its marks (spans clipped, keys checked) and each cell's content one level deeper. */
 function contentTableUnits(ctx: CommandContext, t: FragmentTable, d: number): InsertUnit[] {
   const g = placeFragment(t.cells);
@@ -93,9 +100,7 @@ function contentTableUnits(ctx: CommandContext, t: FragmentTable, d: number): In
     out.push({ embed: newRowMark(d, i < header ? { ...keys, [HEADER_KEY]: true } : keys), attrs: {} });
     for (const p of g.cells) {
       if (p.row !== i) continue;
-      if (p.cell.items.at(-1)?.k !== "para") throw new Error("model: a pasted cell's content must end in a ¶");
-      const spans = { ...(p.rowSpan > 1 ? { [ROW_SPAN_KEY]: p.rowSpan } : {}), ...(p.colSpan > 1 ? { [COL_SPAN_KEY]: p.colSpan } : {}) };
-      out.push({ embed: newCellMark(d, { ...checkKeys(p.cell.keys ?? {}, ["a:"], "cell"), ...spans }), attrs: {} }, ...units(ctx, p.cell.items, d + 1));
+      out.push(...cellUnits(ctx, p.cell, p.rowSpan, p.colSpan, d));
     }
   }
   out.push({ embed: newTableEnd(d), attrs: {} });

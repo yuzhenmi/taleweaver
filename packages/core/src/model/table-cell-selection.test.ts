@@ -331,6 +331,75 @@ describe("paste of table cells (N7 step 5)", () => {
     expect(tableIn(g).attrs["headerRowCount"]).toBeUndefined();
   });
 
+  const T = (...rows: string[][]): FragmentItem => ({ k: "table", cells: rows.map((r) => r.map((x) => A(x))) });
+  const caretIn = (h: Harness, slot: [number, number]): void => {
+    h.selection = caretAt(firstParagraph(h, cellIdAt(h, slot)), 0);
+  };
+  const grid = (h: Harness): string[][] => shape(h.version, tableIn(h).id);
+
+  it("at a caret in a cell, a table overwrites from that cell; the pasted rectangle is selected; undo / redo exact", () => {
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ d¶ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟨r⟩ ⟨c⟩ g¶ ⟨c⟩ h¶ ⟨c⟩ i¶ ⟧ q¶");
+    const before = h.read();
+    caretIn(h, [0, 1]);
+    expect(h.run(paste, [T(["A", "B"], ["C", "D"])])).toBe(true);
+    expect(grid(h)).toEqual([["a", "A", "B"], ["d", "C", "D"], ["g", "h", "i"]]);
+    expect(rectOf(h)).toBe("0,1-1,2");
+    const after = h.read();
+    expect(h.undo()).toBe(true);
+    expect(h.read()).toEqual(before);
+    expect(h.redo()).toBe(true);
+    expect(h.read()).toEqual(after);
+    // A larger cell selection: only the fragment's area (no tiling, Word / GDocs).
+    h.undo();
+    selectCells(h, [0, 0], [2, 2]);
+    expect(h.run(paste, [T(["Z"])])).toBe(true);
+    expect(grid(h)).toEqual([["Z", "b", "c"], ["d", "e", "f"], ["g", "h", "i"]]);
+    expect(rectOf(h)).toBe("0,0-0,0");
+  });
+
+  it("grows rows at the end and columns at the right; free slots before a pasted cell are padded; a head reaching past the end is clipped", () => {
+    // a's stored rowSpan 5 reads as 2; a third row must not be covered by it.
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩r5 a¶ ⟨c⟩ b¶ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧ q¶");
+    const before = h.read();
+    caretIn(h, [1, 2]);
+    expect(h.run(paste, [T(["A", "B"], ["C", "D"])])).toBe(true);
+    expect(cellsOf(h)).toEqual(["a↓2", "b", "c", "", "e", "A", "B", "", "", "C", "D"]);
+    expect(rectOf(h)).toBe("1,2-2,3");
+    expect(h.undo()).toBe(true);
+    expect(h.read()).toEqual(before);
+  });
+
+  it("isolates merged cells crossing the pasted rectangle: the part holding the head keeps it, the others are empty cells", () => {
+    // M spans rows 0–1 of column 1; pasting 1×2 at (1,0) crosses its lower part.
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩r2 M¶ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ d¶ ⟨c⟩ f¶ ⟧ q¶");
+    caretIn(h, [1, 0]);
+    expect(h.run(paste, [T(["X", "Y"])])).toBe(true);
+    expect(cellsOf(h)).toEqual(["a", "M", "c", "X", "Y", "f"]);
+    // N spans 2×2 from (0,0); pasting 1×1 over it (its own rectangle's top-left) leaves its other parts as empty cells.
+    const g = raw("⟦ ⟨r⟩ ⟨c⟩r2c2 N¶ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ f¶ ⟧ q¶", (m) => m[2]?.set("a:bg", "red"));
+    caretIn(g, [0, 0]);
+    expect(g.run(paste, [T(["X"])])).toBe(true);
+    expect(grid(g)).toEqual([["X", "", "c"], ["", "f"]]);
+    const t = tableIn(g);
+    expect(cell(g, t, 1, 0)).toBeDefined();
+    expect(childrenOf(g.version, "block", childrenOf(g.version, "block", t.id)[1]?.id ?? "")[0]?.attrs).toEqual({ colSpan: 2, bg: "red" });
+  });
+
+  it("a row's lead (concurrency only) is the content of slot 0's cell: overwritten with it", () => {
+    const h = raw("⟦ ⟨r⟩ L¶ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟧ q¶");
+    caretIn(h, [0, 1]);
+    h.selection = caretAt(childrenOf(h.version, "block", cellIdAt(h, [0, 0]))[0]?.id ?? "", 0);
+    expect(h.run(paste, [T(["X"])])).toBe(true);
+    expect(grid(h)).toEqual([["X", "b"]]);
+  });
+
+  it("any other payload holding a table, over a cell selection: the cells clear, then it goes into the first (nested)", () => {
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟧ q¶");
+    selectCells(h, [0, 0], [0, 1]);
+    expect(h.run(paste, [{ k: "table", rows: 1, cols: 1 }])).toBe(true);
+    expect(grid(h)).toEqual([["T|", ""]]);
+  });
+
   it("a malformed table item throws; past the nesting cap a paste is refused", () => {
     const h = raw("p¶");
     h.caret(1, 0);

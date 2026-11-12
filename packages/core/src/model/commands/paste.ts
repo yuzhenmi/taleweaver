@@ -6,12 +6,13 @@ import type { StoragePoint } from "../position/paragraph-layout";
 import { comparePoints, pointAfter } from "../position/storage-points";
 import { isObjectEnd } from "../position/table-extent";
 import { unitsBefore } from "../position/terminator-neighbours";
-import { holdsFlows, isParagraphBreak, isSectionBreak, isStructural } from "../scan/kinds";
+import { isParagraphBreak, isSectionBreak, isStructural } from "../scan/kinds";
 import { typeId } from "../storage/item-id";
 import { newParagraphMark } from "../storage/new-items";
 import type { CommandContext } from "./command-context";
 import { clearCells } from "./table/clear-cells";
-import { cellsRect } from "./table/cell-rect";
+import { cellsRect, selectedRect } from "./table/cell-rect";
+import { pasteCells } from "./table/paste-cells";
 import { rangeOf } from "./helpers/at";
 import { plan } from "./helpers/build-plan";
 import { deleteRange } from "./helpers/delete-range";
@@ -34,9 +35,12 @@ import { idAfter, insertAt, materialize } from "./helpers/writes";
  */
 export function paste(ctx: CommandContext, fragment: readonly FragmentItem[]): Plan | null {
   if (fragment.length === 0) return null;
+  // N7: a table with content alone, in a cell or over cells, overwrites them from the top-left (step 5); any other
+  // payload over cells clears them, then goes into the first (GDocs, step 4).
+  const only = fragment.length === 1 ? fragment[0] : undefined;
+  if (only !== undefined && only.k === "table" && "cells" in only && selectedRect(ctx) !== null) return pasteCells(ctx, only);
   const cells = cellsRect(ctx);
-  // N7 (GDocs): non-table content clears the cells, then goes into the first; table cells over cells are step 5.
-  if (cells !== null) return fragment.some((i) => holdsFlows(i.k)) ? null : clearCells(ctx, cells, (c) => paste(c, fragment));
+  if (cells !== null) return clearCells(ctx, cells, (c) => paste(c, fragment));
   if (!isObjectSelection(ctx.selection)) return pasteAt(ctx, fragment, null);
   const o = overObject(ctx);
   return o === null ? null : withWrites(o.writes, pasteAt(o.ctx, fragment, o.object));
