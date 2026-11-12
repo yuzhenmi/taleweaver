@@ -25,16 +25,21 @@ export function reserveTotal(r: CompleteReserve): number {
 /**
  * The reserve a box (`parent`, with block-end decoration `parentEndDeco`)
  * hands its last in-flow child whose end margin is `childMarginEnd`. A
- * decorated end bounds the margins: the parent's pending enclosed margin and
- * its decoration become reserve, the child's margin is now enclosed. An
- * undecorated end passes the parent's reserve on unchanged.
+ * decorated (or enclosing BFC-root) end bounds the margins: the parent's pending enclosed margin and
+ * its decoration become reserve, the child's margin is now enclosed. Through an
+ * undecorated end the child's margin collapses into the pending one.
  */
-export function lastChildReserve(parent: CompleteReserve, parentEndDeco: number, childMarginEnd: number): CompleteReserve {
-  return parentEndDeco > 0
+export function lastChildReserve(
+  parent: CompleteReserve,
+  parentEndDeco: number,
+  childMarginEnd: number,
+  // The parent's end encloses the child's end margin: an end decoration, or a
+  // BFC root with an auto block size (not a fragmentation-flow root).
+  enclosesEnd: boolean = parentEndDeco > 0,
+): CompleteReserve {
+  return enclosesEnd
     ? { reserve: reserveTotal(parent) + parentEndDeco, margin: childMarginEnd, enclosed: true }
-    // ponytail: the engine drops a last child's end margin at a box with no end
-    // decoration (bfc `noBottomBoundary`, a CSS 8.3.1 gap), so it is not
-    // reserved; when BM5 makes it collapse through, this becomes
-    // `{ ...parent, margin: Math.max(childMarginEnd, parent.margin) }`.
-    : parent;
+    // The child's end margin collapses through this box into the pending one
+    // (CSS 2.1 §8.3.1): enclosed if an ancestor's end decoration encloses it.
+    : { ...parent, margin: Math.max(childMarginEnd, parent.margin) };
 }

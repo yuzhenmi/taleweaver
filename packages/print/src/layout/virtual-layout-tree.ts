@@ -836,6 +836,7 @@ export function makeVirtualLayoutTree(
           {
             availableBlockSize: columnHeight,
             pageIndex,
+            flowRoot: true,
             // Each column resumes from the inner BFC token the measure pass seeded
             // it with (column 0's is the page's `resumeInto` unwrapped, set inside
             // `fitColumnsOnPage`; NEVER a column token).
@@ -964,6 +965,7 @@ export function makeVirtualLayoutTree(
           availableBlockSize: effContentBlockSize,
           pageIndex,
           resumeFrom: entry.resumeInto,
+          flowRoot: true,
           stopBeforeIndex,
           // Opt into float pushing ONLY when the plan was built with the
           // float-aware measure pass (the producer sets `enableFloatPushing` for
@@ -1058,7 +1060,8 @@ export function makeVirtualLayoutTree(
         effContentCtx,
         shaper,
         hyphenator,
-        { availableBlockSize: Number.MAX_SAFE_INTEGER, pageIndex, resumeFrom: null },
+        // A header / footer does not start a fragmentainer: its margins stay.
+        { availableBlockSize: Number.MAX_SAFE_INTEGER, pageIndex, resumeFrom: null, atFragmentainerStart: false },
       );
       return slotBox;
     };
@@ -1109,6 +1112,7 @@ export function makeVirtualLayoutTree(
             // plan.
             let cursor = FOOTNOTE_SEPARATOR_HEIGHT;
             let remaining = footnoteSlotHeight - FOOTNOTE_SEPARATOR_HEIGHT;
+            let bodiesPlaced = 0;
             // Lay ONE footnote body (continuation or fresh) into the slot, bounded
             // by `remaining`, resumed from `resumeToken`. Advances the cursor +
             // shrinks `remaining` by the laid box's height. Guards a missing body
@@ -1218,7 +1222,9 @@ export function makeVirtualLayoutTree(
                 bodyCtx,
                 shaper,
                 hyphenator,
-                { availableBlockSize: remaining, pageIndex, resumeFrom: resumeToken },
+                // Lockstep with `computeSlotLayout`: a flow root; only the
+                // first body starts the footnote area.
+                { availableBlockSize: remaining, pageIndex, resumeFrom: resumeToken, flowRoot: true, atFragmentainerStart: bodiesPlaced === 0 },
               );
               // Stack the body ONLY if it actually fits the remaining slot area.
               // This mirrors computeSlotLayout's overflow bound (`box === null ||
@@ -1231,6 +1237,7 @@ export function makeVirtualLayoutTree(
               // signal, so throw — in prod skip gracefully.
               if (bodyBox !== null && bodyBox.blockSize <= remaining) {
                 slotChildren.push(bodyBox);
+                bodiesPlaced++;
                 if (showsMarker && rootCs !== undefined) {
                   const rootUs = computeUsedStyle(
                     rootCs,

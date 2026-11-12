@@ -12,6 +12,7 @@ import type { Style } from "@taleweaver/core";
 import type { LayoutBox } from "../layout-box";
 import { rootFrame } from "../parent-frame";
 import { paginateRoot } from "../paginate";
+import { buildLayoutBoxCacheFromTree } from "../layout-reuse";
 
 /**
  * Narrow a `layoutBlock` result's `box` to non-null WITHOUT widening its
@@ -243,7 +244,7 @@ describe("BFC fragmentation — box-decoration-break: slice (BM4)", () => {
     const root = cascadePass(createElementBox("root", { display: "block" }, children));
     if (root.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
-    return layoutBlock(root, 0, 0, rootFrame(ctx), ctx, createMockShaper(8, 16), undefined, { availableBlockSize: 100, pageIndex: 0, resumeFrom: null });
+    return layoutBlock(root, 0, 0, rootFrame(ctx), ctx, createMockShaper(8, 16), undefined, { availableBlockSize: 100, pageIndex: 0, resumeFrom: null, flowRoot: true });
   }
   const para = (key: string, n: number, style: Partial<Style> = {}) =>
     createElementBox(key, { display: "block", whiteSpace: "pre", ...style } as Style, [
@@ -380,15 +381,16 @@ describe("BFC fragmentation — box-decoration-break: slice (BM4)", () => {
     expect(nth(placed(r.box).children, 0, "container").blockSize).toBe(94);
   });
 
-  it("a margin the layout drops (no bottom boundary in between) is not reserved", () => {
-    // A (2px end border) > B (undecorated) > P (5 lines, 12px end margin): the
-    // engine drops P's margin at B's end, so A = 80 + 2 completes at 10..92.
+  it("a margin collapsing through an undecorated box is reserved when an outer border encloses it (BM5)", () => {
+    // A (2px end border) > B (undecorated) > P (5 lines, 12px end margin): P's
+    // margin collapses through B and A encloses it, so A = 80 + 12 + 2 at 10
+    // overflows: reserve 14 leaves P 76 → 4 lines, widows 2 → 3 lines here.
     const r = page1([block("b", 10), createElementBox("a", { display: "block", ...endBorder(2) } as Style, [
       createElementBox("b2", { display: "block" }, [para("p", 5, { marginBlockEnd: 12 })]),
     ])]);
-    expect(r.breakToken).toBeNull();
+    expect(r.breakToken).not.toBeNull();
     const p = nth(childBlocks(nth(childBlocks(nth(placed(r.box).children, 1, "a")), 0, "b2")), 0, "p");
-    expect(lines(p).length).toBe(5);
+    expect(lines(p).length).toBe(3);
   });
 
   it("the reserve does not shrink a fragment of a box that does not complete", () => {
@@ -852,6 +854,84 @@ describe("BFC fragmentation — margin truncation across breaks (CSS L4 §5.4)",
     // blockSize = paddingBlockStart(10) + marginBlockStart(50) + blockSize(80) = 140
     expect(box!.height).toBe(140);
     expect(breakToken).toBeNull();
+  });
+});
+
+describe("BFC fragmentation — first-child margin truncation only at the fragmentainer start (T-w)", () => {
+  // CSS Fragmentation §5.2: only margins adjoining a break truncate. Mid-page,
+  // a first child's top margin inside a box that does not collapse with it
+  // (a BFC root, or a top border) is kept.
+  const firstChild = (key: string) =>
+    createElementBox(`${key}-p`, { display: "block", blockSize: 10, marginBlockStart: 20 } as Style, []);
+  const layoutPaged = (children: ElementBox[]) => {
+    const cascaded = cascadePass(createElementBox("root", { display: "block" } as Style, children)) as ElementBox;
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    return placed(layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(8, 16), undefined,
+      { availableBlockSize: 200, pageIndex: 0, resumeFrom: null }).box);
+  };
+  const flowRoot = createElementBox("a", { display: "flow-root" } as Style, [firstChild("a")]);
+  const bordered = createElementBox("d", { display: "block", borderBlockStartWidth: 2, borderBlockStartStyle: "solid" } as Style, [firstChild("d")]);
+  const childY = (b: LayoutBox) => ("children" in b ? nth(b.children, 0, "first child").y : -1);
+
+  it("mid-page: kept inside a BFC root and below a top border", () => {
+    const out = layoutPaged([createElementBox("b0", { display: "block", blockSize: 40 } as Style, []), flowRoot, bordered]);
+    const a = nth(out.children, 1, "a");
+    const d = nth(out.children, 2, "d");
+    expect([a.y, childY(a), d.y, childY(d)]).toEqual([40, 20, 70, 22]);
+  });
+
+  it("at the fragmentainer start: truncated", () => {
+    const out = layoutPaged([flowRoot]);
+    expect(childY(nth(out.children, 0, "a"))).toBe(0);
+  });
+});
+
+describe("BFC fragmentation — end margins at a flow root and a nested BFC root (BM5 r1)", () => {
+  const block = (key: string, h: number, extra: Partial<Style> = {}) =>
+    createElementBox(key, { display: "block", blockSize: h, ...extra } as Style, []);
+  const para5 = (key: string, extra: Partial<Style>) =>
+    createElementBox(key, { display: "block", whiteSpace: "pre", ...extra } as Style, [createTextBox(`${key}-t`, { whiteSpace: "pre" }, "x\nx\nx\nx\nx")]);
+  const page = (children: ElementBox[]) => {
+    const cascaded = cascadePass(createElementBox("root", { display: "block" } as Style, children)) as ElementBox;
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    return layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(8, 16), undefined,
+      { availableBlockSize: 100, pageIndex: 0, resumeFrom: null, flowRoot: true });
+  };
+
+  it("the page body truncates its last child's end margin at the page end (no push, no break)", () => {
+    const r = page([block("b0", 90), block("p", 8, { marginBlockEnd: 12 })]);
+    expect([r.breakToken, placed(r.box).blockSize, placed(r.box).children.length]).toEqual([null, 100, 2]);
+  });
+
+  it("a nested flow-root encloses its last child's end margin: the reserve moves the last lines", () => {
+    // FR = 80 + 12 at 10 overflows: reserve 12 leaves P 78 → 4 lines, widows 2 → 3.
+    const r = page([block("b0", 10), createElementBox("fr", { display: "flow-root" } as Style, [para5("p", { marginBlockEnd: 12 })])]);
+    expect(r.breakToken).not.toBeNull();
+    const fr = nth(placed(r.box).children, 1, "fr");
+    const p = "children" in fr ? nth(fr.children, 0, "p") : fr;
+    expect("children" in p ? p.children.filter((c) => c.type === "line").length : -1).toBe(3);
+  });
+});
+
+describe("BFC fragmentation — layout reuse honours the fragmentainer start (BM5 r1)", () => {
+  it("a cached flow-root that truncated at the page top gets its margin back when re-laid mid-page", () => {
+    const fr = createElementBox("fr", { display: "flow-root" } as Style, [
+      createElementBox("fr-p", { display: "block", blockSize: 10, marginBlockStart: 20 } as Style, []),
+    ]);
+    const first = cascadePass(createElementBox("root", { display: "block" } as Style, [fr])) as ElementBox;
+    const cfg = { pageInlineSize: 600, pageBlockSize: 200, pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 }, pageGap: 20 };
+    const shaper = createMockShaper(8, 16);
+    const prev = paginateRoot(first, makeRootContext(INITIAL_COMPUTED_STYLE, 600), shaper, undefined, cfg);
+    const cachedFr = first.children[0];
+    if (cachedFr === undefined || cachedFr.type !== "element") throw new Error("?");
+    // The same cascaded flow-root node (a cache hit by reference), now after a 40px block.
+    const b0 = cascadePass(createElementBox("b0", { display: "block", blockSize: 40 } as Style, []));
+    const reused: ElementBox = { ...first, key: "root2", children: [b0, cachedFr] };
+    const ctx = { ...makeRootContext(INITIAL_COMPUTED_STYLE, 600), prevLayoutCache: buildLayoutBoxCacheFromTree(prev, first) };
+    const out = placed(layoutBlock(reused, 0, 0, rootFrame(ctx), ctx, shaper, undefined,
+      { availableBlockSize: 200, pageIndex: 0, resumeFrom: null, flowRoot: true }).box);
+    const frBox = nth(out.children, 1, "fr");
+    expect("children" in frBox ? nth(frBox.children, 0, "fr-p").blockOffset : -1).toBe(20);
   });
 });
 

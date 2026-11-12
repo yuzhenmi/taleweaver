@@ -234,6 +234,21 @@ export interface FragmentationContext {
    * ignores it. Lockstep with fit-core. Undefined ⇒ `NO_RESERVE`.
    */
   readonly completeReserve?: CompleteReserve;
+  /**
+   * Whether this flow starts its fragmentainer, so the margins before its first
+   * content adjoin the break and truncate (CSS Fragmentation §5.2). bfc sets it
+   * for each child flow (true only while nothing precedes it on the
+   * fragmentainer); lockstep with fit-core. Undefined ⇒ true: the caller lays a
+   * fragmentainer root (a page, column or region body).
+   */
+  readonly atFragmentainerStart?: boolean;
+  /**
+   * The call lays the root of a fragmentation flow (a page body, a multicol
+   * column, a footnote body): its trailing end margin truncates at the
+   * fragmentainer end (CSS Fragmentation §5.2), so it never pushes or breaks.
+   * Not propagated to child flows.
+   */
+  readonly flowRoot?: boolean;
 }
 
 /**

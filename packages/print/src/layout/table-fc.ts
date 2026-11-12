@@ -821,6 +821,9 @@ export function layoutTable(
             availableBlockSize: placedHeight,
             pageIndex: fragmentation.pageIndex,
             resumeFrom: lc.resumeInteriorToken ?? null,
+            // A fresh cell's content sits where Pass A put it (CSS Fragmentation
+            // §5.2: no break before it); a resumed one starts this fragmentainer.
+            atFragmentainerStart: (lc.resumeInteriorToken ?? null) !== null,
           }, pageFlowBase);
           const top = frag.box;
           const topChildren =

@@ -33,9 +33,37 @@ import type { CompleteReserve } from "./complete-reserve";
 export interface BlockFitMeta {
   readonly kind: "block" | "ifc" | "table";
 
-  /** Margin-block-start / -end (logical), for adjacent-sibling collapse. */
+  /**
+   * Margin-block-start / -end (logical), for adjacent-sibling collapse: the
+   * margins the box presents to its siblings, collapsed with its adjoining
+   * descendants' (CSS 2.1 §8.3.1, `margin-collapse.ts`) — bfc's
+   * `collapsedMarginBlockStart` / `collapsedMarginBlockEnd`.
+   */
   readonly marginBlockStart: number;
   readonly marginBlockEnd: number;
+
+  /**
+   * `block` container: its first (last) in-flow child's margins collapse
+   * through its start (end) — bfc's `collapsesStart` / `collapsesEnd`. Absent ⇒ false.
+   */
+  readonly collapsesStart?: boolean;
+  readonly collapsesEnd?: boolean;
+
+  /**
+   * No in-flow content before layout (`hasNoInFlowContent`): an empty child
+   * that keeps its parent's start margin collapsing through. Absent ⇒ false.
+   */
+  readonly noInFlowContent?: boolean;
+
+  /** `block` container: `block-size: auto` (bfc sizes it by its content). Absent ⇒ false. */
+  readonly autoBlockSize?: boolean;
+
+  /**
+   * `block` container: a BFC root with an auto block size — its end encloses
+   * its last child's end margin even without end decoration (bfc's
+   * `enclosesEnd`). Absent ⇒ false.
+   */
+  readonly enclosesEndMargin?: boolean;
 
   /** Normalized break-* values (see `normalizeBreakValue`). */
   readonly breakBefore: "auto" | "page" | "avoid";
@@ -377,14 +405,9 @@ export function fitOnePage(
 }
 
 /**
- * Recursive engine for `fitOnePage`. The first child placed on every fragment
- * has its top margin truncated to 0 by the CSS Fragmentation §5.4 rule
- * (bfc.ts:466–468), which fires for both the document-root flow AND every
- * recursed container. This is the only first-on-fragment margin rule the
- * measure pass needs: in the paginated path the §5.4 truncation runs BEFORE
- * bfc's `noTopBoundary` first-child suppression (bfc.ts:483), so the latter is
- * always a no-op here (it would zero an already-zeroed margin). We therefore do
- * not model `noTopBoundary` at all.
+ * Recursive engine for `fitOnePage`. Margins as bfc places them: a child whose
+ * margins collapse into its container's start margin (`collapsesStart`) or
+ * adjoin the fragmentainer start (`atStart`, CSS Fragmentation §5.2) sits flush.
  */
 function fitOnePageRecursive(
   metas: readonly BlockFitMeta[],
@@ -408,6 +431,13 @@ function fitOnePageRecursive(
   // box's end decoration: its LAST child inherits `lastChildReserve(…)` of them.
   flowReserve: CompleteReserve = NO_RESERVE,
   flowEndDeco = 0,
+  // bfc's `atFragmentainerStart` for this flow (the page root's is true).
+  atStart = true,
+  // bfc's `collapsesStart` of the box whose children this flow fits (the page root: a BFC root).
+  collapsesStart = false,
+  // That box encloses its last child's end margin without end decoration (a
+  // nested BFC root; the page root is a flow root and truncates it instead).
+  flowEnclosesEnd = false,
 ): FitPageResult {
   // --- Resume-token parse (bfc.ts:244–263). ---
   // A "block" token gives the resume child index + that child's inner token.
@@ -440,6 +470,8 @@ function fitOnePageRecursive(
   let runningOffset = 0;
   let childrenCount = 0; // whole blocks fully consumed on this page
   let prevMarginBlockEnd = 0;
+  // bfc's `topCollapsing`: every in-flow child so far collapsed into the start margin.
+  let topCollapsing = collapsesStart;
 
   // Stamp every FitPageResult with the in-flow block-size consumed so far
   // (`runningOffset`) and the last child's bottom margin (`prevMarginBlockEnd`),
@@ -499,18 +531,16 @@ function fitOnePageRecursive(
     // margins normally, so this skip is gated on `anonymousInlineRun`.
     const isAnonInlineRun = meta.anonymousInlineRun === true;
 
-    // §5.4 first-on-fragment top-margin truncation (bfc.ts:466–468): the first
-    // child placed on a fresh fragment has its top margin truncated to 0.
-    let childMarginBlockStart = meta.marginBlockStart;
-    if (!fragmentHasContent) {
-      childMarginBlockStart = 0;
-    }
+    // bfc: collapsed into the container's start margin, or adjoining the
+    // fragmentainer start (§5.2 truncation) → the start margin is 0 here, and an
+    // empty child's margins are absorbed with it. No clearance (floats out of scope).
+    const intoParent = topCollapsing && !isAnonInlineRun;
+    topCollapsing = false;
+    const truncated = atStart && runningOffset === 0;
+    const childMarginBlockStart = intoParent || truncated ? 0 : meta.marginBlockStart;
 
-    // Advance the running offset by the collapsed/truncated margin
-    // (bfc.ts:480–484). No clearance (floats out of scope). The first child of
-    // a fragment already had `childMarginBlockStart` truncated to 0 by §5.4
-    // above, so its advance is 0 regardless of the flow's top boundary. An
-    // anonymous inline-run leaf is laid flush (no margin advance, see above).
+    // Advance the running offset by the collapsed margin. An anonymous
+    // inline-run leaf is laid flush (no margin advance, see above).
     // A break before this child ends the fragment here, before its top margin
     // (CSS Fragmentation §5.2 margin truncation) — bfc's `offsetBeforeChild`.
     const offsetBeforeChild = runningOffset;
@@ -530,7 +560,10 @@ function fitOnePageRecursive(
     const placeWhole = (blockSize: number): void => {
       if (meta.collapseThrough === true) {
         runningOffset = offsetBeforeChild;
-        prevMarginBlockEnd = Math.max(prevMarginBlockEnd, childMarginBlockStart, meta.marginBlockEnd);
+        topCollapsing = intoParent && meta.noInFlowContent === true;
+        if (!(truncated || topCollapsing)) {
+          prevMarginBlockEnd = Math.max(prevMarginBlockEnd, childMarginBlockStart, meta.marginBlockEnd);
+        }
       } else {
         runningOffset += blockSize;
         prevMarginBlockEnd = meta.marginBlockEnd;
@@ -541,10 +574,8 @@ function fitOnePageRecursive(
       // it does not flow past the run into the NEXT sibling's collapse (bfc
       // resets prevMarginBlockEnd to 0 the moment it lays the anonymous IFC).
       prevMarginBlockEnd = 0;
-    } else if (fragmentHasContent) {
-      runningOffset += Math.max(prevMarginBlockEnd, childMarginBlockStart);
     } else {
-      runningOffset += childMarginBlockStart;
+      runningOffset += Math.max(prevMarginBlockEnd, childMarginBlockStart);
     }
 
     // List-item counter contribution (bfc.ts:487–488). Counted before the
@@ -568,7 +599,7 @@ function fitOnePageRecursive(
     const childMarginEnd = meta.collapseThrough === true
       ? Math.max(prevMarginBlockEnd, childMarginBlockStart, meta.marginBlockEnd) - (runningOffset - offsetBeforeChild)
       : meta.marginBlockEnd;
-    const reserveState = i === metas.length - 1 ? lastChildReserve(flowReserve, flowEndDeco, childMarginEnd) : undefined;
+    const reserveState = i === metas.length - 1 ? lastChildReserve(flowReserve, flowEndDeco, childMarginEnd, flowEndDeco > 0 || flowEnclosesEnd) : undefined;
     const reserve = reserveState === undefined ? 0 : reserveTotal(reserveState);
     const leafResumeToken = i === effectiveStartIndex ? firstChildResumeToken : null;
 
@@ -873,10 +904,8 @@ function fitOnePageRecursive(
     const containerResumed = !isResumeFromDegenerate(childResume);
     const containerBlockStart = containerResumed ? 0 : meta.blockStartDecoration ?? 0;
     const childAvailable = remaining - containerBlockStart;
-    // The recursion relies on the §5.4 truncation (which always zeroes the first
-    // child of a fresh fragment) for the page-break-relevant first-child margin
-    // case — matching bfc, which truncates the first child of every fragment
-    // regardless of the container's own top boundary.
+    // bfc's child `atFragmentainerStart`: nothing precedes its content here.
+    const childAtStart = atStart && runningOffset === 0 && containerBlockStart === 0;
     const childResult = fitOnePageRecursive(
       childChildren,
       0,
@@ -897,6 +926,9 @@ function fitOnePageRecursive(
       // Its last child completes with it: it inherits this box's reserve + end decoration.
       reserveState ?? NO_RESERVE,
       meta.blockEndDecoration ?? 0,
+      childAtStart,
+      meta.collapsesStart === true,
+      meta.enclosesEndMargin === true,
     );
 
     // When the container fragmented (resumeOut !== null), reconstruct the bfc
@@ -958,13 +990,16 @@ function fitOnePageRecursive(
     }
 
     // Container fit fully. Its height: the whole unfragmented box, or — for the
-    // LAST fragment of a resumed container — bfc's full-return height with the
-    // start side sliced: children's offset + trailing margin (unless the end
-    // decoration bounds it) + end decoration.
+    // LAST fragment of a resumed container, or an auto-size container starting
+    // the fragmentainer (a margin truncated at the start somewhere inside it, as
+    // in bfc — not in the unfragmented size) — bfc's full-return height: start decoration (unless sliced) +
+    // children's offset + trailing margin (unless it collapses through) + end
+    // decoration.
+    // (An explicit block size: bfc re-creates the box at it — a resumed one too, T-t+.)
     const containerBlockEnd = meta.blockEndDecoration ?? 0;
-    const lastMarginBlockEnd = containerBlockEnd === 0 ? 0 : childResult.trailingMarginBlockEnd;
-    const completeHeight = containerResumed
-      ? childResult.consumedBlockSize + lastMarginBlockEnd + containerBlockEnd
+    const lastMarginBlockEnd = meta.collapsesEnd === true ? 0 : childResult.trailingMarginBlockEnd;
+    const completeHeight = containerResumed || (childAtStart && meta.autoBlockSize === true)
+      ? containerBlockStart + childResult.consumedBlockSize + lastMarginBlockEnd + containerBlockEnd
       : meta.totalBlockSize;
     // Whole-block fit check (bfc.ts:626–642).
     if (completeHeight + reserve > remaining) {

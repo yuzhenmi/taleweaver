@@ -72,7 +72,7 @@ export function flattenContents(
  * Determine if a child should be treated as inline-display for the purpose
  * of anonymous block-run grouping.
  */
-function isInlineChild(child: RenderNode): boolean {
+export function isInlineChild(child: RenderNode): boolean {
   if (child.type === "text") return true;
   if (!child.computedStyle) return false;
   const d = child.computedStyle.display;

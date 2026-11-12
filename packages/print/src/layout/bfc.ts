@@ -1,6 +1,6 @@
 import type { ElementBox } from "@taleweaver/core";
 import type { LayoutBox, BlockBox } from "./layout-box";
-import { createBlockBox, createMarkerBox, withOffsets, withBlockOffset, withSidesToInclude, assertLayoutBoxConsistent } from "./layout-box";
+import { createBlockBox, createMarkerBox, withOffsets, withBlockOffset, withSidesToInclude, withFragmentainerStart, assertLayoutBoxConsistent } from "./layout-box";
 import type { BlockBreakToken, BreakToken, FragmentationContext, LayoutResult } from "./fragmentation";
 import { isResumeFromDegenerate, normalizeBreakValue } from "./fragmentation";
 import { layoutInlineContent } from "./ifc";
@@ -20,6 +20,7 @@ import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { groupChildren, anonymousBlockKey, lastInFlowGroupIndex } from "./group-children";
 import { NO_RESERVE, lastChildReserve, reserveTotal } from "./complete-reserve";
 import { isCollapseThroughEmpty, resolveExplicitBlockSizeOrNull } from "./collapse-through";
+import { collapsedMarginBlockEnd, collapsedMarginBlockStart, endCollapsesThrough, hasNoInFlowContent, startCollapsesThrough } from "./margin-collapse";
 import type { CompleteReserve } from "./complete-reserve";
 import { paragraphFloats } from "./paragraph-floats";
 import type { FloatFrame } from "./float-frame";
@@ -142,6 +143,8 @@ const _layoutCacheStats = {
   missesSize: 0,
   missesResumeFrom: 0,
   missesReusableGate: 0,
+  /** Laid at a fragmentainer start (a leading margin truncated) or not, unlike this call. */
+  missesFragmentainerStart: 0,
   fullLayoutInvocations: 0,
 };
 
@@ -157,6 +160,7 @@ export function __resetLayoutCacheStatsForTest(): void {
   _layoutCacheStats.missesSize = 0;
   _layoutCacheStats.missesResumeFrom = 0;
   _layoutCacheStats.missesReusableGate = 0;
+  _layoutCacheStats.missesFragmentainerStart = 0;
   _layoutCacheStats.fullLayoutInvocations = 0;
 }
 
@@ -263,6 +267,11 @@ export function layoutBlock(
       } else if (fragmentation !== undefined &&
                  entry.box.blockSize > fragmentation.availableBlockSize) {
         _layoutCacheStats.missesSize++;
+      } else if ((entry.atFragmentainerStart ?? false) !==
+                 (fragmentation !== undefined && (fragmentation.atFragmentainerStart ?? true))) {
+        // Laid at a fragmentainer start (a leading margin truncated) or not:
+        // only the same position reproduces it (CSS Fragmentation §5.2).
+        _layoutCacheStats.missesFragmentainerStart++;
       } else if (!isLayoutBoxReusable(entry.box, {
         computedStyle: cs,
         availableInlineSize: resolvedInlineSize ?? availableInlineSize,
@@ -301,7 +310,8 @@ export function layoutBlock(
         }
         _layoutCacheStats.hitsRepositioned++;
         return {
-          box: createBlockBox(
+          // Same fragmentainer start (the gate above), so the stamp carries over.
+          box: withFragmentainerStart(createBlockBox(
             entry.box.key,
             inlineOffset,
             blockOffset,
@@ -328,7 +338,7 @@ export function layoutBlock(
             // reposition), so it carries through verbatim — keeping the cloned
             // box's own `inFlowConsumed` exact for any downstream cache rebuild.
             entry.box.inFlowConsumed,
-          ),
+          ), entry.box.atFragmentainerStart === true),
           breakToken: null,
           inFlowConsumed: entry.inFlowConsumed,
         };
@@ -351,12 +361,26 @@ export function layoutBlock(
   // padding (CSS 2.1 §8). Lines, block children, floats and markers sit from here.
   const contentStart = contentInlineStart(usedStyle);
 
-  // CSS parent/first and parent/last collapse rules:
-  // if the parent has no top padding/border, the first child's marginBlockStart
-  // is suppressed (collapses with parent's outside margin).
-  // Symmetric for bottom.
-  const noTopBoundary = blockStartDecoration === 0;
-  const noBottomBoundary = blockEndDeco === 0;
+  // CSS 2.1 §8.3.1 parent/first- and parent/last-child collapse
+  // (`margin-collapse.ts`): when this box's start margin adjoins its first
+  // in-flow child's, the parent already applied their collapsed margin
+  // (`collapsedMarginBlockStart`), so that child (and empty ones before it)
+  // sits flush here; likewise its last child's end margin passes out
+  // (`collapsedMarginBlockEnd`) instead of adding to this box's size.
+  // A BFC root (`ctx.isBFCRoot`) encloses its children's margins.
+  const collapsesStart = startCollapsesThrough(cs, usedStyle, ctx.isBFCRoot);
+  const collapsesEnd = endCollapsesThrough(cs, usedStyle, ctx.isBFCRoot, availableInlineSize);
+  // CSS Fragmentation §5.2: only margins adjoining a break truncate — the
+  // margins before this flow's first content when it starts the
+  // fragmentainer (undefined ⇒ the caller's flow is a fragmentainer root).
+  const atFragmentainerStart = fragmentation !== undefined && (fragmentation.atFragmentainerStart ?? true);
+  // A fragmentation-flow root truncates its trailing end margin at the
+  // fragmentainer end (§5.2) instead of enclosing it.
+  const isFlowRoot = fragmentation?.flowRoot === true;
+  // Whether this box's end encloses its last child's end margin (the reserve
+  // must then hold it): an end decoration, or a BFC root with an auto size.
+  const enclosesEnd = blockEndDeco > 0 || (ctx.isBFCRoot && !isFlowRoot
+    && resolveExplicitBlockSizeOrNull(cs.blockSize, availableInlineSize) === null);
 
   // A table cell's border box is its column slot, whatever its box-sizing
   // (CSS 2.1 §17.5.2, Blink): the table passes the slot as the available size.
@@ -416,6 +440,8 @@ export function layoutBlock(
   const blockFlowBase = pageFlowBase + nestedOrigin;
 
   let prevMarginBlockEnd = 0;
+  // True while every in-flow child so far collapsed into this box's start margin.
+  let topCollapsing = collapsesStart;
 
   const groups = groupChildren(node);
   // The end-decoration reserve (FragmentationContext.completeReserve): this box's
@@ -426,7 +452,7 @@ export function layoutBlock(
   const lastInFlowIndex = lastInFlowGroupIndex(groups);
   const ownReserve = fragmentation?.completeReserve ?? NO_RESERVE;
   const childReserve = (i: number, childMarginEnd: number): CompleteReserve | undefined =>
-    i === lastInFlowIndex ? lastChildReserve(ownReserve, blockEndDeco, childMarginEnd) : undefined;
+    i === lastInFlowIndex ? lastChildReserve(ownReserve, blockEndDeco, childMarginEnd, enclosesEnd) : undefined;
 
   // Parse the resume token to determine where to start the child loop.
   let startIndex = 0;
@@ -684,6 +710,7 @@ export function layoutBlock(
 
       childBlockOffset += anonBlockSize;
       prevMarginBlockEnd = 0; // anonymous box has no margin
+      topCollapsing = false;
 
       // If IFC produced a break token, stop here and propagate it.
       if (ifcResult.breakToken !== null) {
@@ -825,16 +852,19 @@ export function layoutBlock(
       }
     }
 
-    let childMarginBlockStart = childUsedStyle.marginBlockStart;
-    const childMarginBlockEnd   = childUsedStyle.marginBlockEnd;
-
-    // Fragmentation truncation (CSS Fragmentation L4 §5.4): the first child placed
-    // on a fresh fragment has its top-margin truncated to 0, since the margin would
-    // otherwise span the fragmentation break. This applies to both the initial
-    // fragment and resumed fragments (first child of each new fragment).
-    if (fragmentation !== undefined && layoutChildren.length === 0) {
-      childMarginBlockStart = 0;
-    }
+    // The margins this child presents, collapsed with its adjoining
+    // descendants' (CSS 2.1 §8.3.1).
+    const childMarginBlockEnd = collapsedMarginBlockEnd(child, childCs, childUsedStyle, contentInlineSize);
+    // Collapsed into this box's start margin (applied by our parent), or
+    // adjoining the fragmentainer start (CSS Fragmentation §5.2 truncation):
+    // the child's start margin is 0 here, and an empty child's margins are
+    // absorbed with it.
+    const intoParent = topCollapsing && childCs.clear === "none";
+    topCollapsing = false;
+    const truncated = atFragmentainerStart && childBlockOffset === 0;
+    const childMarginBlockStart = intoParent || truncated
+      ? 0
+      : collapsedMarginBlockStart(child, childCs, childUsedStyle, contentInlineSize);
 
     const preAdvanceBlockOffset = childBlockOffset;
 
@@ -846,10 +876,8 @@ export function layoutBlock(
       // prevMarginBlockEnd is consumed by the clearance — reset so it does not
       // flow through to the next sibling collapse.
       prevMarginBlockEnd = 0;
-    } else if (layoutChildren.length > 0) {
-      childBlockOffset += Math.max(prevMarginBlockEnd, childMarginBlockStart);
     } else {
-      childBlockOffset += noTopBoundary ? 0 : childMarginBlockStart;
+      childBlockOffset += Math.max(prevMarginBlockEnd, childMarginBlockStart);
     }
 
     // Break-before consumer (CSS Fragmentation Level 4 §3.4).
@@ -1070,6 +1098,7 @@ export function layoutBlock(
             pageIndex: fragmentation.pageIndex,
             resumeFrom: i === startIndex ? firstChildResumeToken : null,
             ...(lastReserve !== undefined ? { completeReserve: lastReserve } : {}),
+            atFragmentainerStart: atFragmentainerStart && childBlockOffset === 0,
           };
 
     /**
@@ -1109,7 +1138,7 @@ export function layoutBlock(
           if (buildMarker !== null) layoutChildren.push(buildMarker(overflowBox));
           layoutChildren.push(overflowBox);
           childBlockOffset += overflowBox.blockSize;
-          prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
+          prevMarginBlockEnd = childMarginBlockEnd;
           continue;
         }
         // Propagate as a break (marker NOT pushed — the item placed nothing
@@ -1136,7 +1165,7 @@ export function layoutBlock(
           if (buildMarker !== null) layoutChildren.push(buildMarker(overflowBox));
           layoutChildren.push(overflowBox);
           childBlockOffset += overflowBox.blockSize;
-          prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
+          prevMarginBlockEnd = childMarginBlockEnd;
           continue;
         }
         // Propagate as a break (marker NOT pushed — the item placed nothing
@@ -1165,7 +1194,7 @@ export function layoutBlock(
     // its rows) survive. `childLayout` is already inline-positioned in this box's
     // frame, so the as-is path needs no further repositioning.
     const placedChild = explicitBlockSize > 0 && childLayout.type === "block"
-      ? withSidesToInclude(createBlockBox(child.key, childInlineStart, childBlockOffset, childLayout.inlineSize, explicitBlockSize, cs.writingMode, direction, childCs, childUsedStyle,
+      ? withSidesToInclude(withFragmentainerStart(createBlockBox(child.key, childInlineStart, childBlockOffset, childLayout.inlineSize, explicitBlockSize, cs.writingMode, direction, childCs, childUsedStyle,
           // Preserve the block's laid-out CONTENT children across the re-creation (do
           // NOT drop to []). A `display:block` child with text + an explicit height
           // must keep its rendered lines so they paint and remain hit-testable —
@@ -1182,7 +1211,7 @@ export function layoutBlock(
           // in its OWN frame, independent of this re-creation, so they carry through
           // verbatim — a dropped clone here would silently lose the abs subtree.
           childLayout.absoluteChildren,
-        ), childLayout.sidesToInclude)
+        ), childLayout.atFragmentainerStart === true), childLayout.sidesToInclude)
       : childLayout;
 
     const childIsEmpty = isCollapseThroughEmpty(childCs, childUsedStyle, childLayout.blockSize, contentInlineSize);
@@ -1208,7 +1237,7 @@ export function layoutBlock(
             if (buildMarker !== null) layoutChildren.push(buildMarker(placedChild));
             layoutChildren.push(placedChild);
             childBlockOffset += placedChild.blockSize;
-            prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
+            prevMarginBlockEnd = childMarginBlockEnd;
             continue;
           }
         } else {
@@ -1237,7 +1266,7 @@ export function layoutBlock(
             if (buildMarker !== null) layoutChildren.push(buildMarker(overflowBox));
             layoutChildren.push(overflowBox);
             childBlockOffset += overflowBox.blockSize;
-            prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
+            prevMarginBlockEnd = childMarginBlockEnd;
             continue;
           }
           // break-inside:avoid pushes the whole child to the next fragment;
@@ -1276,8 +1305,13 @@ export function layoutBlock(
 
     if (isEmpty) {
       // Undo the marginBlockStart advance; the combined margin is held for the next sibling collapse
+      // — unless absorbed: into this box's start margin (a structurally empty
+      // child, as `collapsedMarginBlockStart` walked it), or by the break.
       childBlockOffset = preAdvanceBlockOffset;
-      prevMarginBlockEnd = Math.max(prevMarginBlockEnd, childMarginBlockStart, childMarginBlockEnd);
+      topCollapsing = intoParent && hasNoInFlowContent(child, childCs, childUsedStyle, contentInlineSize);
+      if (!(truncated || topCollapsing)) {
+        prevMarginBlockEnd = Math.max(prevMarginBlockEnd, childMarginBlockStart, childMarginBlockEnd);
+      }
       // Place the empty block at preAdvanceBlockOffset (zero height, no y-slot consumed).
       //
       // Use placedChild.inlineSize (the resolved
@@ -1296,7 +1330,7 @@ export function layoutBlock(
         : emptyShift === 0
           ? placedChild.children
           : placedChild.children.map((c) => withBlockOffset(c, c.blockOffset + emptyShift, placedChild.inlineSize));
-      layoutChildren.push(
+      layoutChildren.push(withFragmentainerStart(
         createBlockBox(child.key, childInlineStart, preAdvanceBlockOffset, placedChild.inlineSize, 0, cs.writingMode, direction, childCs, childUsedStyle, emptyChildren,
           /* containingInlineSize */ finalInlineSize,
           child.metadata,
@@ -1310,7 +1344,8 @@ export function layoutBlock(
           // would silently lose the abs subtree.
           placedChild.absoluteChildren,
         ),
-      );
+        placedChild.type === "block" && placedChild.atFragmentainerStart === true,
+      ));
     } else {
       layoutChildren.push(placedChild);
       childBlockOffset += placedChild.blockSize;
@@ -1333,7 +1368,10 @@ export function layoutBlock(
     }
   }
 
-  const lastMarginBlockEnd = noBottomBoundary ? 0 : prevMarginBlockEnd;
+  const enclosedMarginBlockEnd = collapsesEnd ? 0 : prevMarginBlockEnd;
+  const lastMarginBlockEnd = fragmentation !== undefined && isFlowRoot
+    ? Math.min(enclosedMarginBlockEnd, Math.max(0, fragmentation.availableBlockSize - childBlockOffset - blockEndDeco))
+    : enclosedMarginBlockEnd;
   const inFlowBlockSize = childBlockOffset + lastMarginBlockEnd + blockEndDeco;
 
   // FLOAT ENCLOSURE: only a BFC root encloses its own floats. A non-BFC block
@@ -1391,7 +1429,7 @@ export function layoutBlock(
     }
   }
 
-  return { box: withSidesToInclude(createBlockBox(
+  return { box: withSidesToInclude(withFragmentainerStart(createBlockBox(
     node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, frame.direction, cs, usedStyle, layoutChildren,
     /* containingInlineSize */ frame.inlineSize,
     node.metadata,
@@ -1401,8 +1439,10 @@ export function layoutBlock(
     // Carry the in-flow-consumed scalar ON THE BOX so the layout-box cache reads
     // it back EXACTLY (a box enclosing a taller float has blockSize > inFlow).
     inFlowBlockSize,
+    // The fragmentainer start it was laid at, for the layout-box cache's reuse gate.
+  ), atFragmentainerStart),
     // The last fragment of a split box keeps only its end side.
-  ), { blockStart: !isContinuation, blockEnd: true }), breakToken: null, inFlowConsumed: inFlowBlockSize };
+  { blockStart: !isContinuation, blockEnd: true }), breakToken: null, inFlowConsumed: inFlowBlockSize };
   } finally {
     markEnd("bfc.layoutBlock", t);
   }

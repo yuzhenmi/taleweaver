@@ -159,6 +159,35 @@ function build(
   );
 }
 
+describe("footnote body margins in the materialized slot (BM5)", () => {
+  const marginBody = (key: string, margins: Partial<Style>): ElementBox => cascadeBody(
+    createElementBox(key, { display: "block" } as Style, [
+      createElementBox(`${key}-p`, { display: "block", ...margins } as Style, [createTextBox(`${key}-t`, {}, "x")]),
+    ]),
+  );
+  const slotBodies = (slot: LayoutBox | null): LayoutBox[] =>
+    slot !== null && "children" in slot ? slot.children.filter((c) => c.type === "block") : [];
+
+  it("a body that fits exactly is placed; its trailing end margin truncates at the slot end", () => {
+    // 45px page → maxSlot 16: the body's line fits, its 8px end margin would not.
+    const tree = build(cascadeRoot([fnPara("b0")]), new Map([["fn0" as BlockId, marginBody("fn0", { marginBlockEnd: 8 })]]),
+      [anchor("b0", "fn0")], { ...PAGE, pageBlockSize: 45 });
+    expect(nth(tree.plan.entries, 0, "page").footnoteSlotHeight).toBe(16 + FOOTNOTE_SEPARATOR_HEIGHT);
+    expect(slotBodies(tree.getPage(0).footnoteSlot).map((b) => b.blockSize)).toEqual([16]);
+  });
+
+  it("a second body's space-before is kept", () => {
+    const tree = build(cascadeRoot([fnPara("b0"), fnPara("b1")]), new Map([
+      ["fn0" as BlockId, marginBody("fn0", {})],
+      ["fn1" as BlockId, marginBody("fn1", { marginBlockStart: 8 })],
+    ]), [anchor("b0", "fn0"), anchor("b1", "fn1")], { ...PAGE, pageBlockSize: 200 });
+    const bodies = slotBodies(tree.getPage(0).footnoteSlot);
+    expect(bodies.map((b) => [b.blockOffset, b.blockSize])).toEqual([
+      [FOOTNOTE_SEPARATOR_HEIGHT, 16], [FOOTNOTE_SEPARATOR_HEIGHT + 16, 24],
+    ]);
+  });
+});
+
 describe("FN-4.3 — PageBox.footnoteSlot rendered via buildVirtualPaginatedTree → getPage", () => {
   it("(a) a page with a footnote has a slot at pageBlockSize − bottomInset − slotHeight, holding a separator + body line; the body area is reduced (a block is evicted)", () => {
     // 4 paras fit one no-footnote page (64 / 16). A footnote on b0 reserves a

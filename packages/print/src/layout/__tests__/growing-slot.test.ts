@@ -184,6 +184,17 @@ describe("growing-slot — (2) tall header pushes body + adds pages", () => {
 // (3) Slot natural height (UNCAPPED) — never clipped to the margin band.
 // ---------------------------------------------------------------------------
 
+describe("growing-slot — header margins (BM5)", () => {
+  it("a header paragraph's space-before is kept (a header is not a fragmentainer start)", () => {
+    const hdrId = "hdr-root" as BlockId;
+    const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 100)], { headerBlockId: hdrId });
+    const bodies = new Map<BlockId, ElementBox>([[hdrId, cascadeRoot({ display: "block" }, [fixedBlock("h0", 30, { marginBlockStart: 12 })])]]);
+    const tree = build(root, pageConfig(300, 10), bodies);
+    expect(tree.plan.entries[0]?.effectiveTopInset).toBe(42);
+    expect([tree.getPage(0).headerSlot?.blockSize, tree.getPage(0).children[0]?.blockOffset]).toEqual([42, 42]);
+  });
+});
+
 describe("growing-slot — (3) slot natural height (uncapped)", () => {
   it("a multi-line header taller than the margin band lays at its NATURAL height, all lines present", () => {
     const children = Array.from({ length: 4 }, (_, i) => fixedBlock(`b${i}`, 100));

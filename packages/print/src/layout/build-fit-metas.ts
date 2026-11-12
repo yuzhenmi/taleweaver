@@ -23,7 +23,9 @@ import { makeRootContext, makeChildContext } from "./layout-context";
 import { computeUsedStyle } from "./used-style";
 import { borderBoxInlineSize, inlineDecoration } from "./box-inline-decoration";
 import { blockEndDecoration, contentBlockStart } from "./box-block-decoration";
-import { isCollapseThroughEmpty } from "./collapse-through";
+import { isCollapseThroughEmpty, resolveExplicitBlockSizeOrNull } from "./collapse-through";
+import { collapsedMarginBlockEnd, collapsedMarginBlockStart, endCollapsesThrough, hasNoInFlowContent, startCollapsesThrough } from "./margin-collapse";
+import { establishesNewBFC } from "./bfc-establishment";
 import { normalizeBreakValue } from "./fragmentation";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import type { ComputedStyle } from "@taleweaver/core";
@@ -345,16 +347,23 @@ function buildChildMeta(
   }
 
   const used = computeUsedStyle(childCs, pageContentInlineSize, "indefinite");
-  const marginBlockStart = used.marginBlockStart;
-  const marginBlockEnd = used.marginBlockEnd;
+  // The margins bfc places for it: collapsed with its adjoining descendants'.
+  const marginBlockStart = collapsedMarginBlockStart(child, childCs, used, pageContentInlineSize);
+  const marginBlockEnd = collapsedMarginBlockEnd(child, childCs, used, pageContentInlineSize);
   const breakBefore = normalizeBreakValue(childCs.breakBefore ?? "auto");
   const breakAfter = normalizeBreakValue(childCs.breakAfter ?? "auto");
   const breakInsideAvoid = normalizeBreakValue(childCs.breakInside ?? "auto") === "avoid";
   const listItem = childCs.display === "list-item";
 
+  const isBFCRoot = establishesNewBFC(childCs);
   const common = {
     marginBlockStart,
     marginBlockEnd,
+    ...(startCollapsesThrough(childCs, used, isBFCRoot) ? { collapsesStart: true } : {}),
+    ...(endCollapsesThrough(childCs, used, isBFCRoot, pageContentInlineSize) ? { collapsesEnd: true } : {}),
+    ...(hasNoInFlowContent(child, childCs, used, pageContentInlineSize) ? { noInFlowContent: true } : {}),
+    ...(resolveExplicitBlockSizeOrNull(childCs.blockSize, pageContentInlineSize) === null ? { autoBlockSize: true } : {}),
+    ...(isBFCRoot && resolveExplicitBlockSizeOrNull(childCs.blockSize, pageContentInlineSize) === null ? { enclosesEndMargin: true } : {}),
     breakBefore,
     breakAfter,
     breakInsideAvoid,

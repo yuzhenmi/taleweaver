@@ -319,6 +319,7 @@ export function buildVirtualPaginatedTree(
               availableBlockSize: a.contentBlockSize,
               pageIndex: 0,
               resumeFrom: a.resumeInto,
+              flowRoot: true,
               stopBeforeIndex: a.stopBeforeIndex,
               // Opt this VIRTUALIZED measure pass into float pushing (legacy
               // paginateRoot leaves it off). The pushed floats are read out via
@@ -541,6 +542,8 @@ function computeSlotInsets(
       availableBlockSize: Number.MAX_SAFE_INTEGER,
       pageIndex: 0,
       resumeFrom: null,
+      // A header / footer does not start a fragmentainer: its margins stay.
+      atFragmentainerStart: false,
     });
     const height = box?.blockSize ?? 0;
     perInline.set(effContentInlineSize, height);

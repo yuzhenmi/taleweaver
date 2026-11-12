@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "@taleweaver/core";
+import type { Style } from "@taleweaver/core";
 import { listItemComponent } from "@taleweaver/core";
 import { cascadePass } from "@taleweaver/core";
 import { createMockShaper } from "@taleweaver/core";
@@ -92,16 +93,24 @@ describe("layoutBlock — margin collapse: adjacent siblings", () => {
 });
 
 describe("layoutBlock — margin collapse: parent / first child", () => {
-  it("first child marginBlockStart is suppressed when parent has no top padding/border", () => {
+  it("first child marginBlockStart collapses through a parent with no top padding/border (CSS 2.1 §8.3.1)", () => {
     const child = createElementBox("c", {
       display: "block", blockSize: 20, marginBlockStart: 30,
     }, []);
-    const tree = createElementBox("root", { display: "block" }, [child]);
-    const out = layoutOf(tree);
-    const ch0 = nth(out.children, 0, "child");
-    if (ch0.type !== "block") throw new Error("?");
-    expect(ch0.y).toBe(0);   // marginBlockStart suppressed
-    expect(out.height).toBe(20);
+    const a = createElementBox("a", { display: "block" }, [child]);
+    const out = layoutOf(createElementBox("root", { display: "block" }, [a]));
+    const aBox = nth(out.children, 0, "a");
+    if (aBox.type !== "block") throw new Error("?");
+    // The child sits at A's top; A moves down by the one collapsed margin.
+    expect([nth(aBox.children, 0, "child").y, aBox.y, aBox.height]).toEqual([0, 30, 20]);
+  });
+
+  it("the root (a BFC root) encloses its first child's top margin", () => {
+    const child = createElementBox("c", {
+      display: "block", blockSize: 20, marginBlockStart: 30,
+    }, []);
+    const out = layoutOf(createElementBox("root", { display: "block" }, [child]));
+    expect([nth(out.children, 0, "child").y, out.height]).toEqual([30, 50]);
   });
 
   it("first child marginBlockStart is honored when parent has top padding", () => {
@@ -199,13 +208,29 @@ describe("layoutBlock — vertical block-axis border (BM3)", () => {
 });
 
 describe("layoutBlock — margin collapse: parent / last child", () => {
-  it("last child marginBlockEnd is suppressed when parent has no bottom padding/border", () => {
+  it("the root (a BFC root) encloses its last child's end margin", () => {
     const child = createElementBox("c", {
       display: "block", blockSize: 20, marginBlockEnd: 30,
     }, []);
-    const tree = createElementBox("root", { display: "block" }, [child]);
-    const out = layoutOf(tree);
-    expect(out.height).toBe(20);   // marginBlockEnd suppressed
+    const out = layoutOf(createElementBox("root", { display: "block" }, [child]));
+    expect(out.height).toBe(50);
+  });
+
+  it("a last child's end margin collapses through undecorated ancestors into one margin (CSS 2.1 §8.3.1)", () => {
+    // A(mbe 5) > B(mbe 0) > P(20 tall, mbe 20), then S(mbs 10): max(20, 5, 0, 10) = 20.
+    const chain = (bStyle: Style) => createElementBox("root", { display: "block" }, [
+      createElementBox("a", { display: "block", marginBlockEnd: 5 }, [
+        createElementBox("b", bStyle, [
+          createElementBox("p", { display: "block", blockSize: 20, marginBlockEnd: 20 }, []),
+        ]),
+      ]),
+      createElementBox("s", { display: "block", blockSize: 10, marginBlockStart: 10 }, []),
+    ]);
+    const open = layoutOf(chain({ display: "block" }));
+    expect([nth(open.children, 0, "a").height, nth(open.children, 1, "s").y]).toEqual([20, 40]);
+    // B's end border stops the collapse: P's margin stays inside B.
+    const closed = layoutOf(chain({ display: "block", borderBlockEndWidth: 1, borderBlockEndStyle: "solid" }));
+    expect([nth(closed.children, 0, "a").height, nth(closed.children, 1, "s").y]).toEqual([41, 51]);
   });
 
   it("last child marginBlockEnd is honored when parent has bottom padding", () => {
@@ -2184,8 +2209,9 @@ describe("B5 — a box sits in its parent's border-box frame, in the parent's di
     const kid = block("c", "ltr", { blockSize: 20, marginBlockStart: 30, marginBlockEnd: 7 });
     const bordered = rootOf("ltr", [kid], B);
     expect([get(bordered, "c").y, bordered.height]).toEqual([4 + 30, 4 + 30 + 20 + 7 + 6]);
+    // The root is a BFC root: it encloses the margins (no collapse through it).
     const plain = rootOf("ltr", [kid], {});
-    expect([get(plain, "c").y, plain.height]).toEqual([0, 20]);
+    expect([get(plain, "c").y, plain.height]).toEqual([30, 30 + 20 + 7]);
     // An empty block with a border does not collapse through: it is as tall as its border.
     const root = rootOf("ltr", [
       block("a", "ltr", { blockSize: 10 }),

@@ -436,6 +436,10 @@ export function computeSlotLayout(
       availableBlockSize: remaining,
       pageIndex: 0,
       resumeFrom: item.resumeToken,
+      // A flow root (its trailing end margin truncates at the area's end); only
+      // the first body starts the footnote area. Lockstep with `materializePage`.
+      flowRoot: true,
+      atFragmentainerStart: placed.length === 0,
     });
 
     // Nothing-fit rule: the split point is BEFORE this item. `box === null` is the

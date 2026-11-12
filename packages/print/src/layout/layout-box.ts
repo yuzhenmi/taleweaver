@@ -132,6 +132,18 @@ export interface BlockBox extends LayoutBoxBase {
    * `blockSize` by construction; consumers read `inFlowConsumed ?? blockSize`.
    */
   readonly inFlowConsumed?: number;
+  /**
+   * Set when `bfc.layoutBlock` laid this box with `atFragmentainerStart` (a
+   * margin before its first content may have truncated, CSS Fragmentation
+   * §5.2). Stamped at the full-return site and kept across the clone paths;
+   * the layout-box cache reuses the box only where that holds again. Absent ⇒ false.
+   */
+  readonly atFragmentainerStart?: true;
+}
+
+/** Stamp `atFragmentainerStart` on a box bfc laid at a fragmentainer start. */
+export function withFragmentainerStart(box: BlockBox, atStart: boolean): BlockBox {
+  return atStart ? Object.freeze(Object.assign({}, box, { atFragmentainerStart: true as const })) : box;
 }
 
 export interface LineBox extends LayoutBoxBase {
@@ -1062,11 +1074,15 @@ export function rebuildBoxWithOffsets(
   containingInlineSize: number,
   containingBlockSize?: number,
 ): LayoutBox {
-  // A split box's fragment keeps its sliced sides across every reposition.
-  return withSidesToInclude(
+  // A split box's fragment keeps its sliced sides, and a box laid at a
+  // fragmentainer start its stamp, across every reposition.
+  const rebuilt = withSidesToInclude(
     rebuildFromFactory(box, newInlineOffset, newBlockOffset, containingInlineSize, containingBlockSize),
     box.sidesToInclude,
   );
+  return box.type === "block" && box.atFragmentainerStart === true && rebuilt.type === "block"
+    ? withFragmentainerStart(rebuilt, true)
+    : rebuilt;
 }
 
 function rebuildFromFactory(

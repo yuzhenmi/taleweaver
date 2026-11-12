@@ -78,6 +78,7 @@ export function runOracle(
       availableBlockSize: pageContentBlockSize,
       pageIndex,
       resumeFrom,
+      flowRoot: true,
     };
     const { box, breakToken, inFlowConsumed } = layoutBlock(
       root,

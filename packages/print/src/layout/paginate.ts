@@ -219,6 +219,7 @@ export function paginateRoot(
       availableBlockSize: pageContentBlockSize,
       pageIndex,
       resumeFrom,
+      flowRoot: true,
     };
     const result = layoutBlock(
       root,

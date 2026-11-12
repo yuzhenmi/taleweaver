@@ -30,6 +30,11 @@ export interface LayoutBoxCacheEntry {
    * either — both fall back to `box.blockSize`.
    */
   readonly inFlowConsumed: number;
+  /**
+   * Whether bfc laid the box at a fragmentainer start (read back from the
+   * box's `atFragmentainerStart` stamp): reusable only where that holds again.
+   */
+  readonly atFragmentainerStart?: boolean;
 }
 
 /**
@@ -126,7 +131,8 @@ export function buildLayoutBoxCacheFromTree(
       box.type === "block" && box.inFlowConsumed !== undefined
         ? box.inFlowConsumed
         : box.blockSize;
-    cache.set(box.key, { box, renderNode: rn, inFlowConsumed });
+    const atFragmentainerStart = box.type === "block" && box.atFragmentainerStart === true;
+    cache.set(box.key, { box, renderNode: rn, inFlowConsumed, atFragmentainerStart });
     if (!("children" in box) || rn.type !== "element") return;
     // Index by the FLATTENED render-node children: `box.children` come from
     // `groupChildren`/`layoutBlock`, which flatten `display: contents` elements,

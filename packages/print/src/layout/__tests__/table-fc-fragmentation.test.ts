@@ -2,6 +2,9 @@
 import { describe, it, expect } from "vitest";
 import type { FragmentationContext } from "../fragmentation";
 import { layoutTable } from "../table-fc";
+import { paginateRoot } from "../paginate";
+import { buildLayoutBoxCacheFromTree } from "../layout-reuse";
+import { __getLayoutCacheStatsForTest, __resetLayoutCacheStatsForTest } from "../bfc";
 import { makeRootContext } from "../layout-context";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import { createMockShaper } from "@taleweaver/core";
@@ -231,6 +234,31 @@ describe("Table FC fragmentation — rowSpan cell crossing the break (S5)", () =
     expect(placedA.children.length).toBe(1);
   });
 
+  it("a split cell's first child keeps the space-before Pass A gave it (no fragmentainer-start truncation mid-cell, BM5)", () => {
+    // 0-padding cell A: its first block has an 8px top margin, which Pass A
+    // lays inside the cell (a BFC root). Re-laying the straddling part must
+    // keep it there — the cell does not start the fragmentainer.
+    const cellA = createElementBox("cellA", { display: "table-cell" }, [
+      createElementBox("a0", { display: "block", marginBlockStart: 8 }, [createTextBox("a0-t", {}, "x")]),
+      blockLine("a1"),
+    ], { rowSpan: 2 });
+    const row0 = createElementBox("row-0", { display: "table-row" }, [cellA, createElementBox("cellB", { display: "table-cell" }, [blockLine("b0")])]);
+    const row1 = createElementBox("row-1", { display: "table-row" }, [createElementBox("cellC", { display: "table-cell" }, [blockLine("c0")])]);
+    const table = cascadePass(createElementBox("table", { display: "table" }, [row0, row1], { columnWidths: [0.5, 0.5] }));
+    if (table.type !== "element") throw new Error("cascadePass returned non-element");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const { box, breakToken } = layoutTable(table, 0, 0, rootFrame(ctx), ctx, createMockShaper(8, 16), undefined, {
+      availableBlockSize: 30, pageIndex: 0, resumeFrom: null,
+    });
+    expect(breakToken).not.toBeNull();
+    if (box === null) throw new Error("expected a table box");
+    const placedRow0 = nth(box.children, 0, "placed row");
+    if (placedRow0.type !== "table-row") throw new Error("expected a table-row");
+    const placedA = placedRow0.children.find((c) => c.key === "cellA");
+    if (placedA === undefined || placedA.type !== "table-cell") throw new Error("cell A not found");
+    expect(nth(placedA.children, 0, "a0").blockOffset).toBe(8);
+  });
+
   it("emits a null-interior continuation when the cell's content fits but its box still spans the break (empty tail)", () => {
     // A's interior is a single line (16) — it fits entirely within row 0. But A
     // spans rows 0–1 and row 1 is 32 tall (cellC has 2 blocks), so A's MERGED box
@@ -415,6 +443,57 @@ function buildHeaderTable(numRows: number, headerRowCount: number, rowHeight = 3
   if (cascaded.type !== "element") throw new Error("cascadePass returned non-element");
   return cascaded;
 }
+
+describe("Table FC fragmentation — layout reuse records the fragmentainer start bfc received (BM5 r2)", () => {
+  const ctx0 = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+  const shaper = createMockShaper(8, 16);
+
+  it("a rowspan continuation's resumed flow-root, re-laid unsplit from the cache, gets its inner margin back", () => {
+    // Header H; row0 = [A (rowSpan 2): a0, D (flow-root) > P (space-before 8)], [B]; row1 = [C].
+    // Page 1 places H + row0 with a0 only; page 2 repeats H and resumes A at D,
+    // which starts the fragmentainer there: P truncates to 0 inside D.
+    const d = createElementBox("d", { display: "flow-root" }, [
+      createElementBox("p", { display: "block", marginBlockStart: 8 }, [createTextBox("p-t", {}, "x")]),
+    ]);
+    const cellA = createElementBox("cellA", { display: "table-cell" }, [blockLine("a0"), d], { rowSpan: 2 });
+    const rowH = createElementBox("row-h", { display: "table-row" }, [createElementBox("cellH", { display: "table-cell" }, [blockLine("h0")], { colSpan: 2 })]);
+    const row0 = createElementBox("row-0", { display: "table-row" }, [cellA, createElementBox("cellB", { display: "table-cell" }, [blockLine("b0")])]);
+    const row1 = createElementBox("row-1", { display: "table-row" }, [createElementBox("cellC", { display: "table-cell" }, [blockLine("c0")])]);
+    const table = cascadePass(createElementBox("table", { display: "table" }, [rowH, row0, row1], { columnWidths: [0.5, 0.5], headerRowCount: 1 }));
+    if (table.type !== "element") throw new Error("cascadePass returned non-element");
+
+    const p1 = layoutTable(table, 0, 0, rootFrame(ctx0), ctx0, shaper, undefined, { availableBlockSize: 40, pageIndex: 0, resumeFrom: null });
+    const p2 = layoutTable(table, 0, 0, rootFrame(ctx0), ctx0, shaper, undefined, { availableBlockSize: 200, pageIndex: 1, resumeFrom: p1.breakToken });
+    if (p1.box === null || p2.box === null) throw new Error("expected two fragments");
+    const cache = buildLayoutBoxCacheFromTree(p2.box, table, buildLayoutBoxCacheFromTree(p1.box, table));
+    const findBox = (b: LayoutBox, key: string): LayoutBox | undefined =>
+      b.key === key ? b : ("children" in b ? b.children.map((c) => findBox(c, key)).find((x) => x !== undefined) : undefined);
+    const pIn = (box: LayoutBox) => {
+      const dBox = findBox(box, "d");
+      return dBox !== undefined && "children" in dBox ? nth(dBox.children, 0, "p").blockOffset : -1;
+    };
+    expect(pIn(p2.box)).toBe(0);
+
+    const ctx = { ...ctx0, prevLayoutCache: cache };
+    const whole = layoutTable(table, 0, 0, rootFrame(ctx), ctx, shaper, undefined, undefined);
+    if (whole.box === null) throw new Error("expected a table box");
+    expect(pIn(whole.box)).toBe(8);
+  });
+
+  it("a page-top table's cell children are reused on relayout, not missed", () => {
+    const table = buildRowSpanTable(["a0", "a1"], ["c0"]);
+    const root = cascadePass(createElementBox("root", { display: "block" }, [table])) as ElementBox;
+    const cfg = { pageInlineSize: 600, pageBlockSize: 400, pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 }, pageGap: 20 };
+    const prev = paginateRoot(root, ctx0, shaper, undefined, cfg);
+    const ctx = { ...ctx0, prevLayoutCache: buildLayoutBoxCacheFromTree(prev, root) };
+    __resetLayoutCacheStatsForTest();
+    paginateRoot(root, ctx, shaper, undefined, cfg);
+    const stats = __getLayoutCacheStatsForTest();
+    // a0, a1, b0, c0: every cell child hits (only the page-body root, cached as
+    // its non-page wrapper, misses).
+    expect(stats.hits).toBe(4);
+  });
+});
 
 describe("Table FC fragmentation — repeating header rows (#487)", () => {
   it("re-lays the header row at the top of a continuation fragment + correct body rows", () => {
