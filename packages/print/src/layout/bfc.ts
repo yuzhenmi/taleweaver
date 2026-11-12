@@ -20,6 +20,8 @@ import type { PendingAbsChild } from "./abs-pos-context";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { groupChildren, anonymousBlockKey } from "./group-children";
 import { paragraphFloats } from "./paragraph-floats";
+import type { FloatFrame } from "./float-frame";
+import { bfcRootFrame, childAreaLineLeft, contentFrame, envSide, fromEnvInline } from "./float-frame";
 import { isLayoutBoxReusable, renderNodesLayoutEquivalent } from "./layout-reuse";
 import { markStart, markEnd } from "@taleweaver/core";
 
@@ -367,6 +369,14 @@ export function layoutBlock(
   // ctx.isBFCRoot is true when the parent gave this box its OWN fresh float env.
   // Only a BFC root encloses its floats; non-BFC blocks pass floats to the ancestor BFC.
   const isOwnBFC = ctx.isBFCRoot;
+  // F4: this box's content box in the BFC's one float-env inline frame. Every
+  // float placement and float query of this box converts through it.
+  const floatFrame: FloatFrame = isOwnBFC
+    ? bfcRootFrame(contentInlineSize, direction)
+    : contentFrame(
+      ctx.floatArea.lineLeft, availableInlineSize, direction, paddingInlineStart, contentInlineSize,
+      ctx.floatArea.bfcInlineSize,
+    );
 
   // Coherent float+pagination: cumulative document-flow offset of THIS BFC's
   // `childBlockOffset === 0` origin (the content top of this box). For the page
@@ -546,7 +556,9 @@ export function layoutBlock(
       // Pass floatEnv explicitly via the context: the anonymous IFC element
       // inherits this block's float env (same BFC), so pass it in ctx.floatEnv.
       // We create a child context that carries the same floatEnv.
-      const ifcCtx = makeChildContext(ctx, cs, contentInlineSize, "indefinite");
+      const ifcCtx = makeChildContext(ctx, cs, contentInlineSize, "indefinite", undefined, {
+        lineLeft: floatFrame.lineLeft, bfcInlineSize: floatFrame.bfcInlineSize,
+      });
 
       // Build IFC fragmentation context if paginating. Thread the IFC resume token
       // (resume) when this block is being resumed from a previous IFC break.
@@ -605,7 +617,7 @@ export function layoutBlock(
       // mark / rollback removes it.
       const floatBoxes = isResumeFromDegenerate(ifcResumeFrom)
         ? paragraphFloats(group.children).map((f) => placeParagraphFloat(
-          f, ctx, shaper, hyphenator, paddingInlineStart, contentInlineSize, blockFlowBase, paraFlowStart,
+          f, ctx, shaper, hyphenator, paddingInlineStart, floatFrame, blockFlowBase, paraFlowStart,
         ))
         : [];
 
@@ -672,6 +684,11 @@ export function layoutBlock(
     const childInlineStart = paddingInlineStart + childMarginInlineStart;
     const childContentInlineSize = contentInlineSize - childMarginInlineStart - childMarginInlineEnd;
     const hasInlineMargin = childMarginInlineStart !== 0 || childMarginInlineEnd !== 0;
+    // F4: the child's area (this content box minus its margins) in the float-env frame.
+    const childFloatArea = {
+      lineLeft: childAreaLineLeft(floatFrame, childCs.direction, childMarginInlineStart, childMarginInlineEnd),
+      bfcInlineSize: floatFrame.bfcInlineSize,
+    };
 
     // Reposition a child box laid out at `paddingInlineStart` (relative to its
     // OWN content box of size `childContentInlineSize`) so its outer inline
@@ -711,7 +728,7 @@ export function layoutBlock(
       // the peeked landing, not the requested offset.
       if (fragmentation !== undefined && fragmentation.enableFloatPushing === true) {
         const landing = floatEnv.peekPlaceFloat(
-          sized.side, requestedCumulativeOffset, sized.floatInlineSize, contentInlineSize,
+          envSide(sized.side, direction), requestedCumulativeOffset, sized.floatInlineSize, floatFrame.bfcInlineSize,
         );
         const landingPageRel = landing.blockOffset - blockFlowBase;
         // "Page is empty" = nothing in-flow placed yet AND no floats placed
@@ -734,7 +751,7 @@ export function layoutBlock(
       // offset so its exclusion stacks in the same frame the IFC queries; the
       // box geometry is repositioned back to PAGE-RELATIVE inside the helper.
       const positioned = placeAndPositionFloat(
-        sized, childCs, floatEnv, paddingInlineStart, contentInlineSize,
+        sized, childCs, floatEnv, paddingInlineStart, floatFrame,
         blockFlowBase, requestedCumulativeOffset,
       );
       layoutChildren.push(positioned);
@@ -771,7 +788,9 @@ export function layoutBlock(
       // Coherent float+pagination: query clearance in the CUMULATIVE frame, then
       // translate the cumulative cleared offset back to page-relative before
       // comparing/writing `childBlockOffset`.
-      const clearedY = floatEnv.clearance(childCs.clear, blockFlowBase + childBlockOffset) - blockFlowBase;
+      // The env stores sides physically (F4): map the logical `clear` like a float side.
+      const clearSide = childCs.clear === "both" ? "both" : envSide(childCs.clear, direction);
+      const clearedY = floatEnv.clearance(clearSide, blockFlowBase + childBlockOffset) - blockFlowBase;
       if (clearedY > childBlockOffset) {
         clearanceApplied = clearedY - childBlockOffset;
         childBlockOffset = clearedY;
@@ -881,7 +900,7 @@ export function layoutBlock(
     // fragment where the item ends up placing ZERO content. Instead it is pushed
     // FIRST (before the content box) at EVERY site that places the item's content
     // on THIS fragment — and never on a fragment where the content didn't land.
-    let markerBox: LayoutBox | null = null;
+    let buildMarker: ((content: LayoutBox) => LayoutBox) | null = null;
     if (markerText !== null) {
       // Use a measurer adapter for the simple width/height calls needed for marker boxes.
       const measurer = adaptShaperToMeasurer(shaper);
@@ -938,18 +957,41 @@ export function layoutBlock(
       // `isResumeFragment` is false there and the marker is built).
       if (!isResumeFragment) {
         const effectiveContentEdge = childInlineStart + effectivePaddingInlineStart;
-        const markerInlineOffset = childCs.listStylePosition === "inside"
+        const unshiftedMarkerOffset = childCs.listStylePosition === "inside"
           ? effectiveContentEdge
           : effectiveContentEdge - markerInlineSize - markerGap;
-        markerBox = createMarkerBox(
-          `${child.key}-marker`,
-          markerInlineOffset, childBlockOffset,
-          markerInlineSize, markerBlockSize,
-          cs.writingMode, cs.direction,
-          markerCs, childUsedStyle,
-          markerText,
-          /* containingInlineSize */ contentInlineSize,
+        // The first line's unshifted inline start in the item: its content edge
+        // + its first-line text-indent (as the IFC resolves it).
+        const firstLineStart = effectivePaddingInlineStart + resolveUsedLength(
+          childCs.textIndent,
+          childContentInlineSize - effectivePaddingInlineStart - childUsedStyle.paddingInlineEnd,
+          0,
         );
+        const markerKey = `${child.key}-marker`;
+        const markerFor = markerText;
+        // Built from the LAID-OUT item (Word: the number sits on the first line
+        // and moves with its text): shifted by how far a float pushed the first
+        // line's start, at the first line's block offset. An item whose first
+        // content is not a line of its own (empty, or a nested block first)
+        // keeps the marker unshifted at its top edge.
+        buildMarker = (content) => {
+          // The item's first in-flow child (its floats precede its lines), if a line.
+          const first = "children" in content
+            ? content.children.find((c) => c.type !== "block" || c.computedStyle.float === "none")
+            : undefined;
+          const line = first?.type === "line" ? first : undefined;
+          const shift = line === undefined ? 0 : line.inlineOffset - firstLineStart;
+          const markerBlockOffset = line === undefined ? content.blockOffset : content.blockOffset + line.blockOffset;
+          return createMarkerBox(
+            markerKey,
+            unshiftedMarkerOffset + shift, markerBlockOffset,
+            markerInlineSize, markerBlockSize,
+            cs.writingMode, cs.direction,
+            markerCs, childUsedStyle,
+            markerFor,
+            /* containingInlineSize */ contentInlineSize,
+          );
+        };
         // NOT pushed here (deferral) — see every content-push site below.
       }
     }
@@ -990,7 +1032,7 @@ export function layoutBlock(
     const childCtx = makeChildContext(ctx, layoutChildCs, childContentInlineSize, "indefinite", {
       inlineOffset: childInlineStart,
       blockOffset: childBlockOffset,
-    });
+    }, childFloatArea);
 
     // Derive a FragmentationContext for the child with reduced availableBlockSize.
     // Thread firstChildResumeToken into the FIRST iteration (the resumed child);
@@ -1040,7 +1082,7 @@ export function layoutBlock(
         // Overflow rule: if fragment is empty, place it anyway (overflow).
         if (fragmentation !== undefined && layoutChildren.length === 0) {
           const overflowBox = applyOverflowRule();
-          if (markerBox !== null) layoutChildren.push(markerBox);
+          if (buildMarker !== null) layoutChildren.push(buildMarker(overflowBox));
           layoutChildren.push(overflowBox);
           childBlockOffset += overflowBox.blockSize;
           prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
@@ -1067,7 +1109,7 @@ export function layoutBlock(
         // Overflow rule: if fragment is empty, place it anyway (overflow).
         if (fragmentation !== undefined && layoutChildren.length === 0) {
           const overflowBox = applyOverflowRule();
-          if (markerBox !== null) layoutChildren.push(markerBox);
+          if (buildMarker !== null) layoutChildren.push(buildMarker(overflowBox));
           layoutChildren.push(overflowBox);
           childBlockOffset += overflowBox.blockSize;
           prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
@@ -1125,7 +1167,7 @@ export function layoutBlock(
       if (placedChild.blockSize > remaining) {
         // Overflow rule: if fragment is empty, place it anyway (overflow).
         if (layoutChildren.length === 0) {
-          if (markerBox !== null) layoutChildren.push(markerBox);
+          if (buildMarker !== null) layoutChildren.push(buildMarker(placedChild));
           layoutChildren.push(placedChild);
           childBlockOffset += placedChild.blockSize;
           prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
@@ -1152,7 +1194,7 @@ export function layoutBlock(
           // and place the whole child, accepting the overflow.
           if (layoutChildren.length === 0) {
             const overflowBox = applyOverflowRule();
-            if (markerBox !== null) layoutChildren.push(markerBox);
+            if (buildMarker !== null) layoutChildren.push(buildMarker(overflowBox));
             layoutChildren.push(overflowBox);
             childBlockOffset += overflowBox.blockSize;
             prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
@@ -1170,7 +1212,7 @@ export function layoutBlock(
       }
       // Partial-content break: the child placed ≥1 line on THIS fragment, so the
       // marker DID land here — push it before the partial content box.
-      if (markerBox !== null) layoutChildren.push(markerBox);
+      if (buildMarker !== null) layoutChildren.push(buildMarker(placedChild));
       layoutChildren.push(placedChild);
       childBlockOffset += placedChild.blockSize;
       return buildPartialResult(layoutChildren, {
@@ -1196,7 +1238,7 @@ export function layoutBlock(
     // marker-before-content order the old inline push produced). Both the
     // empty-block and the non-empty branch place the content here, so the marker
     // precedes whichever runs.
-    if (markerBox !== null) layoutChildren.push(markerBox);
+    if (buildMarker !== null) layoutChildren.push(buildMarker(placedChild));
 
     if (isEmpty) {
       // Undo the marginBlockStart advance; the combined margin is held for the next sibling collapse
@@ -1390,27 +1432,30 @@ function sizeFloat(
  *
  * `floatEnv.placeFloat` returns a CUMULATIVE block-offset (it may push the float
  * below same-side floats); `blockFlowBase` converts it back to the page-relative
- * frame the box geometry uses. `childCs`/`paddingInlineStart`/`contentInlineSize`
- * supply the writing-mode/RTL-mirror inputs exactly as the source branch.
+ * frame the box geometry uses. `childCs`/`paddingInlineStart`/`frame` supply the
+ * writing-mode/RTL-mirror inputs exactly as the source branch. F4: the float is
+ * placed in the BFC's env frame (at the column edge, whatever this block's
+ * indent) and translated back into this block's content box (`frame`).
  */
 function placeAndPositionFloat(
   sized: SizedFloat,
   childCs: ComputedStyle,
   floatEnv: FloatEnvironment,
   paddingInlineStart: number,
-  contentInlineSize: number,
+  frame: FloatFrame,
   blockFlowBase: number,
   requestedCumulativeOffset: number,
 ): LayoutBox {
   const { floatLayout, floatInlineSize, floatBlockSize, floatExplicitBlockSize, side } = sized;
+  const contentInlineSize = frame.inlineSize;
   const result = floatEnv.placeFloat(
-    side,
+    envSide(side, frame.direction),
     requestedCumulativeOffset,
     floatInlineSize,
     floatBlockSize,
-    contentInlineSize,
+    frame.bfcInlineSize,
   );
-  const placedInlineOffset = result.inlineOffset;
+  const placedInlineOffset = fromEnvInline(frame, result.inlineOffset, floatInlineSize);
   const placedBlockOffset = result.blockOffset - blockFlowBase;
   const repositionedInlineOffset = paddingInlineStart + placedInlineOffset;
   let positioned: LayoutBox;
@@ -1453,8 +1498,8 @@ function placeAndPositionFloat(
  * Place one floated atom of a paragraph (a wrapped inline image) at the
  * paragraph's top (`paraFlowStart`, cumulative) + its `offsetBlock`, sized and
  * placed exactly as a block float. A "break" image (`exclusion: "full"`)
- * excludes the whole content inline size; its box keeps its own width at the
- * inline-start edge.
+ * excludes the whole BFC content inline size (the column); its box keeps its
+ * own width at the column's inline-start edge.
  */
 function placeParagraphFloat(
   child: ElementBox,
@@ -1462,10 +1507,11 @@ function placeParagraphFloat(
   shaper: TextShaper,
   hyphenator: Hyphenator | undefined,
   paddingInlineStart: number,
-  contentInlineSize: number,
+  frame: FloatFrame,
   blockFlowBase: number,
   paraFlowStart: number,
 ): LayoutBox {
+  const contentInlineSize = frame.inlineSize;
   const childCs = child.computedStyle;
   if (childCs === undefined) throw new Error("cascade required");
   const inlineFloat = child.metadata?.inlineFloat;
@@ -1474,8 +1520,8 @@ function placeParagraphFloat(
     child, childCs, computeUsedStyle(childCs, contentInlineSize, "indefinite"), ctx, shaper, hyphenator,
     contentInlineSize, requested,
   );
-  const placed = inlineFloat?.exclusion === "full" ? { ...sized, floatInlineSize: contentInlineSize } : sized;
-  return placeAndPositionFloat(placed, childCs, ctx.floatEnv, paddingInlineStart, contentInlineSize, blockFlowBase, requested);
+  const placed = inlineFloat?.exclusion === "full" ? { ...sized, floatInlineSize: frame.bfcInlineSize } : sized;
+  return placeAndPositionFloat(placed, childCs, ctx.floatEnv, paddingInlineStart, frame, blockFlowBase, requested);
 }
 
 /**
@@ -1538,7 +1584,8 @@ export function placeIncomingPushedFloats(
       node, childCs, childUsedStyle, pageCtx, shaper, hyphenator, contentInlineSize, pageFlowBase,
     );
     const positioned = placeAndPositionFloat(
-      sized, childCs, pageEnv, paddingInlineStart, contentInlineSize, pageFlowBase, pageFlowBase,
+      sized, childCs, pageEnv, paddingInlineStart, bfcRootFrame(contentInlineSize, pageCtx.direction),
+      pageFlowBase, pageFlowBase,
     );
     positionedFloats.push(positioned);
   }

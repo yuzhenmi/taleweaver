@@ -20,6 +20,7 @@ import { axisMapFor } from "@taleweaver/core";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeRootContext, makeChildContext } from "./layout-context";
+import { contentFrame, floatIntrusionAt } from "./float-frame";
 import type { IntrinsicSizesCache } from "@taleweaver/core";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { findChangePoint } from "./wrap-incremental";
@@ -1458,7 +1459,6 @@ export function layoutInlineContent(
   const canWrap = ws !== "nowrap" && ws !== "pre";
 
   const floatEnv = ctx.floatEnv;
-
   // CSS Text §8 `text-indent` — the block's first-line indent,
   // resolved to a used length (px) against the containing inline size. It is
   // LOGICAL (inline-start), so it composes additively with the float
@@ -1489,11 +1489,13 @@ export function layoutInlineContent(
     // - blockOffset)` is the line's wrap offset RELATIVE to the paragraph's first
     // line. Their sum is the line's absolute cumulative position, the same frame
     // the BFC places floats in, so the narrowing applies on the page the float sits.
-    const active = floatEnv.availableInlineSizeAt(paraFlowStart + (lineBlockOffset - blockOffset), availableInlineSize);
+    // The floats are in the BFC's frame: the line is shortened only by how far
+    // each side's exclusion reaches past this paragraph's own edge.
+    const intrusion = floatIntrusionAt(floatEnv, floatFrame, paraFlowStart + (lineBlockOffset - blockOffset));
     const indent = firstLine ? blockTextIndent : 0;
     return {
-      lineInlineCursor: inlineOffset + active.inlineStartSize + indent,
-      lineInlineSize: availableInlineSize - active.inlineStartSize - active.inlineEndSize - indent,
+      lineInlineCursor: inlineOffset + intrusion.start + indent,
+      lineInlineSize: availableInlineSize - intrusion.start - intrusion.end - indent,
     };
   }
 
@@ -1558,6 +1560,13 @@ export function layoutInlineContent(
   }
   const tMiss = markStart("ifc.cache.miss");
   markEnd("ifc.cache.miss", tMiss);
+
+  // F4: this paragraph's content box (its whole IFC area) in the BFC's float-env
+  // frame, read by `effectiveLineDims`. Built past the cache-hit return, which
+  // never wraps, so a hit allocates nothing for it.
+  const floatFrame = contentFrame(
+    ctx.floatArea.lineLeft, availableInlineSize, direction, 0, availableInlineSize, ctx.floatArea.bfcInlineSize,
+  );
 
   // Per-line token-range metadata for incremental re-wrap.
   // Keyed by the LineBox object (via WeakMap) so it doesn't prevent GC.

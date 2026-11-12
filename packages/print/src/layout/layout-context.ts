@@ -147,6 +147,19 @@ export interface LayoutContext {
     readonly inlineOffset: number;
     readonly blockOffset: number;
   };
+  /**
+   * F4: where the box laid out under this context sits in its BFC's float-env
+   * frame (see `float-frame.ts`): the line-left edge of its area (the
+   * `containingInlineSize`-wide slot it is laid out in) and the BFC root's
+   * content inline size. A BFC root's own context carries `{0, containingInlineSize}`;
+   * the root's frame is its content box (`bfcRootFrame`), so it is not read there.
+   */
+  readonly floatArea: FloatArea;
+}
+
+export interface FloatArea {
+  readonly lineLeft: number;
+  readonly bfcInlineSize: number;
 }
 
 /**
@@ -177,6 +190,9 @@ export function makeChildContext(
     inlineOffset: 0,
     blockOffset: 0,
   },
+  // F4: the entered box's area in the float-env frame. Ignored for a BFC root
+  // (a fresh frame); defaults to the parent's (an area that coincides with it).
+  floatArea: FloatArea = parent.floatArea,
 ): LayoutContext {
   // If the child establishes a new BFC, give it a fresh float environment so
   // that floats inside it don't leak to the parent's BFC. Otherwise, inherit
@@ -233,6 +249,7 @@ export function makeChildContext(
     absoluteContainingBlock,
     ownsAbsoluteContainingBlock: establishesAbc,
     originFromAbc,
+    floatArea: isBFCRoot ? { lineLeft: 0, bfcInlineSize: contentInlineSize } : floatArea,
   };
 }
 
@@ -270,5 +287,6 @@ export function makeRootContext(
     },
     ownsAbsoluteContainingBlock: true,
     originFromAbc: { inlineOffset: 0, blockOffset: 0 },
+    floatArea: { lineLeft: 0, bfcInlineSize: containerInlineSize },
   };
 }

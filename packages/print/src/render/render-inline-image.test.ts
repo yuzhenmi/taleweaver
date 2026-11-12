@@ -194,6 +194,8 @@ function layoutParas(
     readonly pre?: boolean;
     readonly fragmentation?: FragmentationContext;
     readonly pageFlowBase?: number;
+    /** Per-paragraph block attrs (e.g. `marginInlineStart`, `dir`), overriding `rtl` / `pre`. */
+    readonly attrs?: readonly (Record<string, unknown> | undefined)[];
   } = {},
 ): {
   readonly root: LayoutBox;
@@ -214,7 +216,7 @@ function layoutParas(
         parentId: "doc",
         prevSiblingId: k > 0 ? `p${k - 1}` : null,
         nextSiblingId: k < paras.length - 1 ? `p${k + 1}` : null,
-        attrs: opts.rtl === true ? { dir: "rtl" } : opts.pre === true ? { whiteSpace: "pre" } : undefined,
+        attrs: opts.attrs?.[k] ?? (opts.rtl === true ? { dir: "rtl" } : opts.pre === true ? { whiteSpace: "pre" } : undefined),
         inlineContent: inlineContent(items),
       })),
     ],
@@ -224,7 +226,7 @@ function layoutParas(
   // The document model has no direction attr yet: an RTL test supplies it at
   // render (a block attr → the render-time computed direction `wrap` resolves
   // against, as for block images) AND at layout (an RTL root the tree inherits).
-  const rendered = render(document, reg, registry).root;
+  const rendered = withRtlParagraphs(render(document, reg, registry).root, opts.attrs);
   const cascaded = cascadePass(
     opts.rtl === true ? createElementBox("rtl", { display: "block", direction: "rtl" }, [rendered]) : rendered,
   );
@@ -246,6 +248,15 @@ function layoutParas(
     });
   }
   return { root: r.box, paras: out, breakToken: r.breakToken, inFlowConsumed: r.inFlowConsumed };
+}
+
+/** The block attr `dir` reaches only render (where `wrap` resolves); give an
+ *  RTL paragraph its layout direction too, as the host's cascade would. */
+function withRtlParagraphs(node: RenderNode, attrs: readonly (Record<string, unknown> | undefined)[] | undefined): RenderNode {
+  if (node.type !== "element" || attrs === undefined) return node;
+  const k = /^p(\d+)$/.exec(node.key)?.[1];
+  if (k !== undefined) return attrs[Number(k)]?.dir === "rtl" ? { ...node, style: { ...node.style, direction: "rtl" } } : node;
+  return { ...node, children: node.children.map((c) => withRtlParagraphs(c, attrs)) };
 }
 
 function only<T>(xs: readonly T[]): T {
@@ -431,6 +442,69 @@ describe("layout — wrapped inline image floats at its paragraph top", () => {
     // After a space the break stays where it was, and the float stays with the content before it.
     expect(lineSpans([text("xxxx yyyy "), far, text("zzzz")])).toEqual([[0, 11], [11, 15]]);
     expect(lineSpans([text("xxxx yyyy zzzz")])).toEqual([[0, 10], [10, 14]]);
+  });
+
+  // F4: the float env is in the column's frame. A float anchored in an indented
+  // paragraph sits at the column edge (Word `positionH relativeFrom="column"`),
+  // and every paragraph reads it in the same frame, whatever its own indent.
+  it("left / right float anchored in an indented paragraph: at the column edge; the next unindented paragraph is shortened by exactly its width", () => {
+    const indented = [{ marginInlineStart: 40 }, undefined];
+    const l = layoutParas([[text("ab"), wrapped("left")], [text(WORDS)]], { attrs: indented });
+    const lp0 = para(l, 0);
+    const lf = only(lp0.floats);
+    expect([lp0.box.x, lp0.box.x + lf.x, lf.width]).toEqual([40, 0, 100]);
+    // p0's own line starts at the float edge (100), not indent + 100.
+    expect([lp0.box.x + only(lp0.lines).x, only(lp0.lines).width]).toEqual([100, 400]);
+    const lp1 = para(l, 1);
+    expect([lp1.box.x + lineAt(lp1, 0).x, lineAt(lp1, 0).width]).toEqual([100, 400]);
+    const r = layoutParas([[text("ab"), wrapped("right")], [text(WORDS)]], { attrs: indented });
+    const rp0 = para(r, 0);
+    expect(rp0.box.x + only(rp0.floats).x).toBe(400);
+    const rp1 = para(r, 1);
+    expect([rp1.box.x + lineAt(rp1, 0).x, lineAt(rp1, 0).width]).toEqual([0, 400]);
+  });
+
+  it("a float in an unindented paragraph: an indented paragraph beside it starts at max(indent, float edge)", () => {
+    const r = layoutParas([[text("ab"), wrapped("left")], [text(WORDS)], [text(WORDS)]], {
+      attrs: [undefined, { marginInlineStart: 40 }, undefined],
+    });
+    const p1 = para(r, 1);
+    expect([p1.box.x + lineAt(p1, 0).x, lineAt(p1, 0).width]).toEqual([100, 400]);
+    const deep = layoutParas([[text("ab"), wrapped("left")], [text(WORDS)]], {
+      attrs: [undefined, { marginInlineStart: 150 }],
+    });
+    const q1 = para(deep, 1);
+    expect([q1.box.x + lineAt(q1, 0).x, lineAt(q1, 0).width]).toEqual([150, 350]);
+  });
+
+  it("break in an indented paragraph excludes the whole column: no line of the next paragraph beside it", () => {
+    // The image sits 16px below p0's top, so p0's one line fits above it and p1
+    // (y=24) starts inside its 16..48 band.
+    const r = layoutParas([[text("ab"), wrapped("break", { offsetBlock: 16 })], [text(WORDS)]], {
+      attrs: [{ marginInlineStart: 40 }, undefined],
+    });
+    const p0 = para(r, 0);
+    expect(p0.box.x + only(p0.floats).x).toBe(0);
+    const p1 = para(r, 1);
+    expect(p1.box.y).toBe(24);
+    expect(p1.box.y + lineAt(p1, 0).y).toBeGreaterThanOrEqual(48);
+    expect([lineAt(p1, 0).x, lineAt(p1, 0).width]).toEqual([0, 500]);
+  });
+
+  it("an RTL paragraph's float is read on its PHYSICAL side by the next LTR paragraph", () => {
+    // (The image leads its paragraph: an inline-block ending an RTL line trips a
+    // separate bidi bug, ticketed.)
+    const attrs = [{ dir: "rtl" }, undefined];
+    const l = layoutParas([[wrapped("left"), text("ab")], [text(WORDS)]], { attrs });
+    const lp0 = para(l, 0);
+    expect(lp0.box.x + only(lp0.floats).x).toBe(0);
+    const lp1 = para(l, 1);
+    expect([lineAt(lp1, 0).x, lineAt(lp1, 0).width]).toEqual([100, 400]);
+    const r = layoutParas([[wrapped("right"), text("ab")], [text(WORDS)]], { attrs });
+    const rp0 = para(r, 0);
+    expect(rp0.box.x + only(rp0.floats).x).toBe(400);
+    const rp1 = para(r, 1);
+    expect([lineAt(rp1, 0).x, lineAt(rp1, 0).width]).toEqual([0, 400]);
   });
 
   it("a following paragraph wraps around a float that extends below its paragraph", () => {

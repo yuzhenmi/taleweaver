@@ -823,6 +823,21 @@ describe("BFC — floats", () => {
     }
   });
 
+  it("clear in an RTL BFC clears the float on the same LOGICAL side (inline-start and inline-end)", () => {
+    for (const side of ["inline-start", "inline-end"] as const) {
+      // The RTL block is a child: a root takes its direction from the root context.
+      const out = layoutOf(createElementBox("root", { display: "block" }, [
+        createElementBox("p", { display: "block", direction: "rtl" }, [
+          createElementBox("f", { display: "block", float: side, inlineSize: 50, blockSize: 100 }, []),
+          createElementBox("after", { display: "block", clear: side, blockSize: 20 }, []),
+        ]),
+      ]));
+      const p = out.children.find((c) => c.key === "p");
+      const after = p !== undefined && "children" in p ? p.children.find((c) => c.key === "after") : undefined;
+      expect(after?.y).toBe(100);
+    }
+  });
+
   it("a right-floated child is placed at the right edge", () => {
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
@@ -917,6 +932,109 @@ describe("BFC — floats", () => {
     expect(f2.blockOffset).toBe(f2.y);
     // f2 must be placed below f1 (stacked), so its blockOffset must be > 0.
     expect(f2.blockOffset).toBeGreaterThan(0);
+  });
+});
+
+// F4: the float env is in the BFC root's content-box frame, so every block reads
+// (and places) floats at the column edge, whatever its own inline offset.
+describe("BFC — floats share one inline frame across indented / nested blocks", () => {
+  const WORDS = "alpha bravo charl delta echox foxtr golfx hotel india juliz kiloz limaa mikee";
+  const leftFloat = () => createElementBox("f", { display: "block", float: "inline-start", inlineSize: 100, blockSize: 50 }, []);
+  function child(box: import("./layout-box").LayoutBox, key: string): import("./layout-box").LayoutBox {
+    const c = "children" in box ? box.children.find((b) => b.key === key) : undefined;
+    if (c === undefined) throw new Error(`no child ${key}`);
+    return c;
+  }
+  function firstLine(box: import("./layout-box").LayoutBox): import("./layout-box").LayoutBox {
+    const l = "children" in box ? box.children.find((b) => b.type === "line") : undefined;
+    if (l === undefined) throw new Error(`no line in ${box.key}`);
+    return l;
+  }
+
+  it("a block float followed by an indented paragraph: its lines start at max(indent, float edge)", () => {
+    const out = layoutOf(createElementBox("root", { display: "block" }, [
+      leftFloat(),
+      createElementBox("p", { display: "block", marginInlineStart: 40 }, [createTextBox("t", {}, WORDS)]),
+      createElementBox("q", { display: "block", marginInlineStart: 150 }, [createTextBox("u", {}, "x")]),
+    ]));
+    const p = child(out, "p");
+    expect([p.x + firstLine(p).x, firstLine(p).width]).toEqual([100, 500]);
+    const q = child(out, "q");
+    expect([q.x + firstLine(q).x, firstLine(q).width]).toEqual([150, 450]);
+  });
+
+  it("a nested non-BFC block with a margin reads an outer float in the column frame", () => {
+    const out = layoutOf(createElementBox("root", { display: "block" }, [
+      leftFloat(),
+      createElementBox("quote", { display: "block", marginInlineStart: 40 }, [
+        createElementBox("p", { display: "block" }, [createTextBox("t", {}, WORDS)]),
+      ]),
+    ]));
+    const quote = child(out, "quote");
+    const p = child(quote, "p");
+    expect([quote.x + p.x + firstLine(p).x, firstLine(p).width]).toEqual([100, 500]);
+  });
+
+  it("a float inside a nested block with a margin sits at the column edge, and a following sibling reads it there", () => {
+    const out = layoutOf(createElementBox("root", { display: "block" }, [
+      createElementBox("quote", { display: "block", marginInlineStart: 40 }, [
+        leftFloat(),
+        createElementBox("q", { display: "block" }, [createTextBox("u", {}, "x")]),
+      ]),
+      createElementBox("p", { display: "block" }, [createTextBox("t", {}, WORDS)]),
+    ]));
+    const quote = child(out, "quote");
+    expect(quote.x + child(quote, "f").x).toBe(0);
+    const q = child(quote, "q");
+    expect([quote.x + q.x + firstLine(q).x, firstLine(q).width]).toEqual([100, 500]);
+    const p = child(out, "p");
+    expect([p.x + firstLine(p).x, firstLine(p).width]).toEqual([100, 500]);
+  });
+
+  it("a list item beside a left float: its marker moves with the first line (Word)", () => {
+    const out = layoutOf(createElementBox("root", { display: "block" }, [
+      leftFloat(),
+      createElementBox("li", { display: "block", markerText: "1", paddingInlineStart: 30 }, [createTextBox("t", {}, "body")]),
+    ]));
+    const li = child(out, "li");
+    // Content edge 30 → the float edge 100: the line and the marker (8px + 4px gap) shift by 70.
+    expect(li.x + firstLine(li).x).toBe(100);
+    expect(child(out, "li-marker").x).toBe(100 - 8 - 4);
+  });
+
+  it("a list item whose first line wraps around the item's OWN wrapped image: the marker moves with it", () => {
+    const out = layoutOf(createElementBox("root", { display: "block" }, [
+      createElementBox("li", { display: "block", markerText: "1", paddingInlineStart: 30 }, [
+        createElementBox("img", { display: "inline-block", float: "inline-start", inlineSize: 100, blockSize: 50 }, []),
+        createTextBox("t", {}, "body"),
+      ]),
+    ]));
+    const li = child(out, "li");
+    expect(li.x + firstLine(li).x).toBe(100);
+    expect(child(out, "li-marker").x).toBe(100 - 8 - 4);
+  });
+
+  it("the marker sits on the first line: a float ending inside the item's top padding does not move it, the padding does", () => {
+    const out = layoutOf(createElementBox("root", { display: "block" }, [
+      createElementBox("f", { display: "block", float: "inline-start", inlineSize: 100, blockSize: 10 }, []),
+      createElementBox("li", { display: "block", markerText: "1", paddingInlineStart: 30, paddingBlockStart: 20 }, [createTextBox("t", {}, "body")]),
+    ]));
+    const li = child(out, "li");
+    expect([li.x + firstLine(li).x, li.y + firstLine(li).y]).toEqual([30, 20]);
+    const marker = child(out, "li-marker");
+    expect([marker.x, marker.y]).toEqual([30 - 8 - 4, 20]);
+  });
+
+  it("a first line pushed below a float takes the marker down with it, unshifted", () => {
+    // A 560px word does not fit the 500px beside the float (content 570 wide).
+    const out = layoutOf(createElementBox("root", { display: "block" }, [
+      leftFloat(),
+      createElementBox("li", { display: "block", markerText: "1", paddingInlineStart: 30 }, [createTextBox("t", {}, "w".repeat(70))]),
+    ]));
+    const li = child(out, "li");
+    expect([li.x + firstLine(li).x, li.y + firstLine(li).y]).toEqual([30, 50]);
+    const marker = child(out, "li-marker");
+    expect([marker.x, marker.y]).toEqual([30 - 8 - 4, 50]);
   });
 });
 
