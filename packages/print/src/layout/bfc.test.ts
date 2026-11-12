@@ -767,6 +767,40 @@ describe("BFC — inline-block shrink-to-fit", () => {
     expect(ibBox?.width).toBe(100);
   });
 
+  it("an inline-block / float shrink-to-fits to its padding and its children's margin boxes (no wrap)", () => {
+    // Content: a block child "abc" (30) with margins 5 + 7 and padding 2 + 3;
+    // the box's own padding 4 + 6 → 30 + 12 + 5 + 10 = 57, laid out on one line.
+    const content = () => [
+      createElementBox("c", { display: "block", marginInlineStart: 5, marginInlineEnd: 7, paddingInlineStart: 2, paddingInlineEnd: 3 }, [
+        createTextBox("t", {}, "abc"),
+      ]),
+    ];
+    const pad = { paddingInlineStart: 4, paddingInlineEnd: 6 };
+    for (const box of [
+      createElementBox("p", { display: "block" }, [createElementBox("ib", { display: "inline-block", ...pad }, content())]),
+      createElementBox("p", { display: "block" }, [createElementBox("ib", { display: "block", float: "inline-start", ...pad }, content())]),
+    ]) {
+      const cascaded = cascadePass(box);
+      if (cascaded.type !== "element") throw new Error("?");
+      const r = layoutBlock(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), createMockShaper(10, 16), undefined);
+      if (r.box === null) throw new Error("layoutBlock returned null box");
+      expect(findBoxByKey(r.box, "ib")?.width).toBe(57);
+      expect(findBoxByKey(r.box, "c")?.height).toBe(16);
+    }
+    // A list item whose wide outside marker widens its gutter: the float holding
+    // it is sized to the widened gutter, so "abc def" stays on one line.
+    const listFloat = cascadePass(createElementBox("p", { display: "block" }, [
+      createElementBox("ib", { display: "block", float: "inline-start" }, [
+        createElementBox("li", { display: "block", markerText: "viii.", paddingInlineStart: 20 }, [createTextBox("t", {}, "abc def")]),
+      ]),
+    ]));
+    if (listFloat.type !== "element") throw new Error("?");
+    const lr = layoutBlock(listFloat, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), createMockShaper(10, 16), undefined);
+    if (lr.box === null) throw new Error("layoutBlock returned null box");
+    expect(findBoxByKey(lr.box, "ib")?.width).toBe(124);
+    expect(findBoxByKey(lr.box, "li")?.height).toBe(16);
+  });
+
 });
 
 describe("BFC — floats", () => {

@@ -467,5 +467,12 @@ describe("layoutTable — floats in cells", () => {
     ], { inlineFloat: { blockId: asBlockId("c"), offset: 0, offsetBlock: 0, exclusion: "full" } });
     const full = layoutOneRow([createElementBox("c", { display: "table-cell" }, [brk, text()])], 400);
     expect(full.columnPxWidths).toEqual([100]);
+    // The image's margins and the cell's padding count (margin box + padding):
+    // 4 + 100 + 6 + 72 + 8 + 8.
+    const margined = createElementBox("img", { display: "inline-block", float: "inline-start", marginInlineStart: 4, marginInlineEnd: 6 }, [
+      createElementBox("img-img", { display: "block", inlineSize: 100, blockSize: 32 }, []),
+    ]);
+    const padded = layoutOneRow([createElementBox("c", { display: "table-cell", paddingInlineStart: 8, paddingInlineEnd: 8 }, [margined, text()])], 400);
+    expect(padded.columnPxWidths).toEqual([198]);
   });
 });

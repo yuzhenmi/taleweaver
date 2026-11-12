@@ -8,7 +8,6 @@ import { boundaryMarkBoxes } from "./boundary-marks";
 import { layoutTable } from "./table-fc";
 import type { TextShaper } from "@taleweaver/core";
 import type { Hyphenator } from "@taleweaver/core";
-import { adaptShaperToMeasurer, composeComputed } from "@taleweaver/core";
 import type { ComputedStyle } from "@taleweaver/core";
 import type { WritingMode, Direction } from "@taleweaver/core";
 import { logicalToPhysical } from "@taleweaver/core";
@@ -21,6 +20,7 @@ import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { groupChildren, anonymousBlockKey } from "./group-children";
 import { paragraphFloats } from "./paragraph-floats";
 import type { FloatFrame } from "./float-frame";
+import { MARKER_GAP, markerGutterPadding, measureListMarker } from "./list-marker-gutter";
 import { bfcRootFrame, childAreaLineLeft, contentFrame, envSide, fromEnvInline } from "./float-frame";
 import { isLayoutBoxReusable, renderNodesLayoutEquivalent } from "./layout-reuse";
 import { markStart, markEnd } from "@taleweaver/core";
@@ -856,10 +856,7 @@ export function layoutBlock(
     // never an offset-bearing inline item, so it adds zero cursor stops. Empty/
     // absent markerText → no marker (a non-list block, or a list-item the
     // numbering pass didn't number).
-    let markerText: string | null = null;
-    if (childCs.markerText !== undefined && childCs.markerText !== "") {
-      markerText = childCs.markerText;
-    }
+    const marker = measureListMarker(child, childCs, shaper);
     // A list-item whose content STRADDLES a page break must emit its
     // marker only on the page where it STARTS — NOT on both the origin-page tail
     // and the resume-page head. The resuming fragment is the FIRST child of the
@@ -900,16 +897,11 @@ export function layoutBlock(
     // FIRST (before the content box) at EVERY site that places the item's content
     // on THIS fragment — and never on a fragment where the content didn't land.
     let buildMarker: ((content: LayoutBox) => LayoutBox) | null = null;
-    if (markerText !== null) {
-      // Use a measurer adapter for the simple width/height calls needed for marker boxes.
-      const measurer = adaptShaperToMeasurer(shaper);
+    if (marker !== null) {
       // The number is formatted with the ¶'s character props (Word; core stamps them
-      // as `list.markerStyle` from the paragraph's `markAttrs`).
-      const markerStyle = child.metadata?.list?.markerStyle;
-      const markerCs = markerStyle === undefined ? childCs : composeComputed(markerStyle, childCs);
-      const markerInlineSize = measurer.measureWidth(markerText, markerCs);
-      const markerBlockSize = measurer.measureHeight(markerCs);
-      const markerGap = 4;
+      // as `list.markerStyle` from the paragraph's `markAttrs`) — `measureListMarker`.
+      const { cs: markerCs, inlineSize: markerInlineSize, blockSize: markerBlockSize } = marker;
+      const markerGap = MARKER_GAP;
       // Compose the marker against the list-item's CONTENT edge — the
       // inline-start of where the item's own text begins. That edge is the
       // item's outer inline offset (`childInlineStart = parent paddingInlineStart
@@ -943,11 +935,8 @@ export function layoutBlock(
       // lands flush at `childInlineStart` and the content shifts right to match.
       // `inside` markers sit AT the content edge and never hang, so they never
       // widen.
-      effectivePaddingInlineStart =
-        childCs.listStylePosition !== "inside" &&
-        markerInlineSize + markerGap > childUsedStyle.paddingInlineStart
-          ? markerInlineSize + markerGap
-          : childUsedStyle.paddingInlineStart;
+      // (The intrinsic-sizes pass sizes the gutter through the same helper.)
+      effectivePaddingInlineStart = markerGutterPadding(childCs, markerInlineSize, childUsedStyle.paddingInlineStart);
       // Still compute the auto-widen above on the resume fragment so the
       // split item's CONTINUATION content keeps the same content edge as the
       // origin fragment (the wrapped tail must align with the head). Only the
@@ -967,7 +956,7 @@ export function layoutBlock(
           0,
         );
         const markerKey = `${child.key}-marker`;
-        const markerFor = markerText;
+        const markerFor = marker.text;
         // Built from the LAID-OUT item (Word: the number sits on the first line
         // and moves with its text): shifted by how far a float pushed the first
         // line's start, at the first line's block offset. An item whose first

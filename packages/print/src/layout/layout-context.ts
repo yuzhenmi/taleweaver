@@ -72,7 +72,7 @@ export function establishesAbsoluteContainingBlock(cs: ComputedStyle): boolean {
  * and `ctx.containingInlineSize` for percent / shrink-to-fit resolution.
  *
  * When recursing into a child, build the child's context via
- * `makeChildContext(ctx, parentCs, contentInlineSize, contentBlockSize)`.
+ * `makeChildContext(ctx, enteredCs, contentInlineSize, contentBlockSize)`.
  */
 export interface LayoutContext {
   readonly writingMode: WritingMode;
@@ -166,10 +166,12 @@ export interface FloatArea {
  * Build a layout context for a child being laid out within a parent box.
  *
  * @param parent the parent's layout context (the parent box's containing block).
- * @param parentCs the parent's computed style — provides writing-mode + direction
- *   for the child (CSS: writing-mode and direction are inherited).
- * @param contentInlineSize the parent's content area inline-size; the child's
- *   containing block has this as its inline-size.
+ * @param enteredCs the computed style of the box BEING ENTERED (the box this
+ *   context lays out — NOT its parent): its writing-mode + direction become the
+ *   context's, and it decides whether the box establishes a new BFC (fresh float
+ *   env) and / or an absolute containing block.
+ * @param contentInlineSize the inline size the entered box is laid out in (its
+ *   containing block's inline size, as the entered box's layout reads it).
  * @param contentBlockSize the parent's content area block-size, if known.
  *   Pass `"indefinite"` if the parent has auto block-size.
  * @param contentOrigin the entered (child) box's in-flow position within the
@@ -183,7 +185,7 @@ export interface FloatArea {
  */
 export function makeChildContext(
   parent: LayoutContext,
-  parentCs: ComputedStyle,
+  enteredCs: ComputedStyle,
   contentInlineSize: number,
   contentBlockSize: number | "indefinite",
   contentOrigin: { readonly inlineOffset: number; readonly blockOffset: number } = {
@@ -198,7 +200,7 @@ export function makeChildContext(
   // that floats inside it don't leak to the parent's BFC. Otherwise, inherit
   // the parent's env so that floats inside non-BFC blocks rise to the nearest
   // ancestor BFC.
-  const isBFCRoot = establishesNewBFC(parentCs);
+  const isBFCRoot = establishesNewBFC(enteredCs);
   const floatEnv = isBFCRoot
     ? createFloatEnvironment()
     : parent.floatEnv;
@@ -219,7 +221,7 @@ export function makeChildContext(
   // at establish time; the draining box's second pass uses its own RESOLVED
   // locals (content inline-size, total block-size, padding) as the authoritative
   // abc frame, so an indefinite/placeholder here never mis-positions.
-  const establishesAbc = establishesAbsoluteContainingBlock(parentCs);
+  const establishesAbc = establishesAbsoluteContainingBlock(enteredCs);
   const absoluteContainingBlock: AbsoluteContainingBlock = establishesAbc
     ? {
         inlineSize: contentInlineSize,
@@ -236,8 +238,8 @@ export function makeChildContext(
       };
 
   return {
-    writingMode: parentCs.writingMode,
-    direction:   parentCs.direction,
+    writingMode: enteredCs.writingMode,
+    direction:   enteredCs.direction,
     containingInlineSize: contentInlineSize,
     containingBlockSize:  contentBlockSize,
     intrinsicCache: parent.intrinsicCache,

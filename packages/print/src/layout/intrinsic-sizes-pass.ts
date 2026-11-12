@@ -1,8 +1,9 @@
-import type { RenderNode, ElementBox, TextBox } from "@taleweaver/core";
+import type { RenderNode, ElementBox, TextBox, ComputedStyle } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
 import type {
   IntrinsicSizes,
   IntrinsicContribution,
+  IntrinsicFloats,
   IntrinsicSizesCache,
 } from "@taleweaver/core";
 import { flattenContents } from "./group-children";
@@ -13,6 +14,8 @@ import type { GridCellInput } from "./table-grid";
 import { distributeColumnIntrinsics } from "./table-column-sizing";
 import type { SpannedCellIntrinsic } from "./table-column-sizing";
 import { asBlockId } from "@taleweaver/core";
+import { intrinsicInlinePadding, outerContribution } from "./intrinsic-box-model";
+import { floatOf, isFloated, mergeFloats } from "./intrinsic-floats";
 
 const ZERO_CONTRIBUTION: IntrinsicContribution = {
   minContent: 0,
@@ -36,8 +39,13 @@ export function computeIntrinsicSizes(
   shaper: TextShaper,
   cache: IntrinsicSizesCache,
 ): IntrinsicSizes {
-  const { minContent, maxContent } = computeContribution(node, shaper, cache);
-  return { minContent, maxContent };
+  const { minContent, maxContent, floats } = computeContribution(node, shaper, cache);
+  if (floats === undefined) return { minContent, maxContent };
+  // An inline box queried as the root: its floats sit beside its one line.
+  return {
+    minContent: Math.max(minContent, floats.min),
+    maxContent: Math.max(maxContent + floats.startMax + floats.endMax, floats.ownLineMax),
+  };
 }
 
 /**
@@ -88,6 +96,7 @@ function computeContributionUncached(
     case "list-item":
     case "inline-block":
     case "table-cell":
+    case "flow-root":
       return computeBlockContribution(node, shaper, cache);
     case "inline":
       return computeInlineContribution(node, shaper, cache);
@@ -286,10 +295,13 @@ function computeBlockContribution(
   let runMax = 0;
   let runRestMin = 0; // max over (firstChild.restMin, laterChildren.minContent)
   let runFirstCluster = 0; // firstCluster of the run's first content-bearing child
-  let runHasFirstChild = false;
-  // Floats beside the run's line (wrapped inline images): their max-content
-  // sits on the line next to the text, outside the text-indent fold.
-  let runFloatMax = 0;
+  let runHasFirstChild = false; // the run holds inline content (not only floats)
+  // Floats on the run's line, per side (CSS 2.1 §10.3.5 as Blink / Gecko compute
+  // it): their max-content sits on the line beside the inline content, outside
+  // the text-indent fold. A run of floats alone is the block-level float line
+  // that the next block child sits below.
+  let runFloatStart = 0;
+  let runFloatEnd = 0;
   let runActive = false;
   let processedAnyChild = false; // has any child (block or inline) been handled?
   let currentRunIsLeading = false; // is the active run the block's first child group?
@@ -303,7 +315,7 @@ function computeBlockContribution(
       runMin = Math.max(0, Math.max(indent + runFirstCluster, runRestMin));
       foldedMax = Math.max(0, runMax + indent);
     }
-    foldedMax += runFloatMax;
+    foldedMax += runFloatStart + runFloatEnd;
     if (runMin > containerMin) containerMin = runMin;
     if (foldedMax > containerMax) containerMax = foldedMax;
     runActive = false;
@@ -311,45 +323,65 @@ function computeBlockContribution(
     runRestMin = 0;
     runFirstCluster = 0;
     runHasFirstChild = false;
-    runFloatMax = 0;
+    runFloatStart = 0;
+    runFloatEnd = 0;
     currentRunIsLeading = false;
   };
   const startRun = (): void => {
     if (runActive) return;
     runActive = true;
-    runMax = 0;
-    runRestMin = 0;
-    runFirstCluster = 0;
-    runHasFirstChild = false;
-    runFloatMax = 0;
     // A run is the block's first formatted line only if it leads the block
     // (no block-level child precedes it).
     currentRunIsLeading = !processedAnyChild;
   };
+  // `clear` on a float: clearing a side that holds a
+  // float on this line ends the line. Within inline content the whole line
+  // ends; on a line of floats alone only the cleared side's floats do (Blink's
+  // block-level float accounting).
+  const applyClear = (clear: ComputedStyle["clear"]): void => {
+    if (clear === "none" || !runActive) return;
+    const clearsStart = clear !== "inline-end" && runFloatStart > 0;
+    const clearsEnd = clear !== "inline-start" && runFloatEnd > 0;
+    if (!clearsStart && !clearsEnd) return;
+    if (runHasFirstChild) {
+      flushRun();
+      return;
+    }
+    containerMax = Math.max(containerMax, runFloatStart + runFloatEnd);
+    if (clearsStart) runFloatStart = 0;
+    if (clearsEnd) runFloatEnd = 0;
+  };
+  const addFloats = (f: IntrinsicFloats): void => {
+    if (f.min > containerMin) containerMin = f.min;
+    if (f.ownLineMax > containerMax) containerMax = f.ownLineMax;
+    if (f.startMax === 0 && f.endMax === 0) return;
+    startRun();
+    runFloatStart += f.startMax;
+    runFloatEnd += f.endMax;
+  };
 
   for (const child of flattenContents(node.children)) {
-    const isInline =
-      child.type === "text" ||
-      (child.type === "element" &&
-        (child.computedStyle?.display === "inline" ||
-          child.computedStyle?.display === "inline-block"));
-    const c = computeContribution(child, shaper, cache);
-    // A floated atom (a wrapped inline image) contributes as a float (CSS Sizing
-    // 3 / CSS 2.1 shrink-to-fit): an unbreakable item for min-content; for
-    // max-content it sits beside its line (added to it) — a `break` image
-    // (full-width exclusion) takes a line of its own. It is neither the first
-    // cluster of the line nor a block-level child.
-    if (child.type === "element" && child.computedStyle?.display === "inline-block" && child.computedStyle.float !== "none") {
-      if (c.minContent > containerMin) containerMin = c.minContent;
-      if (child.metadata?.inlineFloat?.exclusion === "full") {
-        if (c.maxContent > containerMax) containerMax = c.maxContent;
-      } else {
-        startRun();
-        runFloatMax += c.maxContent;
-      }
+    const own = computeContribution(child, shaper, cache);
+    const c = outerContribution(child, own);
+    const childCs = child.type === "element" ? child.computedStyle : undefined;
+    // A float (a block float, or a floated atom — a wrapped inline image) is
+    // neither the first cluster of the line nor a block-level child.
+    if (child.type === "element" && childCs !== undefined && isFloated(child)) {
+      applyClear(childCs.clear);
+      addFloats(floatOf(child, c));
       continue;
     }
+    const isInline =
+      child.type === "text" ||
+      childCs?.display === "inline" ||
+      childCs?.display === "inline-block";
     if (isInline) {
+      // Floats nested in an inline box (a wrapped image inside a bold span)
+      // count exactly as direct ones; a box of floats alone starts no line.
+      if (c.floats !== undefined) {
+        addFloats(c.floats);
+        if (c.floats.alone) continue;
+      }
       startRun();
       runMax += c.maxContent; // sum within a run (no wrap at max-content)
       if (!runHasFirstChild) {
@@ -364,6 +396,10 @@ function computeBlockContribution(
         runRestMin = Math.max(runRestMin, c.minContent);
       }
     } else {
+      // A block child after floats sits below them (max, not sum). A BFC root
+      // or table too, for now: layout has no CSS 9.5 float avoidance yet, so it
+      // lays them over the floats; ticket T-l lands the beside-the-floats rule
+      // (with Blink's margin-overlap rule) in layout and here together.
       flushRun();
       if (c.minContent > containerMin) containerMin = c.minContent;
       if (c.maxContent > containerMax) containerMax = c.maxContent;
@@ -371,6 +407,15 @@ function computeBlockContribution(
     processedAnyChild = true;
   }
   flushRun();
+
+  // The box's own size includes its inline padding (the engine's inline size is
+  // padding-inclusive: layout subtracts the padding from it), with a list
+  // marker's widened gutter. A `contents` element has no box.
+  if (cs !== undefined && cs.display !== "contents") {
+    const padding = intrinsicInlinePadding(node, cs, shaper);
+    containerMin += padding;
+    containerMax += padding;
+  }
 
   // What this node exposes as its OWN first cluster to an enclosing indented
   // run depends on its outer display:
@@ -404,12 +449,23 @@ function computeInlineContribution(
   // Inline (sequence): min = max(child.min); max = sum(child.max).
   // For the indent plumbing: firstCluster = the first child's firstCluster;
   // restMin = max(firstChild.restMin, child₂.min, child₃.min, …).
+  // Floated children (and floats nested deeper) are not inline content: they
+  // collect into `floats` for the enclosing block to place beside the line.
   let sum = 0;
   let restMin = 0;
   let firstCluster = 0;
   let hasFirst = false;
+  let floats: IntrinsicFloats | undefined;
   for (const child of flattenContents(node.children)) {
-    const c = computeContribution(child, shaper, cache);
+    const c = outerContribution(child, computeContribution(child, shaper, cache));
+    if (child.type === "element" && isFloated(child)) {
+      floats = mergeFloats(floats, floatOf(child, c));
+      continue;
+    }
+    if (c.floats !== undefined) {
+      floats = mergeFloats(floats, c.floats);
+      if (c.floats.alone) continue;
+    }
     sum += c.maxContent;
     if (!hasFirst) {
       firstCluster = c.firstCluster;
@@ -424,6 +480,7 @@ function computeInlineContribution(
     maxContent: sum,
     firstCluster,
     restMin,
+    ...(floats === undefined ? {} : { floats: { ...floats, alone: !hasFirst } }),
   };
 }
 

@@ -3,7 +3,7 @@ import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { createIntrinsicSizesCache } from "@taleweaver/core";
 import { createMockShaper, createVariableMockShaper } from "@taleweaver/core";
 import { createElementBox, createTextBox } from "@taleweaver/core";
-import { cascadePass } from "@taleweaver/core";
+import { cascadePass, asBlockId } from "@taleweaver/core";
 
 describe("computeIntrinsicSizes — hyphens: none (HYPH.S2)", () => {
   const shaper = createMockShaper(10, 16);
@@ -800,5 +800,111 @@ describe("computeIntrinsicSizes — text-transform (C1)", () => {
       createIntrinsicSizesCache(),
     );
     expect(withNone).toEqual(bare);
+  });
+});
+
+describe("computeIntrinsicSizes — box model and floats (P3 M1e)", () => {
+  const shaper = createMockShaper(10, 16);
+  const sizes = (node: Parameters<typeof cascadePass>[0]) =>
+    computeIntrinsicSizes(cascadePass(node), shaper, createIntrinsicSizesCache());
+  const text = (key: string, s: string) => createTextBox(key, { display: "inline" }, s);
+  const image = (key: string, float: "inline-start" | "inline-end", inlineSize: number, extra: object = {}, exclusion?: "full") =>
+    createElementBox(key, { display: "inline-block", float, ...extra }, [
+      createElementBox(`${key}-i`, { display: "block", inlineSize, blockSize: 20 }, []),
+    ], exclusion === undefined ? undefined : { inlineFloat: { blockId: asBlockId("p"), offset: 0, offsetBlock: 0, exclusion } });
+
+  it("N2: a box's own size includes its padding; its contribution adds its margins (block and inline-block)", () => {
+    const pad = { paddingInlineStart: 3, paddingInlineEnd: 4 };
+    const margin = { marginInlineStart: 5, marginInlineEnd: 7 };
+    // The child's own size: "abc" 30 + padding 7 (its margins are not its own).
+    expect(sizes(createElementBox("c", { display: "block", ...pad, ...margin }, [text("t", "abc")]))).toEqual({ minContent: 37, maxContent: 37 });
+    // Its contribution to a block container: + margins 12.
+    expect(sizes(createElementBox("p", { display: "block" }, [
+      createElementBox("c", { display: "block", ...pad, ...margin }, [text("t", "abc")]),
+    ]))).toEqual({ minContent: 49, maxContent: 49 });
+    // An inline-block beside text: "ab" 20 + (cd 20 + 7 + 12).
+    expect(sizes(createElementBox("p", { display: "block" }, [
+      text("t", "ab"),
+      createElementBox("ib", { display: "inline-block", ...pad, ...margin }, [text("u", "cd")]),
+    ]))).toEqual({ minContent: 39, maxContent: 59 });
+    // A table cell's own size includes its padding (column sizing reads it).
+    expect(sizes(createElementBox("c", { display: "table-cell", ...pad }, [text("t", "abc")]))).toEqual({ minContent: 37, maxContent: 37 });
+    // A definite inline size is already the padding-inclusive size: + margins only.
+    expect(sizes(createElementBox("p", { display: "block" }, [
+      createElementBox("c", { display: "block", inlineSize: 50, ...pad, ...margin }, []),
+    ]))).toEqual({ minContent: 62, maxContent: 62 });
+  });
+
+  it("N2: an outside list marker wider than the item's padding widens its gutter (as layout does)", () => {
+    // "viii." = 5 × 10 = 50 + gap 4 = 54 > authored padding 20 → gutter 54; + "abc" 30.
+    const item = (pos: "outside" | "inside") =>
+      createElementBox("li", { display: "block", markerText: "viii.", listStylePosition: pos, paddingInlineStart: 20 }, [text("t", "abc")]);
+    expect(sizes(item("outside"))).toEqual({ minContent: 84, maxContent: 84 });
+    // An inside marker never widens the gutter.
+    expect(sizes(item("inside"))).toEqual({ minContent: 50, maxContent: 50 });
+  });
+
+  it("N2: percent margins and padding contribute 0 (cyclic percentages)", () => {
+    expect(sizes(createElementBox("p", { display: "block" }, [
+      createElementBox("c", {
+        display: "block",
+        marginInlineStart: { value: 50, unit: "percent" },
+        paddingInlineEnd: { value: 10, unit: "percent" },
+      }, [text("t", "abc")]),
+    ]))).toEqual({ minContent: 30, maxContent: 30 });
+  });
+
+  it("N2: a flow root contributes its content (not zero)", () => {
+    expect(sizes(createElementBox("p", { display: "block" }, [
+      createElementBox("c", { display: "flow-root" }, [text("t", "abc")]),
+    ]))).toEqual({ minContent: 30, maxContent: 30 });
+  });
+
+  it("N2: a floated atom contributes its margin box", () => {
+    expect(sizes(createElementBox("p", { display: "block" }, [
+      image("img", "inline-start", 100, { marginInlineStart: 4, marginInlineEnd: 6 }),
+      text("t", "abc"),
+    ]))).toEqual({ minContent: 110, maxContent: 140 });
+  });
+
+  it("N3: a block float and the following text share a line for max-content; min is the widest item", () => {
+    const float = (key: string, w: number, extra: object = {}) =>
+      createElementBox(key, { display: "block", float: "inline-start", inlineSize: w, blockSize: 20, ...extra }, []);
+    expect(sizes(createElementBox("p", { display: "block" }, [float("f", 100), text("t", "abc")])))
+      .toEqual({ minContent: 100, maxContent: 130 });
+    // Two floats (both sides) + text: one line.
+    expect(sizes(createElementBox("p", { display: "block" }, [
+      float("f", 100), float("g", 50, { float: "inline-end" }), text("t", "abc"),
+    ])).maxContent).toBe(180);
+    // Clear ends the line: the cleared float starts a new one with the text.
+    expect(sizes(createElementBox("p", { display: "block" }, [
+      float("f", 100), float("g", 50, { clear: "inline-start" }), text("t", "abcdefgh"),
+    ])).maxContent).toBe(130);
+    // A normal block after floats sits below them (its lines wrap the floats): max, not sum.
+    expect(sizes(createElementBox("p", { display: "block" }, [
+      float("f", 100), createElementBox("q", { display: "block" }, [text("t", "abc")]),
+    ])).maxContent).toBe(100);
+    // A flow root after a float: below it, as layout places it (layout has no
+    // CSS 9.5 float avoidance for BFC roots yet — ticket T-l lands the
+    // beside-the-floats rule in layout and here together).
+    expect(sizes(createElementBox("p", { display: "block" }, [
+      float("f", 100), createElementBox("q", { display: "flow-root" }, [text("t", "abcde")]),
+    ])).maxContent).toBe(100);
+  });
+
+  it("N4: a floated atom inside an inline wrapper contributes exactly as a direct one (side and break; indent on text only)", () => {
+    const indent = { textIndent: { value: 40, unit: "px" } } as const;
+    const bold = (child: ReturnType<typeof createElementBox>) =>
+      createElementBox("b", { display: "inline", fontWeight: 700 }, [child]);
+    for (const wrap of [(c: ReturnType<typeof createElementBox>) => c, bold]) {
+      expect(sizes(createElementBox("p", { display: "block", ...indent }, [wrap(image("img", "inline-start", 100)), text("t", "abc")])))
+        .toEqual({ minContent: 100, maxContent: 170 });
+      expect(sizes(createElementBox("p", { display: "block" }, [wrap(image("img", "inline-start", 100, {}, "full")), text("t", "abc")])))
+        .toEqual({ minContent: 100, maxContent: 100 });
+    }
+    // Text and a float in the same wrapper: the text is the line's first unit.
+    expect(sizes(createElementBox("p", { display: "block", ...indent }, [
+      createElementBox("b", { display: "inline" }, [image("img", "inline-end", 100), text("t", "abc")]),
+    ]))).toEqual({ minContent: 100, maxContent: 170 });
   });
 });

@@ -348,7 +348,7 @@ export {
   UAX9_UNICODE_VERSION,
 } from "./layout/uax9";
 export type { BidiClass, BaseDirection, BidiResult } from "./layout/uax9";
-export type { IntrinsicSizes, IntrinsicContribution, IntrinsicSizesCache } from "./layout/intrinsic-sizes";
+export type { IntrinsicSizes, IntrinsicContribution, IntrinsicFloats, IntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export { createIntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export type { BlockParentLookup } from "./state/block-parent-lookup-type";
 export { makeBlockParentLookup } from "./editor/block-parent-lookup";
