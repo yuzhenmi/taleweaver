@@ -1,8 +1,9 @@
-/** N6 mergeCells (T6): what the table-ops harness does not see (paragraph keys, anchors, a peer's edit). */
+/** N6 mergeCells (T6) / unmergeCell (T7): what the table-ops harness does not see (paragraph keys, anchors, attrs, a peer's edit). */
 import { describe, expect, it } from "vitest";
 import { BLOCK_TYPES, type Block } from "./block";
 import { insertText } from "./commands/insert-text";
 import { mergeCells } from "./commands/table/merge-cells";
+import { unmergeCell } from "./commands/table/unmerge-cell";
 import { firingsOf } from "./oracle/firings";
 import { caretAt } from "./position/model-position";
 import { newMarker } from "./storage/new-items";
@@ -96,5 +97,19 @@ describe("mergeCells (T6)", () => {
     expect(cells(a)).toEqual([["aZ"], ["d"]]);
     expect(b.read()).toEqual(a.read());
     noFirings(a);
+  });
+});
+
+describe("unmergeCell (T7)", () => {
+  it("the uncovered cells copy the head's a:* (Word / PM split); pads of a short row get none", () => {
+    // maps: ⟦ ⟨r⟩ ⟨c⟩ ¶x ⟨c⟩ ¶a ⟨r⟩ ...: the head `a` (r2) carries a:bg.
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ x¶ ⟨c⟩r2 a¶ ⟨r⟩ ⟧ q¶", (m) => m[4]?.set("a:bg", "#fee"));
+    caret(h, 1, 0, 0);
+    expect(h.run(unmergeCell)).toBe(true);
+    const d = h.version;
+    const t = h.paragraphs().find((b) => b.type === BLOCK_TYPES.table);
+    const attrs = t === undefined ? [] : childrenOf(d, "block", t.id).map((r) => childrenOf(d, "block", r.id).map((c) => c.attrs));
+    expect(attrs).toEqual([[{}, { bg: "#fee" }], [{}, { bg: "#fee" }]]);
+    expect(cells(h)).toEqual([["x"], ["a"], [""], [""]]);
   });
 });

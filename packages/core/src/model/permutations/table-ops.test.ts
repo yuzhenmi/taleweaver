@@ -13,6 +13,7 @@ import { deleteRow } from "../commands/table/delete-row";
 import { insertColumn } from "../commands/table/insert-column";
 import { insertRow } from "../commands/table/insert-row";
 import { mergeCells } from "../commands/table/merge-cells";
+import { unmergeCell } from "../commands/table/unmerge-cell";
 import { nextMarkId, slotsOf as formSlotsOf } from "../commands/table/table-at";
 import { columnCountOf } from "../derive/table/table-form";
 import type { Document } from "../document/types";
@@ -167,6 +168,7 @@ const OPS: readonly Op[] = [
   { name: "insertColumn right", run: (c) => insertColumn(c, "right"), model: (g, at) => M.insertColumn(g, at, "right") },
   { name: "deleteRow", run: deleteRow, model: M.deleteRow },
   { name: "deleteColumn", run: deleteColumn, model: M.deleteColumn },
+  { name: "unmergeCell", run: unmergeCell, model: M.unmerge },
 ];
 
 /** The model's cells to act from, by head slot: every real cell and every free slot (a virtual cell). */
@@ -258,6 +260,8 @@ function rectanglesOf(g: M.Grid): [M.Slot, M.Slot][] {
   return out;
 }
 
+const unmergeOp: Op = { name: "unmergeCell", run: unmergeCell, model: M.unmerge };
+
 const mergeOp = (from: M.Slot, to: M.Slot): Op => ({ name: "mergeCells", run: (c) => mergeCells(c, from, to), model: (g) => M.merge(g, from, to) });
 
 for (const s of SHAPES) {
@@ -265,7 +269,10 @@ for (const s of SHAPES) {
     describe(`${s.name} (${w}) merge`, () => {
       for (const [from, to] of rectanglesOf(modelOf(s))) {
         it(`${s.name} (${w}) × merge (${from.join(",")})–(${to.join(",")})`, () => {
-          runOp(build(s, w), s, w, from, mergeOp(from, to));
+          const h = build(s, w);
+          const x = runOp(h, s, w, from, mergeOp(from, to));
+          // Then unmerge the merged cell, from the merged grid.
+          if (x !== null && x.grid !== null && x.caret !== null) runOp(h, s, w, x.caret, unmergeOp, x.grid);
         });
       }
     });

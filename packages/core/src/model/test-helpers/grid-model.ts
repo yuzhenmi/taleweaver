@@ -146,6 +146,22 @@ export function merge(g: Grid, from: Slot, to: Slot): Outcome {
 }
 
 /**
+ * T7: unmerge the cell at `at`: it keeps its tag at its head slot, 1×1, and every other slot it covered gets an empty
+ * cell; a row below with free slots left of it is padded with empty cells up to it (cells are positional). A cell of
+ * one slot, or a free slot, is a no-op. The caret stays in the head.
+ */
+export function unmerge(g: Grid, at: Slot): Outcome {
+  const c = cellAt(g, at[0], at[1]);
+  if (c === null || (c.rowSpan === 1 && c.colSpan === 1)) return { grid: g, caret: at };
+  const cells: ModelCell[] = [...g.cells.filter((x) => x !== c), { ...c, rowSpan: 1, colSpan: 1 }];
+  for (let r = c.row; r < c.row + c.rowSpan; r++) {
+    for (let col = 0; col < c.col; col++) if (r > c.row && cellAt(g, r, col) === null) cells.push(empty(r, col));
+    for (let col = c.col; col < c.col + c.colSpan; col++) if (r !== c.row || col !== c.col) cells.push(empty(r, col));
+  }
+  return { grid: { cells, header: g.header }, caret: [c.row, c.col] };
+}
+
+/**
  * A grid from a picture: one string per row of space-separated slot tags, `.` a free slot; a tag repeated over a
  * rectangle is one spanning cell (tags are unique per cell). The first `headerRows` rows are header rows.
  */
