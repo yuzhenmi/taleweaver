@@ -290,6 +290,24 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     expect(p1Box2).not.toBe(p1Box1);
   });
 
+  it("a cached fragment of a split box is never reused as the whole box (BM4)", () => {
+    const text = Array.from({ length: 8 }, () => "x").join("\n");
+    const p = createElementBox("p", { display: "block", whiteSpace: "pre", paddingBlockEnd: 6 }, [createTextBox("t", { whiteSpace: "pre" }, text)]);
+    const doc = cascadePass(createElementBox("doc", { display: "block" }, [p]));
+    if (doc.type !== "element") throw new Error("?");
+    const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const page1 = layoutBlock(doc, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined, { availableBlockSize: 100, pageIndex: 0, resumeFrom: null }).box;
+    if (page1 === null) throw new Error("null box");
+    const fragment = page1.type === "block" ? page1.children[0] : undefined;
+    expect(fragment?.sidesToInclude).toEqual({ blockStart: true, blockEnd: false });
+    const ctx2: LayoutContext = { ...makeRootContext(INITIAL_COMPUTED_STYLE, 600), prevLayoutCache: buildLayoutBoxCacheFromTree(page1, doc), prevFloatEnv: null };
+    const whole = layoutBlock(doc, 0, 0, rootFrame(ctx2), ctx2, shaper, undefined).box;
+    const pBox = whole !== null && whole.type === "block" ? whole.children[0] : undefined;
+    expect(pBox).not.toBe(fragment);
+    expect(pBox?.sidesToInclude).toBeUndefined();
+    expect(pBox?.blockSize).toBe(8 * 16 + 6);
+  });
+
   it("a reused float with a percent relative offset takes the offset of its new containing block", () => {
     const f = createElementBox("f", { display: "block", float: "inline-start", inlineSize: 100, position: "relative", insetInlineStart: { value: 10, unit: "percent" } }, [createTextBox("t", {}, "a")]);
     const doc = cascadePass(createElementBox("doc", { display: "block" }, [f]));

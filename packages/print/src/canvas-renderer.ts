@@ -1476,7 +1476,7 @@ function paintBox(
       // borders, image and children (a CSS background on the block element).
       paintBlockDecorations(ctx, state, box.key, absX, absY, box.width, box.height, cs.color);
       // Borders
-      paintBorders(ctx, us, absX, absY, box.width, box.height);
+      paintBorders(ctx, us, box.sidesToInclude, absX, absY, box.width, box.height);
       // Image content
       if (box.metadata?.image) {
         const img = box.metadata.image;
@@ -1522,7 +1522,7 @@ function paintBox(
       // Inline decorations cover non-text inline content too (tabs incl. leader
       // tabs, footnote call markers, inline atomic embeds): its background slot.
       paintRunDecorations(ctx, state, absX, absY, box.width, box.height, cs.color);
-      paintBorders(ctx, us, absX, absY, box.width, box.height);
+      paintBorders(ctx, us, box.sidesToInclude, absX, absY, box.width, box.height);
     }
     // Tab-leader (dot / dash / line): a `"tab"` inline embed carries
     // `inlineMeta: { embedType: "tab"; leader }` stamped by the IFC from the
@@ -1602,7 +1602,7 @@ function paintBox(
       // borders, image and children (a CSS background on the block element).
       paintBlockDecorations(ctx, state, box.key, absX, absY, box.width, box.height, cs.color);
       // Borders
-      paintBorders(ctx, us, absX, absY, box.width, box.height);
+      paintBorders(ctx, us, box.sidesToInclude, absX, absY, box.width, box.height);
     }
     // Recurse into cell content in §E.2 order (common path = document order).
     paintContainerChildren(ctx, box, stack, absX, absY, visibleTop, visibleBottom, state, phase);
@@ -1796,12 +1796,14 @@ function paintTabLeader(
 function paintBorders(
   ctx: CanvasRenderingContext2D,
   us: Readonly<UsedStyle>,
+  // A split box's fragment skips its sliced sides (box-decoration-break: slice).
+  blockSides: LayoutBox["sidesToInclude"],
   x: number,
   y: number,
   w: number,
   h: number,
 ): void {
-  const sides = physicalBorderSides(us);
+  const sides = physicalBorderSides(us, blockSides);
   if (sides.topWidth > 0 && sides.topStyle !== "none") {
     ctx.fillStyle = sides.topColor;
     ctx.fillRect(x, y, w, sides.topWidth);

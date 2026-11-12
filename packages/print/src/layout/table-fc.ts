@@ -3,7 +3,8 @@ import type { ComputedStyle } from "@taleweaver/core";
 import type { BlockId } from "@taleweaver/core";
 import { asBlockId } from "@taleweaver/core";
 import type { TableBox, TableRowBox, TableCellBox, LayoutBox } from "./layout-box";
-import { createTableBox, createTableRowBox, createTableCellBox } from "./layout-box";
+import { createTableBox, createTableRowBox, createTableCellBox, withSidesToInclude } from "./layout-box";
+import { NO_RESERVE, reserveTotal } from "./complete-reserve";
 import { assignTableGrid } from "./table-grid";
 import type { GridCellInput, AssignedCell } from "./table-grid";
 import { distributeColumnIntrinsics } from "./table-column-sizing";
@@ -681,7 +682,9 @@ export function layoutTable(
       const end = start + lc.placement.rowSpan;
       let spannedBlockSize = 0;
       for (let rr = start; rr < end; rr++) spannedBlockSize += rowHeights[rr] ?? 0;
-      return createTableCellBox(
+      // A rowSpan cell resumed from an earlier fragment is its continuation: its
+      // start side was sliced off there (box-decoration-break: slice).
+      return withSidesToInclude(createTableCellBox(
         lc.key, lc.inlineOffset, 0, lc.inlineSize, spannedBlockSize,
         cs.writingMode, cs.direction,
         lc.cellCs, lc.cellUsedStyle,
@@ -695,7 +698,7 @@ export function layoutTable(
         /* containingInlineSize */ tableInlineSize,
         /* containingBlockSize */ undefined,
         lc.interiorAbsoluteChildren,
-      );
+      ), { blockStart: lc.spanOrigin === undefined, blockEnd: true });
     });
 
     rowBoxes.push(createTableRowBox(
@@ -731,17 +734,29 @@ export function layoutTable(
     // Greedily pack BODY rows (`rowBoxes[headerCount..]`) into the space remaining
     // after the header reservation.
     const bodyAvailable = fragmentation.availableBlockSize - headerUsed;
-    let bodyUsed = 0;
-    let placedBodyCount = 0;
-    for (let i = headerCount; i < rowBoxes.length; i++) {
-      const rb = rowBoxes[i];
-      if (rb === undefined) break;
-      if (bodyUsed + rb.blockSize > bodyAvailable) break;
-      bodyUsed += rb.blockSize;
-      placedBodyCount++;
-    }
-
+    const packBodyRows = (available: number): { used: number; count: number } => {
+      let used = 0;
+      let count = 0;
+      for (let i = headerCount; i < rowBoxes.length; i++) {
+        const rb = rowBoxes[i];
+        if (rb === undefined) break;
+        if (used + rb.blockSize > available) break;
+        used += rb.blockSize;
+        count++;
+      }
+      return { used, count };
+    };
     const bodyRowTotal = rowBoxes.length - headerCount;
+    let packed = packBodyRows(bodyAvailable);
+    // The end-decoration reserve (FragmentationContext.completeReserve): when
+    // every row fits but the reserve does not, the last row(s) move with the
+    // ancestors' end decorations. Lockstep: fit-core's table-leaf refit.
+    const reserve = reserveTotal(fragmentation.completeReserve ?? NO_RESERVE);
+    if (reserve > 0 && packed.count === bodyRowTotal && packed.count > 0 && packed.used + reserve > bodyAvailable) {
+      packed = packBodyRows(bodyAvailable - reserve);
+    }
+    let bodyUsed = packed.used;
+    let placedBodyCount = packed.count;
 
     if (placedBodyCount === 0) {
       // No body row fits. On a continuation with a header, PROGRESS forces exactly
@@ -811,7 +826,9 @@ export function layoutTable(
           const topChildren =
             top !== null && top.type === "block" ? Array.from(top.children) : [];
 
-          const trimmed = createTableCellBox(
+          // The cell straddles the break: this part has no end side, and a
+          // continuation (resumed span) has no start side either.
+          const trimmed = withSidesToInclude(createTableCellBox(
             lc.key, lc.inlineOffset, 0, lc.inlineSize, placedHeight,
             cs.writingMode, cs.direction,
             lc.cellCs, lc.cellUsedStyle,
@@ -825,7 +842,7 @@ export function layoutTable(
             /* containingInlineSize */ tableInlineSize,
             /* containingBlockSize */ undefined,
             top?.absoluteChildren,
-          );
+          ), { blockStart: lc.spanOrigin === undefined, blockEnd: false });
           let m = trimmedByRow.get(start);
           if (m === undefined) {
             m = new Map();
@@ -879,13 +896,14 @@ export function layoutTable(
           : { type: "table" as const, resumeAtRow: breakRow };
 
       return {
-        box: createTableBox(
+        // A non-final fragment of the table: its end side is sliced.
+        box: withSidesToInclude(createTableBox(
           node.key, inlineOffset, blockOffset, tableInlineSize, partialBlockSize,
           writingMode, frame.direction,
           cs, tableUsedStyle,
           placedRows, columnPxWidths, gridInfoFor(emittedGlobalRows),
           /* containingInlineSize */ frame.inlineSize,
-        ),
+        ), { blockStart: startBodyRow === 0, blockEnd: false }),
         breakToken,
         inFlowConsumed: partialBlockSize,
       };
@@ -896,13 +914,14 @@ export function layoutTable(
 
   const tableBlockSize = rowBlockOffset;
 
-  return { box: createTableBox(
+  // A continuation (resumed past row 0) slices its start side.
+  return { box: withSidesToInclude(createTableBox(
     node.key, inlineOffset, blockOffset, tableInlineSize, tableBlockSize,
     writingMode, frame.direction,
     cs, tableUsedStyle,
     rowBoxes, columnPxWidths, gridInfoFor(emittedRows),
     /* containingInlineSize */ frame.inlineSize,
-  ), breakToken: null, inFlowConsumed: tableBlockSize };
+  ), { blockStart: startBodyRow === 0, blockEnd: true }), breakToken: null, inFlowConsumed: tableBlockSize };
   } finally {
     markEnd("table.layout", t);
   }

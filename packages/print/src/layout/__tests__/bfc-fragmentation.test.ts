@@ -11,6 +11,7 @@ import type { ElementBox } from "@taleweaver/core";
 import type { Style } from "@taleweaver/core";
 import type { LayoutBox } from "../layout-box";
 import { rootFrame } from "../parent-frame";
+import { paginateRoot } from "../paginate";
 
 /**
  * Narrow a `layoutBlock` result's `box` to non-null WITHOUT widening its
@@ -151,17 +152,22 @@ describe("BFC fragmentation — whole-block placement", () => {
 describe("BFC fragmentation — a block border takes fragmentainer space (BM3)", () => {
   it("a bordered paragraph near the fragment end places fewer lines: the border makes the third line not fit", () => {
     const text = Array.from({ length: 6 }, () => "x").join("\n");
-    const lay = (borderBlockStartWidth: number) => {
+    const lay = (borderBlockStartWidth: number, borderBlockEndWidth = 0) => {
       const root = cascadePass(createElementBox("root", { display: "block" }, [
         createElementBox("b", { display: "block", blockSize: 50 }, []),
-        createElementBox("p", { display: "block", whiteSpace: "pre", borderBlockStartWidth, borderBlockStartStyle: "solid" } as Style, [
+        createElementBox("p", {
+          display: "block", whiteSpace: "pre",
+          borderBlockStartWidth, borderBlockStartStyle: "solid",
+          borderBlockEndWidth, borderBlockEndStyle: "solid",
+        } as Style, [
           createTextBox("t", { whiteSpace: "pre" }, text),
         ]),
       ]));
       if (root.type !== "element") throw new Error("?");
       const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
       const fragmentation: FragmentationContext = { availableBlockSize: 100, pageIndex: 0, resumeFrom: null };
-      const p = nth(placed(layoutBlock(root, 0, 0, rootFrame(ctx), ctx, createMockShaper(8, 16), undefined, fragmentation).box).children, 1, "paragraph");
+      const p = placed(layoutBlock(root, 0, 0, rootFrame(ctx), ctx, createMockShaper(8, 16), undefined, fragmentation).box).children[1];
+      if (p === undefined) return "paragraph pushed";
       if (p.type !== "block") throw new Error("?");
       const lines = p.children.filter((c) => c.type === "line");
       return [lines.length, nth(lines, 0, "line").blockOffset];
@@ -169,6 +175,234 @@ describe("BFC fragmentation — a block border takes fragmentainer space (BM3)",
     // 50 + 3 × 16 = 98 fits three lines; a 4px border leaves room for two.
     expect(lay(0)).toEqual([3, 0]);
     expect(lay(4)).toEqual([2, 4]);
+    // BM4 (box-decoration-break: slice): a non-final fragment has no end border,
+    // so the end border reserves nothing — three lines still fit (it used to push
+    // the whole paragraph to the next fragment).
+    expect(lay(0, 4)).toEqual([3, 0]);
+  });
+});
+
+describe("BFC fragmentation — box-decoration-break: slice (BM4)", () => {
+  // Border 2/3 + padding 4/5: start decoration 6, end decoration 8.
+  const DECO = {
+    borderBlockStartWidth: 2, borderBlockStartStyle: "solid",
+    borderBlockEndWidth: 3, borderBlockEndStyle: "solid",
+    paddingBlockStart: 4, paddingBlockEnd: 5,
+  } as const;
+  function decoratedRoot(numLines: number): ElementBox {
+    const text = Array.from({ length: numLines }, () => "x").join("\n");
+    const root = cascadePass(createElementBox("root", { display: "block" }, [
+      createElementBox("p", { display: "block", whiteSpace: "pre", ...DECO } as Style, [
+        createTextBox("t", { whiteSpace: "pre" }, text),
+      ]),
+    ]));
+    if (root.type !== "element") throw new Error("?");
+    return root;
+  }
+  /** Lay the root fragment by fragment (100px each); return each fragment's paragraph box. */
+  function fragments(numLines: number): LayoutBox[] {
+    const root = decoratedRoot(numLines);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const out: LayoutBox[] = [];
+    let resumeFrom: FragmentationContext["resumeFrom"] = null;
+    for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
+      const r = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, createMockShaper(8, 16), undefined, { availableBlockSize: 100, pageIndex, resumeFrom });
+      out.push(nth(placed(r.box).children, 0, "paragraph"));
+      if (r.breakToken === null) return out;
+      resumeFrom = r.breakToken;
+    }
+    throw new Error("did not finish");
+  }
+  const lines = (b: LayoutBox) => (b.type === "block" ? b.children.filter((c) => c.type === "line") : []);
+
+  it("a 2-page split: the first fragment keeps only the start side, the last only the end side", () => {
+    const [p1, p2] = fragments(8);
+    if (p1 === undefined || p2 === undefined) throw new Error("expected two fragments");
+    // Page 1: start deco 6, then five lines; no end padding/border.
+    expect(p1.sidesToInclude).toEqual({ blockStart: true, blockEnd: false });
+    expect(nth(lines(p1), 0, "line").blockOffset).toBe(6);
+    expect(lines(p1).length).toBe(5);
+    expect(p1.blockSize).toBe(6 + 5 * 16);
+    // Page 2: the first line at the fragment top; the end deco at the bottom.
+    expect(p2.sidesToInclude).toEqual({ blockStart: false, blockEnd: true });
+    expect(nth(lines(p2), 0, "line").blockOffset).toBe(0);
+    expect(p2.blockSize).toBe(3 * 16 + 8);
+  });
+
+  it("a 3-page split: the middle fragment has neither side", () => {
+    const frags = fragments(16);
+    expect(frags.length).toBe(3);
+    const mid = nth(frags, 1, "middle fragment");
+    expect(mid.sidesToInclude).toEqual({ blockStart: false, blockEnd: false });
+    expect(nth(lines(mid), 0, "line").blockOffset).toBe(0);
+    expect(mid.blockSize).toBe(lines(mid).length * 16);
+  });
+
+  /** Lay `children` (under a block root) on one 100px fragment. */
+  function page1(children: ElementBox[]) {
+    const root = cascadePass(createElementBox("root", { display: "block" }, children));
+    if (root.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    return layoutBlock(root, 0, 0, rootFrame(ctx), ctx, createMockShaper(8, 16), undefined, { availableBlockSize: 100, pageIndex: 0, resumeFrom: null });
+  }
+  const para = (key: string, n: number, style: Partial<Style> = {}) =>
+    createElementBox(key, { display: "block", whiteSpace: "pre", ...style } as Style, [
+      createTextBox(`${key}-t`, { whiteSpace: "pre" }, Array.from({ length: n }, () => "x").join("\n")),
+    ]);
+
+  it("the end decoration travels with the last lines: content that fits without it breaks before them", () => {
+    // 30 + 4 lines = 94 fits, + 10 end padding does not: refit in 100 − 30 − 10
+    // = 60 → 3 lines, widows 2 → 2 lines stay, 2 move with the end padding.
+    const r = page1([createElementBox("b", { display: "block", blockSize: 30 }, []), para("p", 4, { paddingBlockEnd: 10 })]);
+    const p = nth(placed(r.box).children, 1, "paragraph");
+    expect(lines(p).length).toBe(2);
+    expect(p.sidesToInclude).toEqual({ blockStart: true, blockEnd: false });
+  });
+
+  it("a fragment ends at its last content: the next child's top margin before the break is truncated", () => {
+    // C (2px border): P1 at 2..50; P2's 20px top margin then no line fits →
+    // C's page-1 fragment ends at 50, not 70.
+    const r = page1([createElementBox("c", { display: "block", borderBlockStartWidth: 2, borderBlockStartStyle: "solid" } as Style, [
+      para("p1", 3), para("p2", 3, { marginBlockStart: 20 }),
+    ])]);
+    const c = nth(placed(r.box).children, 0, "container");
+    expect(c.blockSize).toBe(50);
+  });
+
+  it("a first-on-fragment child that split but overflows keeps its break token (no content lost)", () => {
+    // C's first child (break-inside: avoid, 8 lines = 128) overflows in place;
+    // P after it moves to the next fragment — C must resume there.
+    const r = page1([createElementBox("c", { display: "block" }, [
+      para("tall", 8, { breakInside: "avoid" }), para("p", 3),
+    ])]);
+    expect(r.breakToken).toMatchObject({ type: "block", resumeChildIndex: 0, resumeChildToken: { type: "block", resumeChildIndex: 1 } });
+  });
+
+  it("on a continuation, the abs-pos containing block starts at the sliced top (no start border)", () => {
+    // A relative div with a 5px border splits; its abs child (top 0) lands on
+    // the last fragment, whose padding box starts at its top edge.
+    const div = createElementBox("d", {
+      display: "block", position: "relative",
+      borderBlockStartWidth: 5, borderBlockStartStyle: "solid",
+      borderBlockEndWidth: 5, borderBlockEndStyle: "solid",
+    } as Style, [
+      para("p", 8),
+      createElementBox("abs", { display: "block", position: "absolute", insetBlockStart: 0, blockSize: 10 } as Style, []),
+    ]);
+    const root = cascadePass(createElementBox("root", { display: "block" }, [div]));
+    if (root.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const pages = paginateRoot(root, ctx, createMockShaper(8, 16), undefined, {
+      pageInlineSize: 600, pageBlockSize: 100,
+      pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 }, pageGap: 0,
+    });
+    const find = (b: LayoutBox, key: string): LayoutBox | undefined => {
+      if (b.key === key && b.type === "block") return b;
+      for (const c of "children" in b ? b.children : []) {
+        const hit = find(c, key);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    };
+    const last = find(nth(pages.children, 1, "page 2"), "d");
+    expect(last?.sidesToInclude).toEqual({ blockStart: false, blockEnd: true });
+    expect(nth(last?.absoluteChildren ?? [], 0, "abs child").blockOffset).toBe(0);
+  });
+
+  const block = (key: string, blockSize: number) => createElementBox(key, { display: "block", blockSize }, []);
+  const endBorder = (w: number) => ({ borderBlockEndWidth: w, borderBlockEndStyle: "solid" } as const);
+  const childBlocks = (b: LayoutBox | undefined) => (b !== undefined && b.type === "block" ? b.children.filter((c) => c.type === "block") : []);
+
+  it("a container's end border is reserved by its last paragraph: the last lines move with both end borders", () => {
+    // 30 + 4 lines = 94; P's 2px + C's 10px end borders do not fit: P refits in
+    // 70 − 2 − 10 = 58 → 3 lines, widows 2 → 2 lines stay.
+    const root = cascadePass(createElementBox("root", { display: "block" }, [
+      block("b", 30),
+      createElementBox("c", { display: "block", ...endBorder(10) } as Style, [para("p", 4, endBorder(2))]),
+    ]));
+    if (root.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+    const r1 = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, { availableBlockSize: 100, pageIndex: 0, resumeFrom: null });
+    const c1 = nth(placed(r1.box).children, 1, "container");
+    expect(c1.sidesToInclude).toEqual({ blockStart: true, blockEnd: false });
+    expect(lines(nth(childBlocks(c1), 0, "p")).length).toBe(2);
+    const r2 = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, { availableBlockSize: 100, pageIndex: 1, resumeFrom: r1.breakToken });
+    const c2 = nth(placed(r2.box).children, 0, "container");
+    expect(c2.sidesToInclude).toEqual({ blockStart: false, blockEnd: true });
+    expect(nth(childBlocks(c2), 0, "p").sidesToInclude).toEqual({ blockStart: false, blockEnd: true });
+  });
+
+  it("the reserve accumulates down a nested C1 > C2 > P chain", () => {
+    // 30 + 64 = 94 + C2's 4 + C1's 4 = 102: P refits in 70 − 8 → 3, widows → 2.
+    const r = page1([block("b", 30), createElementBox("c1", { display: "block", ...endBorder(4) } as Style, [
+      createElementBox("c2", { display: "block", ...endBorder(4) } as Style, [para("p", 4)]),
+    ])]);
+    const c1 = nth(placed(r.box).children, 1, "c1");
+    const p = nth(childBlocks(nth(childBlocks(c1), 0, "c2")), 0, "p");
+    expect(lines(p).length).toBe(2);
+  });
+
+  it("an unsplittable last child that fits only without the reserve moves whole", () => {
+    // 20 + 32 + 40 = 92; with C's 10px end border, 102: F moves, C splits after P.
+    const r = page1([block("b", 20), createElementBox("c", { display: "block", ...endBorder(10) } as Style, [
+      para("p", 2), block("f", 40),
+    ])]);
+    const c = nth(placed(r.box).children, 1, "container");
+    expect(childBlocks(c).map((x) => x.key)).toEqual(["p"]);
+    expect(c.sidesToInclude).toEqual({ blockStart: true, blockEnd: false });
+  });
+
+  it("a last child's end margin enclosed by the container's end border is reserved too", () => {
+    // 10 + 5 lines = 90; + C's 2px border = 92 fits, but P's 12px end margin sits
+    // inside C: 104. P refits in 90 − 14 = 76 → 4 lines, widows 2 → 3 lines.
+    const r = page1([block("b", 10), createElementBox("c", { display: "block", ...endBorder(2) } as Style, [
+      para("p", 5, { marginBlockEnd: 12 }),
+    ])]);
+    const c = nth(placed(r.box).children, 1, "container");
+    expect(lines(nth(childBlocks(c), 0, "p")).length).toBe(3);
+  });
+
+  it("a last child's end margin that collapses through an undecorated container reserves nothing", () => {
+    const r = page1([block("b", 10), createElementBox("c", { display: "block" }, [para("p", 5, { marginBlockEnd: 12 })])]);
+    const c = nth(placed(r.box).children, 1, "container");
+    expect(lines(nth(childBlocks(c), 0, "p")).length).toBe(5);
+    expect(c.blockSize).toBe(80);
+  });
+
+  it("a collapse-through empty last child reserves only its margin beyond the one already advanced", () => {
+    // P ends at 80, its 12px margin advances to 92; E's 8px end margin collapses
+    // into it: C = 80 + 12 + 2 = 94 completes here.
+    const r = page1([createElementBox("c", { display: "block", ...endBorder(2) } as Style, [
+      para("p", 5, { marginBlockEnd: 12 }), createElementBox("e", { display: "block", marginBlockEnd: 8 } as Style, []),
+    ])]);
+    expect(r.breakToken).toBeNull();
+    expect(nth(placed(r.box).children, 0, "container").blockSize).toBe(94);
+  });
+
+  it("a margin the layout drops (no bottom boundary in between) is not reserved", () => {
+    // A (2px end border) > B (undecorated) > P (5 lines, 12px end margin): the
+    // engine drops P's margin at B's end, so A = 80 + 2 completes at 10..92.
+    const r = page1([block("b", 10), createElementBox("a", { display: "block", ...endBorder(2) } as Style, [
+      createElementBox("b2", { display: "block" }, [para("p", 5, { marginBlockEnd: 12 })]),
+    ])]);
+    expect(r.breakToken).toBeNull();
+    const p = nth(childBlocks(nth(childBlocks(nth(placed(r.box).children, 1, "a")), 0, "b2")), 0, "p");
+    expect(lines(p).length).toBe(5);
+  });
+
+  it("the reserve does not shrink a fragment of a box that does not complete", () => {
+    // P (10 lines) inside C (10px end border) splits anyway: 6 lines fill the page.
+    const r = page1([createElementBox("c", { display: "block", ...endBorder(10) } as Style, [para("p", 10)])]);
+    const p = nth(childBlocks(nth(placed(r.box).children, 0, "container")), 0, "p");
+    expect(lines(p).length).toBe(6);
+  });
+
+  it("an unsplit box carries no sidesToInclude", () => {
+    const [p] = fragments(2);
+    if (p === undefined) throw new Error("expected a fragment");
+    expect("sidesToInclude" in p).toBe(false);
+    expect(p.blockSize).toBe(6 + 2 * 16 + 8);
   });
 });
 

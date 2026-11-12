@@ -320,7 +320,7 @@ function emitBoxBorders(
   pageHeightPx: number,
   builder: ContentStreamBuilder,
 ): void {
-  const sides = physicalBorderSides(box.usedStyle);
+  const sides = physicalBorderSides(box.usedStyle, box.sidesToInclude);
   const W = box.width;
   const H = box.height;
 

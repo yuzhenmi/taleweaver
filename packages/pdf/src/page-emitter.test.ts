@@ -269,6 +269,30 @@ describe("emitPageContent", () => {
     expect(s).toContain("0 0 0 rg\n0 37.5 3 37.5 re\nf\n");
   });
 
+  it("skips a sliced side of a split box (box-decoration-break: slice, BM4)", () => {
+    const sideUs = {
+      writingMode: "horizontal-tb", direction: "ltr",
+      borderBlockStartWidth: 2, borderBlockStartStyle: "solid", borderBlockStartColor: "#000000",
+      borderBlockEndWidth: 2, borderBlockEndStyle: "solid", borderBlockEndColor: "#000000",
+      borderInlineStartWidth: 0, borderInlineStartStyle: "none", borderInlineStartColor: "#000000",
+      borderInlineEndWidth: 0, borderInlineEndStyle: "none", borderInlineEndColor: "#000000",
+      paddingBlockStart: 0, paddingBlockEnd: 0, paddingInlineStart: 0, paddingInlineEnd: 0,
+    } as unknown as UsedStyle;
+    const block = {
+      type: "block", x: 0, y: 0, width: 100, height: 50, children: [],
+      computedStyle: { backgroundColor: "transparent" } as unknown as ComputedStyle,
+      usedStyle: sideUs,
+      sidesToInclude: { blockStart: false, blockEnd: true },
+    } as unknown;
+    const provider = createStandard14FontProvider();
+    const { contentBytes } = emitPageContent(page([block]), { provider, fontResourceName: () => "/F0", imageResourceName: () => "/Im0" });
+    const s = decode(contentBytes);
+    // bottom (y 48..50): rectYUp(0,48,100,2,100) → [0,(100-48-2)*0.75=37.5,75,1.5]
+    expect(s).toContain("0 37.5 75 1.5 re\nf\n");
+    // no top (y 0..2): [0,73.5,75,1.5]
+    expect(s).not.toContain("0 73.5 75 1.5 re");
+  });
+
   it("emits underline + line-through rects for a decorated text-run", () => {
     const run = {
       type: "text-run",

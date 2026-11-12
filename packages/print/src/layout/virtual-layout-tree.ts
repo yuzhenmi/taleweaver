@@ -21,7 +21,7 @@ import type { TextShaper } from "@taleweaver/core";
 import type { Hyphenator } from "@taleweaver/core";
 import type { PageConfig } from "./page-config";
 import type { BlockBox, LayoutBox, MultiColumnBox } from "./layout-box";
-import { createBlockBox, createMarkerBox, createMultiColumnBox } from "./layout-box";
+import { createBlockBox, createMarkerBox, createMultiColumnBox, withSidesToInclude } from "./layout-box";
 import { physicalizeVertical } from "./physicalize-vertical";
 import { adaptShaperToMeasurer } from "@taleweaver/core";
 import type { PageBox } from "./page-box";
@@ -987,14 +987,14 @@ export function makeVirtualLayoutTree(
       if (landedPushedFloats.length > 0) {
         if (box !== null && box.type === "block") {
           const b = box;
-          box = createBlockBox(
+          box = withSidesToInclude(createBlockBox(
             b.key, b.inlineOffset, b.blockOffset, b.inlineSize, b.blockSize,
             b.writingMode, b.direction, b.computedStyle, b.usedStyle,
             [...b.children, ...landedPushedFloats],
             pageChildFrame.inlineSize,
             b.metadata, /* containingBlockSize */ undefined,
             b.relativeOffset, b.absoluteChildren, b.inFlowConsumed,
-          );
+          ), b.sidesToInclude);
         } else if (box === null) {
           box = createBlockBox(
             `${cascadedRoot.key}-p${pageIndex}-body`,

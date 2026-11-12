@@ -80,7 +80,15 @@ export function resolveLogicalSides(us: Readonly<LogicalSideContext>): LogicalSi
   }
 }
 
-export function physicalBorderSides(us: Readonly<UsedStyle>): PhysicalBorderSides {
+/**
+ * The physical border + padding sides of a box. `blockSides` is a split box's
+ * fragment (CSS Fragmentation §5.4 `box-decoration-break: slice`): a block side
+ * it does not include has no border and no padding. Omitted → both included.
+ */
+export function physicalBorderSides(
+  us: Readonly<UsedStyle>,
+  blockSides?: { readonly blockStart: boolean; readonly blockEnd: boolean },
+): PhysicalBorderSides {
   const sides = resolveLogicalSides(us);
 
   // Per-physical-side accumulators. Defaults are the absent-side values that the
@@ -112,6 +120,15 @@ export function physicalBorderSides(us: Readonly<UsedStyle>): PhysicalBorderSide
   padding[sides.blockEnd] = us.paddingBlockEnd;
   padding[sides.inlineStart] = us.paddingInlineStart;
   padding[sides.inlineEnd] = us.paddingInlineEnd;
+
+  if (blockSides?.blockStart === false) {
+    width[sides.blockStart] = 0;
+    padding[sides.blockStart] = 0;
+  }
+  if (blockSides?.blockEnd === false) {
+    width[sides.blockEnd] = 0;
+    padding[sides.blockEnd] = 0;
+  }
 
   return {
     topWidth: width.top, rightWidth: width.right, bottomWidth: width.bottom, leftWidth: width.left,

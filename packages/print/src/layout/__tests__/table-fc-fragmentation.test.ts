@@ -8,7 +8,9 @@ import { createMockShaper } from "@taleweaver/core";
 import { cascadePass } from "@taleweaver/core";
 import { createElementBox, createTextBox } from "@taleweaver/core";
 import type { ElementBox } from "@taleweaver/core";
-import { asBlockId } from "@taleweaver/core";
+import { asBlockId, tableCellComponent } from "@taleweaver/core";
+import type { ContainerBlockView, RenderContext } from "@taleweaver/core";
+import type { LayoutBox } from "../layout-box";
 import { rootFrame } from "../parent-frame";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -76,6 +78,17 @@ describe("Table FC fragmentation — row-level split", () => {
 // ---------------------------------------------------------------------------
 // E.3 — Resume from TableBreakToken
 // ---------------------------------------------------------------------------
+
+describe("Table FC fragmentation — end-decoration reserve (BM4)", () => {
+  it("rows that fit only without the reserve leave their last row(s) for the next fragment", () => {
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    // 4 × 22 = 88 fits in 90, but not with a 10px reserve → 3 rows.
+    const { breakToken } = layoutTable(buildSimpleTable(4, 22), 0, 0, rootFrame(ctx), ctx, createMockShaper(8, 16), undefined, {
+      availableBlockSize: 90, pageIndex: 0, resumeFrom: null, completeReserve: { reserve: 10, margin: 0, enclosed: false },
+    });
+    expect(breakToken).toEqual({ type: "table", resumeAtRow: 3 });
+  });
+});
 
 describe("Table FC fragmentation — resume from TableBreakToken", () => {
   it("skips body rows 0..resumeAtRow-1 when resuming", () => {
@@ -645,5 +658,60 @@ describe("Table FC fragmentation — repeating header rows (#487)", () => {
     }
     // The re-laid header cell box is a fresh instance registered in THIS fragment.
     expect(p.box.cellBoxById.get(asBlockId("cellH"))).toBe(reH);
+  });
+});
+
+describe("Table FC fragmentation — a split cell slices its decoration (BM4)", () => {
+  /** A real `table-cell` component cell (1px borders, 4px block padding). */
+  function realCell(id: string, children: readonly ElementBox[], attrs: Record<string, unknown> = {}): ElementBox {
+    const view: ContainerBlockView = {
+      id: asBlockId(id), type: "table-cell", attrs: Object.freeze(attrs),
+      computedStyle: INITIAL_COMPUTED_STYLE, kind: "container",
+    };
+    const ctx = { document: {}, footnoteNumber: () => undefined } as unknown as RenderContext;
+    const el = tableCellComponent.render(view, ctx, children);
+    if (el.type !== "element") throw new Error("expected an element");
+    return el;
+  }
+
+  it("the first part has no bottom border, the continuation no top border", () => {
+    // A (rowSpan 2, two lines) beside B / C (one line each): rows [26, 26]
+    // (16 + 4 + 4 + 1 + 1). A 30px fragment fits row 0 → A straddles the break.
+    const table = cascadePass(createElementBox("table", { display: "table" }, [
+      createElementBox("row-0", { display: "table-row" }, [
+        realCell("cellA", [blockLine("a0"), blockLine("a1")], { rowSpan: 2 }),
+        realCell("cellB", [blockLine("b0")]),
+      ]),
+      createElementBox("row-1", { display: "table-row" }, [realCell("cellC", [blockLine("c0")])]),
+    ], { columnWidths: [0.5, 0.5] }));
+    if (table.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+    const cellA = (box: LayoutBox | null) => {
+      const row = box?.type === "table" ? box.children[0] : undefined;
+      const a = row?.type === "table-row" ? row.children.find((c) => c.key === "cellA") : undefined;
+      if (a === undefined) throw new Error("cell A missing");
+      return a;
+    };
+
+    const p1 = layoutTable(table, 0, 0, rootFrame(ctx), ctx, shaper, undefined, {
+      availableBlockSize: 30, pageIndex: 0, resumeFrom: null,
+    });
+    const first = cellA(p1.box);
+    expect(first.sidesToInclude).toEqual({ blockStart: true, blockEnd: false });
+    // a0 sits inside the top border + padding.
+    expect(nth(first.type === "table-cell" ? first.children : [], 0, "a0").blockOffset).toBe(5);
+
+    const p2 = layoutTable(table, 0, 0, rootFrame(ctx), ctx, shaper, undefined, {
+      availableBlockSize: 200, pageIndex: 1, resumeFrom: p1.breakToken,
+    });
+    const cont = cellA(p2.box);
+    expect(cont.sidesToInclude).toEqual({ blockStart: false, blockEnd: true });
+    // The resumed a1 starts at the continuation's top: no top border / padding.
+    expect(nth(cont.type === "table-cell" ? cont.children : [], 0, "a1").blockOffset).toBe(0);
+    // B / C are whole cells: no field.
+    const row1 = p2.box?.type === "table" ? p2.box.children[0] : undefined;
+    const c = row1?.type === "table-row" ? row1.children.find((x) => x.key === "cellC") : undefined;
+    expect(c !== undefined && "sidesToInclude" in c).toBe(false);
   });
 });

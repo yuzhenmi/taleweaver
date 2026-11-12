@@ -137,3 +137,20 @@ export function groupChildren(parent: ElementBox): readonly ChildGroup[] {
 export function anonymousBlockKey(parentKey: string, positionalIndex: number): string {
   return `${parentKey}/anon[${positionalIndex}]`;
 }
+
+/**
+ * The index of the last in-flow child group (not a float, not abs-pos): the
+ * child that inherits the end-decoration reserve. -1 when there is none.
+ */
+export function lastInFlowGroupIndex(groups: readonly ChildGroup[]): number {
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const g = groups[i];
+    if (g === undefined) continue;
+    if (g.kind === "inline-run") return i;
+    const cs = g.child.type === "element" ? g.child.computedStyle : undefined;
+    if (cs === undefined) continue;
+    if (cs.float === "inline-start" || cs.float === "inline-end" || cs.position === "absolute") continue;
+    return i;
+  }
+  return -1;
+}

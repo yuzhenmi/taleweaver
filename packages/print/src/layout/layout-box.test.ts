@@ -7,7 +7,7 @@ import {
   createBlockBox, createLineBox, createTextRunBox, createInlineBox, createInlineBlockBox, createMarkerBox,
   createTableBox, createTableRowBox, createTableCellBox, createMultiColumnBox,
   withInlineOffset, withBlockOffset, withOffsets, withBidiLevel,
-  withPhysicalInlineOffset,
+  withPhysicalInlineOffset, withSidesToInclude,
   assertLayoutBoxConsistent,
 } from "./layout-box";
 
@@ -516,6 +516,16 @@ describe("withOffsets", () => {
     const movedBlock = withBlockOffset(orig, 77, 500);
     expect(movedBlock.absoluteChildren).toHaveLength(1);
     expect(nth(movedBlock.absoluteChildren ?? [], 0, "absolute child").key).toBe("abs");
+  });
+
+  // BM4: a split box's fragment keeps its sliced sides through every reposition
+  // (reuse clone, vertical-rl physicalize); an unsplit box stays field-free.
+  it("PRESERVES sidesToInclude through withOffsets", () => {
+    const whole = createBlockBox("k", 0, 0, 100, 50, "horizontal-tb", "ltr", cs, us, [], 500);
+    expect(withSidesToInclude(whole, { blockStart: true, blockEnd: true })).toBe(whole);
+    const fragment = withSidesToInclude(whole, { blockStart: false, blockEnd: true });
+    expect(withOffsets(fragment, 12, 34, 500).sidesToInclude).toEqual({ blockStart: false, blockEnd: true });
+    expect("sidesToInclude" in withOffsets(whole, 12, 34, 500)).toBe(false);
   });
 });
 

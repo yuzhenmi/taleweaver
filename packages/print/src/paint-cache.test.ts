@@ -107,6 +107,13 @@ describe("hashPaintInputs", () => {
     expect(hashPaintInputs(a)).toContain("|op:");
   });
 
+  it("BM4: a sliced side → different hash (the painter skips that border)", () => {
+    const whole = makeBlockBox();
+    const sliced = makeBlockBox({ sidesToInclude: { blockStart: true, blockEnd: false } });
+    expect(hashPaintInputs(sliced)).not.toBe(hashPaintInputs(whole));
+    expect(hashPaintInputs(whole)).not.toContain("|sides:");
+  });
+
   it("a column-rule change → different hash (the multicolumn box paints its rule)", () => {
     const cols = { type: "multicolumn", columns: [] };
     const none = makeBlockBox({ ...cols, columnRule: null } as Partial<LayoutBox>);

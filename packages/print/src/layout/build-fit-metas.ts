@@ -23,6 +23,7 @@ import { makeRootContext, makeChildContext } from "./layout-context";
 import { computeUsedStyle } from "./used-style";
 import { borderBoxInlineSize, inlineDecoration } from "./box-inline-decoration";
 import { blockEndDecoration, contentBlockStart } from "./box-block-decoration";
+import { isCollapseThroughEmpty } from "./collapse-through";
 import { normalizeBreakValue } from "./fragmentation";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import type { ComputedStyle } from "@taleweaver/core";
@@ -367,6 +368,10 @@ function buildChildMeta(
   // `layoutBlock(child, …)` would skip those parent-applied rules and report a
   // 0-height box for an explicit-block-size empty spacer.
   const placed = layoutChildInWrapper(child, shaper, hyphenator, pageContentInlineSize);
+  // bfc's empty-block rule, by bfc's own predicate.
+  const emptyFlag = isCollapseThroughEmpty(childCs, used, placed.blockSize, pageContentInlineSize)
+    ? { collapseThrough: true }
+    : {};
 
   // --- Table leaf. ---
   if (childCs.display === "table") {
@@ -392,6 +397,7 @@ function buildChildMeta(
     return {
       kind: "table",
       ...common,
+      ...emptyFlag,
       totalBlockSize: placed.blockSize,
       rowBlockSizes,
       ...(headerRowCount > 0 ? { headerRowCount, headerBlockSize } : {}),
@@ -421,11 +427,15 @@ function buildChildMeta(
     return {
       kind: "ifc",
       ...common,
+      ...emptyFlag,
       totalBlockSize: placed.blockSize,
       lineBlockSizes,
       orphans: childCs.orphans ?? 2,
       widows: childCs.widows ?? 2,
       lineEndsWithHyphen,
+      // The paragraph's own border + padding, sliced across its fragments like bfc's.
+      blockStartDecoration: contentBlockStart(used),
+      blockEndDecoration: blockEndDecoration(used),
     };
   }
 
@@ -434,18 +444,15 @@ function buildChildMeta(
   // The block-start border + padding insets the children's fragmentation space
   // (bfc's `childBlockOffset` starts at `contentBlockStart`); the end padding +
   // border is added to the container height after its children — already folded
-  // into `totalBlockSize`, and ALSO inflating a fragmenting container's PARTIAL
-  // height, which `fitOnePage`'s last-fragment check needs. `noBottomBoundary`
-  // decides whether the trailing child margin is suppressed in that partial height.
-  const blockEnd = blockEndDecoration(used);
+  // into `totalBlockSize`; a resumed container's last fragment adds it back.
   return {
     kind: "block",
     ...common,
+    ...emptyFlag,
     totalBlockSize: placed.blockSize,
     children,
     blockStartDecoration: contentBlockStart(used),
-    blockEndDecoration: blockEnd,
-    noBottomBoundary: blockEnd === 0,
+    blockEndDecoration: blockEndDecoration(used),
   };
 }
 

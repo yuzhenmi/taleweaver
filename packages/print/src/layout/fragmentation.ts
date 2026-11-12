@@ -1,3 +1,4 @@
+import type { CompleteReserve } from "./complete-reserve";
 // packages/core/src/layout/fragmentation.ts
 
 import type { LayoutBox } from "./layout-box";
@@ -225,6 +226,14 @@ export interface FragmentationContext {
    * overflow behavior. Undefined ⇒ no pushing.
    */
   readonly enableFloatPushing?: boolean;
+  /**
+   * What must still fit after this box's content IF the box completes on this
+   * fragmentainer: the end padding + border of the ancestors that complete with
+   * it, plus an end margin they enclose (see `complete-reserve.ts`). Each
+   * container hands it only to its LAST in-flow child. A fragment that breaks
+   * ignores it. Lockstep with fit-core. Undefined ⇒ `NO_RESERVE`.
+   */
+  readonly completeReserve?: CompleteReserve;
 }
 
 /**
@@ -276,4 +285,35 @@ export function normalizeBreakValue(raw: string): "auto" | "page" | "avoid" {
   if (raw === "page" || raw === "always") return "page";
   if (raw === "avoid" || raw === "avoid-page") return "avoid";
   return "auto";
+}
+
+/**
+ * True when a resume-token chain ultimately says "start from the
+ * beginning at every level": the chain is null, or each block-typed
+ * level resumes at child 0 with a degenerate inner token, or the
+ * terminal IFC level resumes at line 0. Used by the paginated-mode
+ * cache reuse check — a cached complete-block layout is
+ * a valid reuse target only when the requested call doesn't have
+ * partial mid-fragmentation state to honor.
+ *
+ * Note: `{block, resumeChildIndex:0, resumeChildToken:{ifc, resumeAtLine:0}}`
+ * is classified as degenerate because the CSS Fragmentation L4 §3.5
+ * overflow rule guarantees the first
+ * child always fits on a fragment — if it can't fit, the rule re-
+ * invokes layout without fragmentation and accepts the overflowing
+ * box. A token at child-0/line-0 can therefore only arise from a
+ * full-layout round-trip in practice, not from a genuine mid-
+ * fragmentation state. If the overflow rule ever changes (or a future FC introduces
+ * a different overflow rule), revisit this case — a non-degenerate
+ * `{idx:0, line:0}` token could silently win cache reuse and emit a
+ * complete-block layout where a partial-fragment was expected.
+ */
+export function isResumeFromDegenerate(rf: BreakToken | null): boolean {
+  if (rf === null) return true;
+  if (rf.type === "ifc") return rf.resumeAtLine === 0;
+  if (rf.type === "block") {
+    return rf.resumeChildIndex === 0 && isResumeFromDegenerate(rf.resumeChildToken);
+  }
+  // Other types (table) — be conservative.
+  return false;
 }

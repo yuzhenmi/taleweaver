@@ -86,6 +86,30 @@ interface LayoutBoxBase {
   // untransformed box keeps the §E.2 reorder gate off and the common paint path
   // byte-identical.
   readonly stackingContextRole?: StackingContextRole;
+
+  // FRAGMENTATION — which block-axis sides of a box split across fragmentainers
+  // this fragment owns (CSS Fragmentation L3 §5.4 `box-decoration-break: slice`,
+  // the initial value; Blink LayoutNG `sides_to_include`). A sliced side has no
+  // border and no padding: a continuation fragment's content starts at its top,
+  // a non-final fragment ends at its last content. Set at layout from the break
+  // tokens; ABSENT for a box that is not split (both sides included).
+  readonly sidesToInclude?: SidesToInclude;
+}
+
+/** The block-axis sides a fragment of a split box includes (see `sidesToInclude`). */
+export interface SidesToInclude {
+  readonly blockStart: boolean;
+  readonly blockEnd: boolean;
+}
+
+/**
+ * Stamp a fragment's `sidesToInclude`. A box with both sides included is not
+ * split: it keeps no field (byte-identical to an unfragmented box).
+ */
+export function withSidesToInclude<T extends LayoutBox>(box: T, sides: SidesToInclude | undefined): T {
+  if (sides === undefined || (sides.blockStart && sides.blockEnd)) return box;
+  const sidesToInclude = Object.freeze({ blockStart: sides.blockStart, blockEnd: sides.blockEnd });
+  return Object.freeze(Object.assign({}, box, { sidesToInclude }));
 }
 
 export interface BlockBox extends LayoutBoxBase {
@@ -1037,6 +1061,20 @@ export function rebuildBoxWithOffsets(
   newBlockOffset: number,
   containingInlineSize: number,
   containingBlockSize?: number,
+): LayoutBox {
+  // A split box's fragment keeps its sliced sides across every reposition.
+  return withSidesToInclude(
+    rebuildFromFactory(box, newInlineOffset, newBlockOffset, containingInlineSize, containingBlockSize),
+    box.sidesToInclude,
+  );
+}
+
+function rebuildFromFactory(
+  box: LayoutBox,
+  newInlineOffset: number,
+  newBlockOffset: number,
+  containingInlineSize: number,
+  containingBlockSize: number | undefined,
 ): LayoutBox {
   switch (box.type) {
     case "block":
