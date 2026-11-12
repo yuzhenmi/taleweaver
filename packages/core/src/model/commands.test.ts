@@ -610,6 +610,13 @@ describe("C17 paste (G6)", () => {
     h.run(paste, [{ k: "text", text: "p1" }, { k: "para", keys: { "p:type": "heading" } }, { k: "text", text: "p2" }]);
     expect(h.dump()).toEqual(["heading:xp1", "paragraph:p2y"]);
     expect(h.sel()).toBe("1:2");
+    // Over a range across paragraphs: the end paragraph's ¶ was not selected, so it keeps its keys (Word).
+    const g = doc("xy\nzw");
+    g.caret(1, 0);
+    g.run(setParagraphAttrs, { type: "heading" });
+    g.select([0, 1], [1, 1]);
+    g.run(paste, [{ k: "text", text: "p1" }, { k: "para" }, { k: "text", text: "p2" }]);
+    expect(g.dump()).toEqual(["paragraph:xp1", "heading:p2w"]);
   });
 
   it("a payload that starts with a block object splits at k > 0; at k = 0 after a block object it gets ¶M first", () => {
@@ -620,22 +627,30 @@ describe("C17 paste (G6)", () => {
     h.caret(2, 0);
     h.run(paste, [{ k: "toc" }, { k: "para" }]);
     expect(h.dump()).toEqual(["paragraph:x", "toc", "paragraph:", "toc", "paragraph:", "paragraph:", "paragraph:ty"]);
+    // Inline content right after a block object is the paragraph after it (storage W2): text, a line break.
+    h.caret(0, 1);
+    h.run(paste, [{ k: "text", text: "u" }, { k: "para" }, { k: "toc" }, { k: "text", text: "v" }]);
+    expect(h.dump().slice(0, 4)).toEqual(["paragraph:xu", "toc", "paragraph:v", "toc"]);
+    h.caret(0, 0);
+    h.run(paste, [{ k: "toc" }, { k: "lineBreak" }, { k: "para" }]);
+    expect(h.dump().slice(0, 3)).toEqual(["toc", "paragraph:[br]", "paragraph:xu"]);
   });
 
   it("a pasted footnote carries its body; a pasted [S] drops h:*; malformed payloads throw", () => {
     const h = doc("ab");
     h.caret(0, 1);
-    h.run(paste, [{ k: "footnote", body: [{ k: "text", text: "n" }] }]);
-    expect(h.footnoteBodies()).toEqual([["paragraph:n"]]);
+    h.run(paste, [{ k: "footnote", body: [{ k: "text", text: "n" }, { k: "para", keys: { "p:type": "heading" } }] }]);
+    expect(h.footnoteBodies()).toEqual([["heading:n"]]);
     h.caret(0, 3);
     h.run(paste, [{ k: "para" }, { k: "S", keys: { "s:columnCount": 2, "h:header:default": "x" } }, { k: "text", text: "z" }]);
     expect(h.dump()).toEqual(["paragraph:a[fn]b", "|", "paragraph:z"]);
     expect(h.version.flows.get(h.version.rootId)?.sections[0]?.map.get("h:header:default")).toBeUndefined();
     expect(() => paste(h.ctx(), [{ k: "text", text: "a" }, { k: "toc" }])).toThrow();
+    expect(() => paste(h.ctx(), [{ k: "footnote", body: [{ k: "text", text: "n" }] }])).toThrow(); // no final ¶
     // A kind its target cannot hold refuses the whole payload, never throws — inside a pasted footnote's body too; a rule goes anywhere text does.
     expect(paste(h.ctx(), [{ k: "text", text: "q" }, { k: "footnote", body: [{ k: "toc" }, { k: "para" }] }])).toBeNull();
     h.caret(0, 1);
-    h.run(paste, [{ k: "footnote", body: [{ k: "hr" }] }]);
+    h.run(paste, [{ k: "footnote", body: [{ k: "hr" }, { k: "para" }] }]);
     expect(h.footnoteBodies()).toContainEqual(["paragraph:[hr]"]);
   });
 });

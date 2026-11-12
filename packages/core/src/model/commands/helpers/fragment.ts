@@ -1,6 +1,6 @@
 import type { ReadonlyAttrs } from "../../block";
 import { type InsertUnit, chunked } from "../../plan";
-import { type Container, allowedIn, isBlockObject, isParagraphBreak, isStructural } from "../../scan/kinds";
+import { type Container, allowedIn, isParagraphBreak, isStructural } from "../../scan/kinds";
 import { type ObjectProps, newField, newFootnoteOf, newHorizontalRule, newLineBreak, newObject, newParagraphMark, newSectionBreak, newTableOfContents } from "../../storage/new-items";
 import type { FlatKeys } from "../../storage/scalar";
 import { newCellMark, newRowMark, newTableEnd, newTableStart } from "../../storage/table-marks";
@@ -23,7 +23,7 @@ export type FragmentItem =
   | { readonly k: "lineBreak"; readonly attrs?: ReadonlyAttrs }
   /** A field: `field` page-number / page-count, `numberStyle` default decimal. */
   | { readonly k: "field"; readonly field: string; readonly numberStyle?: string; readonly attrs?: ReadonlyAttrs }
-  /** A footnote anchor and its body's content (items placeable in a footnote body), placed before the body's ¶. */
+  /** A footnote anchor and its body: items placeable in a footnote body, ¶-terminated (the last ¶'s keys kept). */
   | { readonly k: "footnote"; readonly body: readonly FragmentItem[]; readonly attrs?: ReadonlyAttrs }
   /** A TOC block object (`a:*` keys). */
   | { readonly k: "toc"; readonly keys?: FlatKeys }
@@ -115,9 +115,9 @@ export function units(ctx: CommandContext, items: readonly FragmentItem[], depth
   const out: InsertUnit[] = [];
   let prev: FragmentItem | null = null;
   for (const i of items) {
-    // W1 / W2 inside the payload: a block object or [S] follows a ¶ (or starts the payload); nothing abuts a block object but a ¶.
+    // W1 inside the payload: a block object or [S] follows a ¶ (or starts the payload).
     if (isStructural(i.k) && prev !== null && !isParagraphBreak(prev.k)) throw new Error("model: a pasted block object or [S] must follow a ¶");
-    if (prev !== null && isBlockObject(prev.k) && !isParagraphBreak(i.k)) throw new Error("model: a pasted block object must be followed by a ¶");
+    // After a block object any inline content is legal (storage W2): it reads as the paragraph after it.
     const attrs = "attrs" in i && i.attrs !== undefined ? checkScalars(i.attrs, "pasted attr") : {};
     switch (i.k) {
       case "text":
@@ -143,8 +143,9 @@ export function units(ctx: CommandContext, items: readonly FragmentItem[], depth
         break;
       }
       case "footnote": {
-        // The body: its content then its final ¶ (G3), in pieces within the cap (X11); nested types created with their parent (G1).
-        const body = [...units(ctx, i.body), { embed: newParagraphMark(), attrs: {} }];
+        // The body ends in its own ¶ (G3), in pieces within the cap (X11); nested types created with their parent (G1).
+        if (i.body.at(-1)?.k !== "para") throw new Error("model: a pasted footnote's body must end in a ¶");
+        const body = units(ctx, i.body);
         out.push({ embed: newFootnoteOf(...chunked(body)), attrs });
         break;
       }

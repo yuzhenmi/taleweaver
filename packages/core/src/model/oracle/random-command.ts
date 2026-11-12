@@ -134,7 +134,7 @@ export function randomCommand(r: () => number, d: Document, selection?: ModelSel
     [{ k: "toc" }, { k: "para" }, { k: "text", text: "t" }],
     [{ k: "para" }, { k: "S", keys: { "s:columnCount": 2 } }, { k: "text", text: "s" }],
     [{ k: "S" }, { k: "hr" }, { k: "para" }],
-    [{ k: "footnote", body: [{ k: "text", text: "n" }, { k: "para" }, { k: "text", text: "m" }] }, { k: "object", kind: "image", props: { props: { src: "b.png" }, wrap: "left" } }],
+    [{ k: "footnote", body: [{ k: "text", text: "n" }, { k: "para" }, { k: "text", text: "m" }, { k: "para" }] }, { k: "object", kind: "image", props: { props: { src: "b.png" }, wrap: "left" } }],
   ];
   return out(paste, paste(ctx, pick(r, frag) ?? []));
 }

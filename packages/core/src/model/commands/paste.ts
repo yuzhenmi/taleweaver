@@ -16,6 +16,7 @@ import { pasteCells } from "./table/paste-cells";
 import { rangeOf } from "./helpers/at";
 import { plan } from "./helpers/build-plan";
 import { deleteRange } from "./helpers/delete-range";
+import { keysOf } from "./helpers/paragraph-keys";
 import { type FragmentItem, fragmentUnits, placeable, units } from "./helpers/fragment";
 import { overObject, withWrites } from "./helpers/over-object";
 import { containerOf, tableDepthOf } from "./helpers/placement";
@@ -83,8 +84,9 @@ function pasteAt(ctx: CommandContext, fragment: readonly FragmentItem[], replace
   let tail: () => BlockId = () => start.L.block.id;
   let ins: StoragePoint = p;
   if (!r.collapsed) {
-    // A range is deleted first (C9, with its join), then the payload goes in at the collapse point.
-    const del = deleteRange(r.start, r.end);
+    // A range is deleted first (C9), then the payload goes in at the collapse point. The payload's own ¶ ends the head
+    // paragraph, so the end paragraph's ¶ keeps its keys (Word: it was not selected), not the join's.
+    const del = deleteRange(r.start, r.end, keysOf(r.end.L));
     if (del === null) return null;
     writes.push(...del.writes);
     tail = del.survivor;

@@ -215,7 +215,7 @@ describe("H1 single-user undo / redo is exact for every command", () => {
       (h) => h.run(removeMarker, "bm", "1"),
     ],
     ["C17 paste paragraphs", (h) => h.caret(1, 1), (h) => h.run(paste, [{ k: "text", text: "p1" }, { k: "para", keys: { "p:type": "heading" } }, { k: "text", text: "p2" }])],
-    ["C17 paste a TOC and a footnote", (h) => h.caret(1, 1), (h) => h.run(paste, [{ k: "toc" }, { k: "para" }, { k: "footnote", body: [{ k: "text", text: "n" }] }])],
+    ["C17 paste a TOC and a footnote", (h) => h.caret(1, 1), (h) => h.run(paste, [{ k: "toc" }, { k: "para" }, { k: "footnote", body: [{ k: "text", text: "n" }, { k: "para" }] }])],
     ["C17 paste a section", (h) => h.caret(2, 2), (h) => h.run(paste, [{ k: "para" }, { k: "S", keys: { "s:columnCount": 2 } }, { k: "hr" }, { k: "para" }])],
   ];
   for (const [name, setup, act] of cases) {
