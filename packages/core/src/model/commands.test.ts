@@ -636,7 +636,7 @@ describe("C17 paste (G6)", () => {
     expect(h.dump().slice(0, 3)).toEqual(["toc", "paragraph:[br]", "paragraph:xu"]);
   });
 
-  it("a pasted footnote carries its body; a pasted [S] drops h:*; malformed payloads throw", () => {
+  it("a pasted footnote carries its body; a pasted [S] carries its header / footer bodies and "none" links (other h:* keys dropped); malformed payloads throw", () => {
     const h = doc("ab");
     h.caret(0, 1);
     h.run(paste, [{ k: "footnote", body: [{ k: "text", text: "n" }, { k: "para", keys: { "p:type": "heading" } }] }]);
@@ -645,6 +645,28 @@ describe("C17 paste (G6)", () => {
     h.run(paste, [{ k: "para" }, { k: "S", keys: { "s:columnCount": 2, "h:header:default": "x" } }, { k: "text", text: "z" }]);
     expect(h.dump()).toEqual(["paragraph:a[fn]b", "|", "paragraph:z"]);
     expect(h.version.flows.get(h.version.rootId)?.sections[0]?.map.get("h:header:default")).toBeUndefined();
+    // P2: an [S]'s header / footer bodies are pasted as fresh bodies, each linked by its h:* key (Word copies them with the break).
+    h.caret(1, 1);
+    h.run(paste, [
+      { k: "para" },
+      {
+        k: "S",
+        keys: { "h:footer:default": "none" },
+        bodies: { "h:header:default": [{ k: "text", text: "H" }, { k: "para", keys: { "p:type": "heading" } }], "h:footer:first": [{ k: "field", field: "page-number" }, { k: "para" }] },
+      },
+      { k: "text", text: "y" },
+    ]);
+    expect(h.dump()).toEqual(["paragraph:a[fn]b", "|", "paragraph:z", "|", "paragraph:y"]);
+    const s2 = h.version.flows.get(h.version.rootId)?.sections[1]?.map;
+    const [hd, ft] = [s2?.get("h:header:default"), s2?.get("h:footer:first")];
+    expect(typeof hd === "string" && typeof ft === "string" && hd !== ft).toBe(true);
+    expect(s2?.get("h:footer:default")).toBe("none"); // a section showing no footer keeps showing none
+    expect(h.templateBodies()).toEqual(expect.arrayContaining([["heading:H"], ["paragraph:[field:page-number]"]]));
+    h.undo();
+    expect(h.templateBodies()).toEqual([]);
+    expect(() => paste(h.ctx(), [{ k: "para" }, { k: "S", bodies: { "h:bogus:default": [{ k: "para" }] } }])).toThrow();
+    expect(() => paste(h.ctx(), [{ k: "para" }, { k: "S", bodies: { "h:header:even": [{ k: "text", text: "n" }] } }])).toThrow(); // no final ¶
+    expect(paste(h.ctx(), [{ k: "para" }, { k: "S", bodies: { "h:header:even": [{ k: "toc" }, { k: "para" }] } }])).toBeNull();
     expect(() => paste(h.ctx(), [{ k: "text", text: "a" }, { k: "toc" }])).toThrow();
     expect(() => paste(h.ctx(), [{ k: "footnote", body: [{ k: "text", text: "n" }] }])).toThrow(); // no final ¶
     // A kind its target cannot hold refuses the whole payload, never throws — inside a pasted footnote's body too; a rule goes anywhere text does.

@@ -1,4 +1,3 @@
-import * as Y from "yjs";
 import { resolveBlock } from "../document/blocks";
 import type { Plan, Write } from "../plan";
 import { caretAt } from "../position/model-position";
@@ -9,6 +8,7 @@ import { newBody, newParagraphMark } from "../storage/new-items";
 import type { CommandContext } from "./command-context";
 import { selectionStart } from "./helpers/over-object";
 import { plan } from "./helpers/build-plan";
+import { freshBodyId } from "./helpers/body-id";
 import { type Region, type Variant, linkAttr, linkKey } from "./helpers/header-footer-link";
 import { inSections } from "./helpers/placement";
 import { sectionOwner } from "./helpers/section-owner";
@@ -35,8 +35,7 @@ export function insertHeaderFooter(ctx: CommandContext, region: Region, variant:
     if (first === undefined || first === null) return null;
     return plan(d, [], () => caretAt(first, 0));
   }
-  // A body id unique in the document: this client's id and next clock (never reused).
-  const bodyId = `b${doc.clientID}.${Y.getState(doc.store, doc.clientID)}`;
+  const bodyId = freshBodyId(doc);
   const mark = newParagraphMark();
   const writes: Write[] = [{ k: "entry", map: bodies, key: bodyId, value: newBody(mark) }, ...keysWrite(owner, { [linkKey(region, variant)]: bodyId })];
   const sel = ctx.selection;

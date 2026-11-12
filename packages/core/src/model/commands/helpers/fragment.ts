@@ -1,11 +1,14 @@
 import type { ReadonlyAttrs } from "../../block";
-import { type InsertUnit, chunked } from "../../plan";
+import { type InsertUnit, type Write, chunked } from "../../plan";
 import { type Container, allowedIn, isParagraphBreak, isStructural } from "../../scan/kinds";
-import { type ObjectProps, newField, newFootnoteOf, newHorizontalRule, newLineBreak, newObject, newParagraphMark, newSectionBreak, newTableOfContents } from "../../storage/new-items";
+import { type ObjectProps, newBodyOf, newField, newFootnoteOf, newHorizontalRule, newLineBreak, newObject, newParagraphMark, newSectionBreak, newTableOfContents } from "../../storage/new-items";
 import type { FlatKeys } from "../../storage/scalar";
 import { newCellMark, newRowMark, newTableEnd, newTableStart } from "../../storage/table-marks";
 import type { CommandContext } from "../command-context";
-import { COL_SPAN_KEY, HEADER_KEY, ROW_SPAN_KEY } from "../../storage/keys";
+import { BODIES_KEY, COL_SPAN_KEY, HEADER_KEY, ROW_SPAN_KEY } from "../../storage/keys";
+import { childMap } from "../../storage/map-reads";
+import { freshBodyId } from "./body-id";
+import { linkKey } from "./header-footer-link";
 import { placeFragment } from "./fragment-table";
 import { checkKeys, checkScalars, validField, validObject } from "./validate";
 
@@ -27,8 +30,12 @@ export type FragmentItem =
   | { readonly k: "footnote"; readonly body: readonly FragmentItem[]; readonly attrs?: ReadonlyAttrs }
   /** A TOC block object (`a:*` keys). */
   | { readonly k: "toc"; readonly keys?: FlatKeys }
-  /** A section break (`s:*` keys; a pasted `[S]` never carries `h:*`). */
-  | { readonly k: "S"; readonly keys?: FlatKeys }
+  /**
+   * A section break: `s:*` keys (an `h:*` key there is dropped unless it is `"none"`, a section showing no header /
+   * footer), and its header / footer `bodies` by link key
+   * (`h:<region>:<variant>`), each ¶-terminated; paste makes a fresh body for each and links it (Word copies them with the break).
+   */
+  | { readonly k: "S"; readonly keys?: FlatKeys; readonly bodies?: Readonly<Record<string, readonly FragmentItem[]>> }
   /** A table of `rows` × `cols` empty cells, columns of equal weight (integers ≥ 1). */
   | { readonly k: "table"; readonly rows: number; readonly cols: number }
   | FragmentTable;
@@ -60,7 +67,13 @@ export const fragmentUnits = (i: FragmentItem): number => ("text" in i ? i.text.
 
 /** Can every item go in `container` (a footnote's body items in a footnote body)? A paste of a payload that cannot is refused whole. */
 export const placeable = (items: readonly FragmentItem[], container: Container): boolean =>
-  items.every((i) => allowedIn(i.k, container) && (!("body" in i) || placeable(i.body, "footnote")) && (!("cells" in i) || i.cells.every((r) => r.every((c) => placeable(c.items, "cell")))));
+  items.every(
+    (i) =>
+      allowedIn(i.k, container) &&
+      (!("body" in i) || placeable(i.body, "footnote")) &&
+      (!("bodies" in i) || Object.values(i.bodies ?? {}).every((b) => placeable(b, "headerFooter"))) &&
+      (!("cells" in i) || i.cells.every((r) => r.every((c) => placeable(c.items, "cell")))),
+  );
 
 /** Throws unless a table's row and column counts are integers ≥ 1. */
 export function checkTableSize(rows: number, cols: number): void {
@@ -107,11 +120,15 @@ function contentTableUnits(ctx: CommandContext, t: FragmentTable, d: number): In
   return out;
 }
 
+/** The link keys an `[S]` may carry. */
+const LINK_KEYS: ReadonlySet<string> = new Set((["header", "footer"] as const).flatMap((r) => (["default", "first", "even"] as const).map((v) => linkKey(r, v))));
+
 /**
  * The payload as insert units (its placement checked first, {@link placeable}); `depth`: the number of tables around
- * the insertion point (a pasted table's marks store it). Throws on a payload that breaks W1 / W2.
+ * the insertion point (a pasted table's marks store it); `entries` receives the writes of a pasted `[S]`'s new
+ * header / footer bodies. Throws on a payload that breaks W1 / W2.
  */
-export function units(ctx: CommandContext, items: readonly FragmentItem[], depth = 0): InsertUnit[] {
+export function units(ctx: CommandContext, items: readonly FragmentItem[], depth = 0, entries: Write[] = []): InsertUnit[] {
   const out: InsertUnit[] = [];
   let prev: FragmentItem | null = null;
   for (const i of items) {
@@ -156,8 +173,20 @@ export function units(ctx: CommandContext, items: readonly FragmentItem[], depth
         out.push(...("cells" in i ? contentTableUnits(ctx, i, depth) : tableUnits(i.rows, i.cols, depth)));
         break;
       case "S": {
-        const keys = Object.fromEntries(Object.entries(i.keys ?? {}).filter(([k]) => !k.startsWith("h:")));
-        out.push({ embed: newSectionBreak(checkKeys(keys, ["s:"], "section")), attrs: {} });
+        const keys = checkKeys(Object.fromEntries(Object.entries(i.keys ?? {}).filter(([k]) => !k.startsWith("h:"))), ["s:"], "section");
+        // "none" (the section shows no header / footer) reads without a body, so it is pasted as stored.
+        for (const [k, v] of Object.entries(i.keys ?? {})) if (LINK_KEYS.has(k) && v === "none") keys[k] = v;
+        for (const [link, body] of Object.entries(i.bodies ?? {})) {
+          if (!LINK_KEYS.has(link)) throw new Error(`model: a pasted section's body key ${link} is not h:<header|footer>:<default|first|even>`);
+          if (body.at(-1)?.k !== "para") throw new Error("model: a pasted header / footer body must end in a ¶");
+          const bodies = childMap(ctx.version.docMap, BODIES_KEY);
+          const doc = ctx.version.docMap.doc;
+          if (bodies === null || doc === null) throw new Error("model: the document has no header / footer bodies map");
+          const id = freshBodyId(doc, entries.length + 1);
+          entries.push({ k: "entry", map: bodies, key: id, value: newBodyOf(...chunked(units(ctx, body))) });
+          keys[link] = id;
+        }
+        out.push({ embed: newSectionBreak(keys), attrs: {} });
         break;
       }
     }

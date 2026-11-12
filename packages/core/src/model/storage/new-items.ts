@@ -66,9 +66,14 @@ export function newFootnote(mark?: Y.Map<unknown>): Y.Map<unknown> {
 
 /** A footnote anchor whose body flow is the detached `pieces` (the last must end in a ¶, G3). */
 export function newFootnoteOf(...pieces: Y.Text[]): Y.Map<unknown> {
+  return mapOf({ [KIND_KEY]: ITEM_KINDS.footnote, [BODY_KEY]: newBodyOf(...pieces) });
+}
+
+/** A body whose flow is the detached `pieces` (the last must end in a ¶, G3). */
+export function newBodyOf(...pieces: Y.Text[]): Y.Map<unknown> {
   const arr = new Y.Array<Y.Text>();
   arr.insert(0, pieces);
-  return mapOf({ [KIND_KEY]: ITEM_KINDS.footnote, [BODY_KEY]: mapOf({ [FLOW_KEY]: arr }) });
+  return mapOf({ [FLOW_KEY]: arr });
 }
 
 /** A header / footer (or footnote) body: `Y.Map{flow}` with one ¶ (`mark` when given). */

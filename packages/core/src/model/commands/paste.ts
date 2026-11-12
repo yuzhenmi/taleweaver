@@ -55,7 +55,9 @@ function pasteAt(ctx: CommandContext, fragment: readonly FragmentItem[], replace
   // A table is not placed past the nesting cap (its marks would be inert).
   const depth = tableDepthOf(ctx.version, r.start);
   if (!placeable(fragment, containerOf(ctx.version, r.start)) || !tablesFit(fragment, depth)) return null;
-  const us = units(ctx, fragment, depth);
+  // A pasted [S]'s header / footer bodies: written with the payload, whichever way it goes in.
+  const entries: Write[] = [];
+  const us = units(ctx, fragment, depth, entries);
   const breaks = (i: FragmentItem): boolean => isParagraphBreak(i.k) || isStructural(i.k);
   const structural = fragment.some(breaks);
   // Read units after the payload's last ¶ / block object: the caret's offset in the tail.
@@ -67,7 +69,7 @@ function pasteAt(ctx: CommandContext, fragment: readonly FragmentItem[], replace
   if (startsWithBlock && r.start.offset > 0) {
     const s = splitWrites(ctx, r, us);
     if (s === null) return null;
-    return plan(ctx.version, s.writes, () => caretAt(s.tail(), lastLen));
+    return plan(ctx.version, [...entries, ...s.writes], () => caretAt(s.tail(), lastLen));
   }
   const { start } = r;
   const p = pointAfter(start.L, start.offset);
@@ -75,12 +77,12 @@ function pasteAt(ctx: CommandContext, fragment: readonly FragmentItem[], replace
     // R17 (an empty holder): the payload goes in with a ¶ of its own (X2), which its last paragraph joins.
     const m = materialize(start.L, {}, us);
     if (m === null) return null;
-    return plan(ctx.version, m.writes, () => {
+    return plan(ctx.version, [...entries, ...m.writes], () => {
       const pid = typeId(m.map);
       return pid === null ? ctx.selection : caretAt(pid, lastLen);
     });
   }
-  const writes: Write[] = [];
+  const writes: Write[] = [...entries];
   let tail: () => BlockId = () => start.L.block.id;
   let ins: StoragePoint = p;
   if (!r.collapsed) {
@@ -107,7 +109,7 @@ function pasteAt(ctx: CommandContext, fragment: readonly FragmentItem[], replace
     // The payload goes in with the paragraph's ¶ (X5), which its last paragraph joins.
     const m = materialize(start.L, {}, [...lead, ...us]);
     if (m === null) return null;
-    return plan(ctx.version, m.writes, () => caretAt(idAfter(m.map, start.L.block.id), lastLen));
+    return plan(ctx.version, [...entries, ...m.writes], () => caretAt(idAfter(m.map, start.L.block.id), lastLen));
   }
   writes.push(insertAt(ins, [...lead, ...us]));
   return plan(ctx.version, writes, () => caretAt(tail(), lastLen));
