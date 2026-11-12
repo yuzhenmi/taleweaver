@@ -12,11 +12,12 @@ import { removeHeaderFooter } from "./commands/remove-header-footer";
 import { setMarks } from "./commands/set-marks";
 import { setParagraphAttrs } from "./commands/set-paragraph-attrs";
 import { type ModelSelection, caretAt } from "./position/model-position";
+import type { FragmentCell } from "./commands/helpers/fragment";
 import { paragraphLayout } from "./position/paragraph-layout";
 import { newFootnoteOf, newHorizontalRule, newLineBreak, newObject, newParagraphMark, newSectionBreak, newTableOfContents } from "./storage/new-items";
 import { childrenOf } from "./test-helpers/fixture";
 import { type Harness, line } from "./test-helpers/harness";
-import { raw, units } from "./test-helpers/table";
+import { cellIdAt, raw, units } from "./test-helpers/table";
 import { objectSelection } from "./commands/selections";
 import { COLS_KEY, WIDTH_KEY } from "./storage/keys";
 import * as Y from "yjs";
@@ -216,4 +217,67 @@ describe("copy: tables in ranges, object selections (C2)", () => {
     const cell = h.paragraphs()[1]?.parentId ?? "";
     roundTrips(h, selectAll(h.version, cell) ?? h.selection, "all of a cell");
   }, 30_000); // hundreds of ranges, each a fresh document: slow under a parallel run
+});
+
+describe("copy: cell selections (C3)", () => {
+  /**
+   * `[e f g]h / [a↓2 b c] / [· d ·] / [h→2 ·]` (· covered or virtual): a header row, a row span over a short row, a
+   * col span over a short row, a nested table in c, `a:*` on the table / a row / a cell, widths 2:1:1.
+   */
+  const doc = (): Harness =>
+    raw(units("x¶ ⟦ ⟨r⟩h ⟨c⟩ e¶ ⟨c⟩ f¶ ⟨c⟩ g¶ ⟨r⟩ ⟨c⟩r2 a¶ ⟨c⟩ b¶ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 n¶ ⟧@1 c¶ ⟨r⟩ ⟨c⟩ d¶ ⟨r⟩ ⟨c⟩c2 h¶ ⟧ y"), (maps) => {
+      const [, table, row, cell] = maps; // x's ¶, ⟦, ⟨r⟩, ⟨c⟩
+      const cols = new Y.Array<Y.Map<unknown>>();
+      cols.insert(0, [2, 1, 1].map((w) => new Y.Map<unknown>([[WIDTH_KEY, w]])));
+      table?.set(COLS_KEY, cols);
+      table?.set("a:border", 1);
+      row?.set("a:height", 20);
+      cell?.set("a:fill", "red");
+    });
+  const select = (h: Harness, from: [number, number], to: [number, number]): ModelSelection => ({ kind: "cells", anchor: cellIdAt(h, from), head: cellIdAt(h, to) });
+
+  it("one table item: the grown box's own cells (virtual slots stay virtual), its columns' widths, its header rows, a:* keys", () => {
+    const h = doc();
+    h.selection = select(h, [0, 1], [1, 2]);
+    const text = (t: string): FragmentCell => ({ items: [{ k: "text", text: t }, { k: "para" }] });
+    expect(copy(h.ctx())).toEqual([{ k: "table", cells: [[text("f"), text("g")], [text("b"), { items: [expect.objectContaining({ k: "table" }), { k: "text", text: "c" }, { k: "para" }] }]], widths: [0.25, 0.25], header: 1, keys: { "a:border": 1 }, rowKeys: [{ "a:height": 20 }, {}] }]);
+    // Grown over h's col span, then a's row span; the short rows stay short.
+    h.selection = select(h, [2, 1], [3, 1]);
+    const t = copy(h.ctx())?.[0];
+    expect(t !== undefined && "cells" in t ? t.cells.map((r) => r.map((c) => c.items[0])) : null).toEqual([
+      [{ k: "text", text: "a" }, { k: "text", text: "b" }],
+      [{ k: "text", text: "d" }],
+      [{ k: "text", text: "h" }],
+    ]);
+    expect(t).not.toHaveProperty("header");
+    // Pasted outside a table, it is that table.
+    h.caret(0, 1);
+    h.selection = select(h, [0, 1], [1, 2]);
+    const items = copy(h.ctx()) ?? [];
+    h.caret(0, 1);
+    expect(h.run(paste, items)).toBe(true);
+    expect(h.dump().filter((l) => l === "table")).toHaveLength(2);
+    // A box whose right column holds only a virtual slot: the item's widths cover its placed columns only.
+    const g = doc();
+    g.selection = select(g, [2, 1], [2, 2]);
+    const short = copy(g.ctx()) ?? [];
+    expect(short[0]).toMatchObject({ cells: [[{ items: [{ k: "text", text: "d" }, { k: "para" }] }]], widths: [0.25] });
+    g.caret(0, 1);
+    expect(g.run(paste, short)).toBe(true);
+    expect(g.dump().filter((l) => l === "table")).toHaveLength(2);
+  });
+
+  it("round trip: every rectangle of the table; a box of only virtual slots copies nothing", () => {
+    const slots = [0, 1, 2, 3].flatMap((r) => [0, 1, 2].map((c): [number, number] => [r, c]));
+    const empty: string[] = [];
+    for (const a of slots) {
+      for (const b of slots) {
+        const h = doc();
+        h.selection = select(h, a, b);
+        if (copy(h.ctx()) === null) empty.push(`${a}-${b}`);
+        else roundTrips(h, select(h, a, b), `${a}-${b}`);
+      }
+    }
+    expect(empty).toEqual(["2,2-2,2", "2,2-3,2", "3,2-2,2", "3,2-3,2"]);
+  }, 30_000);
 });

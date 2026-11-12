@@ -14,7 +14,7 @@ import { keysOf, scalar } from "./paragraph-keys";
 // ---------------------------------------------------------------------------
 
 /** Read attrs as storage keys under `prefix` (scalars only); undefined when there are none. */
-function keysFrom(attrs: ReadonlyAttrs, prefix: string, skip: ReadonlySet<string> = new Set()): FlatKeys | undefined {
+export function keysFrom(attrs: ReadonlyAttrs, prefix: string, skip: ReadonlySet<string> = new Set()): FlatKeys | undefined {
   const out: Record<string, NonNullable<ReturnType<typeof scalar>> | null> = {};
   for (const [k, v] of Object.entries(attrs)) {
     const s = scalar(v);
@@ -102,7 +102,7 @@ const TABLE_ATTRS: ReadonlySet<string> = new Set(["columnWidths", "headerRowCoun
 const SPAN_ATTRS: ReadonlySet<string> = new Set(["rowSpan", "colSpan"]);
 
 /** A cell as it reads: its blocks (its lead included), spans and `a:*`; null for a virtual cell that reads empty (it stays virtual). */
-function cellOf(d: Document, c: Block): FragmentCell | null {
+export function cellOf(d: Document, c: Block): FragmentCell | null {
   const items = readAll(d, "block", c.id);
   const first = c.firstChildId === null ? null : paragraphLayout(d, c.firstChildId);
   if (first?.virtualCell !== undefined && items.length === 1 && items[0]?.k === "para" && !("keys" in items[0])) return null;
