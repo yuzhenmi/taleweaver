@@ -45,6 +45,19 @@ describe("FloatEnvironment — CSS 9.5.1 placement", () => {
     expect(env.availableInlineSizeAt(150, 200)).toEqual({ inlineStartSize: 0, inlineEndSize: 0 });
   });
 
+  it("two side-by-side floats on one side occupy up to the furthest edge (sum of widths), both sides", () => {
+    for (const side of ["inline-start", "inline-end"] as const) {
+      const env = createFloatEnvironment();
+      env.placeFloat(side, 0, 80, 100, 300);
+      const second = env.placeFloat(side, 0, 50, 100, 300);
+      expect(second).toEqual({ blockOffset: 0, inlineOffset: side === "inline-start" ? 80 : 170 });
+      const occupied = env.availableInlineSizeAt(50, 300);
+      expect(side === "inline-start" ? occupied.inlineStartSize : occupied.inlineEndSize).toBe(130);
+      // A third that fits only beyond both is pushed below them.
+      expect(env.placeFloat(side, 0, 200, 10, 300).blockOffset).toBe(100);
+    }
+  });
+
   it("lowestFloatBlockEdge returns max block-edge across floats", () => {
     const env = createFloatEnvironment();
     env.placeFloat("inline-start", 0, 200, 100, 200); // fills container; ends at 100

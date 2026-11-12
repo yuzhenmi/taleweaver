@@ -287,6 +287,9 @@ function computeBlockContribution(
   let runRestMin = 0; // max over (firstChild.restMin, laterChildren.minContent)
   let runFirstCluster = 0; // firstCluster of the run's first content-bearing child
   let runHasFirstChild = false;
+  // Floats beside the run's line (wrapped inline images): their max-content
+  // sits on the line next to the text, outside the text-indent fold.
+  let runFloatMax = 0;
   let runActive = false;
   let processedAnyChild = false; // has any child (block or inline) been handled?
   let currentRunIsLeading = false; // is the active run the block's first child group?
@@ -295,11 +298,12 @@ function computeBlockContribution(
     if (!runActive) return;
     let runMin = Math.max(runFirstCluster, runRestMin);
     let foldedMax = runMax;
-    if (currentRunIsLeading && indent !== 0) {
+    if (currentRunIsLeading && indent !== 0 && runHasFirstChild) {
       // Apply text-indent to the block's first formatted line only.
       runMin = Math.max(0, Math.max(indent + runFirstCluster, runRestMin));
       foldedMax = Math.max(0, runMax + indent);
     }
+    foldedMax += runFloatMax;
     if (runMin > containerMin) containerMin = runMin;
     if (foldedMax > containerMax) containerMax = foldedMax;
     runActive = false;
@@ -307,7 +311,20 @@ function computeBlockContribution(
     runRestMin = 0;
     runFirstCluster = 0;
     runHasFirstChild = false;
+    runFloatMax = 0;
     currentRunIsLeading = false;
+  };
+  const startRun = (): void => {
+    if (runActive) return;
+    runActive = true;
+    runMax = 0;
+    runRestMin = 0;
+    runFirstCluster = 0;
+    runHasFirstChild = false;
+    runFloatMax = 0;
+    // A run is the block's first formatted line only if it leads the block
+    // (no block-level child precedes it).
+    currentRunIsLeading = !processedAnyChild;
   };
 
   for (const child of flattenContents(node.children)) {
@@ -317,17 +334,23 @@ function computeBlockContribution(
         (child.computedStyle?.display === "inline" ||
           child.computedStyle?.display === "inline-block"));
     const c = computeContribution(child, shaper, cache);
-    if (isInline) {
-      if (!runActive) {
-        runActive = true;
-        runMax = 0;
-        runRestMin = 0;
-        runFirstCluster = 0;
-        runHasFirstChild = false;
-        // A run is the block's first formatted line only if it leads the block
-        // (no block-level child precedes it).
-        currentRunIsLeading = !processedAnyChild;
+    // A floated atom (a wrapped inline image) contributes as a float (CSS Sizing
+    // 3 / CSS 2.1 shrink-to-fit): an unbreakable item for min-content; for
+    // max-content it sits beside its line (added to it) — a `break` image
+    // (full-width exclusion) takes a line of its own. It is neither the first
+    // cluster of the line nor a block-level child.
+    if (child.type === "element" && child.computedStyle?.display === "inline-block" && child.computedStyle.float !== "none") {
+      if (c.minContent > containerMin) containerMin = c.minContent;
+      if (child.metadata?.inlineFloat?.exclusion === "full") {
+        if (c.maxContent > containerMax) containerMax = c.maxContent;
+      } else {
+        startRun();
+        runFloatMax += c.maxContent;
       }
+      continue;
+    }
+    if (isInline) {
+      startRun();
       runMax += c.maxContent; // sum within a run (no wrap at max-content)
       if (!runHasFirstChild) {
         // First child of the run owns the run's first cluster; its rest-min

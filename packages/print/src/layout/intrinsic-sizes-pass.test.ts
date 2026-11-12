@@ -355,6 +355,24 @@ describe("computeIntrinsicSizes — text-indent (#392)", () => {
     expect(result.minContent).toBe(50);
   });
 
+  it("a leading floated atom (wrapped image) is not the indented first cluster: the indent applies to the text", () => {
+    // Float 100 + indent 40 + "abc" 30 on one line → max 170. Min: the float
+    // alone (100) vs the indented text below it (40 + 10) → 100, not 100 + 40.
+    const block = createElementBox(
+      "p",
+      { display: "block", textIndent: { value: 40, unit: "px" } },
+      [
+        createElementBox("img", { display: "inline-block", float: "inline-start" }, [
+          createElementBox("img-i", { display: "block", inlineSize: 100, blockSize: 20 }, []),
+        ]),
+        createTextBox("t", { display: "inline" }, "abc"),
+      ],
+    );
+    const result = computeIntrinsicSizes(cascadePass(block), shaper, createIntrinsicSizesCache());
+    expect(result.minContent).toBe(100);
+    expect(result.maxContent).toBe(170);
+  });
+
   // Case 2: first cluster ≠ widest — guards the restMin form against
   // a naive `widestCluster + indent`. Requires variable cluster widths.
   it("first cluster narrower than widest: min uses restMin, NOT widest + indent", () => {

@@ -760,11 +760,14 @@ export function createTableCellBox(
   grid: TableCellGrid,
   containingInlineSize: number,
   containingBlockSize?: number,
+  // Abs-pos descendants whose containing block is this (positioned) cell, in
+  // the cell's own frame — the cell interior's, carried over.
+  absoluteChildren?: readonly LayoutBox[],
 ): TableCellBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
     writingMode, direction, computedStyle, usedStyle, containingInlineSize,
-    containingBlockSize,
+    containingBlockSize, absoluteChildren,
   });
   return Object.freeze({
     type: "table-cell" as const,
@@ -1105,7 +1108,7 @@ export function rebuildBoxWithOffsets(
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children,
         { gridRow: box.gridRow, gridCol: box.gridCol, rowSpan: box.rowSpan, colSpan: box.colSpan },
-        containingInlineSize, containingBlockSize,
+        containingInlineSize, containingBlockSize, box.absoluteChildren,
       );
     case "multicolumn":
       // Reposition the container at the new offsets; the column boxes are

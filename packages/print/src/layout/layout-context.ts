@@ -254,6 +254,29 @@ export function makeChildContext(
 }
 
 /**
+ * The context of a block's own inline content (its anonymous inline-run box):
+ * the same box, so the same BFC and absolute containing block as `blockCtx` —
+ * a BFC root establishes ONE formatting context for all its content (CSS 9.4.1),
+ * its inline runs and block children alike. Only the containing block changes,
+ * to the block's content box (`contentInlineSize`, placed at `floatArea`).
+ */
+export function makeInlineRunContext(
+  blockCtx: LayoutContext,
+  blockCs: ComputedStyle,
+  contentInlineSize: number,
+  floatArea: FloatArea,
+): LayoutContext {
+  return {
+    ...blockCtx,
+    writingMode: blockCs.writingMode,
+    direction: blockCs.direction,
+    containingInlineSize: contentInlineSize,
+    containingBlockSize: "indefinite",
+    floatArea,
+  };
+}
+
+/**
  * Build a layout context for the document root from its computed style.
  * The root has no parent, so `containingInlineSize` is the viewport / page
  * inline-size and `containingBlockSize` is `"indefinite"`.

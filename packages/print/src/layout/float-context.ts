@@ -129,7 +129,11 @@ export function createFloatEnvironment(): FloatEnvironment {
     return candidate === Infinity ? blockOffset : candidate;
   }
 
-  function activeAt(blockOffset: number) {
+  // Occupied inline size per side at `blockOffset`: the distance from each
+  // containing edge to the furthest active float edge on that side (CSS 9.5.1 —
+  // side-by-side floats add up), against `containingInlineSize`, the frame the
+  // floats were placed in.
+  function activeAt(blockOffset: number, containingInlineSize: number) {
     let inlineStartSize = 0;
     let inlineEndSize = 0;
     for (const f of placed) {
@@ -138,15 +142,7 @@ export function createFloatEnvironment(): FloatEnvironment {
       if (f.side === "inline-start") {
         inlineStartSize = Math.max(inlineStartSize, f.inlineOffset + f.inlineSize);
       } else {
-        // For inline-end floats, inline-end "size" is the right-side occupied width.
-        // (Stored: f.inlineOffset is the inline-offset from start; for inline-end floats,
-        // the inline-end edge is at containingInlineSize; the float's left edge is at
-        // f.inlineOffset, so the inline-end occupied size is containingInlineSize - f.inlineOffset.)
-        // Simpler: track per-float, take the max occupied inline-end size.
-        // We don't have containingInlineSize here, but the placement stored f.inlineOffset
-        // s.t. f.inlineOffset + f.inlineSize === containingInlineSize for inline-end floats.
-        // So: end-occupied = f.inlineSize.
-        inlineEndSize = Math.max(inlineEndSize, f.inlineSize);
+        inlineEndSize = Math.max(inlineEndSize, containingInlineSize - f.inlineOffset);
       }
     }
     return { inlineStartSize, inlineEndSize };
@@ -169,7 +165,7 @@ export function createFloatEnvironment(): FloatEnvironment {
     // Iterate: try at the requested offset; if doesn't fit, push to next float bottom.
     // Cap iterations to prevent infinite loops in pathological cases.
     for (let iter = 0; iter < 1000; iter++) {
-      const active = activeAt(candidateBlockOffset);
+      const active = activeAt(candidateBlockOffset, containingInlineSize);
       const free = containingInlineSize - active.inlineStartSize - active.inlineEndSize;
 
       if (free >= inlineSize) {
@@ -213,8 +209,8 @@ export function createFloatEnvironment(): FloatEnvironment {
       return computeLanding(side, requestedBlockOffset, inlineSize, containingInlineSize);
     },
 
-    availableInlineSizeAt(blockOffset, _containingInlineSize) {
-      return activeAt(blockOffset);
+    availableInlineSizeAt(blockOffset, containingInlineSize) {
+      return activeAt(blockOffset, containingInlineSize);
     },
 
     clearance(side, currentBlockOffset) {

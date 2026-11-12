@@ -236,6 +236,8 @@ interface LaidCell {
   readonly cellUsedStyle: ReturnType<typeof computeUsedStyle>;
   readonly interiorChildren: LayoutBox[];
   readonly interiorHeight: number;
+  /** The interior's abs-pos children (a positioned cell is their containing block). */
+  readonly interiorAbsoluteChildren?: readonly LayoutBox[];
   readonly inlineOffset: number;
   readonly inlineSize: number;
   readonly placement: AssignedCell;
@@ -275,6 +277,17 @@ function materializeCellElement(cg: CellGroup): ElementBox | null {
     computedStyle: { ...cg.cs, display: "table-cell" },
     children: cg.content,
   };
+}
+
+/**
+ * The context a cell's interior is laid out under: entered with the CELL's own
+ * style, so the cell is a BFC root (CSS 9.4.1) with its own float env — its
+ * floats wrap its own content, are enclosed by it, and never reach other cells.
+ */
+function makeCellContext(ctx: LayoutContext, cellEl: ElementBox, inlineSize: number): LayoutContext {
+  const cellCs = cellEl.computedStyle;
+  if (cellCs === undefined) throw new Error("cascade required");
+  return makeChildContext(ctx, cellCs, inlineSize, "indefinite");
 }
 
 // ---------------------------------------------------------------------------
@@ -479,7 +492,7 @@ export function layoutTable(
       if (cellEl === null) continue;
 
       // Lay out cell interior as BFC at cellInlineSize.
-      const cellCtx = makeChildContext(ctx, cs, cellInlineSize, "indefinite");
+      const cellCtx = makeCellContext(ctx, cellEl, cellInlineSize);
       const interiorResult = layoutBlock(cellEl, 0, 0, cellCtx, shaper, hyphenator, undefined, pageFlowBase);
       if (interiorResult.box === null) {
         throw new Error("layoutBlock without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
@@ -495,6 +508,7 @@ export function layoutTable(
         cellUsedStyle,
         interiorChildren: Array.from(interior.children),
         interiorHeight: interior.height,
+        interiorAbsoluteChildren: interior.absoluteChildren,
         inlineOffset: cellInlineOffset,
         inlineSize: cellInlineSize,
         placement,
@@ -543,8 +557,9 @@ export function layoutTable(
       // continuation (null token) contributes no interior.
       let interiorChildren: LayoutBox[] = [];
       let interiorHeight = 0;
+      let interiorAbsoluteChildren: readonly LayoutBox[] | undefined;
       if (cont.interiorBreakToken !== null) {
-        const cellCtx = makeChildContext(ctx, cs, inlineSize, "indefinite");
+        const cellCtx = makeCellContext(ctx, cellEl, inlineSize);
         const r = layoutBlock(cellEl, 0, 0, cellCtx, shaper, hyphenator, {
           availableBlockSize: Number.MAX_SAFE_INTEGER,
           pageIndex: fragmentation.pageIndex,
@@ -553,6 +568,7 @@ export function layoutTable(
         if (r.box !== null && r.box.type === "block") {
           interiorChildren = Array.from(r.box.children);
           interiorHeight = r.box.height;
+          interiorAbsoluteChildren = r.box.absoluteChildren;
         }
       }
 
@@ -562,6 +578,7 @@ export function layoutTable(
         cellUsedStyle,
         interiorChildren,
         interiorHeight,
+        interiorAbsoluteChildren,
         inlineOffset,
         inlineSize,
         placement: {
@@ -670,6 +687,8 @@ export function layoutTable(
           colSpan: lc.placement.colSpan,
         },
         /* containingInlineSize */ tableInlineSize,
+        /* containingBlockSize */ undefined,
+        lc.interiorAbsoluteChildren,
       );
     });
 
@@ -776,7 +795,7 @@ export function layoutTable(
           // the resume preamble, it is the incoming continuation's interior
           // token, so a rowSpan≥3 cell re-breaks from where it left off (the
           // continuation chain across >2 pages).
-          const cellCtx = makeChildContext(ctx, cs, lc.inlineSize, "indefinite");
+          const cellCtx = makeCellContext(ctx, lc.cellEl, lc.inlineSize);
           const frag = layoutBlock(lc.cellEl, 0, 0, cellCtx, shaper, hyphenator, {
             availableBlockSize: placedHeight,
             pageIndex: fragmentation.pageIndex,
@@ -798,6 +817,8 @@ export function layoutTable(
               colSpan: lc.placement.colSpan,
             },
             /* containingInlineSize */ tableInlineSize,
+            /* containingBlockSize */ undefined,
+            top?.absoluteChildren,
           );
           let m = trimmedByRow.get(start);
           if (m === undefined) {

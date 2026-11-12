@@ -991,6 +991,73 @@ describe("BFC — floats share one inline frame across indented / nested blocks"
     expect([p.x + firstLine(p).x, firstLine(p).width]).toEqual([100, 500]);
   });
 
+  it("two side-by-side floats on one side: the next line sits past both (sum of widths), left and right", () => {
+    for (const side of ["inline-start", "inline-end"] as const) {
+      const out = layoutOf(createElementBox("root", { display: "block" }, [
+        createElementBox("f1", { display: "block", float: side, inlineSize: 100, blockSize: 50 }, []),
+        createElementBox("f2", { display: "block", float: side, inlineSize: 60, blockSize: 50 }, []),
+        createElementBox("p", { display: "block" }, [createTextBox("t", {}, WORDS)]),
+      ]));
+      expect(child(out, "f2").x).toBe(side === "inline-start" ? 100 : 600 - 160);
+      const p = child(out, "p");
+      expect([p.x + firstLine(p).x, firstLine(p).width]).toEqual([side === "inline-start" ? 160 : 0, 440]);
+    }
+  });
+
+  it("a float that is the only child of a non-BFC block is placed; the block stays 0 tall and the next paragraph wraps", () => {
+    const out = layoutOf(createElementBox("root", { display: "block" }, [
+      createElementBox("quote", { display: "block", marginInlineStart: 40 }, [leftFloat()]),
+      createElementBox("p", { display: "block" }, [createTextBox("t", {}, WORDS)]),
+    ]));
+    const quote = child(out, "quote");
+    expect(quote.height).toBe(0);
+    const f = child(quote, "f");
+    expect([quote.x + f.x, quote.y + f.y, f.width, f.height]).toEqual([0, 0, 100, 50]);
+    const p = child(out, "p");
+    expect([p.y, p.x + firstLine(p).x, firstLine(p).width]).toEqual([0, 100, 500]);
+    // With a top margin collapsing through the empty block: the float stays where
+    // the env placed it (below the margin), level with the next paragraph.
+    const m = layoutOf(createElementBox("root", { display: "block" }, [
+      createElementBox("p0", { display: "block" }, [createTextBox("t0", {}, "x")]),
+      createElementBox("quote", { display: "block", marginBlockStart: 20 }, [leftFloat()]),
+      createElementBox("p", { display: "block" }, [createTextBox("t", {}, WORDS)]),
+    ]));
+    const mq = child(m, "quote");
+    const mp = child(m, "p");
+    expect([mq.y, mq.height, mq.y + child(mq, "f").y, mp.y]).toEqual([16, 0, 36, 36]);
+    expect([mp.x + firstLine(mp).x, firstLine(mp).width]).toEqual([100, 500]);
+    // RTL list item whose marker widens its padding: the shifted float keeps its
+    // physical x (re-derived against the laid-out content size, not the authored one).
+    const rtlFloatX = (marginBlockStart: number): number[] => {
+      const r = layoutOf(createElementBox("root", { display: "block" }, [
+        createElementBox("p0", { display: "block" }, [createTextBox("t0", {}, "x")]),
+        createElementBox("li", { display: "block", direction: "rtl", markerText: "10.", marginBlockStart }, [leftFloat()]),
+      ]));
+      const li = child(r, "li");
+      const f = child(li, "f");
+      return [li.x + f.x, li.y + f.y];
+    };
+    // (The x itself is off by the widened padding in RTL — the pre-existing B5
+    // mirror bug; this asserts only that the margin shift does not move it.)
+    const [x0, y0] = rtlFloatX(0);
+    expect(y0).toBe(16);
+    expect(rtlFloatX(20)).toEqual([x0, 36]);
+  });
+
+  it("a BFC root's own inline content wraps around its own floats (flow-root: block float, wrapped image)", () => {
+    for (const display of ["block", "inline-block"] as const) {
+      const out = layoutOf(createElementBox("root", { display: "block" }, [
+        createElementBox("fr", { display: "flow-root" }, [
+          createElementBox("f", { display, float: "inline-start", inlineSize: 100, blockSize: 50 }, []),
+          createTextBox("t", {}, WORDS),
+        ]),
+      ]));
+      const fr = child(out, "fr");
+      expect([firstLine(fr).x, firstLine(fr).width]).toEqual([100, 500]);
+      expect(fr.height).toBeGreaterThanOrEqual(50);
+    }
+  });
+
   it("a list item beside a left float: its marker moves with the first line (Word)", () => {
     const out = layoutOf(createElementBox("root", { display: "block" }, [
       leftFloat(),

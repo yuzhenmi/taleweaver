@@ -1,6 +1,6 @@
 import type { ElementBox } from "@taleweaver/core";
 import type { LayoutBox, BlockBox } from "./layout-box";
-import { createBlockBox, createMarkerBox, withOffsets, assertLayoutBoxConsistent } from "./layout-box";
+import { createBlockBox, createMarkerBox, withOffsets, withBlockOffset, assertLayoutBoxConsistent } from "./layout-box";
 import type { BlockBreakToken, BreakToken, FragmentationContext, LayoutResult } from "./fragmentation";
 import { normalizeBreakValue } from "./fragmentation";
 import { layoutInlineContent } from "./ifc";
@@ -14,7 +14,7 @@ import type { WritingMode, Direction } from "@taleweaver/core";
 import { logicalToPhysical } from "@taleweaver/core";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
 import type { LayoutContext } from "./layout-context";
-import { makeChildContext } from "./layout-context";
+import { makeChildContext, makeInlineRunContext } from "./layout-context";
 import type { FloatEnvironment, PushedFloat } from "./float-context";
 import type { PendingAbsChild } from "./abs-pos-context";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
@@ -553,10 +553,9 @@ export function layoutBlock(
         children: Object.freeze([...group.children]),
       });
 
-      // Pass floatEnv explicitly via the context: the anonymous IFC element
-      // inherits this block's float env (same BFC), so pass it in ctx.floatEnv.
-      // We create a child context that carries the same floatEnv.
-      const ifcCtx = makeChildContext(ctx, cs, contentInlineSize, "indefinite", undefined, {
+      // The anonymous IFC box is in this block's BFC (its float env, also when
+      // this block is a BFC root): its lines wrap around this BFC's floats.
+      const ifcCtx = makeInlineRunContext(ctx, cs, contentInlineSize, {
         lineLeft: floatFrame.lineLeft, bfcInlineSize: floatFrame.bfcInlineSize,
       });
 
@@ -1252,8 +1251,20 @@ export function layoutBlock(
       // re-widened an explicit inlineSize: 0 to the parent's full
       // content width, defeating the same intentional-zero authoring
       // that the resolveBoxInlineSize fix protects.
+      //
+      // Its out-of-flow children (floats, which an empty non-BFC block still
+      // holds) are kept, shifted so they stay where the float env placed them.
+      const emptyShift = placedChild.blockOffset - preAdvanceBlockOffset;
+      // The content size the child was laid out with (its own used padding — a
+      // list item's marker may have widened it), which its children's x derive from.
+      const emptyContentInlineSize = placedChild.inlineSize - placedChild.usedStyle.paddingInlineStart - placedChild.usedStyle.paddingInlineEnd;
+      const emptyChildren = placedChild.type !== "block"
+        ? []
+        : emptyShift === 0
+          ? placedChild.children
+          : placedChild.children.map((c) => withBlockOffset(c, c.blockOffset + emptyShift, emptyContentInlineSize));
       layoutChildren.push(
-        createBlockBox(child.key, childInlineStart, preAdvanceBlockOffset, placedChild.inlineSize, 0, cs.writingMode, cs.direction, childCs, childUsedStyle, [],
+        createBlockBox(child.key, childInlineStart, preAdvanceBlockOffset, placedChild.inlineSize, 0, cs.writingMode, cs.direction, childCs, childUsedStyle, emptyChildren,
           /* containingInlineSize */ contentInlineSize,
           child.metadata,
           /* containingBlockSize */ undefined,
