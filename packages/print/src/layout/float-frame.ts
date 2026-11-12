@@ -31,7 +31,7 @@ export function bfcRootFrame(inlineSize: number, direction: Direction): FloatFra
  * The env frame of a box's content box, given the line-left edge and size of
  * the area the box was laid out in (its containing block minus its margins).
  * The box sits at that area's inline-start edge in its CONTAINING block's
- * direction (CSS 2.1 §10.3.3); its padding runs in its own `direction`.
+ * direction (CSS 2.1 §10.3.3); its border + padding run in its own `direction`.
  */
 export function contentFrame(
   areaLineLeft: number,
@@ -39,7 +39,8 @@ export function contentFrame(
   containingDirection: Direction,
   boxInlineSize: number,
   direction: Direction,
-  paddingInlineStart: number,
+  // The content edge's offset in the box's border-box frame (border + padding).
+  contentInlineStart: number,
   contentInlineSize: number,
   bfcInlineSize: number,
 ): FloatFrame {
@@ -47,8 +48,8 @@ export function contentFrame(
     ? areaLineLeft + areaInlineSize - boxInlineSize
     : areaLineLeft;
   const lineLeft = direction === "rtl"
-    ? boxLineLeft + boxInlineSize - paddingInlineStart - contentInlineSize
-    : boxLineLeft + paddingInlineStart;
+    ? boxLineLeft + boxInlineSize - contentInlineStart - contentInlineSize
+    : boxLineLeft + contentInlineStart;
   return { lineLeft, inlineSize: contentInlineSize, direction, bfcInlineSize };
 }
 

@@ -4033,3 +4033,23 @@ describe("TextRunBox.link — PDF /Link foundation", () => {
     for (const run of plain) expect(run.link).toBeUndefined();
   });
 });
+
+describe("IFC — wrap cache gates on the lines' inline offset (T-m)", () => {
+  it("a padding-start change with the content width unchanged re-lays the lines at the new offset", () => {
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    // One cascade: the text keeps its style identity, as an incremental cascade keeps it.
+    const p = cascadePass(createElementBox("p", { display: "block" }, [createTextBox("t", {}, "abc")]));
+    if (p.type !== "element" || p.computedStyle === undefined) throw new Error("?");
+    const cs = p.computedStyle;
+    const lineOffset = (paddingInlineStart: number, paddingInlineEnd: number): number => {
+      const padded = { ...p, computedStyle: { ...cs, paddingInlineStart, paddingInlineEnd } };
+      const box = layoutBlock(padded, 0, 0, rootFrame(ctx), ctx, shaper, undefined).box;
+      const l = box !== null && "children" in box ? box.children[0] : undefined;
+      if (l === undefined) throw new Error("no line");
+      return l.inlineOffset;
+    };
+    expect(lineOffset(10, 20)).toBe(10);
+    // Same content width (570), shared IFC cache: the lines move to 20.
+    expect(lineOffset(20, 10)).toBe(20);
+  });
+});

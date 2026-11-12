@@ -381,7 +381,7 @@ export {
   columnConfigsEqual,
 } from "./styles/column-config";
 export { formatCounter } from "./styles/format-counter";
-export { computedStylesEqual } from "./cascade/cascade-pass";
+export { computedStylesEqual, usedStylesEqual } from "./cascade/cascade-pass";
 export { INLINE_KEY_SEPARATOR } from "./render/inline-render-key";
 export type { BlockKindResolver } from "./state/block-kinds";
 export { coerceBlockId } from "./state/block-id";

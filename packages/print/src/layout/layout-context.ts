@@ -17,9 +17,11 @@ import { createAbsPosEnvironment } from "./abs-pos-context";
  * `inset*` against (CSS Positioned Layout 3 §3). The document root's abc is the
  * page/viewport content area.
  *
- * `origin` is the abc CONTENT-box top-left, expressed in the ESTABLISHING box's
- * OWN coordinate frame (the frame `absoluteChildren` are pushed into and the
- * painter recurses them with) — i.e. `(paddingInlineStart, paddingBlockStart)`.
+ * `origin` is the abc's top-left, expressed in the ESTABLISHING box's OWN
+ * coordinate frame (the frame `absoluteChildren` are pushed into and the
+ * painter recurses them with): on the inline axis its padding edge (CSS 2.1
+ * §10.1, `borderInlineStartWidth`), on the block axis its content edge
+ * (`paddingBlockStart`) until block-axis borders take space.
  * The second pass resolves an abs child's position as `origin.inlineOffset +
  * insetStart` etc., yielding offsets in the establishing box's frame.
  *

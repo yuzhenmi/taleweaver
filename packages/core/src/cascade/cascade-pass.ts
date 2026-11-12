@@ -1,5 +1,5 @@
 import type { RenderNode, ElementBox, TextBox } from "../render/render-node";
-import type { ComputedStyle } from "../styles";
+import type { ComputedStyle, UsedStyle } from "../styles";
 import { PROPERTY_META } from "../styles";
 import { composeComputed } from "./compose";
 import { flattenLengths } from "./flatten-lengths";
@@ -188,4 +188,9 @@ export function computedStylesEqual(a: ComputedStyle, b: ComputedStyle): boolean
     if (!styleValueEqual(a[k], b[k])) return false;
   }
   return true;
+}
+
+/** Structural equality for UsedStyle, by value to full depth (see `styleValueEqual`). */
+export function usedStylesEqual(a: UsedStyle, b: UsedStyle): boolean {
+  return styleValueEqual(a, b);
 }

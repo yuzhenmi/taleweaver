@@ -15,6 +15,12 @@ export interface IFCState {
   readonly tokens: readonly Token[];
   readonly lines: readonly LineBox[];
   readonly availableInlineSize: number;
+  /**
+   * The lines' inline-start offset in the block's frame (its content edge:
+   * border + padding). The cached lines bake it in, so a padding / border-start
+   * change with the same content width must re-lay them.
+   */
+  readonly inlineOffset: number;
   /** The block's border-box inline size: RTL lines' physical x mirror against it. */
   readonly frameInlineSize: number;
   /**

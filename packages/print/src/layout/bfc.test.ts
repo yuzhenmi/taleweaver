@@ -2024,7 +2024,8 @@ describe("B5 — a box sits in its parent's border-box frame, in the parent's di
     const root = rootOf("rtl", [abs], { ...PAD, position: "relative" });
     const a = root.absoluteChildren?.[0];
     if (a === undefined) throw new Error("no abs child");
-    expect(a.x).toBe(600 - 20 - 5 - 100);
+    // The containing block is the padding box (CSS 2.1 §10.1): insets run from the padding edge.
+    expect(a.x).toBe(600 - 5 - 100);
   });
 
   it("an explicit-width child sits at its containing block's start, whatever its own direction", () => {
@@ -2040,5 +2041,109 @@ describe("B5 — a box sits in its parent's border-box frame, in the parent's di
     const c = get(root, "c");
     expect(c.x).toBe(0);
     expect(line(c).y).toBeGreaterThanOrEqual(50);
+  });
+  // BM2: borders take inline space (CSS 2.1 §8): content origin = border + padding.
+  const BORDER = { borderInlineStartWidth: 5, borderInlineEndWidth: 7, borderInlineStartStyle: "solid", borderInlineEndStyle: "solid" } as const;
+  const DECO = { ...BORDER, paddingInlineStart: 10, paddingInlineEnd: 20 };
+
+  it("BM2: a bordered paragraph's lines start inside its border and padding, LTR and RTL", () => {
+    for (const dir of ["ltr", "rtl"] as const) {
+      const p = get(rootOf(dir, [createElementBox("p", { display: "block", direction: dir, ...DECO }, [createTextBox("t", {}, "abc")])], {}), "p");
+      const l = line(p);
+      expect([l.inlineOffset, l.width]).toEqual([15, 600 - 12 - 30]);
+      expect(l.x).toBe(dir === "ltr" ? 15 : 7 + 20);
+    }
+  });
+
+  it("BM2: a float and a list marker sit inside the border", () => {
+    const floatX = (dir: "ltr" | "rtl") => get(rootOf(dir, [block("f", dir, { float: "inline-start", inlineSize: 100, blockSize: 50 })], DECO), "f").x;
+    expect(floatX("ltr")).toBe(15);
+    expect(floatX("rtl")).toBe(600 - 15 - 100);
+    const li = (padding: number) => rootOf("ltr", [createElementBox("li", {
+      display: "block", markerText: "1.", paddingInlineStart: padding, borderInlineStartWidth: 3, borderInlineStartStyle: "solid",
+    }, [createTextBox("t", {}, "x")])], {});
+    // The 16px marker ends 4px before the content edge (border 3 + padding 40).
+    const fits = li(40);
+    expect(get(fits, "li-marker").x).toBe(3 + 40 - 4 - 16);
+    expect(line(get(fits, "li")).inlineOffset).toBe(43);
+    // A gutter too narrow widens the padding: the marker sits flush inside the border.
+    const widened = li(0);
+    expect(get(widened, "li-marker").x).toBe(3);
+    expect(line(get(widened, "li")).inlineOffset).toBe(3 + 20);
+  });
+
+  it("BM2: a bordered table cell's content is its slot minus borders and padding", () => {
+    const table = createElementBox("tbl", { display: "table" }, [
+      createElementBox("r", { display: "table-row" }, [
+        createElementBox("cell", { display: "table-cell", boxSizing: "content-box", ...DECO }, [createTextBox("t", {}, "abc")]),
+      ]),
+    ]);
+    const cell = get(get(get(rootOf("ltr", [table], {}), "tbl"), "r"), "cell");
+    const l = line(cell);
+    expect([l.inlineOffset, l.width]).toEqual([15, cell.width - 12 - 30]);
+  });
+
+  it("BM2: box-sizing — an explicit width is the content width (content-box) or the border-box width", () => {
+    const sized = {
+      inlineSize: 200, paddingInlineStart: 10, paddingInlineEnd: 10,
+      borderInlineStartWidth: 2, borderInlineEndWidth: 2, borderInlineStartStyle: "solid", borderInlineEndStyle: "solid",
+    } as const;
+    const content = get(rootOf("ltr", [createElementBox("c", { display: "block", ...sized }, [createTextBox("t", {}, "abc")])], {}), "c");
+    expect([content.width, line(content).width]).toEqual([224, 200]);
+    const border = get(rootOf("ltr", [createElementBox("c", { display: "block", boxSizing: "border-box", ...sized }, [createTextBox("t", {}, "abc")])], {}), "c");
+    expect([border.width, line(border).width]).toEqual([200, 176]);
+    // An image: the width is the picture; a border adds outside it (block and inline).
+    const pictureBorder = { inlineSize: 200, blockSize: 100, borderInlineStartWidth: 2, borderInlineEndWidth: 2, borderInlineStartStyle: "solid", borderInlineEndStyle: "solid" } as const;
+    expect(get(rootOf("ltr", [block("img", "ltr", pictureBorder)], {}), "img").width).toBe(204);
+    const inlineImage = rootOf("ltr", [createElementBox("p", { display: "block" }, [
+      createElementBox("wrap", { display: "inline-block" }, [createElementBox("pic", { display: "block", ...pictureBorder }, [])]),
+    ])], {});
+    expect(findBoxByKey(inlineImage, "wrap")?.width).toBe(204);
+    // An inline-block atom advances by its border box.
+    const atom = rootOf("ltr", [createElementBox("p", { display: "block" }, [
+      createElementBox("atom", { display: "inline-block", ...sized, inlineSize: 50 }, [createTextBox("u", {}, "a")]),
+    ])], {});
+    expect(findBoxByKey(atom, "atom")?.width).toBe(74);
+    // Percent padding resolves against the containing block (CSS 2.1 §8.4), in
+    // the advance and in the laid-out atom alike: 100 + 10% of 600.
+    const pctAtom = findBoxByKey(rootOf("ltr", [createElementBox("p", { display: "block" }, [
+      createElementBox("atom", { display: "inline-block", inlineSize: 100, paddingInlineStart: { value: 10, unit: "percent" } }, [createTextBox("u", {}, "a")]),
+    ])], {}), "atom");
+    if (pctAtom === undefined) throw new Error("no atom");
+    expect([pctAtom.width, line(pctAtom).inlineOffset, line(pctAtom).width]).toEqual([160, 60, 100]);
+    // A percent-width atom's content is its advance.
+    const pctWidth = findBoxByKey(rootOf("ltr", [createElementBox("p", { display: "block" }, [
+      createElementBox("atom", { display: "inline-block", inlineSize: { value: 50, unit: "percent" } }, [createTextBox("u", {}, "a")]),
+    ])], {}), "atom");
+    if (pctWidth === undefined) throw new Error("no atom");
+    expect([pctWidth.width, line(pctWidth).width]).toEqual([300, 300]);
+  });
+
+  it("BM2: percent padding of a float or an abs-pos box resolves against its containing block", () => {
+    const pct = { inlineSize: 100, paddingInlineStart: { value: 10, unit: "percent" } } as const;
+    const f = get(rootOf("ltr", [createElementBox("f", { display: "block", float: "inline-start", ...pct }, [createTextBox("t", {}, "a")])], {}), "f");
+    expect([f.width, line(f).inlineOffset]).toEqual([160, 60]);
+    const abs = rootOf("ltr", [createElementBox("abs", { display: "block", position: "absolute", insetInlineEnd: 0, ...pct }, [createTextBox("t", {}, "a")])], { position: "relative" }).absoluteChildren?.[0];
+    if (abs === undefined) throw new Error("no abs child");
+    // Its end edge lands on the inset.
+    expect([abs.x + abs.width, abs.width, line(abs).inlineOffset]).toEqual([600, 160, 60]);
+  });
+
+  it("BM2: a border with style none takes no space", () => {
+    const p = get(rootOf("ltr", [createElementBox("p", { display: "block", borderInlineStartWidth: 5 }, [createTextBox("t", {}, "abc")])], {}), "p");
+    expect([line(p).inlineOffset, line(p).width]).toEqual([0, 600]);
+  });
+
+  it("BM2: an abs-pos box's containing block is the padding box", () => {
+    const absChild = (box: Box) => {
+      const a = box.absoluteChildren?.[0];
+      if (a === undefined) throw new Error("no abs child");
+      return a;
+    };
+    const at0 = (dir: "ltr" | "rtl") => absChild(rootOf(dir, [block("abs", dir, { position: "absolute", insetInlineStart: 0, inlineSize: 100, blockSize: 10 })], { ...DECO, position: "relative" }));
+    expect(at0("ltr").x).toBe(5);
+    expect(at0("rtl").x).toBe(600 - 5 - 100);
+    const fill = absChild(rootOf("ltr", [block("abs", "ltr", { position: "absolute", insetInlineStart: 0, insetInlineEnd: 0, blockSize: 10 })], { ...DECO, position: "relative" }));
+    expect([fill.x, fill.width]).toEqual([5, 600 - 12]);
   });
 });

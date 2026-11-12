@@ -8,15 +8,16 @@ import { markerGutterPadding, measureListMarker } from "./list-marker-gutter";
 const zeroBasis = (v: ComputedStyle["marginInlineStart"]): number => resolveUsedLength(v, 0, 0);
 
 /**
- * The box's inline-axis padding, as it counts in its own intrinsic size: an
- * outside list marker wider than the authored gutter widens it, as the BFC
- * lays the item out (`markerGutterPadding`).
+ * The box's inline-axis padding + borders (border box − content box), as they
+ * count in its own intrinsic size: an outside list marker wider than the
+ * authored gutter widens the padding, as the BFC lays the item out
+ * (`markerGutterPadding`).
  */
-export function intrinsicInlinePadding(node: ElementBox, cs: ComputedStyle, shaper: TextShaper): number {
+export function intrinsicInlineDecoration(node: ElementBox, cs: ComputedStyle, shaper: TextShaper): number {
   const authoredStart = zeroBasis(cs.paddingInlineStart);
   const marker = measureListMarker(node, cs, shaper);
   const start = marker === null ? authoredStart : markerGutterPadding(cs, marker.inlineSize, authoredStart);
-  return start + zeroBasis(cs.paddingInlineEnd);
+  return cs.borderInlineStartWidth + start + zeroBasis(cs.paddingInlineEnd) + cs.borderInlineEndWidth;
 }
 
 /** The box's inline-axis margins `[start, end]`, as they count in its contribution. */

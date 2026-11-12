@@ -24,6 +24,8 @@ import { MARKER_GAP, markerGutterPadding, measureListMarker } from "./list-marke
 import { bfcRootFrame, childAreaLineLeft, contentFrame, envSide, fromEnvInline } from "./float-frame";
 import { isLayoutBoxReusable, renderNodesLayoutEquivalent } from "./layout-reuse";
 import type { ParentFrame } from "./parent-frame";
+import { borderBoxInlineSize, contentInlineStart, inlineDecoration } from "./box-inline-decoration";
+import type { UsedStyle } from "@taleweaver/core";
 import { markStart, markEnd } from "@taleweaver/core";
 
 /**
@@ -207,6 +209,10 @@ export function layoutBlock(
   // page it actually sits on. The `= 0` default keeps the page root + every
   // non-paginated caller byte-identical (page 0 / no-float ⇒ `blockFlowBase = 0`).
   pageFlowBase: number = 0,
+  // The box's border-box inline size when the caller already resolved it (a
+  // shrink-to-fit float, abs-pos box or inline-block). `ctx.containingInlineSize`
+  // then stays the containing block, the basis of percent padding (CSS 2.1 §8.4).
+  resolvedInlineSize?: number,
 ): LayoutResult<BlockBox> {
   const t = markStart("bfc.layoutBlock");
   try {
@@ -283,7 +289,10 @@ export function layoutBlock(
         _layoutCacheStats.missesSize++;
       } else if (!isLayoutBoxReusable(entry.box, {
         computedStyle: cs,
-        availableInlineSize,
+        availableInlineSize: resolvedInlineSize ?? availableInlineSize,
+        // With a resolved size the containing block is a separate input: its
+        // percent padding must still match.
+        percentBasis: resolvedInlineSize === undefined ? undefined : availableInlineSize,
         writingMode,
         direction,
         floatEnvDirtyBlockOffset: dirtyOffset,
@@ -308,7 +317,9 @@ export function layoutBlock(
           entry.box.inlineOffset !== inlineOffset ||
           entry.box.blockOffset !== blockOffset ||
           entry.box.direction !== frame.direction ||
-          (frame.direction === "rtl" && physicalInlineStart(entry.box) !== frame.inlineSize - inlineOffset - entry.box.inlineSize);
+          (frame.direction === "rtl" && physicalInlineStart(entry.box) !== frame.inlineSize - inlineOffset - entry.box.inlineSize) ||
+          // A relative offset resolved against a changed containing block.
+          !sameOffset(entry.box.relativeOffset, relativeOffset);
         if (!needsReposition) {
           return { box: entry.box, breakToken: null, inFlowConsumed: entry.inFlowConsumed };
         }
@@ -352,9 +363,10 @@ export function layoutBlock(
   const usedStyle = computeUsedStyle(cs, availableInlineSize, "indefinite");
 
   const paddingBlockStart  = usedStyle.paddingBlockStart;
-  const paddingInlineEnd   = usedStyle.paddingInlineEnd;
   const paddingBlockEnd    = usedStyle.paddingBlockEnd;
-  const paddingInlineStart = usedStyle.paddingInlineStart;
+  // The content edge in this box's border-box frame: its inline-start border +
+  // padding (CSS 2.1 §8). Lines, block children, floats and markers sit from here.
+  const contentStart = contentInlineStart(usedStyle);
 
   // CSS parent/first and parent/last collapse rules:
   // if the parent has no top padding/border, the first child's marginBlockStart
@@ -363,8 +375,12 @@ export function layoutBlock(
   const noTopBoundary = paddingBlockStart === 0 && usedStyle.borderBlockStartWidth === 0;
   const noBottomBoundary = paddingBlockEnd === 0 && usedStyle.borderBlockEndWidth === 0;
 
-  const finalInlineSize = resolveBoxInlineSize(cs, availableInlineSize, false, node, shaper, ctx);
-  const contentInlineSize = finalInlineSize - paddingInlineStart - paddingInlineEnd;
+  // A table cell's border box is its column slot, whatever its box-sizing
+  // (CSS 2.1 §17.5.2, Blink): the table passes the slot as the available size.
+  const finalInlineSize = resolvedInlineSize ?? (cs.display === "table-cell"
+    ? availableInlineSize
+    : resolveBoxInlineSize(cs, usedStyle, availableInlineSize, false, node, shaper, ctx));
+  const contentInlineSize = finalInlineSize - inlineDecoration(usedStyle);
   // The frame this box's own children (lines, blocks, floats, markers, abs-pos
   // boxes) are positioned in: its border box, in its own direction.
   const ownFrame: ParentFrame = { direction, inlineSize: finalInlineSize };
@@ -384,7 +400,7 @@ export function layoutBlock(
     ? bfcRootFrame(contentInlineSize, direction)
     : contentFrame(
       ctx.floatArea.lineLeft, availableInlineSize, frame.direction, finalInlineSize,
-      direction, paddingInlineStart, contentInlineSize, ctx.floatArea.bfcInlineSize,
+      direction, contentStart, contentInlineSize, ctx.floatArea.bfcInlineSize,
     );
 
   // Coherent float+pagination: cumulative document-flow offset of THIS BFC's
@@ -625,11 +641,11 @@ export function layoutBlock(
       // mark / rollback removes it.
       const floatBoxes = isResumeFromDegenerate(ifcResumeFrom)
         ? paragraphFloats(group.children).map((f) => placeParagraphFloat(
-          f, ctx, shaper, hyphenator, paddingInlineStart, floatFrame, ownFrame, blockFlowBase, paraFlowStart,
+          f, ctx, shaper, hyphenator, contentStart, floatFrame, ownFrame, blockFlowBase, paraFlowStart,
         ))
         : [];
 
-      const ifcResult = layoutInlineContent(anonElement, paddingInlineStart, childBlockOffset, ownFrame, ifcCtx, shaper, hyphenator, paraFlowStart, ifcFragmentation);
+      const ifcResult = layoutInlineContent(anonElement, contentStart, childBlockOffset, ownFrame, ifcCtx, shaper, hyphenator, paraFlowStart, ifcFragmentation);
       if (ifcResult.box === null) {
         // IFC couldn't fit anything — propagate as a partial result.
         // If nothing was placed yet (empty fragment), return null so parent can apply overflow rule.
@@ -677,10 +693,10 @@ export function layoutBlock(
     const childUsedStyle = computeUsedStyle(childCs, contentInlineSize, "indefinite");
 
     // In-flow inline-axis margins (CSS box model). An in-flow block child is
-    // positioned at logical inline offset `paddingInlineStart +
+    // positioned at logical inline offset `contentStart +
     // marginInlineStart` and its content box is narrowed by both inline
     // margins. `marginInlineStart`/`marginInlineEnd` default to 0, so for the
-    // common (no-inline-margin) document `childInlineStart === paddingInlineStart`
+    // common (no-inline-margin) document `childInlineStart === contentStart`
     // and `childContentInlineSize === contentInlineSize` — the values below and
     // every site that consumes them are byte-identical to the pre-margin code.
     //
@@ -691,7 +707,7 @@ export function layoutBlock(
     const childMarginInlineEnd   = childUsedStyle.marginInlineEnd;
     // The child's margins run in its OWN direction; its offset runs in this
     // box's, so an opposite-direction child's start margin is on our end side.
-    const childInlineStart = paddingInlineStart +
+    const childInlineStart = contentStart +
       (childCs.direction === direction ? childMarginInlineStart : childMarginInlineEnd);
     const childContentInlineSize = contentInlineSize - childMarginInlineStart - childMarginInlineEnd;
     // F4: the child's area (this content box minus its margins) in the float-env frame.
@@ -745,7 +761,7 @@ export function layoutBlock(
       // offset so its exclusion stacks in the same frame the IFC queries; the
       // box geometry is repositioned back to PAGE-RELATIVE inside the helper.
       const positioned = placeAndPositionFloat(
-        sized, floatEnv, paddingInlineStart, floatFrame, ownFrame,
+        sized, floatEnv, contentStart, floatFrame, ownFrame,
         blockFlowBase, requestedCumulativeOffset,
       );
       layoutChildren.push(positioned);
@@ -899,8 +915,9 @@ export function layoutBlock(
       const markerGap = MARKER_GAP;
       // Compose the marker against the list-item's CONTENT edge — the
       // inline-start of where the item's own text begins. That edge is the
-      // item's outer inline offset (`childInlineStart = parent paddingInlineStart
-      // + child marginInlineStart`) PLUS the item's OWN paddingInlineStart.
+      // item's outer inline offset (`childInlineStart = parent contentStart
+      // + child marginInlineStart`) PLUS the item's OWN inline-start border and
+      // paddingInlineStart.
       //
       // The item's own padding is the structural list-indent / marker gutter in
       // the word-processor leaf model (list membership is a per-paragraph
@@ -941,15 +958,17 @@ export function layoutBlock(
       if (!isResumeFragment) {
         // The marker's offset in the ITEM's own logical frame (its padding and
         // first line run in its direction); converted to this box's frame below.
-        const unshiftedMarkerOffset = childCs.listStylePosition === "inside"
+        // The gutter is the item's padding, inside its inline-start border.
+        const childBorderStart = childUsedStyle.borderInlineStartWidth;
+        const unshiftedMarkerOffset = childBorderStart + (childCs.listStylePosition === "inside"
           ? effectivePaddingInlineStart
-          : effectivePaddingInlineStart - markerInlineSize - markerGap;
+          : effectivePaddingInlineStart - markerInlineSize - markerGap);
         const sameDirection = childCs.direction === direction;
         // The first line's unshifted inline start in the item: its content edge
         // + its first-line text-indent (as the IFC resolves it).
-        const firstLineStart = effectivePaddingInlineStart + resolveUsedLength(
+        const firstLineStart = childBorderStart + effectivePaddingInlineStart + resolveUsedLength(
           childCs.textIndent,
-          childContentInlineSize - effectivePaddingInlineStart - childUsedStyle.paddingInlineEnd,
+          childContentInlineSize - inlineDecoration(childUsedStyle) - (effectivePaddingInlineStart - childUsedStyle.paddingInlineStart),
           0,
         );
         const markerKey = `${child.key}-marker`;
@@ -1327,10 +1346,11 @@ export function layoutBlock(
       const explicitBlock = resolveExplicitBlockSizeOrNull(cs.blockSize, availableInlineSize);
       const abcBlockPercentBase: number | "indefinite" =
         explicitBlock !== null && explicitBlock > 0 ? contentBlockResolved : "indefinite";
+      // Inline axis: the padding box (CSS 2.1 §10.1) — inside the border.
       const abc: ResolvedAbc = {
-        originInline: paddingInlineStart,
+        originInline: usedStyle.borderInlineStartWidth,
         originBlock:  paddingBlockStart,
-        inlineSize:   contentInlineSize,
+        inlineSize:   finalInlineSize - usedStyle.borderInlineStartWidth - usedStyle.borderInlineEndWidth,
         contentBlockResolved,
         blockPercentBase: abcBlockPercentBase,
       };
@@ -1404,12 +1424,13 @@ function sizeFloat(
       Math.max(intrinsic.minContent, available),
     );
   } else {
-    floatInlineSizeForCtx = resolveBoxInlineSize(childCs, available, true, child, shaper, ctx);
+    floatInlineSizeForCtx = resolveBoxInlineSize(childCs, childUsedStyle, available, true, child, shaper, ctx);
   }
   // Float establishes its own BFC (cs.float !== "none"); pass childCs so
   // makeChildContext detects this and gives the float a fresh float env.
-  const floatCtxChild = makeChildContext(ctx, childCs, floatInlineSizeForCtx, "indefinite");
-  const floatResult = layoutBlock(child, 0, 0, parentFrame, floatCtxChild, shaper, hyphenator, undefined, requestedCumulativeOffset);
+  // Its containing block is this content box (the percent basis of its padding).
+  const floatCtxChild = makeChildContext(ctx, childCs, contentInlineSize, "indefinite");
+  const floatResult = layoutBlock(child, 0, 0, parentFrame, floatCtxChild, shaper, hyphenator, undefined, requestedCumulativeOffset, floatInlineSizeForCtx);
   if (floatResult.box === null) {
     throw new Error("layoutBlock without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
   }
@@ -1429,7 +1450,7 @@ function sizeFloat(
  *
  * `floatEnv.placeFloat` returns a CUMULATIVE block-offset (it may push the float
  * below same-side floats); `blockFlowBase` converts it back to the page-relative
- * frame the box geometry uses. `childCs`/`paddingInlineStart`/`frame` supply the
+ * frame the box geometry uses. `childCs`/`contentStart`/`frame` supply the
  * writing-mode/RTL-mirror inputs exactly as the source branch. F4: the float is
  * placed in the BFC's env frame (at the column edge, whatever this block's
  * indent) and translated back into this block's content box (`frame`).
@@ -1437,7 +1458,8 @@ function sizeFloat(
 function placeAndPositionFloat(
   sized: SizedFloat,
   floatEnv: FloatEnvironment,
-  paddingInlineStart: number,
+  // The parent's content edge in its border-box frame (border + padding).
+  contentStart: number,
   frame: FloatFrame,
   parentFrame: ParentFrame,
   blockFlowBase: number,
@@ -1453,7 +1475,7 @@ function placeAndPositionFloat(
   );
   const placedInlineOffset = fromEnvInline(frame, result.inlineOffset, floatInlineSize);
   const placedBlockOffset = result.blockOffset - blockFlowBase;
-  const repositionedInlineOffset = paddingInlineStart + placedInlineOffset;
+  const repositionedInlineOffset = contentStart + placedInlineOffset;
   let positioned: LayoutBox;
   if (
     floatExplicitBlockSize > 0 &&
@@ -1502,7 +1524,7 @@ function placeParagraphFloat(
   ctx: LayoutContext,
   shaper: TextShaper,
   hyphenator: Hyphenator | undefined,
-  paddingInlineStart: number,
+  contentStart: number,
   frame: FloatFrame,
   parentFrame: ParentFrame,
   blockFlowBase: number,
@@ -1518,7 +1540,7 @@ function placeParagraphFloat(
     contentInlineSize, parentFrame, requested,
   );
   const placed = inlineFloat?.exclusion === "full" ? { ...sized, floatInlineSize: frame.bfcInlineSize } : sized;
-  return placeAndPositionFloat(placed, ctx.floatEnv, paddingInlineStart, frame, parentFrame, blockFlowBase, requested);
+  return placeAndPositionFloat(placed, ctx.floatEnv, contentStart, frame, parentFrame, blockFlowBase, requested);
 }
 
 /**
@@ -1564,9 +1586,9 @@ export function placeIncomingPushedFloats(
   // does (its `usedStyle` / `finalInlineSize` / `contentInlineSize`), so a pushed
   // float lands in the identical frame the body's own floats use.
   const rootUsedStyle = computeUsedStyle(rootCs, pageCtx.containingInlineSize, "indefinite");
-  const paddingInlineStart = rootUsedStyle.paddingInlineStart;
-  const finalInlineSize = resolveBoxInlineSize(rootCs, pageCtx.containingInlineSize, false, bodyRoot, shaper, pageCtx);
-  const contentInlineSize = finalInlineSize - paddingInlineStart - rootUsedStyle.paddingInlineEnd;
+  const contentStart = contentInlineStart(rootUsedStyle);
+  const finalInlineSize = resolveBoxInlineSize(rootCs, rootUsedStyle, pageCtx.containingInlineSize, false, bodyRoot, shaper, pageCtx);
+  const contentInlineSize = finalInlineSize - inlineDecoration(rootUsedStyle);
   // The floats become the body box's children: its border box is their frame.
   const bodyFrame: ParentFrame = { direction: pageCtx.direction, inlineSize: finalInlineSize };
 
@@ -1583,7 +1605,7 @@ export function placeIncomingPushedFloats(
       node, childCs, childUsedStyle, pageCtx, shaper, hyphenator, contentInlineSize, bodyFrame, pageFlowBase,
     );
     const positioned = placeAndPositionFloat(
-      sized, pageEnv, paddingInlineStart, bfcRootFrame(contentInlineSize, pageCtx.direction), bodyFrame,
+      sized, pageEnv, contentStart, bfcRootFrame(contentInlineSize, pageCtx.direction), bodyFrame,
       pageFlowBase, pageFlowBase,
     );
     positionedFloats.push(positioned);
@@ -1600,6 +1622,9 @@ export function placeIncomingPushedFloats(
  */
 function resolveBoxInlineSize(
   cs: ComputedStyle,
+  // The box's used style: its padding + borders and box-sizing turn a
+  // specified length into its border-box size.
+  usedStyle: UsedStyle,
   containingInlineSize: number,
   isShrinkToFit: boolean,
   node: ElementBox,
@@ -1641,7 +1666,7 @@ function resolveBoxInlineSize(
   // into `inlineSize: auto` (full-width), defeating intentional zero-
   // size authoring.
   const resolved = resolveUsedLength(v, containingInlineSize, containingInlineSize);
-  return resolved < 0 ? containingInlineSize : resolved;
+  return resolved < 0 ? containingInlineSize : borderBoxInlineSize(resolved, usedStyle);
 }
 
 /**
@@ -1679,11 +1704,11 @@ function resolveExplicitBlockSizeOrNull(
  * are pushed into), so an abs child's resolved offsets are parent-relative there.
  */
 interface ResolvedAbc {
-  /** The abc content-box inline-start, in the establishing box's frame (= paddingInlineStart). */
+  /** The abc padding-box inline-start, in the establishing box's frame (= borderInlineStartWidth). */
   readonly originInline: number;
   /** The abc content-box block-start, in the establishing box's frame (= paddingBlockStart). */
   readonly originBlock: number;
-  /** The abc content-area inline-size (definite). */
+  /** The abc padding-box inline-size (definite): the border box minus its inline borders. */
   readonly inlineSize: number;
   /** The abc content-area block-size, resolved at drain time (definite). Used for px end-anchoring / fill. */
   readonly contentBlockResolved: number;
@@ -1738,7 +1763,9 @@ function layoutAbsoluteChildren(
     if (childCs.inlineSize === "auto" && insetInlineStart !== null && insetInlineEnd !== null) {
       usedInlineSize = Math.max(0, abc.inlineSize - insetInlineStart - insetInlineEnd);
     } else {
-      usedInlineSize = resolveBoxInlineSize(childCs, abc.inlineSize, /* isShrinkToFit */ true, p.node, shaper, ctx);
+      // Its padding resolves against the abc (CSS 2.1 §8.4), as its layout below does.
+      const childUsedStyle = computeUsedStyle(childCs, abc.inlineSize, "indefinite");
+      usedInlineSize = resolveBoxInlineSize(childCs, childUsedStyle, abc.inlineSize, /* isShrinkToFit */ true, p.node, shaper, ctx);
     }
 
     // Inline position (in the abc content frame): inset-inline-start wins; else
@@ -1767,8 +1794,8 @@ function layoutAbsoluteChildren(
     // context is fresh; pass the resolved inline-size as its containing inline
     // size. We lay out first to learn its auto block-size, then resolve the block
     // position, then reposition. ──────────────────────────────────────────────
-    const childCtx = makeChildContext(ctx, childCs, usedInlineSize, "indefinite");
-    const provisional = layoutBlock(p.node, 0, 0, abcFrame, childCtx, shaper, hyphenator);
+    const childCtx = makeChildContext(ctx, childCs, abc.inlineSize, "indefinite");
+    const provisional = layoutBlock(p.node, 0, 0, abcFrame, childCtx, shaper, hyphenator, undefined, 0, usedInlineSize);
     if (provisional.box === null) {
       throw new Error("layoutAbsoluteChildren: abs child layout returned null (no fragmentation passed)");
     }
@@ -1804,8 +1831,8 @@ function layoutAbsoluteChildren(
     // position (re-running so the box's own offsets/physical coords bake in).
     const finalInlineOffset = abc.originInline + inlineOffsetInAbcContent;
     const finalBlockOffset = abc.originBlock + blockOffsetInAbcContent;
-    const finalCtx = makeChildContext(ctx, childCs, usedInlineSize, "indefinite");
-    const finalResult = layoutBlock(p.node, finalInlineOffset, finalBlockOffset, abcFrame, finalCtx, shaper, hyphenator);
+    const finalCtx = makeChildContext(ctx, childCs, abc.inlineSize, "indefinite");
+    const finalResult = layoutBlock(p.node, finalInlineOffset, finalBlockOffset, abcFrame, finalCtx, shaper, hyphenator, undefined, 0, usedInlineSize);
     if (finalResult.box === null) {
       throw new Error("layoutAbsoluteChildren: abs child final layout returned null");
     }
@@ -1832,6 +1859,10 @@ function resolveBlockInset(
   return resolveUsedLength(value, percentBase, 0);
 }
 
+
+function sameOffset(a: LayoutBox["relativeOffset"], b: LayoutBox["relativeOffset"]): boolean {
+  return a === b || (a !== undefined && b !== undefined && a.dx === b.dx && a.dy === b.dy);
+}
 
 /** A box's physical coordinate along its inline axis (x horizontally, y vertically). */
 function physicalInlineStart(box: LayoutBox): number {

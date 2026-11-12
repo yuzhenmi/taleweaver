@@ -18,6 +18,7 @@ import { layoutBlock } from "./bfc";
 import type { WritingMode, Direction } from "@taleweaver/core";
 import { axisMapFor } from "@taleweaver/core";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
+import { borderBoxInlineSize } from "./box-inline-decoration";
 import type { LayoutContext } from "./layout-context";
 import { makeRootContext, makeChildContext } from "./layout-context";
 import { contentFrame, floatIntrusionAt } from "./float-frame";
@@ -1106,9 +1107,12 @@ function collectInlineTokens(
       // Resolve inlineSize using intrinsic sizes for auto (shrink-to-fit, CSS Sizing 3 §10.3.5).
       // cs.inlineSize: ComputedLengthOrAuto | IntrinsicSizingKeyword =
       //   number | { unit: "percent"; value } | "auto" | "min-content" | "max-content" | "fit-content".
+      // A specified length is the content or border-box width per box-sizing;
+      // the atom's advance is its border box (css-box-sizing §3).
+      const containingForDecoration = parentCtx !== null ? parentCtx.containingInlineSize : 0;
       let inlineSizePx: number;
       if (typeof cs.inlineSize === "number") {
-        inlineSizePx = cs.inlineSize;
+        inlineSizePx = borderBoxInlineSize(cs.inlineSize, computeUsedStyle(cs, containingForDecoration, "indefinite"));
       } else if (typeof cs.inlineSize === "object") {
         // percent (the only ComputedLength object shape — see length.ts): a
         // DEFINITE size resolved against the containing block's inline size
@@ -1118,7 +1122,7 @@ function collectInlineTokens(
         // collectTokens / rewrap path passes parentCtx === null (no
         // containing-width context) → fall back to max-content.
         inlineSizePx = parentCtx !== null
-          ? (cs.inlineSize.value / 100) * parentCtx.containingInlineSize
+          ? borderBoxInlineSize((cs.inlineSize.value / 100) * parentCtx.containingInlineSize, computeUsedStyle(cs, containingForDecoration, "indefinite"))
           : computeIntrinsicSizes(child, shaper, intrinsicCache).maxContent;
       } else {
         // Now genuinely exhaustive: "auto" | "min-content" | "max-content" | "fit-content".
@@ -1151,11 +1155,15 @@ function collectInlineTokens(
       // External callers (collectTokens / rewrap-incremental) pass null
       // and get the fresh-root behavior.
       const ibResolvedInlineSize = inlineSizePx > 0 ? inlineSizePx : 100;
+      // A resolved size lays the atom out at exactly its advance, its percent
+      // padding against the containing block (the basis used above).
+      const resolved = inlineSizePx > 0 ? inlineSizePx : undefined;
+      const ibContaining = resolved === undefined ? ibResolvedInlineSize : containingForDecoration;
       const ibCtx = parentCtx !== null
-        ? makeChildContext(parentCtx, cs, ibResolvedInlineSize, "indefinite")
-        : makeRootContext(cs, ibResolvedInlineSize);
+        ? makeChildContext(parentCtx, cs, ibContaining, "indefinite")
+        : makeRootContext(cs, ibContaining);
       // Only the children are kept (they sit in the inline-block's own frame).
-      const bfcResult = layoutBlock(child, 0, 0, { direction: cs.direction, inlineSize: ibResolvedInlineSize }, ibCtx, shaper, hyphenator);
+      const bfcResult = layoutBlock(child, 0, 0, { direction: cs.direction, inlineSize: ibResolvedInlineSize }, ibCtx, shaper, hyphenator, undefined, 0, resolved);
       if (bfcResult.box === null) {
         throw new Error("layoutBlock without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
       }
@@ -1416,7 +1424,7 @@ export function layoutInlineContent(
   blockOffset: number,
   // The block whose lines these are: its border box + direction. The lines are
   // its children, positioned from its inline-start edge (`inlineOffset` is its
-  // padding-inline-start).
+  // content edge: border + padding inline-start).
   frame: ParentFrame,
   ctx: LayoutContext,
   shaper: TextShaper,
@@ -1546,6 +1554,7 @@ export function layoutInlineContent(
   if (
     prevState !== undefined &&
     prevState.availableInlineSize === availableInlineSize &&
+    prevState.inlineOffset === inlineOffset &&
     prevState.frameInlineSize === frame.inlineSize &&
     prevState.textAlign === textAlign &&
     prevState.direction === direction &&
@@ -2901,6 +2910,7 @@ export function layoutInlineContent(
       tokens,
       lines: resultLines,
       availableInlineSize,
+      inlineOffset,
       frameInlineSize: frame.inlineSize,
       textAlign,
       direction,

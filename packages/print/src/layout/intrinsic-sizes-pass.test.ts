@@ -829,10 +829,20 @@ describe("computeIntrinsicSizes — box model and floats (P3 M1e)", () => {
     ]))).toEqual({ minContent: 39, maxContent: 59 });
     // A table cell's own size includes its padding (column sizing reads it).
     expect(sizes(createElementBox("c", { display: "table-cell", ...pad }, [text("t", "abc")]))).toEqual({ minContent: 37, maxContent: 37 });
-    // A definite inline size is already the padding-inclusive size: + margins only.
+    // A definite inline size is the content width (content-box): + padding 7 + margins 12.
     expect(sizes(createElementBox("p", { display: "block" }, [
       createElementBox("c", { display: "block", inlineSize: 50, ...pad, ...margin }, []),
-    ]))).toEqual({ minContent: 62, maxContent: 62 });
+    ]))).toEqual({ minContent: 69, maxContent: 69 });
+  });
+
+  it("BM2: a box's own size includes its inline borders; a definite size follows box-sizing", () => {
+    const deco = { paddingInlineStart: 3, paddingInlineEnd: 4, borderInlineStartWidth: 2, borderInlineEndWidth: 5, borderInlineStartStyle: "solid", borderInlineEndStyle: "solid" } as const;
+    // "ab cd": min 30 (a word + its space) / max 50, + padding 7 + borders 7.
+    expect(sizes(createElementBox("c", { display: "block", ...deco }, [text("t", "ab cd")]))).toEqual({ minContent: 44, maxContent: 64 });
+    expect(sizes(createElementBox("c", { display: "table-cell", ...deco }, [text("t", "abc")]))).toEqual({ minContent: 44, maxContent: 44 });
+    // A definite 50: content-box → + padding + borders; border-box → 50.
+    expect(sizes(createElementBox("c", { display: "block", inlineSize: 50, ...deco }, []))).toEqual({ minContent: 64, maxContent: 64 });
+    expect(sizes(createElementBox("c", { display: "block", inlineSize: 50, boxSizing: "border-box", ...deco }, []))).toEqual({ minContent: 50, maxContent: 50 });
   });
 
   it("N2: an outside list marker wider than the item's padding widens its gutter (as layout does)", () => {

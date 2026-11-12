@@ -20,6 +20,7 @@ import { layoutTreeIncremental } from "./layout-incremental";
 import { positionTreeForTest } from "../test-utils/position-tree";
 import type { LayoutBox } from "./layout-box";
 import { rootFrame } from "./parent-frame";
+import { computeUsedStyle } from "./used-style";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -87,6 +88,19 @@ describe("isLayoutBoxReusable", () => {
   it("does not reuse when availableInlineSize differs", () => {
     const prev = makeBlockBox({ inlineSize: 500 });
     expect(isLayoutBoxReusable(prev, makeInputs({ availableInlineSize: 400 }))).toBe(false);
+  });
+
+  it("with a caller-resolved size, does not reuse when its used style's percent basis changed", () => {
+    // Cached at basis 600: reused at 600, not at 500 — for every percent field
+    // of the used style (inline / block padding, a margin), not a listed few.
+    const pct = { value: 10, unit: "percent" } as const;
+    for (const field of ["paddingInlineStart", "paddingBlockStart", "marginInlineStart"] as const) {
+      const cs = { ...INITIAL_COMPUTED_STYLE, [field]: pct };
+      const prev = createBlockBox("f", 0, 0, 160, 20, cs.writingMode, cs.direction, cs, computeUsedStyle(cs, 600, "indefinite"), [], 600);
+      const inputs = (percentBasis: number) => makeInputs({ computedStyle: cs, availableInlineSize: 160, percentBasis });
+      expect([field, isLayoutBoxReusable(prev, inputs(600))]).toEqual([field, true]);
+      expect([field, isLayoutBoxReusable(prev, inputs(500))]).toEqual([field, false]);
+    }
   });
 
   it("does not reuse when writingMode differs", () => {
@@ -274,6 +288,20 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     const p1Box1 = out1.children.find((c) => c.key === "p1");
     const p1Box2 = out2.children.find((c) => c.key === "p1");
     expect(p1Box2).not.toBe(p1Box1);
+  });
+
+  it("a reused float with a percent relative offset takes the offset of its new containing block", () => {
+    const f = createElementBox("f", { display: "block", float: "inline-start", inlineSize: 100, position: "relative", insetInlineStart: { value: 10, unit: "percent" } }, [createTextBox("t", {}, "a")]);
+    const doc = cascadePass(createElementBox("doc", { display: "block" }, [f]));
+    if (doc.type !== "element") throw new Error("?");
+    const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const out1 = layoutBlock(doc, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined).box;
+    if (out1 === null) throw new Error("null box");
+    const ctx2: LayoutContext = { ...makeRootContext(INITIAL_COMPUTED_STYLE, 500), prevLayoutCache: buildLayoutBoxCacheFromTree(out1, doc), prevFloatEnv: null };
+    const out2 = layoutBlock(doc, 0, 0, rootFrame(ctx2), ctx2, shaper, undefined).box;
+    const float2 = out2 !== null && "children" in out2 ? out2.children.find((c) => c.key === "f") : undefined;
+    // Same resolved size (100), containing block 600 → 500: dx 10% of 500.
+    expect(float2?.relativeOffset).toEqual({ dx: 50, dy: 0 });
   });
 
   it("a reused box is repositioned when only its parent's frame changed (B5)", () => {

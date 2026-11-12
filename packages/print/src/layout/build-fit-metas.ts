@@ -21,6 +21,7 @@ import { layoutBlock } from "./bfc";
 import { layoutInlineContent } from "./ifc";
 import { makeRootContext, makeChildContext } from "./layout-context";
 import { computeUsedStyle } from "./used-style";
+import { borderBoxInlineSize, inlineDecoration } from "./box-inline-decoration";
 import { normalizeBreakValue } from "./fragmentation";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import type { ComputedStyle } from "@taleweaver/core";
@@ -500,10 +501,10 @@ function layoutChildInWrapper(
  */
 function contentInlineSizeOf(cs: ComputedStyle, availableInlineSize: number): number {
   const used = computeUsedStyle(cs, availableInlineSize, "indefinite");
-  // bfc.ts:226–227: `contentInlineSize = finalInlineSize − paddingInlineStart −
-  // paddingInlineEnd` (padding only; border is NOT subtracted there).
-  // finalInlineSize resolves `inline-size: auto` to the available width.
+  // bfc.layoutBlock: `contentInlineSize = finalInlineSize − inlineDecoration`
+  // (padding + borders). finalInlineSize resolves `inline-size: auto` to the
+  // available width and a length per box-sizing.
   const finalInlineSize =
-    typeof cs.inlineSize === "number" ? cs.inlineSize : availableInlineSize;
-  return finalInlineSize - used.paddingInlineStart - used.paddingInlineEnd;
+    typeof cs.inlineSize === "number" ? borderBoxInlineSize(cs.inlineSize, used) : availableInlineSize;
+  return finalInlineSize - inlineDecoration(used);
 }

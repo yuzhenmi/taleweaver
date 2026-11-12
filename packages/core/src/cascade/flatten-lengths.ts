@@ -51,7 +51,17 @@ export function flattenLengths(cs: ComputedStyle): ComputedStyle {
     insetBlockEnd:    flattenLengthOrAuto(cs.insetBlockEnd, fontSize),
     insetInlineStart: flattenLengthOrAuto(cs.insetInlineStart, fontSize),
     insetInlineEnd:   flattenLengthOrAuto(cs.insetInlineEnd, fontSize),
+
+    // A border whose style is `none` has computed width 0 (CSS Backgrounds 3 §4.3).
+    borderBlockStartWidth:  borderWidth(cs.borderBlockStartWidth, cs.borderBlockStartStyle),
+    borderBlockEndWidth:    borderWidth(cs.borderBlockEndWidth, cs.borderBlockEndStyle),
+    borderInlineStartWidth: borderWidth(cs.borderInlineStartWidth, cs.borderInlineStartStyle),
+    borderInlineEndWidth:   borderWidth(cs.borderInlineEndWidth, cs.borderInlineEndStyle),
   };
+}
+
+function borderWidth(width: number, style: ComputedStyle["borderInlineStartStyle"]): number {
+  return style === "none" ? 0 : width;
 }
 
 function isIntrinsicKeyword(v: unknown): v is IntrinsicSizingKeyword {

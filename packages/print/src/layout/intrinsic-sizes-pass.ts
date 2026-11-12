@@ -14,7 +14,7 @@ import type { GridCellInput } from "./table-grid";
 import { distributeColumnIntrinsics } from "./table-column-sizing";
 import type { SpannedCellIntrinsic } from "./table-column-sizing";
 import { asBlockId } from "@taleweaver/core";
-import { intrinsicInlinePadding, outerContribution } from "./intrinsic-box-model";
+import { intrinsicInlineDecoration, outerContribution } from "./intrinsic-box-model";
 import { floatOf, isFloated, mergeFloats } from "./intrinsic-floats";
 
 const ZERO_CONTRIBUTION: IntrinsicContribution = {
@@ -259,7 +259,10 @@ function computeBlockContribution(
   // cluster; a real block exposes 0). A percentage inline size stays
   // indefinite during an intrinsic query, so only the numeric case short-circuits.
   if (cs && typeof cs.inlineSize === "number") {
-    const definite = cs.inlineSize;
+    // The border-box size (css-box-sizing §3), as layout resolves it.
+    const definite = cs.boxSizing === "border-box"
+      ? cs.inlineSize
+      : cs.inlineSize + intrinsicInlineDecoration(node, cs, shaper);
     const isInlineBlockBox = cs.display === "inline-block";
     return {
       minContent: definite,
@@ -408,13 +411,12 @@ function computeBlockContribution(
   }
   flushRun();
 
-  // The box's own size includes its inline padding (the engine's inline size is
-  // padding-inclusive: layout subtracts the padding from it), with a list
-  // marker's widened gutter. A `contents` element has no box.
+  // The box's own size is its border box: content + inline padding (with a
+  // list marker's widened gutter) + inline borders. A `contents` element has no box.
   if (cs !== undefined && cs.display !== "contents") {
-    const padding = intrinsicInlinePadding(node, cs, shaper);
-    containerMin += padding;
-    containerMax += padding;
+    const decoration = intrinsicInlineDecoration(node, cs, shaper);
+    containerMin += decoration;
+    containerMax += decoration;
   }
 
   // What this node exposes as its OWN first cluster to an enclosing indented

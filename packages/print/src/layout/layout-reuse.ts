@@ -1,8 +1,9 @@
 import type { LayoutBox } from "./layout-box";
 import type { RenderNode } from "@taleweaver/core";
 import type { ComputedStyle } from "@taleweaver/core";
-import { computedStylesEqual } from "@taleweaver/core";
+import { computedStylesEqual, usedStylesEqual } from "@taleweaver/core";
 import { flattenContents } from "./group-children";
+import { computeUsedStyle } from "./used-style";
 
 /** Entry stored per render-node key in the cache. */
 export interface LayoutBoxCacheEntry {
@@ -203,6 +204,12 @@ export interface ReuseInputs {
    * float environment, or environments are identical).
    */
   readonly floatEnvDirtyBlockOffset: number;
+  /**
+   * The containing block's inline size when the box's own size was resolved by
+   * its caller (`availableInlineSize` is then that size): the box's percent
+   * used style resolves against it, so the cached used style must match whole.
+   */
+  readonly percentBasis?: number;
 }
 
 /**
@@ -231,6 +238,10 @@ export function isLayoutBoxReusable(
   // Either way, if prev.inlineSize !== the new container size, the box may
   // need a different size and we must re-layout.
   if (prev.inlineSize !== inputs.availableInlineSize) {
+    return false;
+  }
+  if (inputs.percentBasis !== undefined &&
+    !usedStylesEqual(prev.usedStyle, computeUsedStyle(inputs.computedStyle, inputs.percentBasis, "indefinite"))) {
     return false;
   }
 
