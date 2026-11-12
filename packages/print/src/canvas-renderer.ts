@@ -12,6 +12,7 @@ import type { PaintCache, Rect, DecorationRectSnapshot } from "./paint-cache";
 import { CURRENT_COLOR, type DecorationRect, type DecorationUnderlinePaint } from "./decoration-geometry";
 export type { DecorationRect } from "./decoration-geometry";
 import { createOffscreenSurface } from "./offscreen-surface";
+import { isFloatBox } from "./layout/is-float-box";
 
 const SELECTION_FILL = "rgba(59, 130, 246, 0.3)";
 
@@ -203,6 +204,8 @@ interface PaintState {
   insideAtomicInline: number;
   /** The painted tree: the boundary-mark index over it gives each ¶'s visible clip. */
   markRoot: LayoutBox;
+  /** The current stacking layer's floats, deferred out of the tree walk (`paintLayer*`). */
+  floats: DeferredFloat[] | null;
 }
 
 export type CursorState = "active" | "inactive" | "hidden";
@@ -265,10 +268,10 @@ export function paintCanvas(
       // CSS-background slots) → selection overlay → foreground (text) layer →
       // cursor, so the translucent selection tint composites OVER content
       // backgrounds and decorations and UNDER the glyphs.
-      const state: PaintState = { lastFont: "", imageCache, decorations: indexDecorations(decorations), frameDx: 0, frameDy: 0, insideAtomicInline: 0, markRoot: layoutTree };
+      const state: PaintState = { lastFont: "", imageCache, decorations: indexDecorations(decorations), frameDx: 0, frameDy: 0, insideAtomicInline: 0, markRoot: layoutTree, floats: null };
 
       // Background phase: content backgrounds, borders, images, highlights.
-      paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state, "background");
+      const floats = paintLayerBackground(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state);
 
 
       // Selection rects (over backgrounds, under text)
@@ -281,7 +284,7 @@ export function paintCanvas(
       }
 
       // Foreground phase: glyphs + text decorations.
-      paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state, "foreground");
+      paintLayerForeground(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state, floats);
 
       // Cursor
       if (cursorState === "active") {
@@ -302,10 +305,10 @@ export function paintCanvas(
   // Two-phase paint: background (incl. decorations) → selection overlay →
   // foreground (text) → cursor. The selection tint composites over content
   // backgrounds and decorations, under text.
-  const state: PaintState = { lastFont: "", imageCache, decorations: indexDecorations(decorations), frameDx: 0, frameDy: 0, insideAtomicInline: 0, markRoot: layoutTree };
+  const state: PaintState = { lastFont: "", imageCache, decorations: indexDecorations(decorations), frameDx: 0, frameDy: 0, insideAtomicInline: 0, markRoot: layoutTree, floats: null };
 
   // Background phase
-  paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state, "background");
+  const floats = paintLayerBackground(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state);
 
 
   // Selection rects (over backgrounds, under text)
@@ -318,7 +321,7 @@ export function paintCanvas(
   }
 
   // Foreground phase (glyphs + decorations)
-  paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state, "foreground");
+  paintLayerForeground(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state, floats);
 
   // Cursor
   if (cursorState === "active") {
@@ -394,7 +397,7 @@ export function paintPage(
       // Two-phase paint: page white bg (above) → background phase
       // (incl. decorations) → selection
       // overlay → foreground (text) phase → cursor.
-      const state: PaintState = { lastFont: "", imageCache, decorations: indexDecorations(decorations), frameDx: 0, frameDy: 0, insideAtomicInline: 0, markRoot: pageBox };
+      const state: PaintState = { lastFont: "", imageCache, decorations: indexDecorations(decorations), frameDx: 0, frameDy: 0, insideAtomicInline: 0, markRoot: pageBox, floats: null };
       // pageBox.x/y are document-relative (the page's offset within the wrapping
   // root BlockBox). The canvas paints in page-local coordinates (origin at the
   // page's top-left). Pass negative pageBox offsets so paintBox's first
@@ -404,7 +407,7 @@ export function paintPage(
   // correctly without the offset, so only later pages show the bug.
 
       // Background phase: content backgrounds, borders, images, highlights.
-      paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state, "background");
+      const floats = paintLayerBackground(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state);
 
 
       // Selection rects (over backgrounds, under text)
@@ -417,7 +420,7 @@ export function paintPage(
       }
 
       // Foreground phase: glyphs + text decorations.
-      paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state, "foreground");
+      paintLayerForeground(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state, floats);
 
       // Cursor
       if (cursorPos) {
@@ -442,7 +445,7 @@ export function paintPage(
   // Two-phase paint: page white bg (above) → background phase
   // (incl. decorations) → selection
   // overlay → foreground (text) phase → cursor.
-  const state: PaintState = { lastFont: "", imageCache, decorations: indexDecorations(decorations), frameDx: 0, frameDy: 0, insideAtomicInline: 0, markRoot: pageBox };
+  const state: PaintState = { lastFont: "", imageCache, decorations: indexDecorations(decorations), frameDx: 0, frameDy: 0, insideAtomicInline: 0, markRoot: pageBox, floats: null };
   // pageBox.x/y are document-relative (the page's offset within the wrapping
   // root BlockBox). The canvas paints in page-local coordinates (origin at the
   // page's top-left). Pass negative pageBox offsets so paintBox's first
@@ -452,7 +455,7 @@ export function paintPage(
   // correctly without the offset, so only later pages show the bug.
 
   // Background phase: content backgrounds, borders, images, highlights.
-  paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state, "background");
+  const floats = paintLayerBackground(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state);
 
 
   // Selection rects (already page-relative and filtered by pageIndex)
@@ -464,7 +467,7 @@ export function paintPage(
   }
 
   // Foreground phase: glyphs + text decorations.
-  paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state, "foreground");
+  paintLayerForeground(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state, floats);
 
   // Cursor (null means cursor is not on this page)
   if (cursorPos) {
@@ -858,6 +861,7 @@ function paintOpacityGroup(
     frameDy: state.frameDy - absY,
     insideAtomicInline: state.insideAtomicInline,
     markRoot: state.markRoot,
+    floats: null,
   };
   // Visible band = the full surface in surface-local coords; the subtree is small
   // (one box) and already culled by the parent walk, so paint it all.
@@ -872,14 +876,108 @@ function paintOpacityGroup(
   const rel = box.relativeOffset;
   const offParentX = -(box.x + (rel !== undefined ? rel.dx : 0));
   const offParentY = -(box.y + (rel !== undefined ? rel.dy : 0));
-  paintBox(offCtx, box, offParentX, offParentY, offVisibleTop, offVisibleBottom, offState, "background", true);
-  paintBox(offCtx, box, offParentX, offParentY, offVisibleTop, offVisibleBottom, offState, "foreground", true);
+  const floats = paintLayerBackground(offCtx, box, offParentX, offParentY, offVisibleTop, offVisibleBottom, offState, true);
+  paintLayerForeground(offCtx, box, offParentX, offParentY, offVisibleTop, offVisibleBottom, offState, floats, true);
   // Composite the finished group onto the parent at the box's painted origin,
   // at the group alpha. Restore globalAlpha to 1 so no alpha leaks to siblings.
   const priorAlpha = ctx.globalAlpha;
   ctx.globalAlpha = opacity;
   ctx.drawImage(surface.canvas, absX, absY);
   ctx.globalAlpha = priorAlpha;
+}
+
+// ── Float paint layer (CSS 2.1 Appendix E step 4) ──────────
+//
+// A stacking context paints its in-flow block backgrounds, then its floats, then
+// its in-flow inline content — so a float hanging beside a later block paints
+// over that block's background and under its text, wherever the float sits in
+// the tree. Floats never overlap one another, so painting each float's subtree in
+// the two global sub-phases (its backgrounds after the in-flow ones, its glyphs
+// before the in-flow ones) is the atomic order with the selection tint between.
+// The background walk defers each float it meets (with its parent origin); the
+// foreground walk paints them first, then skips them.
+
+interface DeferredFloat {
+  readonly box: LayoutBox;
+  readonly parentX: number;
+  readonly parentY: number;
+  /** The canvas matrix at the float's place in the tree (an ancestor's `transform`). */
+  readonly matrix: DOMMatrix;
+}
+
+/** A float laid in its layer, with the floats of its own subtree (its own layer). */
+interface LayerFloat extends DeferredFloat {
+  readonly nested: readonly LayerFloat[];
+}
+
+/** Defer a float child to the current layer's float slot; false when painted in place. */
+function deferFloat(ctx: CanvasRenderingContext2D, state: PaintState, child: LayoutBox, parentX: number, parentY: number): boolean {
+  if (state.floats === null || !isFloatBox(child)) return false;
+  state.floats.push({ box: child, parentX, parentY, matrix: ctx.getTransform() });
+  return true;
+}
+
+/** Paint a deferred float under the matrix it was met under (its ancestors' transforms). */
+function underFloatMatrix<T>(ctx: CanvasRenderingContext2D, state: PaintState, f: DeferredFloat, paint: () => T): T {
+  ctx.save();
+  ctx.setTransform(f.matrix);
+  try {
+    return paint();
+  } finally {
+    ctx.restore();
+    state.lastFont = ""; // `restore` reverts `ctx.font`
+  }
+}
+
+/** Background sub-phase of a stacking layer rooted at `box`: in-flow, then its floats. */
+function paintLayerBackground(
+  ctx: CanvasRenderingContext2D,
+  box: LayoutBox,
+  parentX: number,
+  parentY: number,
+  visibleTop: number,
+  visibleBottom: number,
+  state: PaintState,
+  skipOpacity: boolean = false,
+): LayerFloat[] {
+  const outer = state.floats;
+  const floats: DeferredFloat[] = [];
+  state.floats = floats;
+  try {
+    paintBox(ctx, box, parentX, parentY, visibleTop, visibleBottom, state, "background", skipOpacity);
+  } finally {
+    state.floats = outer;
+  }
+  return floats.map((f) => ({
+    ...f,
+    nested: underFloatMatrix(ctx, state, f, () =>
+      paintLayerBackground(ctx, f.box, f.parentX, f.parentY, visibleTop, visibleBottom, state)),
+  }));
+}
+
+/** Foreground sub-phase of the same layer: its floats, then its in-flow content. */
+function paintLayerForeground(
+  ctx: CanvasRenderingContext2D,
+  box: LayoutBox,
+  parentX: number,
+  parentY: number,
+  visibleTop: number,
+  visibleBottom: number,
+  state: PaintState,
+  floats: readonly LayerFloat[],
+  skipOpacity: boolean = false,
+): void {
+  for (const f of floats) {
+    underFloatMatrix(ctx, state, f, () =>
+      paintLayerForeground(ctx, f.box, f.parentX, f.parentY, visibleTop, visibleBottom, state, f.nested));
+  }
+  const outer = state.floats;
+  state.floats = []; // collected again and dropped: painted above
+  try {
+    paintBox(ctx, box, parentX, parentY, visibleTop, visibleBottom, state, "foreground", skipOpacity);
+  } finally {
+    state.floats = outer;
+  }
 }
 
 // ── z-index + stacking contexts (CSS 2.2 §E.2) ──────────
@@ -1028,8 +1126,8 @@ function paintStackingChildAtomic(
   visibleBottom: number,
   state: PaintState,
 ): void {
-  paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, "background");
-  paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, "foreground");
+  const floats = paintLayerBackground(ctx, child, absX, absY, visibleTop, visibleBottom, state);
+  paintLayerForeground(ctx, child, absX, absY, visibleTop, visibleBottom, state, floats);
 }
 
 /**
@@ -1080,14 +1178,17 @@ function paintContainerChildren(
     // Common path — unchanged document order: children, then abs children.
     if ("children" in box) {
       for (const child of box.children) {
+        if (deferFloat(ctx, state, child, absX, absY)) continue;
         paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
       }
     }
     paintAbsoluteChildren(ctx, box, absX, absY, visibleTop, visibleBottom, state, phase);
     return;
   }
-  // Reorder path. Buckets 3–5: in-flow non-positioned, recurse in the current phase.
+  // Reorder path. Buckets 3–5: in-flow non-positioned, recurse in the current
+  // phase (floats go to the layer's float slot, `deferFloat`).
   for (const child of partition.inFlow) {
+    if (deferFloat(ctx, state, child, absX, absY)) continue;
     paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
   }
   // Buckets 6 then 7: positioned auto/0 (tree order), then positive-z (ascending).

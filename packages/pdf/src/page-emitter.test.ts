@@ -189,6 +189,41 @@ describe("emitPageContent", () => {
     expect(decode(contentBytes)).toContain("1 0 0 rg\n7.5 22.5 75 37.5 re\nf\n");
   });
 
+  // P3 F5: floats paint after the in-flow block backgrounds and before the
+  // in-flow glyphs (CSS 2.1 Appendix E step 4), wherever they sit in the tree.
+  it("emits a float after the following block's background and before the in-flow text", () => {
+    const block = (bg: string, y: number, children: unknown[], float?: string) => ({
+      type: "block", x: 0, y, width: 100, height: 16, children,
+      computedStyle: { backgroundColor: bg, float: float ?? "none" } as unknown as ComputedStyle,
+      usedStyle: NO_BORDER_USED_STYLE,
+    });
+    const run = (t: string) => textRun({ text: t, x: 0, y: 0, width: 8, height: 16, fontSize: 12, clusterWidths: [8] });
+    const float = { ...block("#ff0000", 0, [run("F")], "inline-start"), height: 40 };
+    const p1 = block("transparent", 0, [float, run("a")]);
+    const p2 = block("#0000ff", 16, [run("b")]);
+    const s = decode(emitPageContent(page([p1, p2]), { provider: createStandard14FontProvider(), fontResourceName: () => "/F0", imageResourceName: () => "/Im0" }).contentBytes);
+    const at = (needle: string) => {
+      const i = s.indexOf(needle);
+      expect(i, needle).toBeGreaterThanOrEqual(0);
+      return i;
+    };
+    expect(at("0 0 1 rg")).toBeLessThan(at("1 0 0 rg"));
+    expect(at("1 0 0 rg")).toBeLessThan(at("<46> Tj"));
+    expect(at("<46> Tj")).toBeLessThan(at("<61> Tj"));
+    expect(at("<46> Tj")).toBeLessThan(at("<62> Tj"));
+
+    // A float under a TOC entry keeps the entry's context: its cross-ref atom is
+    // covered by the entry's whole-line link, not linked a second time.
+    const atom = {
+      type: "inline-block", x: 0, y: 0, width: 12, height: 16, children: [],
+      computedStyle: { backgroundColor: "transparent" } as unknown as ComputedStyle,
+      usedStyle: NO_BORDER_USED_STYLE, targetId: "heading-B",
+    };
+    const tocEntry = { ...block("transparent", 0, [block("transparent", 0, [atom], "inline-start")]), metadata: { tocEntry: true, navTarget: "heading-B" } };
+    const links = emitPageContent(page([tocEntry]), { provider: createStandard14FontProvider(), fontResourceName: () => "/F0", imageResourceName: () => "/Im0" }).internalLinkRects;
+    expect(links.map((r) => r.targetId)).toEqual(["heading-B"]);
+  });
+
   it("emits NO fill for a transparent background", () => {
     const block = {
       type: "block", x: 10, y: 20, width: 100, height: 50, children: [],

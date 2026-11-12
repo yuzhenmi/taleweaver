@@ -139,11 +139,31 @@ export interface BlockBox extends LayoutBoxBase {
    * the layout-box cache reuses the box only where that holds again. Absent ⇒ false.
    */
   readonly atFragmentainerStart?: true;
+  /**
+   * Set when `bfc.layoutBlock` laid this box, not a BFC root, and it placed a
+   * float into its parent's BFC or a float reached into it (P3 F3). Such a box
+   * is never reused by the layout-box cache: a reuse would leave its floats out
+   * of the env, or keep line narrowing for a float that moved. Stamped at the
+   * full-return site and kept across the re-creation paths (`withLayoutStamps`).
+   * Absent ⇒ false.
+   */
+  readonly floatSensitive?: true;
 }
 
 /** Stamp `atFragmentainerStart` on a box bfc laid at a fragmentainer start. */
 export function withFragmentainerStart(box: BlockBox, atStart: boolean): BlockBox {
   return atStart ? Object.freeze(Object.assign({}, box, { atFragmentainerStart: true as const })) : box;
+}
+
+/** Stamp `floatSensitive` on a box whose layout placed or saw a float. */
+export function withFloatSensitive(box: BlockBox, sensitive: boolean): BlockBox {
+  return sensitive ? Object.freeze(Object.assign({}, box, { floatSensitive: true as const })) : box;
+}
+
+/** Carry `from`'s layout stamps (`atFragmentainerStart`, `floatSensitive`) onto its re-created box. */
+export function withLayoutStamps(box: BlockBox, from: LayoutBox): BlockBox {
+  if (from.type !== "block") return box;
+  return withFloatSensitive(withFragmentainerStart(box, from.atFragmentainerStart === true), from.floatSensitive === true);
 }
 
 export interface LineBox extends LayoutBoxBase {
@@ -1074,15 +1094,13 @@ export function rebuildBoxWithOffsets(
   containingInlineSize: number,
   containingBlockSize?: number,
 ): LayoutBox {
-  // A split box's fragment keeps its sliced sides, and a box laid at a
-  // fragmentainer start its stamp, across every reposition.
+  // A split box's fragment keeps its sliced sides, and a block its layout
+  // stamps, across every reposition.
   const rebuilt = withSidesToInclude(
     rebuildFromFactory(box, newInlineOffset, newBlockOffset, containingInlineSize, containingBlockSize),
     box.sidesToInclude,
   );
-  return box.type === "block" && box.atFragmentainerStart === true && rebuilt.type === "block"
-    ? withFragmentainerStart(rebuilt, true)
-    : rebuilt;
+  return rebuilt.type === "block" ? withLayoutStamps(rebuilt, box) : rebuilt;
 }
 
 function rebuildFromFactory(

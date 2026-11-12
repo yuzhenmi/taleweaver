@@ -3,7 +3,7 @@ import { createElementBox, createTextBox } from "@taleweaver/core";
 import { cascadePass, cascadePassIncremental } from "@taleweaver/core";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import { makeRootContext } from "./layout-context";
-import { layoutBlock } from "./bfc";
+import { layoutBlock, __getLayoutCacheStatsForTest, __resetLayoutCacheStatsForTest } from "./bfc";
 import { createMockShaper } from "@taleweaver/core";
 import {
   isLayoutBoxReusable,
@@ -499,6 +499,114 @@ describe("layoutBlock subtree reuse (incremental)", () => {
 
     // The parent box itself is reused: same reference as before.
     expect(out2).toBe(docBox1);
+  });
+});
+
+// F3: a paragraph that holds a float, or sits beside one, is never reused
+// (block reuse) and never takes the IFC wrap-cache fast path.
+describe("float paragraphs are not reused (P3 F3)", () => {
+  const WORDS = "aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll";
+  // A wrapped inline image: a floated inline-block atom in the paragraph's inline run.
+  const floatAtom = (width: number) => createElementBox("img", { display: "inline-block", float: "inline-start", inlineSize: width, blockSize: 48 }, []);
+  const para = (key: string, children: Parameters<typeof createElementBox>[2]) => createElementBox(key, { display: "block" }, children);
+  // p0 holds a 48px-tall float; p1 starts at y=16, beside it; p2 starts below it.
+  function doc(floatWidth: number, p1Text: string, p1?: ReturnType<typeof para>, p2?: ReturnType<typeof para>, p0?: ReturnType<typeof para>) {
+    return createElementBox("doc", { display: "block" }, [
+      p0 ?? para("p0", [floatAtom(floatWidth), createTextBox("t0", { display: "inline" }, "ab")]),
+      p1 ?? para("p1", [createTextBox("t1", { display: "inline" }, p1Text)]),
+      p2 ?? para("p2", [createTextBox("t2", { display: "inline" }, "x\ny\nz\nw\nv")]),
+    ]);
+  }
+  function child(box: LayoutBox | null, key: string): BlockBox {
+    const c = box !== null && box.type === "block" ? box.children.find((b) => b.key === key) : undefined;
+    if (c === undefined || c.type !== "block") throw new Error(`no ${key}`);
+    return c;
+  }
+  const firstLine = (p: BlockBox) => {
+    const l = p.children.find((c) => c.type === "line");
+    if (l === undefined) throw new Error("no line");
+    return l;
+  };
+
+  it("block reuse: a reused paragraph holding a float still excludes it (an edited neighbour wraps around it)", () => {
+    const a = doc(100, WORDS);
+    const ca = cascadePass(a);
+    if (ca.type !== "element") throw new Error("?");
+    const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const out1 = layoutBlock(ca, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined).box;
+    expect(firstLine(child(out1, "p1")).x).toBe(100);
+    // Edit p1 only; p0 (holding the float) is unchanged by reference.
+    const b = doc(100, WORDS + " mmmm", undefined, a.children[2] as ReturnType<typeof para>, a.children[0] as ReturnType<typeof para>);
+    const cb = cascadePassIncremental(b, a, ca);
+    if (cb.type !== "element") throw new Error("?");
+    const ctx2: LayoutContext = { ...makeRootContext(INITIAL_COMPUTED_STYLE, 500), prevLayoutCache: buildLayoutBoxCacheFromTree(out1 as LayoutBox, ca), prevFloatEnv: null };
+    const out2 = layoutBlock(cb, 0, 0, rootFrame(ctx2), ctx2, shaper, undefined).box;
+    expect(child(out2, "p0").children.some((c) => c.key === "img")).toBe(true);
+    expect(firstLine(child(out2, "p1")).x).toBe(100);
+  });
+
+  it("block reuse: an empty wrapper holding only a float (collapsed through) still excludes it", () => {
+    const wrapper = createElementBox("w", { display: "block" }, [
+      createElementBox("img", { display: "block", float: "inline-start", inlineSize: 100, blockSize: 48 }, []),
+    ]);
+    const a = createElementBox("doc", { display: "block" }, [wrapper, para("p1", [createTextBox("t1", { display: "inline" }, WORDS)])]);
+    const ca = cascadePass(a);
+    if (ca.type !== "element") throw new Error("?");
+    const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const out1 = layoutBlock(ca, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined).box;
+    expect(firstLine(child(out1, "p1")).x).toBe(100);
+    // Edit p1 only; the wrapper is the same node.
+    const b = createElementBox("doc", { display: "block" }, [wrapper, para("p1", [createTextBox("t1", { display: "inline" }, WORDS + " mmmm")])]);
+    const cb = cascadePassIncremental(b, a, ca);
+    if (cb.type !== "element") throw new Error("?");
+    const ctx2: LayoutContext = { ...makeRootContext(INITIAL_COMPUTED_STYLE, 500), prevLayoutCache: buildLayoutBoxCacheFromTree(out1 as LayoutBox, ca), prevFloatEnv: null };
+    const out2 = layoutBlock(cb, 0, 0, rootFrame(ctx2), ctx2, shaper, undefined).box;
+    expect(firstLine(child(out2, "p1")).x).toBe(100);
+  });
+
+  it("block reuse: a paragraph beside an earlier paragraph's float is re-laid when the float changes; one far from it is reused", () => {
+    const a = doc(100, WORDS);
+    const ca = cascadePass(a);
+    if (ca.type !== "element") throw new Error("?");
+    const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const out1 = layoutBlock(ca, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined).box;
+    const p1Before = child(out1, "p1");
+    const p2Before = child(out1, "p2");
+    expect(p2Before.y).toBeGreaterThanOrEqual(48);
+    // Widen the float; p1 and p2 are the same nodes.
+    const ap = a.children;
+    const b = doc(150, WORDS, ap[1] as ReturnType<typeof para>, ap[2] as ReturnType<typeof para>);
+    const cb = cascadePassIncremental(b, a, ca);
+    if (cb.type !== "element") throw new Error("?");
+    const ctx2: LayoutContext = { ...makeRootContext(INITIAL_COMPUTED_STYLE, 500), prevLayoutCache: buildLayoutBoxCacheFromTree(out1 as LayoutBox, ca), prevFloatEnv: null };
+    __resetLayoutCacheStatsForTest();
+    const out2 = layoutBlock(cb, 0, 0, rootFrame(ctx2), ctx2, shaper, undefined).box;
+    expect(child(out2, "p1")).not.toBe(p1Before);
+    expect(firstLine(child(out2, "p1")).x).toBe(150);
+    // Perf guard: p2, below the float, is still reused.
+    expect(child(out2, "p2")).toBe(p2Before);
+    expect(__getLayoutCacheStatsForTest().hits).toBe(1);
+  });
+
+  it("IFC wrap cache: a paragraph holding a float re-wraps when the float changes; one far from it hits the cache", () => {
+    const a = doc(100, WORDS);
+    const ca = cascadePass(a);
+    if (ca.type !== "element") throw new Error("?");
+    const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const out1 = layoutBlock(ca, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined).box;
+    expect(firstLine(child(out1, "p0")).x).toBe(100);
+    const ap = a.children;
+    const b = doc(150, WORDS, ap[1] as ReturnType<typeof para>, ap[2] as ReturnType<typeof para>);
+    const cb = cascadePassIncremental(b, a, ca);
+    if (cb.type !== "element") throw new Error("?");
+    // No block reuse: only the IFC wrap cache carries over.
+    const ctx2: LayoutContext = { ...makeRootContext(INITIAL_COMPUTED_STYLE, 500), ifcStateCache: ctx1.ifcStateCache };
+    const out2 = layoutBlock(cb, 0, 0, rootFrame(ctx2), ctx2, shaper, undefined).box;
+    expect(child(out2, "p0").children.some((c) => c.key === "img")).toBe(true);
+    expect(firstLine(child(out2, "p0")).x).toBe(150);
+    expect(firstLine(child(out2, "p1")).x).toBe(150);
+    // Perf guard: p2's lines come from the cache (same line objects).
+    expect(firstLine(child(out2, "p2"))).toBe(firstLine(child(out1, "p2")));
   });
 });
 

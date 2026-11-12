@@ -1,6 +1,6 @@
 import type { ElementBox } from "@taleweaver/core";
 import type { LayoutBox, BlockBox } from "./layout-box";
-import { createBlockBox, createMarkerBox, withOffsets, withBlockOffset, withSidesToInclude, withFragmentainerStart, assertLayoutBoxConsistent } from "./layout-box";
+import { createBlockBox, createMarkerBox, withOffsets, withBlockOffset, withSidesToInclude, withFragmentainerStart, withFloatSensitive, withLayoutStamps, assertLayoutBoxConsistent } from "./layout-box";
 import type { BlockBreakToken, BreakToken, FragmentationContext, LayoutResult } from "./fragmentation";
 import { isResumeFromDegenerate, normalizeBreakValue } from "./fragmentation";
 import { layoutInlineContent } from "./ifc";
@@ -140,6 +140,8 @@ const _layoutCacheStats = {
   hitsRepositioned: 0,
   missesNoEntry: 0,
   missesRenderInequiv: 0,
+  /** F3: the box placed or saw a float before, or a float now reaches into it. */
+  missesFloat: 0,
   missesSize: 0,
   missesResumeFrom: 0,
   missesReusableGate: 0,
@@ -157,6 +159,7 @@ export function __resetLayoutCacheStatsForTest(): void {
   _layoutCacheStats.hitsRepositioned = 0;
   _layoutCacheStats.missesNoEntry = 0;
   _layoutCacheStats.missesRenderInequiv = 0;
+  _layoutCacheStats.missesFloat = 0;
   _layoutCacheStats.missesSize = 0;
   _layoutCacheStats.missesResumeFrom = 0;
   _layoutCacheStats.missesReusableGate = 0;
@@ -210,6 +213,35 @@ export function layoutBlock(
   const relativeOffset = resolveRelativeOffset(
     cs, writingMode, frame.direction, availableInlineSize, ctx.containingBlockSize,
   );
+
+  // Coherent float+pagination: cumulative document-flow offset of THIS BFC's
+  // `childBlockOffset === 0` origin (the content top of this box). For the page
+  // root BFC that origin is the page's content top, whose cumulative flow offset
+  // is `pageFlowBase` (sum of prior pages' `inFlowConsumed`); a NESTED BFC adds
+  // its origin within the page (`ctx.originFromAbc.blockOffset`). A child's
+  // cumulative flow offset is then `blockFlowBase + childBlockOffset`.
+  //
+  // Float placement, clearance, the IFC float query (via `paraFlowStart`), and
+  // the BFC float-enclosure edge are ALL expressed in this cumulative frame, so
+  // a float's line-narrowing applies to the lines beside/below it on the page
+  // where it ACTUALLY SITS — across page boundaries — instead of being displaced
+  // ~1 page. Box geometry stays page-relative: every consumer subtracts
+  // `blockFlowBase` back off the cumulative float-env result (placeFloat return,
+  // clearance, lowestFloatBlockEdge enclosure) before writing a box offset/height.
+  //
+  // LOCKSTEP with the measure pass: `paraFlowStart` is stamped CUMULATIVE here AND
+  // in `fit-core`'s IFC producers (which receive the page-cumulative `contentFlowBase`
+  // from the measure pass). The two passes' resume tokens are compared field-for-field
+  // by `breakTokensEqual` at the measure↔materialize agreement gate
+  // (`virtual-layout-tree.ts`) and the equivalence oracle, so both stamps MUST be the
+  // same cumulative value.
+  //
+  // KNOWN LIMITATION: `ctx.originFromAbc.blockOffset` resets to 0 at an
+  // absolute-containing-block boundary (`position: relative` / transforms), so a
+  // float nested under such an ancestor would read a low base. Current float docs
+  // use top-level floats (`nestedOrigin === 0`), where this is exact.
+  const nestedOrigin = ctx.isBFCRoot ? 0 : ctx.originFromAbc.blockOffset;
+  const blockFlowBase = pageFlowBase + nestedOrigin;
 
   // Subtree reuse: if a previous layout exists, check whether this block's
   // output is still valid. Conservative — only reuse when all inputs match.
@@ -272,6 +304,13 @@ export function layoutBlock(
         // Laid at a fragmentainer start (a leading margin truncated) or not:
         // only the same position reproduces it (CSS Fragmentation §5.2).
         _layoutCacheStats.missesFragmentainerStart++;
+      } else if (!ctx.isBFCRoot && (
+        (entry.box.type === "block" && entry.box.floatSensitive === true) ||
+        ctx.floatEnv.hasFloatIn(blockFlowBase, blockFlowBase + entry.box.blockSize)
+      )) {
+        // F3: its layout placed / saw a float (a reuse would drop the float from
+        // the env, or keep stale narrowing), or a float now reaches into it.
+        _layoutCacheStats.missesFloat++;
       } else if (!isLayoutBoxReusable(entry.box, {
         computedStyle: cs,
         availableInlineSize: resolvedInlineSize ?? availableInlineSize,
@@ -346,6 +385,8 @@ export function layoutBlock(
     }
   }
   _layoutCacheStats.fullLayoutInvocations++;
+  // F3: how many floats the shared env held before this box's own layout.
+  const floatsBefore = ctx.floatEnv.getPlacedFloats().length;
   const usedStyle = computeUsedStyle(cs, availableInlineSize, "indefinite");
 
   // The block axis likewise: the first child starts below the block-start
@@ -409,35 +450,6 @@ export function layoutBlock(
       ctx.floatArea.lineLeft, availableInlineSize, frame.direction, finalInlineSize,
       direction, contentStart, contentInlineSize, ctx.floatArea.bfcInlineSize,
     );
-
-  // Coherent float+pagination: cumulative document-flow offset of THIS BFC's
-  // `childBlockOffset === 0` origin (the content top of this box). For the page
-  // root BFC that origin is the page's content top, whose cumulative flow offset
-  // is `pageFlowBase` (sum of prior pages' `inFlowConsumed`); a NESTED BFC adds
-  // its origin within the page (`ctx.originFromAbc.blockOffset`). A child's
-  // cumulative flow offset is then `blockFlowBase + childBlockOffset`.
-  //
-  // Float placement, clearance, the IFC float query (via `paraFlowStart`), and
-  // the BFC float-enclosure edge are ALL expressed in this cumulative frame, so
-  // a float's line-narrowing applies to the lines beside/below it on the page
-  // where it ACTUALLY SITS — across page boundaries — instead of being displaced
-  // ~1 page. Box geometry stays page-relative: every consumer subtracts
-  // `blockFlowBase` back off the cumulative float-env result (placeFloat return,
-  // clearance, lowestFloatBlockEdge enclosure) before writing a box offset/height.
-  //
-  // LOCKSTEP with the measure pass: `paraFlowStart` is stamped CUMULATIVE here AND
-  // in `fit-core`'s IFC producers (which receive the page-cumulative `contentFlowBase`
-  // from the measure pass). The two passes' resume tokens are compared field-for-field
-  // by `breakTokensEqual` at the measure↔materialize agreement gate
-  // (`virtual-layout-tree.ts`) and the equivalence oracle, so both stamps MUST be the
-  // same cumulative value.
-  //
-  // KNOWN LIMITATION: `ctx.originFromAbc.blockOffset` resets to 0 at an
-  // absolute-containing-block boundary (`position: relative` / transforms), so a
-  // float nested under such an ancestor would read a low base. Current float docs
-  // use top-level floats (`nestedOrigin === 0`), where this is exact.
-  const nestedOrigin = ctx.isBFCRoot ? 0 : ctx.originFromAbc.blockOffset;
-  const blockFlowBase = pageFlowBase + nestedOrigin;
 
   let prevMarginBlockEnd = 0;
   // True while every in-flow child so far collapsed into this box's start margin.
@@ -1194,7 +1206,7 @@ export function layoutBlock(
     // its rows) survive. `childLayout` is already inline-positioned in this box's
     // frame, so the as-is path needs no further repositioning.
     const placedChild = explicitBlockSize > 0 && childLayout.type === "block"
-      ? withSidesToInclude(withFragmentainerStart(createBlockBox(child.key, childInlineStart, childBlockOffset, childLayout.inlineSize, explicitBlockSize, cs.writingMode, direction, childCs, childUsedStyle,
+      ? withSidesToInclude(withLayoutStamps(createBlockBox(child.key, childInlineStart, childBlockOffset, childLayout.inlineSize, explicitBlockSize, cs.writingMode, direction, childCs, childUsedStyle,
           // Preserve the block's laid-out CONTENT children across the re-creation (do
           // NOT drop to []). A `display:block` child with text + an explicit height
           // must keep its rendered lines so they paint and remain hit-testable —
@@ -1211,7 +1223,7 @@ export function layoutBlock(
           // in its OWN frame, independent of this re-creation, so they carry through
           // verbatim — a dropped clone here would silently lose the abs subtree.
           childLayout.absoluteChildren,
-        ), childLayout.atFragmentainerStart === true), childLayout.sidesToInclude)
+        ), childLayout), childLayout.sidesToInclude)
       : childLayout;
 
     const childIsEmpty = isCollapseThroughEmpty(childCs, childUsedStyle, childLayout.blockSize, contentInlineSize);
@@ -1330,7 +1342,7 @@ export function layoutBlock(
         : emptyShift === 0
           ? placedChild.children
           : placedChild.children.map((c) => withBlockOffset(c, c.blockOffset + emptyShift, placedChild.inlineSize));
-      layoutChildren.push(withFragmentainerStart(
+      layoutChildren.push(withLayoutStamps(
         createBlockBox(child.key, childInlineStart, preAdvanceBlockOffset, placedChild.inlineSize, 0, cs.writingMode, direction, childCs, childUsedStyle, emptyChildren,
           /* containingInlineSize */ finalInlineSize,
           child.metadata,
@@ -1344,7 +1356,7 @@ export function layoutBlock(
           // would silently lose the abs subtree.
           placedChild.absoluteChildren,
         ),
-        placedChild.type === "block" && placedChild.atFragmentainerStart === true,
+        placedChild,
       ));
     } else {
       layoutChildren.push(placedChild);
@@ -1429,7 +1441,7 @@ export function layoutBlock(
     }
   }
 
-  return { box: withSidesToInclude(withFragmentainerStart(createBlockBox(
+  const box = withSidesToInclude(withFragmentainerStart(createBlockBox(
     node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, frame.direction, cs, usedStyle, layoutChildren,
     /* containingInlineSize */ frame.inlineSize,
     node.metadata,
@@ -1442,7 +1454,14 @@ export function layoutBlock(
     // The fragmentainer start it was laid at, for the layout-box cache's reuse gate.
   ), atFragmentainerStart),
     // The last fragment of a split box keeps only its end side.
-  { blockStart: !isContinuation, blockEnd: true }), breakToken: null, inFlowConsumed: inFlowBlockSize };
+  { blockStart: !isContinuation, blockEnd: true });
+  // F3: a box that placed a float into its parent's BFC, or that a float
+  // reaches into, is never reused (`floatSensitive` at the reuse gate).
+  const floatSensitive = !isOwnBFC && (
+    floatEnv.getPlacedFloats().length > floatsBefore ||
+    floatEnv.hasFloatIn(blockFlowBase, blockFlowBase + totalBlockSize)
+  );
+  return { box: withFloatSensitive(box, floatSensitive), breakToken: null, inFlowConsumed: inFlowBlockSize };
   } finally {
     markEnd("bfc.layoutBlock", t);
   }

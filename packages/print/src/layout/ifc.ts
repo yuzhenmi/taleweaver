@@ -1544,7 +1544,9 @@ export function layoutInlineContent(
   // Treat `hasTab` entries as a cache miss (`hasTab` is set at cache-save time
   // from `tokens.some((t) => t.isTab === true)`).
   const cachedState = fragmentation === undefined ? ctx.ifcStateCache.get(parent.key) : undefined;
-  const prevState = cachedState !== undefined && !cachedState.hasTab ? cachedState : undefined;
+  // F3: likewise a paragraph that holds or saw a float (`seesFloat`), and one a
+  // float now reaches into (checked below against the cached lines' block range).
+  const prevState = cachedState !== undefined && !cachedState.hasTab && !cachedState.seesFloat ? cachedState : undefined;
   // The cached lines bake in their alignment offset — each
   // top-level child's `inlineOffset` carries the alignment delta (the line
   // itself spans the full width at the natural inline-start). A change to ONLY
@@ -1565,11 +1567,11 @@ export function layoutInlineContent(
     prevState.defaultTabStop === parentCs.defaultTabStop &&
     tabStopsEqual(prevState.tabStops, parentCs.tabStops)
   ) {
-    if (findChangePoint(prevState.tokens, tokens) === -1) {
+    const cachedBlockSize = linesBlockSize(prevState.lines, blockOffset);
+    if (findChangePoint(prevState.tokens, tokens) === -1 && !floatEnv.hasFloatIn(paraFlowStart, paraFlowStart + cachedBlockSize)) {
       const tHit = markStart("ifc.cache.hit");
       try {
         const cachedLines = Array.from(prevState.lines);
-        const cachedBlockSize = cachedLines.reduce((acc, l) => Math.max(acc, l.blockOffset + l.blockSize - blockOffset), 0);
         const cachedUsedStyle = computeUsedStyle(parentCs, availableInlineSize, "indefinite");
         return { box: createBlockBox(parent.key, inlineOffset, blockOffset, availableInlineSize, cachedBlockSize, writingMode, direction, parentCs, cachedUsedStyle, cachedLines, availableInlineSize), breakToken: null, inFlowConsumed: cachedBlockSize };
       } finally {
@@ -2926,6 +2928,8 @@ export function layoutInlineContent(
       // resolved advance depends on its line-position, not just its token text),
       // so an incremental re-wrap of a tab-bearing block always re-lays.
       hasTab: tokens.some((t) => t.isTab === true),
+      seesFloat: tokens.some((t) => t.inlineBlock?.floatKey !== undefined) ||
+        floatEnv.hasFloatIn(paraFlowStart, paraFlowStart + linesBlockSize(resultLines, blockOffset)),
     });
   }
 
@@ -3865,4 +3869,9 @@ function correctFragmentEdge(
   // position field, switch to `withBlockOffset` / `withOffsets` and add
   // an `assertLayoutBoxConsistent` check.
   return Object.freeze({ ...box, children: Object.freeze(newChildren), fragmentEdge: edge }) as LayoutBox;
+}
+
+/** The block extent of a paragraph's lines below `blockOffset` (its first line's top). */
+function linesBlockSize(lines: readonly LineBox[], blockOffset: number): number {
+  return lines.reduce((acc, l) => Math.max(acc, l.blockOffset + l.blockSize - blockOffset), 0);
 }

@@ -84,6 +84,7 @@ export { layoutTree } from "./layout/dispatch";
 export { layoutTreeIncremental } from "./layout/layout-incremental";
 export { establishesNewBFC } from "./layout/bfc-establishment";
 export { sourceBlockIdOf, markerOwnerKey, collectTokens } from "./layout/ifc";
+export { isFloatBox } from "./layout/is-float-box";
 export { collectPageFields } from "./layout/collect-page-fields";
 export type { IFCState, IFCStateCache } from "./layout/ifc-state";
 export { createIFCStateCache } from "./layout/ifc-state";

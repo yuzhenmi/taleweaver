@@ -75,6 +75,13 @@ export interface FloatEnvironment {
   lowestFloatBlockEdge(): number;
 
   /**
+   * Whether any placed float's block range intersects `[blockStart, blockEnd)`.
+   * O(1) when no float reaches below `blockStart` (the common case away from
+   * floats); otherwise a scan of the placed floats.
+   */
+  hasFloatIn(blockStart: number, blockEnd: number): boolean;
+
+  /**
    * Returns the smallest float block-bottom strictly greater than `blockOffset`.
    * Returns `blockOffset` if no float bottom is strictly below (so caller can
    * detect "no progress").
@@ -117,6 +124,12 @@ export interface FloatEnvironment {
 export function createFloatEnvironment(): FloatEnvironment {
   const placed: PlacedFloat[] = [];
   const pushed: PushedFloat[] = [];
+  // Upper bound on every placed float's block end, for `hasFloatIn`'s early out.
+  let maxBlockEnd = Number.NEGATIVE_INFINITY;
+  function add(f: PlacedFloat): void {
+    placed.push(f);
+    maxBlockEnd = Math.max(maxBlockEnd, f.blockOffset + f.blockSize);
+  }
 
   function nextFloatBottomBelow(blockOffset: number): number {
     let candidate = Infinity;
@@ -195,7 +208,7 @@ export function createFloatEnvironment(): FloatEnvironment {
   return {
     placeFloat(side, requestedBlockOffset, inlineSize, blockSize, containingInlineSize) {
       const landing = computeLanding(side, requestedBlockOffset, inlineSize, containingInlineSize);
-      placed.push({
+      add({
         side,
         inlineOffset: landing.inlineOffset,
         blockOffset: landing.blockOffset,
@@ -236,8 +249,13 @@ export function createFloatEnvironment(): FloatEnvironment {
       return nextFloatBottomBelow(blockOffset);
     },
 
+    hasFloatIn(blockStart, blockEnd) {
+      if (blockStart >= maxBlockEnd) return false;
+      return placed.some((f) => f.blockOffset < blockEnd && f.blockOffset + f.blockSize > blockStart);
+    },
+
     seedPlaced(f) {
-      placed.push(f);
+      add(f);
     },
 
     pushFloat(pf) {
