@@ -146,12 +146,17 @@ export function writeCell(w: Working, tree: TreeKind, cell: FormedCell, links: L
 
 /** The table's record: `a:*` + `columnWidths` (RT3) + `headerRowCount` (RT4, when > 0). */
 function tableRecord(e: TableEntity, formed: FormedTable, links: Links): Block {
-  const attrs = scalarsWithPrefix(e.map, "a:");
+  return containerRecord(e.id, BLOCK_TYPES.table, tableAttrs(e.map, formed.widths, formed.headerCount), links, formed.rows[0]?.id ?? null, formed.rows[formed.rows.length - 1]?.id ?? null);
+}
+
+/** A table record's attrs: its `⟦`'s `a:*`, then `columnWidths` (RT3, when any) and `headerRowCount` (RT4, when > 0). */
+export function tableAttrs(open: Y.Map<unknown>, widths: readonly number[] | null, headerCount: number): ReadonlyAttrs {
+  const attrs = scalarsWithPrefix(open, "a:");
   delete attrs["columnWidths"];
   delete attrs["headerRowCount"];
-  if (formed.widths !== null) attrs["columnWidths"] = formed.widths;
-  if (formed.headerCount > 0) attrs["headerRowCount"] = formed.headerCount;
-  return containerRecord(e.id, BLOCK_TYPES.table, Object.freeze(attrs), links, formed.rows[0]?.id ?? null, formed.rows[formed.rows.length - 1]?.id ?? null);
+  if (widths !== null) attrs["columnWidths"] = widths;
+  if (headerCount > 0) attrs["headerRowCount"] = headerCount;
+  return Object.freeze(attrs);
 }
 
 /** A cell's `a:*`, with `rowSpan` / `colSpan` set only when > 1 (a virtual cell has none). */

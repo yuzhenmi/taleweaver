@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import { BLOCK_TYPES, type Block } from "./block";
 import { setColumnWidths } from "./commands/table/set-column-widths";
 import { setHeaderRows } from "./commands/table/set-header-rows";
+import { type TablePart, setTableAttrs } from "./commands/table/set-table-attrs";
 import { caretAt } from "./position/model-position";
 import * as Y from "yjs";
 import { COLS_KEY, HEADER_KEY, WIDTH_KEY } from "./storage/keys";
 import { mapOf } from "./storage/new-items";
+import type { Scalar } from "./storage/scalar";
 import { childrenOf } from "./test-helpers/fixture";
 import type { Harness } from "./test-helpers/harness";
 import { raw } from "./test-helpers/table";
@@ -134,5 +136,50 @@ describe("setColumnWidths (T4)", () => {
     for (const ws of [[1], [1, 1, 1], [1, 0], [1, -2], [1, Number.NaN], [1, Number.POSITIVE_INFINITY], [1e308, 1e308]]) expect(() => h.run(setColumnWidths, ws)).toThrow();
     h.caret(h.paragraphs().length - 2, 0);
     expect(h.run(setColumnWidths, [1, 1])).toBe(false);
+  });
+});
+
+describe("setTableAttrs (T4)", () => {
+  it("writes a:* on the table, the selected cell's row and the cell; null removes; unchanged is a no-op; undo restores", () => {
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ c¶ ⟨c⟩ d¶ ⟧");
+    const t = tableOf(h);
+    inCell(h, t, 1, 0);
+    const sel = h.selection;
+    const row = (): Block => childrenOf(h.version, "block", t.id)[1] ?? tableOf(h);
+    expect(h.run(setTableAttrs, "table", { align: "center" })).toBe(true);
+    expect(h.run(setTableAttrs, "row", { minHeight: 20 })).toBe(true);
+    expect(h.run(setTableAttrs, "cell", { background: "#fee", vAlign: "middle" })).toBe(true);
+    expect(tableOf(h).attrs).toEqual({ align: "center" });
+    expect(row().attrs).toEqual({ minHeight: 20 });
+    expect(cell(h, t, 1, 0).attrs).toEqual({ background: "#fee", vAlign: "middle" });
+    expect(cell(h, t, 1, 1).attrs).toEqual({});
+    expect(childrenOf(h.version, "block", t.id)[0]?.attrs).toEqual({});
+    expect(h.selection).toEqual(sel);
+    expect(h.run(setTableAttrs, "cell", { background: "#fee" })).toBe(false);
+    expect(h.run(setTableAttrs, "cell", { vAlign: null })).toBe(true);
+    expect(cell(h, t, 1, 0).attrs).toEqual({ background: "#fee" });
+    expect(h.undo()).toBe(true);
+    expect(cell(h, t, 1, 0).attrs).toEqual({ background: "#fee", vAlign: "middle" });
+  });
+
+  it("a virtual end cell is made real with the attrs on its ⟨c⟩; the caret stays in it", () => {
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ d¶ ⟧");
+    const t = tableOf(h);
+    inCell(h, t, 1, 2);
+    expect(h.run(setTableAttrs, "cell", { background: null })).toBe(false);
+    expect(h.run(setTableAttrs, "cell", { background: "#fee" })).toBe(true);
+    expect([1, 2].map((c) => cell(h, t, 1, c).attrs)).toEqual([{}, { background: "#fee" }]);
+    expect(h.selection).toEqual(caretAt(childrenOf(h.version, "block", cell(h, t, 1, 2).id)[0]?.id ?? "", 0));
+    expect(h.undo()).toBe(true);
+    expect(cell(h, t, 1, 2).attrs).toEqual({});
+  });
+
+  it("throws on an empty key, a value that is no write scalar, or an attr the read derives; a no-op outside a table", () => {
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟧ q¶");
+    inCell(h, tableOf(h), 0, 0);
+    const bad: [TablePart, Record<string, Scalar>][] = [["cell", { "": 1 }], ["cell", { x: Number.NaN }], ["cell", { rowSpan: 2 }], ["cell", { colSpan: 2 }], ["table", { columnWidths: 1 }], ["table", { headerRowCount: 1 }]];
+    for (const [part, attrs] of bad) expect(() => h.run(setTableAttrs, part, attrs)).toThrow();
+    h.caret(h.paragraphs().length - 2, 0);
+    expect(h.run(setTableAttrs, "table", { align: "center" })).toBe(false);
   });
 });

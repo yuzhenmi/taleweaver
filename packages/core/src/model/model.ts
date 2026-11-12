@@ -16,7 +16,7 @@
  *
  * A table is marks in its flow, so its edits are piece / item-map changes; a region
  * touching a mark goes through the structural splice (`update-flow.ts`), and a `cols`
- * edit re-reads its table's widths only (`update/table-widths.ts`).
+ * edit or a `⟦`'s `a:*` keys re-read its table record's attrs only (`update/table-widths.ts`).
  */
 import * as Y from "yjs";
 import type { BlockId } from "./block";
@@ -28,7 +28,8 @@ import { Working } from "./derive/working";
 import type { Document } from "./document/types";
 import type { DeltaOp, FlowChange, PieceChange } from "./update/flow-change";
 import { updateFlow } from "./update/update-flow";
-import { colsOwner, refreshWidths } from "./update/table-widths";
+import { colsOwner, refreshTableAttrs } from "./update/table-widths";
+import { isTableStart } from "./storage/table-marks";
 import { recordStep } from "./mapping/map-position";
 import { footnoteBodyId, templateBodyId } from "./ids";
 import type { FootnoteRef } from "./scan/tokens";
@@ -199,7 +200,7 @@ export class Model {
     // Holder flows first: their anchor changes add / remove footnote flows.
     const order = [...c.flows].sort(([a], [b]) => rank(w, a) - rank(w, b));
     for (const [holderId, ch] of order) updateFlow(w, holderId, ch);
-    for (const [holderId, ch] of order) if (ch.tableCols.size > 0 && !w.fresh.has(holderId)) refreshWidths(w, holderId, ch.tableCols);
+    for (const [holderId, ch] of order) if (ch.tableCols.size > 0 && !w.fresh.has(holderId)) refreshTableAttrs(w, holderId, ch.tableCols);
     for (const [anchorId, ref] of c.footnoteBodies) {
       const holderId = footnoteBodyId(anchorId);
       if (!w.flows.has(holderId) || w.fresh.has(holderId)) continue;
@@ -321,7 +322,10 @@ export class Model {
         const k = kindOf(t);
         if (it !== null && it.parent instanceof Y.Text && k !== ITEM_KINDS.sub) {
           const holderId = holderOfPiece(it.parent);
+          // A `⟦`'s `a:*` keys only: its record's attrs, as a `cols` edit (T4).
+          const attrsOnly = isTableStart(t) && [...e.changes.keys.keys()].every((key) => key.startsWith("a:"));
           if (holderId === null) c.full = true;
+          else if (attrsOnly) flowChange(holderId).tableCols.add(t);
           else pieceChange(holderId, it.parent).mapItems.push(it);
           if (isSectionBreak(kindOfStored(k))) c.sections = true;
           if (k === ITEM_KINDS.footnote && e.changes.keys.has(BODY_KEY)) c.footnoteBodies.set(itemId(it), { id: itemId(it), body: childMap(t, BODY_KEY) });

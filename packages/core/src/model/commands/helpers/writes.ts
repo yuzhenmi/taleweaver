@@ -51,7 +51,7 @@ function tableClose(L: ParagraphLayout, deletedFrom?: StoragePoint): InsertUnit[
  * A virtual end cell's paragraph made real (design: short rows): real `⟨c⟩¶` cells for the virtual cells before it
  * in its row, then its own `⟨c⟩` (its ¶ follows). Nothing for any other paragraph.
  */
-function cellLead(L: ParagraphLayout): InsertUnit[] {
+function cellLead(L: ParagraphLayout, cellKeys: Keys): InsertUnit[] {
   const v = L.virtualCell;
   if (v === undefined) return [];
   const out: InsertUnit[] = [];
@@ -59,17 +59,17 @@ function cellLead(L: ParagraphLayout): InsertUnit[] {
     out.push({ embed: newCellMark(v.depth), attrs: {} });
     if (!(i === 1 && v.firstHolds)) out.push({ embed: newParagraphMark({}), attrs: {} });
   }
-  out.push({ embed: newCellMark(v.depth), attrs: {} });
+  out.push({ embed: newCellMark(v.depth, cellKeys), attrs: {} });
   return out;
 }
 
 /**
  * X2: the writes inserting a ¶ (with `keys`) at the end of debris / R17 paragraph `L`,
- * and the new map. Null when the flow cannot be written (a holder without a flow).
+ * and the new map (a virtual end cell's own `⟨c⟩` gets `cellKeys`). Null when the flow cannot be written (a holder without a flow).
  */
-export function materialize(L: ParagraphLayout, keys: Keys, before: readonly InsertUnit[] = [], deletedFrom?: StoragePoint): { writes: Write[]; map: Y.Map<unknown> } | null {
+export function materialize(L: ParagraphLayout, keys: Keys, before: readonly InsertUnit[] = [], deletedFrom?: StoragePoint, cellKeys: Keys = {}): { writes: Write[]; map: Y.Map<unknown> } | null {
   const map = newParagraphMark(keys);
-  const units: InsertUnit[] = [...tableClose(L, deletedFrom), ...cellLead(L), ...before, { embed: map, attrs: {} }];
+  const units: InsertUnit[] = [...tableClose(L, deletedFrom), ...cellLead(L, cellKeys), ...before, { embed: map, attrs: {} }];
   const p = pointAfter(L, L.length);
   if (p !== null) return { writes: [insertAt(p, units)], map };
   return L.fs.array === null ? null : { writes: [{ k: "firstPiece", flow: L.fs.array, units }], map };

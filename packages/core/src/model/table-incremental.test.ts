@@ -216,6 +216,16 @@ describe("a `cols` edit re-reads its table's widths only (N4)", () => {
     t.step(() => colsOf(inner).delete(0, 2), true);
     t.destroy();
   });
+
+  it("a table / row / cell `a:*` key set and removed (T4), top-level and nested, splices without re-deriving", () => {
+    const t = live("x¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 z¶ ⟧@1 ¶ ⟨r⟩ ⟨c⟩ b¶ ⟧ y¶");
+    const [, , table, r0, c0, , , inner, ir0, ic0, , , , r1] = t.maps; // after `far¶`
+    for (const m of [table, r0, c0, inner, ir0, ic0, r1]) {
+      t.step(() => m?.set("a:bg", "red"), true);
+      t.step(() => m?.delete("a:bg"), true);
+    }
+    t.destroy();
+  });
 });
 
 describe("rung 1 edge cases (found by the O4 table fuzz)", () => {
