@@ -636,7 +636,7 @@ describe("C17 paste (G6)", () => {
     expect(h.dump().slice(0, 3)).toEqual(["toc", "paragraph:[br]", "paragraph:xu"]);
   });
 
-  it("a pasted footnote carries its body; a pasted [S] carries its header / footer bodies and "none" links (other h:* keys dropped); malformed payloads throw", () => {
+  it("a pasted footnote carries its body; a pasted [S] carries its header / footer bodies and none links (other h:* keys dropped); malformed payloads throw", () => {
     const h = doc("ab");
     h.caret(0, 1);
     h.run(paste, [{ k: "footnote", body: [{ k: "text", text: "n" }, { k: "para", keys: { "p:type": "heading" } }] }]);
