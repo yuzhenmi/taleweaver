@@ -13,7 +13,7 @@ import { insertText } from "./commands/insert-text";
 import { splitParagraph } from "./commands/split-paragraph";
 import { type ModelPosition, caretAt, isTextSelection } from "./position/model-position";
 import { TABLE_DEPTH_CAP } from "./storage/limits";
-import { childrenOf } from "./test-helpers/fixture";
+import { childrenOf, textOf } from "./test-helpers/fixture";
 import { Harness, typeLines } from "./test-helpers/harness";
 import { afterObjectId } from "./ids";
 import { insertUnits, shape, units } from "./test-helpers/table";
@@ -287,6 +287,21 @@ describe("an unclosed table (concurrency only)", () => {
       expect(h.run(insertText, "x")).toBe(true);
       expect(h.undo()).toBe(true);
       expect(h.selection, spec).toEqual(caretAt(id, 0));
+    }
+  });
+
+  it("Delete at its last cell's end and Backspace after the [S] closing it do not join across that [S]", () => {
+    for (const spec of ["p¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ d¶ ⟨c⟩ e¶ [S] q¶", "p¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ d¶ ⟨c⟩ e [S] q¶", "p¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ e¶ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 z¶ ⟧@1 [S] q¶"]) {
+      const h = raw(spec);
+      const dump = h.dump();
+      const t = tableOf(h);
+      h.selection = caretAt(cellPara(h, t, childrenOf(h.version, "block", t.id).length - 1, 1).id, 1); // after "e"
+      expect(h.run(deleteForward), spec).toBe(false);
+      h.caret(h.paragraphs().findIndex((b) => textOf(b) === "q"), 0);
+      expect(h.run(deleteBackward), spec).toBe(false);
+      h.selection = caretAt(afterObjectId(t.id), 0); // the table's implicit paragraph-after, at the same [S]
+      expect(h.run(deleteForward), spec).toBe(false);
+      expect(h.dump()).toEqual(dump);
     }
   });
 

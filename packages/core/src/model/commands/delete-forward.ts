@@ -8,7 +8,7 @@ import { edgeParagraphOf } from "../position/block-object";
 import { isObjectEnd } from "../position/table-extent";
 import type { CommandContext } from "./command-context";
 import { deleteBlockObject } from "./delete-block-object";
-import { rangeOf } from "./helpers/at";
+import { containerKey, rangeOf } from "./helpers/at";
 import { plan } from "./helpers/build-plan";
 import { deleteRange, deleteSelectionOf } from "./helpers/delete-range";
 import { deleteRule, deleteTerminator, deleteUnits, isRuleParagraph, unitToDelete } from "./helpers/delete-units";
@@ -38,6 +38,10 @@ export function deleteForward(ctx: CommandContext): Plan | null {
   const end = L.end;
   // A virtual end cell's end is its cell's end (an unclosed table's last row: the [S] closing the table follows).
   if (end === null || L.virtualCell !== undefined || holdsFlows(end.token.k)) return null;
+  // No [S] is inside a table: one after a cell's content closes the (unclosed) table, at the cell's end.
+  // An unclosed table's `/after` (its `before` the `⟦`) sits at that [S] too: as after a closed table, nothing joins.
+  const closesTable = containerKey(d, L) !== "" || (L.implicit && L.before !== null && roleOf(L.before.token) === "open");
+  if (closesTable && isRemovedByJoin(end.token.k)) return null;
   if (L.mark === null && !L.implicit) return plan(d, deleteTerminator(L.fs, end), () => caretAt(here, offset)); // debris: the object / [S] after it
   // An implicit paragraph has no ¶: its object / [S] follows it directly.
   const next: Following = L.implicit ? { k: "terminator", term: end } : followingOf(d, L.fs, end);
@@ -52,7 +56,7 @@ export function deleteForward(ctx: CommandContext): Plan | null {
     };
     if (isAtomicBlockObject(k)) return only();
     if (holdsFlows(k)) return roleOf(next.term.token) === "open" ? beforeTable(ctx, L, next.term.token.id) : null;
-    if (!isRemovedByJoin(k)) return null;
+    if (!isRemovedByJoin(k) || closesTable) return null;
     const after = followingOf(d, L.fs, next.term);
     if (after.k !== "paragraph") return only();
     N = after.L;

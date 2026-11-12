@@ -1,13 +1,16 @@
+import type { Document } from "../document/types";
 import type { Plan } from "../plan";
 import { caretAt, isObjectSelection } from "../position/model-position";
 import { edgeParagraphOf } from "../position/block-object";
-import { type ParagraphLayout, paragraphLayout as layoutOf } from "../position/paragraph-layout";
+import { type ParagraphLayout, type TerminatorRef, paragraphLayout as layoutOf } from "../position/paragraph-layout";
+import { positionAtPoint } from "../position/position-at-point";
+import { pointOf } from "../position/storage-points";
 import { isObjectEnd } from "../position/table-extent";
 import { followingOf, paragraphBefore } from "../position/terminator-neighbours";
 import { holdsFlows, isAtomicBlockObject, isParagraphBreak, isRemovedByJoin } from "../scan/kinds";
 import type { CommandContext } from "./command-context";
 import { deleteBlockObject } from "./delete-block-object";
-import { rangeOf } from "./helpers/at";
+import { containerKey, rangeOf } from "./helpers/at";
 import { plan } from "./helpers/build-plan";
 import { deleteRange, deleteSelectionOf } from "./helpers/delete-range";
 import { deleteRule, deleteTerminator, deleteUnits, isRuleParagraph, unitToDelete } from "./helpers/delete-units";
@@ -47,6 +50,7 @@ export function deleteBackward(ctx: CommandContext): Plan | null {
     return plan(d, [...keep.writes, ...deleteTerminator(L.fs, before)], () => caretAt(keep.id(), offset));
   }
   if (holdsFlows(k)) return isObjectEnd(before.token) ? afterTable(ctx, L) : null;
+  if (isRemovedByJoin(k) && closesTable(d, L, before)) return null;
   const X = isParagraphBreak(k) ? layoutOf(d, before.token.id) : paragraphBefore(d, L.fs, before);
   if (isParagraphBreak(k) && X !== null && isRuleParagraph(X)) {
     const writes = deleteRule(d, X);
@@ -80,4 +84,12 @@ function afterTable(ctx: CommandContext, Y: ParagraphLayout): Plan | null {
     const L = last === null ? null : layoutOf(after, last);
     return L === null ? sel : caretAt(L.block.id, L.length);
   });
+}
+
+/** The `[S]` before paragraph `L` closes an (unclosed) table: what reads right before it is in a cell (no [S] is inside one). */
+function closesTable(d: Document, L: ParagraphLayout, s: TerminatorRef): boolean {
+  const at = pointOf(L.fs, s);
+  const p = at === null ? null : positionAtPoint(d, L.fs, at.piece, at.index, -1);
+  const P = p === null ? null : layoutOf(d, p.blockId);
+  return P !== null && containerKey(d, P) !== containerKey(d, L);
 }
