@@ -12,6 +12,7 @@ import { deleteColumn } from "../commands/table/delete-column";
 import { deleteRow } from "../commands/table/delete-row";
 import { insertColumn } from "../commands/table/insert-column";
 import { insertRow } from "../commands/table/insert-row";
+import { mergeCells } from "../commands/table/merge-cells";
 import { nextMarkId, slotsOf as formSlotsOf } from "../commands/table/table-at";
 import { columnCountOf } from "../derive/table/table-form";
 import type { Document } from "../document/types";
@@ -50,6 +51,7 @@ const SHAPES: readonly Shape[] = [
   { name: "3×3 header 2, a span crossing it", rows: ["a b c", "d e f", "g e h"], header: 2, nested: false },
   { name: "nested table in a cell", rows: ["N a", "b c"], nested: false },
   { name: "ragged", rows: ["a b c", "a d .", "e . ."], nested: true },
+  { name: "short first row", rows: ["a b .", "c d e"], nested: true },
   { name: "unclosed", rows: ["a b", "c d"], unclosed: true, nested: false },
   { name: "63 columns (the cap)", rows: [CAP_ROW], nested: false },
 ];
@@ -189,10 +191,13 @@ function caretIn(h: Harness, t: Block, at: M.Slot): void {
 }
 
 function runCase(s: Shape, w: Where, at: M.Slot, op: Op): void {
-  const h = build(s, w);
+  runOp(build(s, w), s, w, at, op);
+}
+
+/** Op `op` from the cell at `at` of the harness's table (built from `s`); the model's outcome, or null for a no-op. */
+function runOp(h: Harness, s: Shape, w: Where, at: M.Slot, op: Op, g0: M.Grid = modelOf(s)): M.Outcome | null {
   const t0 = targetOf(h, w);
   if (t0 === undefined) throw new Error("no table");
-  const g0 = modelOf(s);
   // The fixture reads as the model.
   expect(readTable(h, t0).slots).toEqual(M.slotsOf(g0));
   expect(invariants(h, s.unclosed)).toEqual([]);
@@ -201,7 +206,7 @@ function runCase(s: Shape, w: Where, at: M.Slot, op: Op): void {
   if (x.grid === g0) {
     // A no-op (the column cap).
     expect(h.run(op.run)).toBe(false);
-    return;
+    return null;
   }
   const before = { read: h.read(), sel: h.readSelection() };
   expect(h.run(op.run)).toBe(true);
@@ -212,6 +217,7 @@ function runCase(s: Shape, w: Where, at: M.Slot, op: Op): void {
   expect({ read: h.read(), sel: h.readSelection() }).toEqual(before);
   expect(h.redo()).toBe(true);
   expect({ read: h.read(), sel: h.readSelection() }).toEqual(after);
+  return x;
 }
 
 /** The version after a command against the model's outcome `x`. */
@@ -237,6 +243,30 @@ for (const s of SHAPES) {
     describe(`${s.name} (${w})`, () => {
       for (const { label, at } of cellsOf(modelOf(s))) {
         for (const op of OPS) it(`${s.name} (${w}) × ${label} × ${op.name}`, () => runCase(s, w, at, op));
+      }
+    });
+  }
+}
+
+/** The rectangles to merge: every one of the shape's grid (the cap shape: two of its single row). */
+function rectanglesOf(g: M.Grid): [M.Slot, M.Slot][] {
+  if (M.columnCount(g) >= M.COLUMN_CAP) return [[[0, 0], [0, M.COLUMN_CAP - 1]], [[0, 12], [0, 10]]];
+  const out: [M.Slot, M.Slot][] = [];
+  const R = M.rowCount(g);
+  const C = M.columnCount(g);
+  for (let r0 = 0; r0 < R; r0++) for (let c0 = 0; c0 < C; c0++) for (let r1 = r0; r1 < R; r1++) for (let c1 = c0; c1 < C; c1++) out.push([[r0, c0], [r1, c1]]);
+  return out;
+}
+
+const mergeOp = (from: M.Slot, to: M.Slot): Op => ({ name: "mergeCells", run: (c) => mergeCells(c, from, to), model: (g) => M.merge(g, from, to) });
+
+for (const s of SHAPES) {
+  for (const w of s.nested ? (["body", "nested"] as const) : (["body"] as const)) {
+    describe(`${s.name} (${w}) merge`, () => {
+      for (const [from, to] of rectanglesOf(modelOf(s))) {
+        it(`${s.name} (${w}) × merge (${from.join(",")})–(${to.join(",")})`, () => {
+          runOp(build(s, w), s, w, from, mergeOp(from, to));
+        });
       }
     });
   }

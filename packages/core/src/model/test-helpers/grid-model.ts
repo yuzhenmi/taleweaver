@@ -117,6 +117,35 @@ export function deleteColumn(g: Grid, at: Slot): Outcome {
 }
 
 /**
+ * T6: merge the rectangle `from`–`to` (any two corners), grown until no cell crosses its edge (GDocs). Its head is the
+ * cell at its top-left slot; the non-empty tags of its cells, row-major, joined by `|` (one paragraph each). A
+ * rectangle of one cell, or of one free slot, is a no-op. The caret goes to the head.
+ */
+export function merge(g: Grid, from: Slot, to: Slot): Outcome {
+  let [r0, r1] = [Math.min(from[0], to[0]), Math.max(from[0], to[0])];
+  let [c0, c1] = [Math.min(from[1], to[1]), Math.max(from[1], to[1])];
+  const meets = (c: ModelCell): boolean => c.row <= r1 && r0 < c.row + c.rowSpan && c.col <= c1 && c0 < c.col + c.colSpan;
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const c of g.cells.filter(meets)) {
+      const [a, b, x, y] = [Math.min(r0, c.row), Math.max(r1, c.row + c.rowSpan - 1), Math.min(c0, c.col), Math.max(c1, c.col + c.colSpan - 1)];
+      if (a !== r0 || b !== r1 || x !== c0 || y !== c1) [r0, r1, c0, c1, grew] = [a, b, x, y, true];
+    }
+  }
+  const inside = g.cells.filter(meets).sort((a, b) => a.row - b.row || a.col - b.col);
+  const rowSpan = r1 - r0 + 1;
+  const colSpan = c1 - c0 + 1;
+  const one = inside.length === 0 ? rowSpan * colSpan === 1 : inside.length === 1 && inside[0]?.rowSpan === rowSpan && inside[0].colSpan === colSpan;
+  if (one) return { grid: g, caret: from };
+  const tag = inside
+    .map((c) => c.tag)
+    .filter((t) => t !== "")
+    .join("|");
+  const cells = [...g.cells.filter((c) => !meets(c)), { tag, row: r0, col: c0, rowSpan, colSpan }];
+  return { grid: { cells, header: g.header }, caret: [r0, c0] };
+}
+
+/**
  * A grid from a picture: one string per row of space-separated slot tags, `.` a free slot; a tag repeated over a
  * rectangle is one spanning cell (tags are unique per cell). The first `headerRows` rows are header rows.
  */

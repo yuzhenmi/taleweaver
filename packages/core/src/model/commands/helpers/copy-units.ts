@@ -15,6 +15,11 @@ export function copyUnits(fs: FlowState, a: StoragePoint, b: StoragePoint): Inse
   return unitsOf(fs, a, b, keysOf(fs, a, b), false);
 }
 
+/** {@link copyUnits} with the zero-width anchors in place: content that moves (T6 merge) takes its anchors along. */
+export function moveUnits(fs: FlowState, a: StoragePoint, b: StoragePoint): InsertUnit[] {
+  return unitsOf(fs, a, b, null, false);
+}
+
 /** The zero-width units (anchor edges) of storage `[a, b)` of `fs`, deep-cloned (a marker is its `{ns, id, edge}`: the same anchor), in order. */
 export function anchorUnits(fs: FlowState, a: StoragePoint, b: StoragePoint): InsertUnit[] {
   const keys = keysOf(fs, a, b);
@@ -24,8 +29,8 @@ export function anchorUnits(fs: FlowState, a: StoragePoint, b: StoragePoint): In
 /** The `seg:index` keys of the zero-width units of `[a, b)`. */
 const keysOf = (fs: FlowState, a: StoragePoint, b: StoragePoint): ReadonlySet<string> => new Set(zeroWidthPoints(fs, a, b).map((p) => `${p.seg}:${p.index}`));
 
-/** The units of `[a, b)` without the zero-width ones (`anchors` false), or just them (true). */
-function unitsOf(fs: FlowState, a: StoragePoint, b: StoragePoint, zeroWidth: ReadonlySet<string>, anchors: boolean): InsertUnit[] {
+/** The units of `[a, b)` without the zero-width ones (`anchors` false), or just them (true); all of them with `zeroWidth` null. */
+function unitsOf(fs: FlowState, a: StoragePoint, b: StoragePoint, zeroWidth: ReadonlySet<string> | null, anchors: boolean): InsertUnit[] {
   const deltas = new Map<Y.Text, unknown[]>();
   const out: InsertUnit[] = [];
   for (let j = a.seg; j <= b.seg; j++) {
@@ -46,7 +51,7 @@ function unitsOf(fs: FlowState, a: StoragePoint, b: StoragePoint, zeroWidth: Rea
         if (text !== "") out.push({ text, attrs });
         at += insert.length;
       } else {
-        if (at >= from && insert instanceof Y.Map && zeroWidth.has(`${j}:${at}`) === anchors) out.push({ embed: deepClone(insert), attrs });
+        if (at >= from && insert instanceof Y.Map && (zeroWidth === null || zeroWidth.has(`${j}:${at}`) === anchors)) out.push({ embed: deepClone(insert), attrs });
         at += 1;
       }
     }
