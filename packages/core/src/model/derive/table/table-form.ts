@@ -56,8 +56,11 @@ export function columnCountOf(f: TableForm): number {
 }
 
 /** RT4: the raw header run, shrunk while a span crosses its lower boundary (row h is covered from above). */
-export function headerCountOf(f: TableForm): number {
-  let h = f.rawHeaderRun;
+export const headerCountOf = (f: TableForm): number => cleanHeaderCount(f, f.rawHeaderRun);
+
+/** The largest header count ≤ `n` (clamped to the rows) whose lower boundary no span crosses. */
+export function cleanHeaderCount(f: TableForm, n: number): number {
+  let h = Math.max(0, Math.min(n, f.rows.length));
   while (h > 0 && (f.rows[h]?.carryIn.length ?? 0) > 0) h--;
   return h;
 }
