@@ -267,8 +267,8 @@ export function paragraphLayout(d: Document, id: BlockId): ParagraphLayout | nul
 /**
  * The layout of a cell paragraph with nothing stored (§5): `${cell}/empty` of a real cell (`⟨c⟩` with a mark next;
  * its head right after the `⟨c⟩`), or of a virtual end cell `${M}/fill<col>` (its head AT its row's next mark M, a
- * real item, so a caret there is stored like any other). Null otherwise — a virtual cell of an unclosed table's last
- * row (anchored at its `⟦`) included: that table's first write is N3's.
+ * real item, so a caret there is stored like any other; for the last row of an unclosed table, whose cells are named
+ * after its `⟦`, at the table's extent end, before the `[S]` / mark / `<end>` closing it). Null otherwise.
  */
 function emptyCellLayout(d: Document, fs: FlowState, block: Block, tree: TreeKind, cellId: BlockId): ParagraphLayout | null {
   const fillAt = cellId.lastIndexOf("/fill");
@@ -285,7 +285,9 @@ function emptyCellLayout(d: Document, fs: FlowState, block: Block, tree: TreeKin
   const m = findTerminator(d, fs, markId);
   const role = m === null ? null : roleOf(m.token);
   const seg = m === null ? undefined : fs.segments[m.seg];
-  if (m === null || seg === undefined || (role !== "newRow" && role !== "close")) return null;
+  if (m === null || seg === undefined || (role !== "newRow" && role !== "close" && role !== "open")) return null;
+  const unclosed = role === "open" ? tableExtent(fs, m) : null;
+  if (role === "open" && (unclosed === null || unclosed.close !== null)) return null;
   // Its rank among its row's virtual cells (they all follow the row's real ones).
   const rowId = d.trees[tree].get(block.parentId ?? "")?.parentId ?? null;
   let rank = 0;
@@ -296,8 +298,9 @@ function emptyCellLayout(d: Document, fs: FlowState, block: Block, tree: TreeKin
     found = c === cellId;
   }
   if (!found) return null;
-  const head = { piece: seg.piece, index: m.index, seg: m.seg };
-  // Its notional `⟨c⟩` would be the terminator before it: the row's end mark stands in (a container boundary, as a
-  // real empty cell's `⟨c⟩` is), so nothing joins across it (C5).
-  return { block, tree, fs, parts: [], length: 0, mark: null, end: m, before: m, head, implicit: true, virtualCell: { rank, depth: depthOf(m.token) ?? 0, firstHolds } };
+  const head = unclosed?.end ?? { piece: seg.piece, index: m.index, seg: m.seg };
+  const end = unclosed === null ? m : nextTerminator(fs, unclosed.next.seg, unclosed.next.tok, 0).term;
+  // Its notional `⟨c⟩` would be the terminator before it: the row's end mark (an unclosed table's `⟦`, from inside a
+  // container start) stands in (a container boundary, as a real empty cell's `⟨c⟩` is), so nothing joins across it (C5).
+  return { block, tree, fs, parts: [], length: 0, mark: null, end, before: m, head, implicit: true, virtualCell: { rank, depth: depthOf(m.token) ?? 0, firstHolds } };
 }

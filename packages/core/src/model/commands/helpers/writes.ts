@@ -36,11 +36,11 @@ export function deleteBetween(fs: FlowState, a: StoragePoint, b: StoragePoint): 
 }
 
 /**
- * An unclosed table's implicit paragraph (its `before` is the `⟦`) made real: the missing `⟧` first, so it reads after
- * the table — unless the same plan deletes the table (its `⟦` at or after `deletedFrom`, a range's start).
+ * An unclosed table's implicit paragraph (its `before` is the `⟦`; not one of its virtual end cells, which stay inside)
+ * made real: the missing `⟧` first, so it reads after the table — unless the same plan deletes the table (its `⟦` at or after `deletedFrom`, a range's start).
  */
 function tableClose(L: ParagraphLayout, deletedFrom?: StoragePoint): InsertUnit[] {
-  const open = L.implicit ? L.before : null;
+  const open = L.implicit && L.virtualCell === undefined ? L.before : null;
   const at = open === null ? null : pointOf(L.fs, open);
   if (deletedFrom !== undefined && at !== null && comparePoints(deletedFrom, at) <= 0) return [];
   const d = open === null || roleOf(open.token) !== "open" ? null : depthOf(open.token);

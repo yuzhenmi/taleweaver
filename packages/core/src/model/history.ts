@@ -24,6 +24,7 @@ import { holdsAll } from "./document/blocks";
  * pipeline like any other write (one version, dirty ids, exact mapping).
  */
 import * as Y from "yjs";
+import type { BlockId } from "./block";
 import type { Document } from "./document/types";
 import type { Model } from "./model";
 import { applyPlan, type Plan } from "./plan";
@@ -47,8 +48,12 @@ export type EditKind = "insert" | "delete" | "command";
 interface StoredPosition {
   readonly rel: Y.RelativePosition;
   readonly assoc: Assoc;
-  /** A virtual end cell's column: all of a row's virtual cells share their storage point (the row's next mark). */
-  readonly fill?: number;
+  /**
+   * The implicit paragraph (nothing stored: a virtual end cell, `/empty`, `/after`…) the position is in. Several share
+   * one storage point (a row's virtual cells; an unclosed table's last-row ones and its `/after`), which the point alone
+   * cannot tell apart.
+   */
+  readonly implicit?: BlockId;
 }
 /** A text selection's ends; an object selection as a RelativePosition AT its object's item (Yjs follows a re-created object's `redone` chain); a select-all as its flow. */
 type StoredSelection =
@@ -76,8 +81,8 @@ function inOrder(d: Document, a: ModelPosition, b: ModelPosition): boolean {
 
 function storePosition(d: Document, p: ModelPosition, assoc: Assoc): StoredPosition | null {
   const rel = toRelativePosition(d, p, assoc);
-  const fill = virtualCellParagraphOf(p.blockId)?.col;
-  return rel === null ? null : fill === undefined ? { rel, assoc } : { rel, assoc, fill };
+  const implicit = paragraphLayout(d, p.blockId)?.implicit === true ? p.blockId : undefined;
+  return rel === null ? null : implicit === undefined ? { rel, assoc } : { rel, assoc, implicit };
 }
 
 /**
@@ -101,11 +106,22 @@ function storeSelection(d: Document, sel: ModelSelection): StoredSelection | nul
 function restorePosition(d: Document, s: StoredPosition): ModelPosition | null {
   const p = fromRelativePosition(d, s.rel, s.assoc);
   if (p === null || paragraphLayout(d, p.blockId) === null) return null;
-  // The point names the row's first virtual cell: back to the stored column, or the nearest one left of it that reads.
-  const v = s.fill === undefined ? null : virtualCellParagraphOf(p.blockId);
-  for (let col = s.fill ?? 0; v !== null && col > v.col; col--) {
-    const id = emptyCellParagraphId(virtualCellId(v.mark, col));
-    if (paragraphLayout(d, id) !== null) return { blockId: id, offset: p.offset };
+  // Back in the stored implicit paragraph while it still reads at the point. A virtual cell: at its column of its row,
+  // named after the stored next mark or (re-created by an undo / redo: a new id) the one the point names, else the
+  // nearest column left of it that reads.
+  const at = s.implicit === undefined ? null : pointOfRelative(d, s.rel);
+  if (at === null) return p;
+  const reads = (id: BlockId): boolean => {
+    const head = paragraphLayout(d, id)?.head;
+    return head != null && head.piece === at.piece && head.index === at.index;
+  };
+  const v = virtualCellParagraphOf(s.implicit ?? "");
+  if (v === null) return s.implicit !== undefined && reads(s.implicit) ? { blockId: s.implicit, offset: 0 } : p;
+  for (const mark of [v.mark, virtualCellParagraphOf(p.blockId)?.mark]) {
+    for (let col = v.col; mark !== undefined && col >= 0; col--) {
+      const id = emptyCellParagraphId(virtualCellId(mark, col));
+      if (reads(id)) return { blockId: id, offset: 0 };
+    }
   }
   return p;
 }

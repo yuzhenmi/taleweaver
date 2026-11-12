@@ -36,7 +36,8 @@ export function deleteForward(ctx: CommandContext): Plan | null {
     return writes.length === 0 ? null : plan(d, writes, () => caretAt(here, offset));
   }
   const end = L.end;
-  if (end === null || holdsFlows(end.token.k)) return null;
+  // A virtual end cell's end is its cell's end (an unclosed table's last row: the [S] closing the table follows).
+  if (end === null || L.virtualCell !== undefined || holdsFlows(end.token.k)) return null;
   if (L.mark === null && !L.implicit) return plan(d, deleteTerminator(L.fs, end), () => caretAt(here, offset)); // debris: the object / [S] after it
   // An implicit paragraph has no ¶: its object / [S] follows it directly.
   const next: Following = L.implicit ? { k: "terminator", term: end } : followingOf(d, L.fs, end);

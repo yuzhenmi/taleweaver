@@ -15,6 +15,7 @@ import { type ModelPosition, caretAt, isTextSelection } from "./position/model-p
 import { TABLE_DEPTH_CAP } from "./storage/limits";
 import { childrenOf } from "./test-helpers/fixture";
 import { Harness, typeLines } from "./test-helpers/harness";
+import { afterObjectId } from "./ids";
 import { insertUnits, shape, units } from "./test-helpers/table";
 
 /** A harness whose body holds `spec` (test-helpers/table `units`), before the body's final ¶. */
@@ -243,6 +244,50 @@ describe("an unclosed table (concurrency only)", () => {
     expect(h.dump()).toEqual(["paragraph:p", "table", "paragraph:x"]);
     expect(shape(h.version, tableOf(h).id)).toEqual([["a|"]]);
     expect(h.undo()).toBe(true);
+  });
+
+  it("typing in its last row's virtual end cell makes that cell real inside the table, before the [S]", () => {
+    const h = raw("p¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ d¶ [S] q¶");
+    const before = h.read();
+    const dump = h.dump();
+    const v = cellPara(h, tableOf(h), 1, 2).id;
+    h.selection = caretAt(v, 0);
+    expect(h.run(deleteForward)).toBe(false); // a cell's end: the [S] after the table stays
+    expect(h.run(insertText, "x")).toBe(true);
+    expect(shape(h.version, tableOf(h).id)).toEqual([["a", "b", "c"], ["d", "", "x"]]);
+    expect(h.dump()).toEqual(dump);
+    expect(h.undo()).toBe(true);
+    expect(h.read()).toEqual(before);
+    expect(h.selection).toEqual(caretAt(v, 0)); // restored into that virtual cell, not past the [S]
+
+    // A nested table left unclosed by the outer cell's next ⟨c⟩: the same, inside the outer cell.
+    const n = raw("⟦ ⟨r⟩ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 x¶ ⟨c⟩@1 y¶ ⟨r⟩@1 ⟨c⟩@1 z¶ ⟨c⟩ b¶ ⟧ q¶");
+    const inner = childrenOf(n.version, "block", cellPara(n, tableOf(n), 0, 0).parentId ?? "").filter((b) => b.type === BLOCK_TYPES.table)[0] ?? fail();
+    const w = cellPara(n, inner, 1, 1).id;
+    n.selection = caretAt(w, 0);
+    expect(n.run(deleteForward)).toBe(false);
+    expect(n.run(insertText, "w")).toBe(true);
+    expect(shape(n.version, inner.id)).toEqual([["x", "y"], ["z", "w"]]);
+    expect(n.undo()).toBe(true);
+    expect(n.selection).toEqual(caretAt(w, 0));
+  });
+
+  it("undo restores a caret in an implicit paragraph at its table's end: a virtual cell or the table's /after", () => {
+    // Each: a spec, then the caret's paragraph in the version (they share one storage point: the table's extent end).
+    const outer = (h: Harness): Block => tableOf(h);
+    const cases: [string, (h: Harness) => string][] = [
+      ["p¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ d¶ [S] q¶", (h) => afterObjectId(outer(h).id)],
+      ["p¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ d¶ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 z¶ ⟧@1 [S] q¶", (h) => cellPara(h, outer(h), 1, 1).id],
+      ["p¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨r⟩ ⟨c⟩ d¶ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 z¶ ⟨c⟩@1 y¶ ⟨r⟩@1 ⟨c⟩@1 w¶ [S] q¶", (h) => cellPara(h, outer(h), 1, 1).id],
+    ];
+    for (const [spec, pick] of cases) {
+      const h = raw(spec);
+      const id = pick(h);
+      h.selection = caretAt(id, 0);
+      expect(h.run(insertText, "x")).toBe(true);
+      expect(h.undo()).toBe(true);
+      expect(h.selection, spec).toEqual(caretAt(id, 0));
+    }
   });
 
   it("a range that deletes it writes no ⟧ for it", () => {
