@@ -5,7 +5,8 @@ import { unitsOf } from "../../position/items";
 import { paragraphLayout } from "../../position/paragraph-layout";
 import type { FlatKeys } from "../../storage/scalar";
 import type { Range } from "./at";
-import type { FragmentItem } from "./fragment";
+import type { FragmentCell, FragmentItem, FragmentTable } from "./fragment";
+import { placeFragment } from "./fragment-table";
 import { keysOf, scalar } from "./paragraph-keys";
 
 // ---------------------------------------------------------------------------
@@ -76,13 +77,60 @@ function paraOf(d: Document, b: Block): FragmentItem {
   return Object.keys(keys).length === 0 ? { k: "para" } : { k: "para", keys };
 }
 
-/** A block object's item; null for a table (C2). */
-function blockObjectOf(b: Block): FragmentItem | null {
+/** A block object's item (a TOC, a table); null for one that does not copy (a table with no cell). */
+export function blockObjectOf(d: Document, b: Block): FragmentItem | null {
   if (b.type === BLOCK_TYPES.tableOfContents) {
     const keys = keysFrom(b.attrs, "a:");
     return keys === undefined ? { k: "toc" } : { k: "toc", keys };
   }
-  return null;
+  return b.type === BLOCK_TYPES.table ? tableOf(d, b) : null;
+}
+
+/** The children of `id` in the body tree (tables live there: body and cells). */
+function childrenOf(d: Document, id: string | null): Block[] {
+  const out: Block[] = [];
+  for (let c = id; c !== null; ) {
+    const b = d.trees.block.get(c);
+    if (b === undefined) break;
+    out.push(b);
+    c = b.nextSiblingId;
+  }
+  return out;
+}
+
+const TABLE_ATTRS: ReadonlySet<string> = new Set(["columnWidths", "headerRowCount"]);
+const SPAN_ATTRS: ReadonlySet<string> = new Set(["rowSpan", "colSpan"]);
+
+/** A cell as it reads: its blocks (its lead included), spans and `a:*`; null for a virtual cell that reads empty (it stays virtual). */
+function cellOf(d: Document, c: Block): FragmentCell | null {
+  const items = readAll(d, "block", c.id);
+  const first = c.firstChildId === null ? null : paragraphLayout(d, c.firstChildId);
+  if (first?.virtualCell !== undefined && items.length === 1 && items[0]?.k === "para" && !("keys" in items[0])) return null;
+  const [rowSpan, colSpan, keys] = [c.attrs["rowSpan"], c.attrs["colSpan"], keysFrom(c.attrs, "a:", SPAN_ATTRS)];
+  return {
+    items,
+    ...(typeof rowSpan === "number" ? { rowSpan } : {}),
+    ...(typeof colSpan === "number" ? { colSpan } : {}),
+    ...(keys === undefined ? {} : { keys }),
+  };
+}
+
+/** A table as it reads: rows of own cells (clipped spans), `a:*` of the table and rows, header rows, column widths. */
+function tableOf(d: Document, t: Block): FragmentTable | null {
+  const rows = childrenOf(d, t.firstChildId);
+  const cells = rows.map((r) => childrenOf(d, r.firstChildId).flatMap((c) => cellOf(d, c) ?? []));
+  if (cells.every((r) => r.length === 0)) return null; // a table with no cell (concurrency only): not copied
+  const rowKeys = rows.map((r) => keysFrom(r.attrs, "a:") ?? {});
+  const [widths, header, keys] = [t.attrs["columnWidths"], t.attrs["headerRowCount"], keysFrom(t.attrs, "a:", TABLE_ATTRS)];
+  const read = Array.isArray(widths) && widths.every((w) => typeof w === "number") ? widths.filter((w) => typeof w === "number") : null;
+  return {
+    k: "table",
+    cells,
+    ...(read !== null && read.length === placeFragment(cells).cols ? { widths: read } : {}),
+    ...(typeof header === "number" && header > 0 ? { header } : {}),
+    ...(keys === undefined ? {} : { keys }),
+    ...(rowKeys.some((k) => Object.keys(k).length > 0) ? { rowKeys } : {}),
+  };
 }
 
 const LINK_ATTRS: ReadonlySet<string> = new Set(HEADER_LINKS.map((l) => l.attr));
@@ -117,7 +165,7 @@ function readAll(d: Document, tree: TreeKind, holder: string): FragmentItem[] {
     if (b === undefined) break;
     if (b.inlineContent !== null) out.push(...inlineSlice(d, b, 0, Infinity), paraOf(d, b));
     else {
-      const o = blockObjectOf(b);
+      const o = blockObjectOf(d, b);
       if (o !== null) out.push(o);
     }
     id = b.nextSiblingId;
@@ -128,7 +176,8 @@ function readAll(d: Document, tree: TreeKind, holder: string): FragmentItem[] {
 /**
  * Range `r` (one container) as fragment items: its blocks in read order, crossing section ends as `[S]`; the start
  * paragraph from its offset with its ¶, middle blocks whole, the end paragraph up to its offset with no ¶. A
- * select-all's `from` starts at the container's first block. Null when the range holds a table (C2).
+ * select-all's `from` starts at the container's first block; a table is taken whole. Null when the range holds a block
+ * object that does not copy.
  */
 export function readSlice(d: Document, r: Range): FragmentItem[] | null {
   const tree = d.trees[r.start.L.tree];
@@ -152,7 +201,7 @@ export function readSlice(d: Document, r: Range): FragmentItem[] | null {
       }
       out.push(...inlineSlice(d, b, from, Infinity), paraOf(d, b));
     } else {
-      const o = blockObjectOf(b);
+      const o = blockObjectOf(d, b);
       if (o === null) return null;
       out.push(o);
     }

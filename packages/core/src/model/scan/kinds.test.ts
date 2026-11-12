@@ -97,7 +97,11 @@ describe("kind table", () => {
  * about one kind's own data, not a category rule); each entry is `file: count`.
  */
 const ALLOWED: Readonly<Record<string, { readonly count: number; readonly why: string }>> = {
-  "commands/helpers/fragment.ts": { count: 10, why: "each fragment kind's storage constructor (kind-internal shape)" },
+  "commands/helpers/fragment.ts": { count: 13, why: "each fragment kind's storage constructor (kind-internal shape); a cell / footnote / header body payload ends in a `para` item (×3)" },
+  "commands/helpers/fragment-table.ts": { count: 1, why: "a fragment `table` item's cells (the fragment discriminant)" },
+  "commands/helpers/read-slice.ts": { count: 10, why: "copy's per-kind inverse: each read embed type / block type to its fragment item, and a fragment item's discriminant" },
+  "commands/paste.ts": { count: 1, why: "a fragment `table` item with cells over a cell selection (N7 step 5; the fragment discriminant)" },
+  "commands/table/set-table-attrs.ts": { count: 3, why: "the TablePart argument (`table` / `row` / `cell`) names which table map takes the keys, not a flow kind" },
   "commands/set-object-props.ts": { count: 2, why: "C12 wrap / size / kind props exist only on the generic object" },
   "commands/remove-marker.ts": { count: 1, why: "a marker's ns / id identity (kind-internal)" },
   "derive/derive-flow.ts": { count: 3, why: "the TableEntity discriminant (its records, its cells' paragraphs) and footnote body ownership (X20)" },

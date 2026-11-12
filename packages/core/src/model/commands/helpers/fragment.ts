@@ -1,6 +1,6 @@
 import type { ReadonlyAttrs } from "../../block";
 import { type InsertUnit, type Write, chunked } from "../../plan";
-import { type Container, allowedIn, isParagraphBreak, isStructural } from "../../scan/kinds";
+import { type Container, allowedIn, isParagraphBreak, isSectionBreak, isStructural } from "../../scan/kinds";
 import { type ObjectProps, newBodyOf, newField, newFootnoteOf, newHorizontalRule, newLineBreak, newObject, newParagraphMark, newSectionBreak, newTableOfContents } from "../../storage/new-items";
 import type { FlatKeys } from "../../storage/scalar";
 import { newCellMark, newRowMark, newTableEnd, newTableStart } from "../../storage/table-marks";
@@ -50,7 +50,7 @@ export interface FragmentCell {
 
 /**
  * A table with content (N7 step 5): rows of own cells, placed left to right into free slots ({@link placeFragment});
- * `widths` one weight per grid column (default 1 each), `header` the header-row count, `keys` the table's `a:*`,
+ * `widths` one weight per grid column (default none stored: equal columns), `header` the header-row count, `keys` the table's `a:*`,
  * `rowKeys` each row's `a:*`.
  */
 export interface FragmentTable {
@@ -102,8 +102,9 @@ export function cellUnits(ctx: CommandContext, cell: FragmentCell, rowSpan: numb
 /** A table with content at depth `d`: its marks (spans clipped, keys checked) and each cell's content one level deeper. */
 function contentTableUnits(ctx: CommandContext, t: FragmentTable, d: number): InsertUnit[] {
   const g = placeFragment(t.cells);
-  const widths = t.widths ?? Array.from({ length: g.cols }, () => 1);
-  if (widths.length !== g.cols || !widths.every((w) => Number.isFinite(w) && w > 0)) throw new Error("model: a pasted table needs one positive width per column");
+  // No widths: none stored, as a table that reads without `columnWidths` (equal columns).
+  const widths = t.widths ?? [];
+  if (t.widths !== undefined && (widths.length !== g.cols || !widths.every((w) => Number.isFinite(w) && w > 0))) throw new Error("model: a pasted table needs one positive width per column");
   if (t.header !== undefined && (!Number.isInteger(t.header) || t.header < 0 || t.header > g.rows)) throw new Error("model: a pasted table's header count is out of range");
   // Only flags that read are written (as setHeaderRows): no span crosses the header band's lower boundary.
   const header = g.header(t.header ?? 0);
@@ -132,8 +133,10 @@ export function units(ctx: CommandContext, items: readonly FragmentItem[], depth
   const out: InsertUnit[] = [];
   let prev: FragmentItem | null = null;
   for (const i of items) {
-    // W1 inside the payload: a block object or [S] follows a ¶ (or starts the payload).
-    if (isStructural(i.k) && prev !== null && !isParagraphBreak(prev.k)) throw new Error("model: a pasted block object or [S] must follow a ¶");
+    // W1 inside the payload: a block object or [S] follows a ¶ (or starts the payload); a block object may also follow an
+    // [S] (as insertTable stores at a section's start). [S][S] is never made by a single user (O5).
+    const after = prev === null || isParagraphBreak(prev.k) || (isSectionBreak(prev.k) && !isSectionBreak(i.k));
+    if (isStructural(i.k) && !after) throw new Error("model: a pasted block object or [S] must follow a ¶");
     // After a block object any inline content is legal (storage W2): it reads as the paragraph after it.
     const attrs = "attrs" in i && i.attrs !== undefined ? checkScalars(i.attrs, "pasted attr") : {};
     switch (i.k) {

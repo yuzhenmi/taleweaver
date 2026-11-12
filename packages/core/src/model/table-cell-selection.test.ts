@@ -304,7 +304,7 @@ describe("paste of table cells (N7 step 5)", () => {
       m[1]?.set("a:style", "grid");
       m[2]?.set("a:h", 5);
       m[3]?.set("a:bg", "red");
-      m[10]?.set("cols", cols([1]));
+      // The nested table gave no widths: none are stored (it reads without `columnWidths`).
     });
     expect(h.read()).toEqual(want.read());
     expect(h.undo()).toBe(true);

@@ -16,7 +16,10 @@ import { paragraphLayout } from "./position/paragraph-layout";
 import { newFootnoteOf, newHorizontalRule, newLineBreak, newObject, newParagraphMark, newSectionBreak, newTableOfContents } from "./storage/new-items";
 import { childrenOf } from "./test-helpers/fixture";
 import { type Harness, line } from "./test-helpers/harness";
-import { raw } from "./test-helpers/table";
+import { raw, units } from "./test-helpers/table";
+import { objectSelection } from "./commands/selections";
+import { COLS_KEY, WIDTH_KEY } from "./storage/keys";
+import * as Y from "yjs";
 
 /** The read, with each section's header / footer link as its body's lines (a pasted [S] links fresh bodies: ids differ). */
 function read(h: Harness): unknown {
@@ -67,7 +70,7 @@ describe("copy: text ranges and select-all (C1)", () => {
 
   it("round trip: every range of the body, and select-all", () => {
     roundTripAll(doc);
-  });
+  }, 30_000); // hundreds of ranges, each a fresh document: slow under a parallel run
 });
 
 /** Every range of `make()`'s body round-trips, and its select-all. */
@@ -161,5 +164,56 @@ describe("copy: footnotes, inline atoms, floats, TOCs, debris and sections (C1)"
       if (holder === undefined) throw new Error("no body");
       roundTrips(h, selectAll(h.version, holder) ?? h.selection, `all of ${ids.name}`);
     }
+  }, 30_000); // hundreds of ranges, each a fresh document: slow under a parallel run
+});
+
+describe("copy: tables in ranges, object selections (C2)", () => {
+  /** The body's top-level tables. */
+  const tables = (h: Harness): string[] =>
+    childrenOf(h.version, "block", h.version.rootId)
+      .flatMap((s) => childrenOf(h.version, "block", s.id))
+      .filter((b) => b.type === "table")
+      .map((b) => b.id);
+
+  /**
+   * Table 1: leads (L1 into the first cell, L4 a virtual cell's content), a header row, a row span over a short row (its
+   * last slot virtual), a nested table, `a:*` on the table / a row / a cell, column widths 2:1:1. Table 2 follows an
+   * [S] directly (insertTable at a section's start stores `[S]⟦`).
+   */
+  const doc = (): Harness =>
+    raw(units("x¶ ⟦ L1¶ ⟨r⟩h ⟨c⟩ e¶ ⟨c⟩ f¶ ⟨c⟩ g¶ ⟨r⟩ ⟨c⟩r2 a¶ ⟨c⟩ b¶ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 n¶ ⟧@1 m¶ ⟨r⟩ ⟨c⟩ c¶ ⟨r⟩ L4¶ ⟧ y¶ [S] ⟦ ⟨r⟩ ⟨c⟩ k¶ ⟧ z"), (maps) => {
+      const [, table, , row, cell] = maps; // x's ¶, ⟦, L1's ¶, ⟨r⟩, ⟨c⟩
+      const cols = new Y.Array<Y.Map<unknown>>();
+      cols.insert(0, [2, 1, 1].map((w) => new Y.Map<unknown>([[WIDTH_KEY, w]])));
+      table?.set(COLS_KEY, cols);
+      table?.set("a:border", 1);
+      row?.set("a:height", 20);
+      cell?.set("a:fill", "red");
+    });
+
+  it("a table comes whole from the block tree; an object selection copies its object", () => {
+    const h = doc();
+    h.select([0, 0], [h.paragraphs().length - 1, 1]);
+    const t = copy(h.ctx())?.find((i) => i.k === "table");
+    expect(t).toMatchObject({ widths: [0.5, 0.25, 0.25], header: 1, keys: { "a:border": 1 }, rowKeys: [{ "a:height": 20 }, {}, {}, {}] });
+    const cells = t !== undefined && "cells" in t ? t.cells : [];
+    // Rows of own cells: the virtual cell holding L4 comes as a cell; the empty one does not.
+    expect(cells.map((r) => r.length)).toEqual([3, 3, 1, 1]);
+    expect(cells[0]?.[0]).toEqual({ items: [{ k: "text", text: "L1" }, { k: "para" }, { k: "text", text: "e" }, { k: "para" }], keys: { "a:fill": "red" } });
+    expect(cells[1]?.[0]?.rowSpan).toBe(2);
+    expect(cells[1]?.[2]?.items.map((i) => i.k)).toEqual(["table", "text", "para"]);
+    h.selection = objectSelection(h.version, tables(h)[0] ?? "") ?? h.selection;
+    expect(copy(h.ctx())?.map((i) => i.k)).toEqual(["table"]);
   });
+
+  it("round trip: every range of the body, select-all, each table's object selection, select-all of a cell", () => {
+    roundTripAll(doc);
+    for (let i = 0; i < 2; i++) {
+      const h = doc();
+      roundTrips(h, objectSelection(h.version, tables(h)[i] ?? "") ?? h.selection, `object ${i}`);
+    }
+    const h = doc();
+    const cell = h.paragraphs()[1]?.parentId ?? "";
+    roundTrips(h, selectAll(h.version, cell) ?? h.selection, "all of a cell");
+  }, 30_000); // hundreds of ranges, each a fresh document: slow under a parallel run
 });
