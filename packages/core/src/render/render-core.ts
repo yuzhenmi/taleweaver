@@ -55,7 +55,8 @@ import {
   type PageFieldKind,
   type PageFieldNumberStyle,
 } from "../state";
-import type { Style, ComputedStyle } from "../styles";
+import type { Style, ComputedStyle, Direction } from "../styles";
+import { imageWrapFloat } from "../components/leaf-style-attrs";
 import { INITIAL_COMPUTED_STYLE } from "../styles/property-meta";
 import { composeComputed } from "../cascade/compose";
 import { flattenLengths } from "../cascade/flatten-lengths";
@@ -264,6 +265,7 @@ export function renderBlockBody(
           context.suggestionView ?? "suggesting",
           block.markAttrs,
           context.bookmarkRange,
+          computed.direction,
         );
     const rendered = withMarkerStyle(def.render(view, context, inlineRenderNodes), block.markAttrs, attrRegistry, specified);
     // A tracked ¶ is a key on the block's own ¶ entry, not an inline item: it rides on
@@ -357,6 +359,9 @@ export function expandInlineItems(
   view: SuggestionView = "suggesting",
   markAttrs?: ReadonlyAttrs,
   bookmarkRange?: (bookmarkId: string) => BookmarkRange | undefined,
+  // The block's computed direction: a wrapped inline image's physical
+  // `wrap` side resolves to a logical float against it (as block images do).
+  direction: Direction = "ltr",
 ): RenderNode[] {
   // Change-tracking: in a non-`"suggesting"` preview view the
   // suggestion VISUALS are suppressed — the document is rendered as it would read
@@ -365,7 +370,12 @@ export function expandInlineItems(
   // (suggesting-only) cursor/hit-test offset accounting.
   const out: RenderNode[] = [];
   let i = 0;
+  // State offset of the current item (text: its length, embed: 1), counted over
+  // every item including ones hidden in this view.
+  let offset = 0;
   for (const item of content.items) {
+    const itemOffset = offset;
+    offset += item.kind === "text" ? item.text.length : 1;
     // 5c-iii: drop items resolved AWAY in this view (final: deletions; original:
     // insertions). `i` still advances so render keys stay
     // stable across the literal item list.
@@ -603,6 +613,14 @@ export function expandInlineItems(
         [],
         { image: { src, width, height, alt } },
       );
+      // A WRAPPED inline image (`properties.wrap`, fixtures only until P8) is a
+      // float anchored to its paragraph: the outer atom keeps its 1-unit
+      // atomicity (still `inline-block`, still one IFC item) and carries the
+      // logical `float` side — "left"/"right" RTL-mirrored like block images,
+      // "break" = inline-start with a full-width exclusion (`inlineFloat`).
+      const wrap = item.properties.wrap;
+      const float = wrap === "break" ? "inline-start" : imageWrapFloat(wrap, direction);
+      const offsetBlock = item.properties.offsetBlock;
       out.push(
         createElementBox(
           key,
@@ -610,12 +628,25 @@ export function expandInlineItems(
           // load-bearing for IFC offset accounting, not a stylistic default
           // (mirrors the cross-reference/page-field branches). The embed's own
           // attrs (link, comment-range, etc.) still apply via `itemStyle`.
-          { ...itemStyle, display: "inline-block" },
+          float === undefined
+            ? { ...itemStyle, display: "inline-block" }
+            : { ...itemStyle, float, display: "inline-block" },
           [inner],
           // `replacedInline` makes the IFC use the bottom-edge replaced baseline
           // instead of the *0.8 content baseline used by text-bearing
           // inline-blocks (footnote markers, cross-refs).
-          { embedType: item.embedType, replacedInline: true },
+          float === undefined
+            ? { embedType: item.embedType, replacedInline: true }
+            : {
+                embedType: item.embedType,
+                replacedInline: true,
+                inlineFloat: {
+                  blockId,
+                  offset: itemOffset,
+                  offsetBlock: typeof offsetBlock === "number" ? offsetBlock : 0,
+                  exclusion: wrap === "break" ? "full" : "side",
+                },
+              },
         ),
       );
     } else {

@@ -309,6 +309,13 @@ export interface InlineBlockBox extends LayoutBoxBase {
    * non-replaced inline-block.
    */
   readonly isReplaced?: boolean;
+  /**
+   * Set on a FLOATED atom's zero-width, non-painting placeholder (a wrapped
+   * inline image): the key of its float box, which the BFC places as a child of
+   * the paragraph's box. The placeholder owns the atom's one state offset.
+   * Identity metadata, copied verbatim through every rebuild.
+   */
+  readonly floatKey?: string;
 }
 
 export interface MarkerBox extends LayoutBoxBase {
@@ -638,6 +645,7 @@ export function createInlineBlockBox(
   relativeOffset?: { readonly dx: number; readonly dy: number },
   targetId?: string,
   isReplaced?: boolean,
+  floatKey?: string,
 ): InlineBlockBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
@@ -653,6 +661,7 @@ export function createInlineBlockBox(
     inlineMeta,
     targetId,
     isReplaced,
+    floatKey,
   });
 }
 
@@ -876,7 +885,7 @@ export function withPhysicalInlineOffset(
         box.writingMode, "ltr", box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.sourceStart, box.bidiLevel,
         /* containingBlockSize */ undefined, box.inlineMeta, box.relativeOffset,
-        box.targetId, box.isReplaced,
+        box.targetId, box.isReplaced, box.floatKey,
       );
     case "marker":
       return createMarkerBox(
@@ -975,7 +984,7 @@ export function withBidiLevel(
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.sourceStart, level,
         /* containingBlockSize */ undefined, box.inlineMeta, box.relativeOffset,
-        box.targetId, box.isReplaced,
+        box.targetId, box.isReplaced, box.floatKey,
       );
     case "marker":
       return createMarkerBox(
@@ -1068,7 +1077,7 @@ export function rebuildBoxWithOffsets(
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.sourceStart, box.bidiLevel,
         containingBlockSize, box.inlineMeta, box.relativeOffset,
-        box.targetId, box.isReplaced,
+        box.targetId, box.isReplaced, box.floatKey,
       );
     case "marker":
       return createMarkerBox(

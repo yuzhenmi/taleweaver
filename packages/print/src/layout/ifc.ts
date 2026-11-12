@@ -210,6 +210,9 @@ interface Token {
      *  `InlineBlockBox.isReplaced` so `applyVerticalAlign` uses the bottom-edge
      *  baseline (CSS2 §10.8.1). `undefined` for a text-bearing inline-block. */
     isReplaced?: boolean;
+    /** Set on a floated atom's zero-width PLACEHOLDER (a wrapped inline image):
+     *  the key of its float box, which the BFC places at the paragraph top. */
+    floatKey?: string;
   };
   /**
    * Set on the inline-block token of a `"tab"` embed (tab stops). Recognizes
@@ -706,10 +709,13 @@ interface IfcSourceAssembly {
   source: string;
   readonly runs: { start: number; end: number; whiteSpace: WhiteSpace }[];
   readonly tokenBases: number[];
+  /** Ascending `source` offsets of floated atoms' OBJECT REPLACEMENT chars —
+   *  present for bidi, removed from the UAX #14 line-break analysis. */
+  readonly floatAt: number[];
 }
 
 function newIfcSourceAssembly(): IfcSourceAssembly {
-  return { source: "", runs: [], tokenBases: [] };
+  return { source: "", runs: [], tokenBases: [], floatAt: [] };
 }
 
 /**
@@ -1068,6 +1074,33 @@ function collectInlineTokens(
         asm.tokenBases.push(ibBase);
         continue; // skip the inline-block layoutBlock + atomic-token push
       }
+      // A FLOATED atom (a wrapped inline image) is out of flow: the BFC places
+      // its box at the paragraph top. Here it is a zero-width, non-painting
+      // placeholder that still owns its one state offset (so offsets after it on
+      // the line stay exact) and is NOT a break opportunity (CSS 9.5 / LayoutNG:
+      // a float in an inline run is invisible to line breaking — `floatAt`
+      // drops its char from the UAX #14 analysis; `breakableBefore: false`
+      // glues it to the content before it).
+      if (cs.float !== "none") {
+        asm.floatAt.push(ibBase);
+        out.push({
+          id: child.key,
+          sourceKey: child.key,
+          text: "",
+          sourceLength: 1,
+          absoluteSourceBase: ibBase,
+          width: 0,
+          style: cs,
+          isSpace: false,
+          isLineBreak: false,
+          inlineAncestors: ancestors,
+          inlineAncestorStyles: ancestorStyles,
+          inlineBlock: { key: child.key, blockSize: 0, children: [], floatKey: child.key },
+          breakableBefore: false,
+        });
+        asm.tokenBases.push(ibBase);
+        continue;
+      }
       // Resolve inlineSize using intrinsic sizes for auto (shrink-to-fit, CSS Sizing 3 §10.3.5).
       // cs.inlineSize: ComputedLengthOrAuto | IntrinsicSizingKeyword =
       //   number | { unit: "percent"; value } | "auto" | "min-content" | "max-content" | "fit-content".
@@ -1194,13 +1227,27 @@ function collectInlineTokens(
  */
 function annotateLineBreaks(out: Token[], asm: IfcSourceAssembly): void {
   if (asm.source.length === 0) return;
-  const pts = lineBreakOpportunities(asm.source, { cjBreakable: true });
+  // Floated atoms are invisible to line breaking: analyse the source WITHOUT
+  // their chars, then map each opportunity back to the full source, landing
+  // AFTER any floats at that point (a float stays with the content before it).
+  // `floatStripped[j]` = float j's index in the stripped string.
+  const floatStripped = asm.floatAt.map((p, j) => p - j);
+  let lbSource = asm.source;
+  for (const p of [...asm.floatAt].reverse()) lbSource = lbSource.slice(0, p) + lbSource.slice(p + 1);
+  const toFull = (k: number): number => {
+    let n = 0;
+    for (const q of floatStripped) if (q <= k) n++;
+    return k + n;
+  };
+  const pts = lineBreakOpportunities(lbSource, { cjBreakable: true });
   const softAt = new Set<number>();
   const mandatoryAt = new Set<number>();
   for (const p of pts) {
-    if (p.mandatory) mandatoryAt.add(p.index);
-    else softAt.add(p.index);
+    if (p.mandatory) mandatoryAt.add(toFull(p.index));
+    // The glyph-less soft break after a U+00AD is always removed (see the note below).
+    else if (lbSource.charCodeAt(p.index - 1) !== 0x00ad) softAt.add(toFull(p.index));
   }
+  const floatAtSet = new Set(asm.floatAt);
 
   // Map an absolute offset to the white-space mode of the run that OWNS it (the
   // run whose [start, end) span contains it). Returns undefined if no run covers
@@ -1227,8 +1274,6 @@ function annotateLineBreaks(out: Token[], asm: IfcSourceAssembly): void {
   // lands on a token boundary (`breakableBefore`), not an interior `softBreaks`
   // index. Real-space breaks elsewhere are unaffected — they are not preceded by
   // a soft hyphen.
-  const suppressedSoftHyphenBreakAt = (k: number): boolean =>
-    asm.source.charCodeAt(k - 1) === 0x00ad;
   // A white-space mode permits soft wrapping iff it is NOT `nowrap`/`pre`
   // (CSS Text 3 §3 — those two disallow soft-wrap opportunities; `normal`,
   // `pre-wrap`, `pre-line`, `break-spaces` keep them).
@@ -1242,7 +1287,6 @@ function annotateLineBreaks(out: Token[], asm: IfcSourceAssembly): void {
   //     interior to either, so a `nowrap` span governs only its own interior).
   const softActiveAt = (k: number): boolean => {
     if (!softAt.has(k)) return false;
-    if (suppressedSoftHyphenBreakAt(k)) return false;
     const wsBefore = runWhiteSpaceAt(k - 1);
     const wsAfter = runWhiteSpaceAt(k);
     if (wsBefore !== undefined && wsAfter !== undefined && wsBefore === wsAfter) {
@@ -1254,7 +1298,11 @@ function annotateLineBreaks(out: Token[], asm: IfcSourceAssembly): void {
     return wsWraps(wsBefore) || wsWraps(wsAfter);
   };
   // Mandatory breaks are never white-space-gated (forced regardless).
-  const breakableAt = (k: number): boolean => mandatoryAt.has(k) || softActiveAt(k);
+  // A boundary AT a float means the boundary after it (the float is transparent).
+  const breakableAt = (k: number): boolean => {
+    while (floatAtSet.has(k)) k++;
+    return mandatoryAt.has(k) || softActiveAt(k);
+  };
 
   for (let i = 0; i < out.length; i++) {
     const token = out[i];
@@ -1267,6 +1315,8 @@ function annotateLineBreaks(out: Token[], asm: IfcSourceAssembly): void {
     // sentinel; they carry no soft-break annotation (the source `\n` is already
     // a mandatory break the tokenizer handles).
     if (token.isLineBreak) continue;
+    // A float placeholder: `breakableBefore: false` is set at collection.
+    if (token.inlineBlock?.floatKey !== undefined) continue;
 
     if (token.isSpace) {
       // Whitespace tokens carry NO interior softBreaks. Their `breakableBefore`
@@ -2253,6 +2303,15 @@ export function layoutInlineContent(
   }
 
   /**
+   * True when the current line holds in-flow content. A float placeholder is
+   * not content: a line holding only placeholders is still "empty" for the
+   * wrap rules (the next unit may move it below a float, never wraps away from it).
+   */
+  function lineHasContent(): boolean {
+    return currentUnits.some((u) => u.tokens.some((t) => t.inlineBlock?.floatKey === undefined));
+  }
+
+  /**
    * Push a unit onto the current line, updating token-range tracking
    * and the state-model offset cursor.
    */
@@ -2522,7 +2581,7 @@ export function layoutInlineContent(
     // into the word's unit, so `isSpaceUnit` is false there and words wrap as
     // before. Box emission later clamps the hung space's geometry to the
     // content edge.
-    if (canWrap && !isSpaceUnit(unit) && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length > 0) {
+    if (canWrap && !isSpaceUnit(unit) && currentWidth + unit.totalWidth > lineInlineSize && lineHasContent()) {
       const available = lineInlineSize - currentWidth;
       // UAX #14 soft split first (e.g. CJK between ideographs) — no hyphen glyph.
       // This is an INTERIOR break (inside the unit's first token), orthogonal to
@@ -2594,7 +2653,10 @@ export function layoutInlineContent(
     // moves to the next float bottom — so we stop as soon as there is enough
     // space (the float that was squeezing this line may have ended while a
     // later float on the other side still leaves room).
-    if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length === 0) {
+    // A line with no inline space at all (a "break" float spans the whole
+    // width) is pushed down even for zero-width content (a float placeholder):
+    // no line sits beside a full-width exclusion.
+    if (((canWrap && currentWidth + unit.totalWidth > lineInlineSize) || lineInlineSize <= 0) && !lineHasContent()) {
       if (lineInlineSize < availableInlineSize) {
         // eslint-disable-next-line no-constant-condition
         while (true) {
@@ -2606,7 +2668,7 @@ export function layoutInlineContent(
           if (next <= lineBlockOffset) break; // no float below; can't push further
           lineBlockOffset = next;
           ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
-          if (lineInlineSize >= unit.totalWidth) break; // now fits
+          if (lineInlineSize > 0 && lineInlineSize >= unit.totalWidth) break; // now fits
           if (lineInlineSize >= availableInlineSize) break; // no more floats squeezing
         }
       }
@@ -2615,11 +2677,11 @@ export function layoutInlineContent(
     // Split on an otherwise-empty line: the unit doesn't fit even alone, but a
     // soft (UAX #14, e.g. CJK between ideographs) or hyphen break opportunity
     // lets a prefix fit. This is where a wide CJK run wraps across lines.
-    if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length === 0) {
+    if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && !lineHasContent()) {
       const available = lineInlineSize - currentWidth;
       // Soft split first (UAX #14 interior break, e.g. CJK between ideographs).
       // No `breakableBefore` gate here: the unit is ALONE on this line
-      // (currentUnits.length === 0), so there is no preceding unit on the line to
+      // (no content units before it), so there is no preceding unit on the line to
       // break away from — `breakableBefore` (a leading-boundary constraint) is
       // irrelevant. Both splits below are interior and run unconditionally.
       const softSplit = trySoftSplit(unit, available);
@@ -3264,6 +3326,7 @@ function buildLineChildrenForAncestorLevel(
           /* relativeOffset */ undefined,
           /* targetId */ ib.targetId,
           /* isReplaced */ ib.isReplaced,
+          /* floatKey */ ib.floatKey,
         ));
       } else {
         // Regular token — emit a TextRunBox (merging tokens in the unit).

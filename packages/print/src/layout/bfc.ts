@@ -19,6 +19,7 @@ import type { FloatEnvironment, PushedFloat } from "./float-context";
 import type { PendingAbsChild } from "./abs-pos-context";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { groupChildren, anonymousBlockKey } from "./group-children";
+import { paragraphFloats } from "./paragraph-floats";
 import { isLayoutBoxReusable, renderNodesLayoutEquivalent } from "./layout-reuse";
 import { markStart, markEnd } from "@taleweaver/core";
 
@@ -592,6 +593,22 @@ export function layoutBlock(
         }
       }
 
+      // Wrapped inline images: placed at the paragraph's top (+ offsetBlock),
+      // in source order, through the block-float env path, BEFORE the lines wrap
+      // — so this paragraph's lines and following blocks flow around them. Only
+      // on the paragraph's first fragment (no token, or a line-0 token: the
+      // paragraph moved whole to this page): a resumed fragment never re-places.
+      // The boxes are children of this block's box, before its lines, and only
+      // once a line landed — an empty fragment must stay empty (box: null) so the
+      // parent can move the paragraph, with its floats, to the next page.
+      // ponytail: the env keeps the exclusion of a paragraph that moved on; M3's
+      // mark / rollback removes it.
+      const floatBoxes = isResumeFromDegenerate(ifcResumeFrom)
+        ? paragraphFloats(group.children).map((f) => placeParagraphFloat(
+          f, ctx, shaper, hyphenator, paddingInlineStart, contentInlineSize, blockFlowBase, paraFlowStart,
+        ))
+        : [];
+
       const ifcResult = layoutInlineContent(anonElement, paddingInlineStart, childBlockOffset, ifcCtx, shaper, hyphenator, paraFlowStart, ifcFragmentation);
       if (ifcResult.box === null) {
         // IFC couldn't fit anything — propagate as a partial result.
@@ -603,6 +620,7 @@ export function layoutBlock(
         });
       }
       const ifcBox = ifcResult.box;
+      layoutChildren.push(...floatBoxes);
 
       const anonBlockSize = ifcBox.blockSize;
 
@@ -1429,6 +1447,35 @@ function placeAndPositionFloat(
   }
   assertLayoutBoxConsistent(positioned, contentInlineSize);
   return positioned;
+}
+
+/**
+ * Place one floated atom of a paragraph (a wrapped inline image) at the
+ * paragraph's top (`paraFlowStart`, cumulative) + its `offsetBlock`, sized and
+ * placed exactly as a block float. A "break" image (`exclusion: "full"`)
+ * excludes the whole content inline size; its box keeps its own width at the
+ * inline-start edge.
+ */
+function placeParagraphFloat(
+  child: ElementBox,
+  ctx: LayoutContext,
+  shaper: TextShaper,
+  hyphenator: Hyphenator | undefined,
+  paddingInlineStart: number,
+  contentInlineSize: number,
+  blockFlowBase: number,
+  paraFlowStart: number,
+): LayoutBox {
+  const childCs = child.computedStyle;
+  if (childCs === undefined) throw new Error("cascade required");
+  const inlineFloat = child.metadata?.inlineFloat;
+  const requested = paraFlowStart + (inlineFloat?.offsetBlock ?? 0);
+  const sized = sizeFloat(
+    child, childCs, computeUsedStyle(childCs, contentInlineSize, "indefinite"), ctx, shaper, hyphenator,
+    contentInlineSize, requested,
+  );
+  const placed = inlineFloat?.exclusion === "full" ? { ...sized, floatInlineSize: contentInlineSize } : sized;
+  return placeAndPositionFloat(placed, childCs, ctx.floatEnv, paddingInlineStart, contentInlineSize, blockFlowBase, requested);
 }
 
 /**
