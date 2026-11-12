@@ -21,6 +21,7 @@ import { computeUsedStyle, resolveUsedLength } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeRootContext, makeChildContext } from "./layout-context";
 import { contentFrame, floatIntrusionAt } from "./float-frame";
+import type { ParentFrame } from "./parent-frame";
 import type { IntrinsicSizesCache } from "@taleweaver/core";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { findChangePoint } from "./wrap-incremental";
@@ -1153,7 +1154,8 @@ function collectInlineTokens(
       const ibCtx = parentCtx !== null
         ? makeChildContext(parentCtx, cs, ibResolvedInlineSize, "indefinite")
         : makeRootContext(cs, ibResolvedInlineSize);
-      const bfcResult = layoutBlock(child, 0, 0, ibCtx, shaper, hyphenator);
+      // Only the children are kept (they sit in the inline-block's own frame).
+      const bfcResult = layoutBlock(child, 0, 0, { direction: cs.direction, inlineSize: ibResolvedInlineSize }, ibCtx, shaper, hyphenator);
       if (bfcResult.box === null) {
         throw new Error("layoutBlock without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
       }
@@ -1412,6 +1414,10 @@ export function layoutInlineContent(
   parent: ElementBox,
   inlineOffset: number,
   blockOffset: number,
+  // The block whose lines these are: its border box + direction. The lines are
+  // its children, positioned from its inline-start edge (`inlineOffset` is its
+  // padding-inline-start).
+  frame: ParentFrame,
   ctx: LayoutContext,
   shaper: TextShaper,
   // Auto-hyphenation: threaded ALONGSIDE `shaper`, forwarded into
@@ -1540,6 +1546,7 @@ export function layoutInlineContent(
   if (
     prevState !== undefined &&
     prevState.availableInlineSize === availableInlineSize &&
+    prevState.frameInlineSize === frame.inlineSize &&
     prevState.textAlign === textAlign &&
     prevState.direction === direction &&
     prevState.textIndent === blockTextIndent &&
@@ -1565,7 +1572,8 @@ export function layoutInlineContent(
   // frame, read by `effectiveLineDims`. Built past the cache-hit return, which
   // never wraps, so a hit allocates nothing for it.
   const floatFrame = contentFrame(
-    ctx.floatArea.lineLeft, availableInlineSize, direction, 0, availableInlineSize, ctx.floatArea.bfcInlineSize,
+    ctx.floatArea.lineLeft, availableInlineSize, direction, availableInlineSize,
+    direction, 0, availableInlineSize, ctx.floatArea.bfcInlineSize,
   );
 
   // Per-line token-range metadata for incremental re-wrap.
@@ -2273,7 +2281,7 @@ export function layoutInlineContent(
     const startOff = currentLineStartOffset >= 0 ? currentLineStartOffset : cursorOffset;
     const line = buildLineWithFragments(
       parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize,
-      buildUnits, parentCs, measurer, writingMode, direction, availableInlineSize,
+      buildUnits, parentCs, measurer, writingMode, direction, availableInlineSize, frame.inlineSize,
       hyphen, shaper,
       sourceBlockIdOf(parent.key), // ownerBlockId (see strut-line comment)
       startOff,              // inlineOffsetStart
@@ -2464,7 +2472,7 @@ export function layoutInlineContent(
       strutUsedStyle,
       [strutChild],
       /* baseline */ strutBlockSize,
-      /* containingInlineSize */ availableInlineSize,
+      /* containingInlineSize */ frame.inlineSize,
       // IFC is dispatched for the leaf block running the inline-flow.
       // When the BFC sees mixed inline+block children, it wraps inline
       // runs in anonymous blocks keyed "${sourceKey}/anon[N]". Strip
@@ -2893,6 +2901,7 @@ export function layoutInlineContent(
       tokens,
       lines: resultLines,
       availableInlineSize,
+      frameInlineSize: frame.inlineSize,
       textAlign,
       direction,
       textIndent: blockTextIndent,
@@ -3009,7 +3018,7 @@ export function layoutInlineContent(
         line.usedStyle,
         line.children,
         line.baseline,
-        availableInlineSize,
+        frame.inlineSize,
         line.ownerBlockId,
         line.inlineOffsetStart,
         line.inlineOffsetEnd,
@@ -3199,6 +3208,8 @@ function buildLineWithFragments(
   writingMode: WritingMode,
   direction: Direction,
   containingInlineSize: number,
+  // The block's border-box inline size — the frame the line is positioned in.
+  lineFrameInlineSize: number,
   hyphenBreak: HyphenBreak | null,
   shaper: TextShaper,
   ownerBlockId: BlockId,
@@ -3341,7 +3352,7 @@ function buildLineWithFragments(
   );
   return createLineBox(`${parentKey}-l${lineIndex}`, lineInlineCursor, lineBlockOffset, lineInlineSize, lineBlockSize, writingMode, direction, parentCs, parentUsedStyle, reordered,
     /* baseline */ lineBlockSize,
-    /* containingInlineSize */ containingInlineSize,
+    /* containingInlineSize */ lineFrameInlineSize,
     /* ownerBlockId */ ownerBlockId,
     /* inlineOffsetStart */ inlineOffsetStart,
     /* inlineOffsetEnd */ inlineOffsetEnd,

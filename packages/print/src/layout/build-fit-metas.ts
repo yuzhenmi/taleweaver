@@ -9,6 +9,7 @@
 // BFC) carries recursive `children`; a leaf carries either IFC line data
 // (a paragraph) or table row data.
 
+import { rootFrame } from "./parent-frame";
 import type { ElementBox } from "@taleweaver/core";
 import type { LayoutBox, LineBox } from "./layout-box";
 import type { BlockFitMeta } from "./fit-core";
@@ -244,7 +245,7 @@ function ifcLeafMetaFromInlineRun(
   // Unfragmented IFC layout (no FragmentationContext): produces every line.
   // `paraFlowStart: 0` — this unfragmented measure-pass call emits no break
   // token (no FragmentationContext), so the value is never read.
-  const result = layoutInlineContent(anonElement, 0, 0, ifcCtx, shaper, hyphenator, 0, undefined);
+  const result = layoutInlineContent(anonElement, 0, 0, rootFrame(ifcCtx), ifcCtx, shaper, hyphenator, 0, undefined);
   if (result.box === null) {
     throw new Error("buildBlockFitMetas: unfragmented inline-run layout returned null box");
   }
@@ -474,7 +475,7 @@ function layoutChildInWrapper(
     children: Object.freeze([child]),
   };
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageContentInlineSize);
-  const result = layoutBlock(wrapper, 0, 0, ctx, shaper, hyphenator, undefined);
+  const result = layoutBlock(wrapper, 0, 0, rootFrame(ctx), ctx, shaper, hyphenator, undefined);
   if (result.box === null) {
     throw new Error("buildBlockFitMetas: unfragmented wrapper layout returned null box");
   }

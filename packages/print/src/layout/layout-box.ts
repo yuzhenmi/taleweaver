@@ -17,8 +17,9 @@ interface LayoutBoxBase {
   readonly key: string;
 
   // PARENT-RELATIVE LOGICAL POSITIONS. inlineOffset and blockOffset are
-  // measured from the parent's content-edge origin. The document root is
-  // placed at (0, 0) relative to nothing.
+  // measured from the parent's BORDER-BOX start edges, in the parent's (the
+  // containing block's) writing direction — see `parent-frame.ts`. The
+  // document root is placed at (0, 0) relative to nothing.
   //
   // Painter, hit-test, and selection-geometry walk the tree accumulating
   // parent offsets cumulatively (see canvas-renderer.ts:paintBox and
@@ -29,15 +30,17 @@ interface LayoutBoxBase {
   readonly blockSize:    number;
 
   // PARENT-RELATIVE PHYSICAL POSITIONS. Derived from the logical fields via
-  // logicalToPhysical(); `containingInlineSize` is required at factory time
-  // to support RTL inline-axis inversion.
+  // logicalToPhysical(); `containingInlineSize` (the parent's border-box
+  // inline size) is required at factory time to support RTL inline-axis inversion.
   // Identity for LTR; mirrored along the inline axis for RTL.
   readonly x: number;
   readonly y: number;
   readonly width:  number;
   readonly height: number;
 
-  // Containing-block writing-mode + direction at this point
+  // `direction`: the containing block's (the parent frame's), which the
+  // physical inline coordinate mirrors in — NOT the box's own (that is
+  // `computedStyle.direction`). `writingMode` is the laid-out box's own.
   readonly writingMode: WritingMode;
   readonly direction:   Direction;
 

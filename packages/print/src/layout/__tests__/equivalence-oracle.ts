@@ -20,6 +20,7 @@ import type { Hyphenator } from "@taleweaver/core";
 import type { ElementBox } from "@taleweaver/core";
 import type { BreakToken, FragmentationContext } from "../fragmentation";
 import type { PageConfig } from "../page-config";
+import { rootFrame } from "../parent-frame";
 
 /** Narrowing array access: throws on a missing index instead of returning `undefined`. */
 export function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -82,7 +83,7 @@ export function runOracle(
       root,
       margins.inlineStart,
       margins.blockStart,
-      contentCtx,
+      rootFrame(contentCtx), contentCtx,
       shaper,
       hyphenator,
       fragmentation,

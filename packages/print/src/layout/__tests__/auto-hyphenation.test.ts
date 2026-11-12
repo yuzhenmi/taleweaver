@@ -8,6 +8,7 @@ import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import type { ComputedStyle } from "@taleweaver/core";
 import { makeRootContext } from "../layout-context";
 import type { LineBox, TextRunBox, BlockBox } from "../layout-box";
+import { rootFrame } from "../parent-frame";
 
 /**
  * HYPH.S4 — auto-hyphenation through the REAL IFC layout path.
@@ -52,7 +53,7 @@ function linesOf(
   hyphenator?: ReturnType<typeof createMockHyphenator>,
 ): { box: BlockBox; lines: LineBox[] } {
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
-  const result = layoutInlineContent(styledTree(text, style), 0, 0, ctx, shaper, hyphenator, 0);
+  const result = layoutInlineContent(styledTree(text, style), 0, 0, rootFrame(ctx), ctx, shaper, hyphenator, 0);
   if (result.box === null) throw new Error("layoutInlineContent returned null box");
   const lines = result.box.children.filter((c): c is LineBox => c.type === "line");
   return { box: result.box, lines };

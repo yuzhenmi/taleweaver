@@ -6,6 +6,7 @@ import { createMockShaper } from "@taleweaver/core";
 import { layoutBlock } from "./bfc";
 import { makeRootContext } from "./layout-context";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
+import { rootFrame } from "./parent-frame";
 
 const shaper = createMockShaper(8, 16);
 
@@ -19,7 +20,7 @@ function layoutOf(tree: ReturnType<typeof createElementBox>) {
   const cascaded = cascadePass(tree);
   if (cascaded.type !== "element") throw new Error("?");
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
-  const result = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+  const result = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
   const box = result.box;
   if (box === null) throw new Error("layoutBlock returned null box");
   if (box.type !== "block") throw new Error("layoutBlock returned non-block box");
@@ -131,7 +132,7 @@ describe("layoutBlock — vertical-lr block advancement (P3.2)", () => {
     if (cascaded.type !== "element") throw new Error("?");
     const rootCs = { ...INITIAL_COMPUTED_STYLE, writingMode: "vertical-lr" as const };
     const ctx = makeRootContext(rootCs, 600);
-    const result = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const result = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     const box = result.box;
     if (box === null) throw new Error("layoutBlock returned null box");
     if (box.type !== "block") throw new Error("layoutBlock returned non-block box");
@@ -248,7 +249,7 @@ describe("layoutBlock — inline content (IFC dispatch)", () => {
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 200);
-    const r = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const r = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -268,7 +269,7 @@ describe("layoutBlock — mixed block + inline children (anonymous box generatio
     const cascaded = cascadePass(doc);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r2 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r2 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r2.box === null) throw new Error("layoutBlock returned null box");
     const out = r2.box;
 
@@ -307,7 +308,7 @@ describe("layoutBlock — mixed block + inline children (anonymous box generatio
     const cascaded = cascadePass(doc);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error();
@@ -333,7 +334,7 @@ describe("layoutBlock — mixed block + inline children (anonymous box generatio
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 200);
-    const r3 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(8, 16), undefined);
+    const r3 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(8, 16), undefined);
     if (r3.box === null) throw new Error("layoutBlock returned null box");
     const out = r3.box;
     if (out.type !== "block") throw new Error("?");
@@ -348,7 +349,7 @@ describe("layoutBlock — mixed block + inline children (anonymous box generatio
     const cascaded = cascadePass(doc);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
-    const r4 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(8, 16), undefined);
+    const r4 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(8, 16), undefined);
     if (r4.box === null) throw new Error("layoutBlock returned null box");
     const out = r4.box;
     if (out.type !== "block") throw new Error("?");
@@ -391,7 +392,7 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -415,7 +416,7 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -431,7 +432,7 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -461,7 +462,7 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
       ]),
     );
     if (treeNoMarker.type !== "element") throw new Error("?");
-    const r2 = layoutBlock(treeNoMarker, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r2 = layoutBlock(treeNoMarker, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r2.box === null) throw new Error("layoutBlock returned null box");
     const out2 = r2.box;
     if (out2.type !== "block") throw new Error("?");
@@ -501,7 +502,7 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -555,7 +556,7 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -643,7 +644,7 @@ describe("BFC — intrinsic-sizing keywords on inlineSize", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r8 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r8 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r8.box === null) throw new Error("layoutBlock returned null box");
     const out = r8.box;
     const inner = findBoxByKey(out, "b");
@@ -660,7 +661,7 @@ describe("BFC — intrinsic-sizing keywords on inlineSize", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r9 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r9 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r9.box === null) throw new Error("layoutBlock returned null box");
     const out = r9.box;
     const inner = findBoxByKey(out, "b");
@@ -677,7 +678,7 @@ describe("BFC — intrinsic-sizing keywords on inlineSize", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r10 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r10 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r10.box === null) throw new Error("layoutBlock returned null box");
     const out = r10.box;
     const inner = findBoxByKey(out, "b");
@@ -699,7 +700,7 @@ describe("BFC — intrinsic-sizing keywords on inlineSize", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 30);
-    const r11 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r11 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r11.box === null) throw new Error("layoutBlock returned null box");
     const out = r11.box;
     const inner = findBoxByKey(out, "b");
@@ -718,7 +719,7 @@ describe("BFC — inline-block shrink-to-fit", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r12 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r12 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r12.box === null) throw new Error("layoutBlock returned null box");
     const out = r12.box;
     expect(out.type).toBe("block");
@@ -742,7 +743,7 @@ describe("BFC — inline-block shrink-to-fit", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 30);
-    const r = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const ibBox = findBoxByKey(r.box, "ib");
     expect(ibBox).toBeDefined();
@@ -760,7 +761,7 @@ describe("BFC — inline-block shrink-to-fit", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 30);
-    const r = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const ibBox = findBoxByKey(r.box, "ib");
     expect(ibBox).toBeDefined();
@@ -782,7 +783,7 @@ describe("BFC — inline-block shrink-to-fit", () => {
     ]) {
       const cascaded = cascadePass(box);
       if (cascaded.type !== "element") throw new Error("?");
-      const r = layoutBlock(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), createMockShaper(10, 16), undefined);
+      const r = layoutBlock(cascaded, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), createMockShaper(10, 16), undefined);
       if (r.box === null) throw new Error("layoutBlock returned null box");
       expect(findBoxByKey(r.box, "ib")?.width).toBe(57);
       expect(findBoxByKey(r.box, "c")?.height).toBe(16);
@@ -795,7 +796,7 @@ describe("BFC — inline-block shrink-to-fit", () => {
       ]),
     ]));
     if (listFloat.type !== "element") throw new Error("?");
-    const lr = layoutBlock(listFloat, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), createMockShaper(10, 16), undefined);
+    const lr = layoutBlock(listFloat, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), createMockShaper(10, 16), undefined);
     if (lr.box === null) throw new Error("layoutBlock returned null box");
     expect(findBoxByKey(lr.box, "ib")?.width).toBe(124);
     expect(findBoxByKey(lr.box, "li")?.height).toBe(16);
@@ -812,7 +813,7 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r13 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r13 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r13.box === null) throw new Error("layoutBlock returned null box");
     const out = r13.box;
     if (out.type !== "block") throw new Error("?");
@@ -828,7 +829,7 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("expected element root");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const out = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (out.box === null) throw new Error("expected a box");
     // The BFC box ENCLOSES the tall float (blockSize >= 200)…
     expect(out.box.blockSize).toBeGreaterThanOrEqual(200);
@@ -845,7 +846,7 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r14 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r14 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r14.box === null) throw new Error("layoutBlock returned null box");
     const out = r14.box;
     if (out.type !== "block") throw new Error("?");
@@ -879,7 +880,7 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r15 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r15 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r15.box === null) throw new Error("layoutBlock returned null box");
     const out = r15.box;
     if (out.type !== "block") throw new Error("?");
@@ -902,7 +903,7 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -930,7 +931,7 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -952,7 +953,7 @@ describe("BFC — floats", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     // Container narrower than 2*80 — second float must stack below.
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 100), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 100)), makeRootContext(INITIAL_COMPUTED_STYLE, 100), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1071,10 +1072,10 @@ describe("BFC — floats share one inline frame across indented / nested blocks"
       const f = child(li, "f");
       return [li.x + f.x, li.y + f.y];
     };
-    // (The x itself is off by the widened padding in RTL — the pre-existing B5
-    // mirror bug; this asserts only that the margin shift does not move it.)
+    // The float sits where the BFC's env placed it: at the column's line-right
+    // edge (F4 — floats anchor to the BFC, whatever the block's padding).
     const [x0, y0] = rtlFloatX(0);
-    expect(y0).toBe(16);
+    expect([x0, y0]).toEqual([500, 16]);
     expect(rtlFloatX(20)).toEqual([x0, 36]);
   });
 
@@ -1165,7 +1166,7 @@ describe("BFC — clearance + margin-collapse interaction (CSS 8.3.1)", () => {
     const cascaded = cascadePass(parent);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r16 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r16 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r16.box === null) throw new Error("layoutBlock returned null box");
     const out = r16.box;
 
@@ -1202,7 +1203,7 @@ describe("BFC — float rises to nearest BFC", () => {
     );
     if (outer.type !== "element") throw new Error("?");
 
-    const r17 = layoutBlock(outer, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r17 = layoutBlock(outer, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r17.box === null) throw new Error("layoutBlock returned null box");
     const out = r17.box;
     if (out.type !== "block") throw new Error("?");
@@ -1233,7 +1234,7 @@ describe("BFC — float rises to nearest BFC", () => {
     );
     if (outer.type !== "element") throw new Error("?");
 
-    const r18 = layoutBlock(outer, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r18 = layoutBlock(outer, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r18.box === null) throw new Error("layoutBlock returned null box");
     const out = r18.box;
     if (out.type !== "block") throw new Error("?");
@@ -1258,7 +1259,7 @@ describe("BFC — float rises to nearest BFC", () => {
     const cascaded = cascadePass(container);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r19 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const r19 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (r19.box === null) throw new Error("layoutBlock returned null box");
     const out = r19.box;
     // The flow-root container should be at least 50px tall (encloses the float).
@@ -1275,7 +1276,7 @@ describe("BFC — float rises to nearest BFC", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const r = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     const inner = out.children.find((c) => c.type === "block" && c.key === "zero");
@@ -1373,7 +1374,7 @@ describe("BFC — in-flow block inline margins (box model)", () => {
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 600);
-    const r = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const r = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1395,7 +1396,7 @@ describe("BFC — in-flow block inline margins (box model)", () => {
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 600);
-    const r = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const r = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1415,7 +1416,7 @@ describe("BFC — in-flow block inline margins (box model)", () => {
     const refOl = createElementBox("ol", { display: "block" }, [refLi]);
     const refCascaded = cascadePass(refOl);
     if (refCascaded.type !== "element") throw new Error("?");
-    const refOut = layoutBlock(refCascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined).box;
+    const refOut = layoutBlock(refCascaded, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined).box;
     if (refOut === null || refOut.type !== "block") throw new Error("?");
     const refMarker = refOut.children.find((c) => c.type === "marker");
     if (refMarker === undefined) throw new Error("no ref marker");
@@ -1426,7 +1427,7 @@ describe("BFC — in-flow block inline margins (box model)", () => {
     const ol = createElementBox("ol", { display: "block" }, [li]);
     const cascaded = cascadePass(ol);
     if (cascaded.type !== "element") throw new Error("?");
-    const out = layoutBlock(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined).box;
+    const out = layoutBlock(cascaded, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined).box;
     if (out === null || out.type !== "block") throw new Error("?");
     const marker = out.children.find((c) => c.type === "marker");
     if (marker === undefined) throw new Error("no marker");
@@ -1550,7 +1551,7 @@ describe("BFC — list-item leaf carries its own marker presentation (component-
   function layoutItems(items: ReturnType<typeof createElementBox>[]) {
     const tree = cascadePass(createElementBox("root", { display: "block" }, items));
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 600), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 600)), makeRootContext(INITIAL_COMPUTED_STYLE, 600), shaper, undefined);
     if (r.box === null || r.box.type !== "block") throw new Error("layout failed");
     return r.box;
   }
@@ -1698,7 +1699,7 @@ describe("layoutBlock — position: relative offset resolution (slice 2)", () =>
     if (cascaded.type !== "element") throw new Error("?");
     const rootCtx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
     const ctx = { ...rootCtx, containingInlineSize: 500, containingBlockSize: 400 as number };
-    const result = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const result = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     const box = result.box;
     if (box === null || box.type !== "block") throw new Error("?");
     expect(box.relativeOffset).toEqual({ dx: 0, dy: 120 });
@@ -1712,9 +1713,13 @@ describe("layoutBlock — position: relative offset resolution (slice 2)", () =>
       display: "block", blockSize: 40, position: "relative",
       direction: "rtl", insetInlineStart: 15, insetBlockStart: 9,
     }, []);
-    const tree = createElementBox("root", { display: "block", direction: "rtl" }, [child]);
-    const out = layoutOf(tree);
-    const box = out.children.find((c) => c.key === "rel");
+    // The root lays out in its context's direction (as dispatch builds it from
+    // the root's style), so the context is RTL too.
+    const cascaded = cascadePass(createElementBox("root", { display: "block", direction: "rtl" }, [child]));
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 600);
+    const out = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined).box;
+    const box = out?.children.find((c) => c.key === "rel");
     if (box === undefined || box.type !== "block") throw new Error("?");
     expect(box.relativeOffset).toEqual({ dx: -15, dy: 9 });
   });
@@ -1927,5 +1932,113 @@ describe("layoutBlock — position: absolute (slice 3)", () => {
     const abs = out.absoluteChildren?.[0];
     if (abs === undefined || abs.type !== "block") throw new Error("?");
     expect(abs.x).toBe(300);
+  });
+});
+
+describe("B5 — a box sits in its parent's border-box frame, in the parent's direction", () => {
+  type Box = import("./layout-box").LayoutBox;
+  const PAD = { paddingInlineStart: 20, paddingInlineEnd: 10 };
+  function rootOf(dir: "ltr" | "rtl", children: ReturnType<typeof createElementBox>[], rootStyle: Record<string, unknown> = PAD) {
+    const cascaded = cascadePass(createElementBox("root", { display: "block", direction: dir, ...rootStyle }, children));
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: dir }, 600);
+    const box = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined).box;
+    if (box === null) throw new Error("null box");
+    return box;
+  }
+  function get(box: Box, key: string): Box {
+    const c = "children" in box ? box.children.find((b) => b.key === key) : undefined;
+    if (c === undefined) throw new Error(`no child ${key}`);
+    return c;
+  }
+  function line(box: Box): Box {
+    const l = "children" in box ? box.children.find((b) => b.type === "line") : undefined;
+    if (l === undefined) throw new Error(`no line in ${box.key}`);
+    return l;
+  }
+  const block = (key: string, dir: "ltr" | "rtl", style: Record<string, unknown> = {}, children: Parameters<typeof createElementBox>[2] = []) =>
+    createElementBox(key, { display: "block", blockSize: 40, direction: dir, ...style }, children);
+
+  it("a child's physical x mirrors against the parent's border box in the parent's direction", () => {
+    expect(get(rootOf("rtl", [block("c", "rtl")]), "c").x).toBe(10);
+    expect(get(rootOf("ltr", [block("c", "rtl")]), "c").x).toBe(20);
+    expect(get(rootOf("rtl", [block("c", "ltr")]), "c").x).toBe(10);
+  });
+
+  it("a padded RTL paragraph's lines sit inside its padding", () => {
+    const root = rootOf("rtl", [createElementBox("p", { display: "block", direction: "rtl", ...PAD }, [createTextBox("t", {}, "abc")])]);
+    const p = get(root, "p");
+    expect([p.x, p.width]).toEqual([10, 570]);
+    const l = line(p);
+    expect([l.inlineOffset, l.x, l.width]).toEqual([20, 10, 540]);
+  });
+
+  it("an RTL float sits at the content box's inline-start (physical right) edge", () => {
+    const root = rootOf("rtl", [block("f", "rtl", { float: "inline-start", inlineSize: 100, blockSize: 50 })]);
+    // Content box: [10, 580) (padding-inline-start 20 is on the right).
+    expect(get(root, "f").x).toBe(480);
+  });
+
+  it("an RTL list marker hangs in the item's gutter, left of its content edge", () => {
+    const root = rootOf("rtl", [createElementBox("li", { display: "block", direction: "rtl", markerText: "1.", paddingInlineStart: 40 }, [createTextBox("t", {}, "x")])]);
+    const marker = get(root, "li-marker");
+    // Content edge logical 20 + 40 = 60 → physical 540; the 16px marker ends 4px before it.
+    expect([marker.x, marker.width]).toEqual([540 + 4, 16]);
+  });
+
+  it("an opposite-direction list item's marker hangs at the item's own inline-start content edge", () => {
+    // LTR root (padding-start 20) with an RTL li (padding-start 40, on its right):
+    // li [20, 590), content edge at 590 − 40 = 550; the 16px "1." ends 4px past it.
+    const root = rootOf("ltr", [createElementBox("li", { display: "block", direction: "rtl", markerText: "1.", paddingInlineStart: 40 }, [createTextBox("t", {}, "x")])]);
+    const marker = get(root, "li-marker");
+    expect([marker.x, marker.width]).toEqual([554, 16]);
+  });
+
+  it("an explicit-width child with an explicit block size keeps its width", () => {
+    const rtl = get(rootOf("rtl", [block("c", "ltr", { inlineSize: 200, blockSize: 40 })]), "c");
+    expect([rtl.x, rtl.width]).toEqual([380, 200]);
+    const ltr = get(rootOf("ltr", [block("c", "ltr", { inlineSize: 200, blockSize: 40 })]), "c");
+    expect([ltr.x, ltr.width]).toEqual([20, 200]);
+  });
+
+  it("a relative offset resolves in the containing block's direction", () => {
+    const root = rootOf("ltr", [block("rel", "rtl", { position: "relative", insetInlineStart: 10 })]);
+    expect(get(root, "rel").relativeOffset).toEqual({ dx: 10, dy: 0 });
+  });
+
+  it("an RTL table cell's lines sit inside the cell's padding", () => {
+    const table = createElementBox("tbl", { display: "table", direction: "rtl" }, [
+      createElementBox("r", { display: "table-row", direction: "rtl" }, [
+        createElementBox("cell", { display: "table-cell", direction: "rtl", ...PAD }, [createTextBox("t", {}, "abc")]),
+      ]),
+    ]);
+    const tbl = get(rootOf("rtl", [table], {}), "tbl");
+    const cell = get(get(tbl, "r"), "cell");
+    const l = line(cell);
+    expect(l.x + l.width).toBe(cell.width - 20);
+    expect(l.x).toBe(10);
+  });
+
+  it("an abs-pos child of an RTL padded box is placed from its inline-start (physical right)", () => {
+    const abs = block("abs", "rtl", { position: "absolute", insetInlineStart: 5, inlineSize: 100, blockSize: 10 });
+    const root = rootOf("rtl", [abs], { ...PAD, position: "relative" });
+    const a = root.absoluteChildren?.[0];
+    if (a === undefined) throw new Error("no abs child");
+    expect(a.x).toBe(600 - 20 - 5 - 100);
+  });
+
+  it("an explicit-width child sits at its containing block's start, whatever its own direction", () => {
+    // (No explicit block-size: that path re-creates the box at the area's width.)
+    expect(get(rootOf("ltr", [block("c", "rtl", { inlineSize: 200, blockSize: "auto" })]), "c").x).toBe(20);
+    expect(get(rootOf("rtl", [block("c", "ltr", { inlineSize: 200, blockSize: "auto" })]), "c").x).toBe(600 - 20 - 200);
+    // Its floats and lines see it there: an LTR root's float covering [0, 300)
+    // pushes the lines of an RTL 200-wide child at [0, 200) below it.
+    const root = rootOf("ltr", [
+      block("f", "ltr", { float: "inline-start", inlineSize: 300, blockSize: 50 }),
+      createElementBox("c", { display: "block", direction: "rtl", inlineSize: 200 }, [createTextBox("t", {}, "abc")]),
+    ], {});
+    const c = get(root, "c");
+    expect(c.x).toBe(0);
+    expect(line(c).y).toBeGreaterThanOrEqual(50);
   });
 });

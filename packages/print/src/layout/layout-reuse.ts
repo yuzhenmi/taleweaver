@@ -194,6 +194,7 @@ export interface ReuseInputs {
   readonly computedStyle: ComputedStyle;
   readonly availableInlineSize: number;
   readonly writingMode: ComputedStyle["writingMode"];
+  /** The box's own direction (its content's). */
   readonly direction: ComputedStyle["direction"];
   /**
    * Float environment dirty-block-offset: if any float was placed at-or-above
@@ -233,9 +234,10 @@ export function isLayoutBoxReusable(
     return false;
   }
 
-  // Writing-mode + direction.
+  // Writing-mode + the box's OWN direction (`prev.direction` is its containing
+  // block's — the frame — which the caller compares separately to reposition).
   if (prev.writingMode !== inputs.writingMode) return false;
-  if (prev.direction !== inputs.direction) return false;
+  if (prev.computedStyle.direction !== inputs.direction) return false;
 
   // Float-env: if the dirty block-offset is at or above this box's block-end,
   // a float change may have pushed content in this box and we must re-layout.

@@ -15,6 +15,7 @@ import { layoutBlock } from "../layout/bfc";
 import { makeRootContext, makeChildContext } from "../layout/layout-context";
 import { createMockShaper } from "@taleweaver/core";
 import type { BlockBox, LayoutBox } from "../layout/layout-box";
+import { rootFrame } from "../layout/parent-frame";
 
 /**
  * A RenderContext the footnote-body render fn reads ONLY `footnoteNumber` from
@@ -125,7 +126,7 @@ describe("footnoteBodyComponent — orphans/widows = 1 (single-line splitting, F
     const ctx = bodyLayoutContext(200);
     const shaper = createMockShaper(8, LINE_HEIGHT);
 
-    const { box, breakToken } = layoutBlock(body, 0, 0, ctx, shaper, undefined, {
+    const { box, breakToken } = layoutBlock(body, 0, 0, rootFrame(ctx), ctx, shaper, undefined, {
       availableBlockSize: ONE_LINE_BOUND,
       pageIndex: 0,
       resumeFrom: null,
@@ -169,7 +170,7 @@ describe("footnoteBodyComponent — orphans/widows = 1 (single-line splitting, F
     const ctx = bodyLayoutContext(200);
     const shaper = createMockShaper(8, LINE_HEIGHT);
 
-    const { box, breakToken } = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined, {
+    const { box, breakToken } = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined, {
       availableBlockSize: ONE_LINE_BOUND,
       pageIndex: 0,
       resumeFrom: null,

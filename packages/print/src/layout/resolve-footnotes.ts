@@ -29,6 +29,7 @@
  * assignment needs. Anchors nested inside a NON-transparent container resolve
  * to `undefined` in the index and are skipped defensively (not supported).
  */
+import { rootFrame } from "./parent-frame";
 import type { ElementBox, RenderNode } from "@taleweaver/core";
 import type { BlockId } from "@taleweaver/core";
 import type { FootnoteAnchorRef } from "@taleweaver/core";
@@ -431,7 +432,7 @@ export function computeSlotLayout(
         : { ...ctx, containingInlineSize: Math.max(0, contentInlineSize - gutter) };
 
     _bodyLayoutCallCount++;
-    const { box, breakToken } = layoutBlock(body, 0, 0, bodyLayoutCtx, shaper, hyphenator, {
+    const { box, breakToken } = layoutBlock(body, 0, 0, rootFrame(bodyLayoutCtx), bodyLayoutCtx, shaper, hyphenator, {
       availableBlockSize: remaining,
       pageIndex: 0,
       resumeFrom: item.resumeToken,
@@ -769,7 +770,7 @@ export function resolveFootnotes(
         ...ctx,
         containingInlineSize: Math.max(0, boundInlineSize - gutter),
       };
-      const { box } = layoutBlock(body, 0, 0, heightCtx, shaper, hyphenator, {
+      const { box } = layoutBlock(body, 0, 0, rootFrame(heightCtx), heightCtx, shaper, hyphenator, {
         availableBlockSize: Number.MAX_SAFE_INTEGER,
         pageIndex: 0,
         resumeFrom: null,

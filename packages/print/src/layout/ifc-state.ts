@@ -15,6 +15,8 @@ export interface IFCState {
   readonly tokens: readonly Token[];
   readonly lines: readonly LineBox[];
   readonly availableInlineSize: number;
+  /** The block's border-box inline size: RTL lines' physical x mirror against it. */
+  readonly frameInlineSize: number;
   /**
    * The block's resolved `textAlign` + inline base `direction` at the time the
    * lines were laid out. The cached lines bake in their alignment offset (each

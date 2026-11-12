@@ -1,4 +1,5 @@
 import type { RenderNode, ElementBox } from "@taleweaver/core";
+import { rootFrame } from "./parent-frame";
 import type { LayoutBox } from "./layout-box";
 import type { TextShaper } from "@taleweaver/core";
 import type { Hyphenator } from "@taleweaver/core";
@@ -115,7 +116,7 @@ export function layoutTree(
       } else {
         // Non-block root with pagination: layout without pagination for now.
         if (cs.display === "table") {
-          const tableResult = layoutTable(layoutRoot, 0, 0, ctx, shaper, hyphenator);
+          const tableResult = layoutTable(layoutRoot, 0, 0, rootFrame(ctx), ctx, shaper, hyphenator);
           if (tableResult.box === null) {
             throw new Error("layoutTable at dispatch returned null box; should be unreachable in unpaginated path");
           }
@@ -127,7 +128,7 @@ export function layoutTree(
     } else {
       switch (cs.display) {
         case "block": {
-          const blockResult = layoutBlock(layoutRoot, 0, 0, ctx, shaper, hyphenator);
+          const blockResult = layoutBlock(layoutRoot, 0, 0, rootFrame(ctx), ctx, shaper, hyphenator);
           if (blockResult.box === null) {
             throw new Error("layoutBlock at dispatch returned null box; should be unreachable in unpaginated path");
           }
@@ -135,7 +136,7 @@ export function layoutTree(
           break;
         }
         case "table": {
-          const tableResult = layoutTable(layoutRoot, 0, 0, ctx, shaper, hyphenator);
+          const tableResult = layoutTable(layoutRoot, 0, 0, rootFrame(ctx), ctx, shaper, hyphenator);
           if (tableResult.box === null) {
             throw new Error("layoutTable at dispatch returned null box; should be unreachable in unpaginated path");
           }

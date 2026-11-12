@@ -10,6 +10,7 @@ import { createElementBox, createTextBox } from "@taleweaver/core";
 import type { ElementBox } from "@taleweaver/core";
 import type { Style } from "@taleweaver/core";
 import type { LayoutBox } from "../layout-box";
+import { rootFrame } from "../parent-frame";
 
 /**
  * Narrow a `layoutBlock` result's `box` to non-null WITHOUT widening its
@@ -94,7 +95,7 @@ describe("BFC fragmentation — whole-block placement", () => {
       resumeFrom: null,
     };
 
-    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
 
     expect(box).not.toBeNull();
     expect(breakToken).toBeNull();
@@ -111,7 +112,7 @@ describe("BFC fragmentation — whole-block placement", () => {
       resumeFrom: null,
     };
 
-    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
 
     expect(box).not.toBeNull();
     expect(box!.children).toHaveLength(2);
@@ -132,7 +133,7 @@ describe("BFC fragmentation — whole-block placement", () => {
       resumeFrom: null,
     };
 
-    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
 
     // C.6 overflow rule: first child alone on empty fragment — place it anyway (overflow).
     // The child is 1000 tall; subsequent children (also 1000) won't fit and push to next fragment.
@@ -158,7 +159,7 @@ describe("BFC fragmentation — break-before", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(box!.children).toHaveLength(2);
     expect(breakToken).toEqual({ type: "block", resumeChildIndex: 2, resumeChildToken: null });
@@ -174,7 +175,7 @@ describe("BFC fragmentation — break-before", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(box!.children).toHaveLength(3);
     expect(breakToken).toBeNull();
@@ -191,7 +192,7 @@ describe("BFC fragmentation — break-before", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(box!.children).toHaveLength(2);
     expect(breakToken).toEqual({ type: "block", resumeChildIndex: 2, resumeChildToken: null });
@@ -207,7 +208,7 @@ describe("BFC fragmentation — break-before", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(box!.children).toHaveLength(3);
     expect(breakToken).toBeNull();
@@ -243,7 +244,7 @@ describe("BFC fragmentation — break-before", () => {
     };
 
     // Page 1 (pre-break): child-0 placed, break fired before child-1.
-    const r1 = layoutBlock(root, 0, 0, ctx, shaper, undefined, fragmentation);
+    const r1 = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
     expect(r1.box).not.toBeNull();
     expect(placed(r1.box).children).toHaveLength(1); // only child-0, no orphaned marker
     expect(r1.breakToken).toEqual({ type: "block", resumeChildIndex: 1, resumeChildToken: null });
@@ -251,7 +252,7 @@ describe("BFC fragmentation — break-before", () => {
     expect(collectMarkerKeys(placed(r1.box))).not.toContain("child-1-marker");
 
     // Page 2 (resume): child-1 (with its marker) + child-2 land here.
-    const r2 = layoutBlock(root, 0, 0, ctx, shaper, undefined, {
+    const r2 = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, {
       availableBlockSize: 1000,
       pageIndex: 1,
       resumeFrom: r1.breakToken,
@@ -333,7 +334,7 @@ describe("BFC fragmentation — list-item marker degenerate-resume (#501)", () =
     const shaper = createMockShaper(8, 16);
 
     // Page 1: filler placed; item breaks (zero lines fit) → degenerate resume.
-    const r1 = layoutBlock(root, 0, 0, ctx, shaper, undefined, {
+    const r1 = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, {
       availableBlockSize: 90, pageIndex: 0, resumeFrom: null,
     });
     expect(r1.box).not.toBeNull();
@@ -348,7 +349,7 @@ describe("BFC fragmentation — list-item marker degenerate-resume (#501)", () =
 
     // Page 2 (resume): the item starts here — its marker MUST be present and
     // co-located with the item's first content line.
-    const r2 = layoutBlock(root, 0, 0, ctx, shaper, undefined, {
+    const r2 = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, {
       availableBlockSize: 200, pageIndex: 1, resumeFrom: r1.breakToken,
     });
     expect(r2.box).not.toBeNull();
@@ -397,7 +398,7 @@ describe("BFC fragmentation — list-item marker degenerate-resume (#501)", () =
     const shaper = createMockShaper(8, 16);
 
     // Page 1: filler + first 3 lines of the item (with its marker) placed.
-    const r1 = layoutBlock(root, 0, 0, ctx, shaper, undefined, {
+    const r1 = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, {
       availableBlockSize: 90, pageIndex: 0, resumeFrom: null,
     });
     expect(r1.box).not.toBeNull();
@@ -405,7 +406,7 @@ describe("BFC fragmentation — list-item marker degenerate-resume (#501)", () =
     expect(r1.breakToken).not.toBeNull();
 
     // Page 2 (mid-content continuation): the tail lines — marker SUPPRESSED.
-    const r2 = layoutBlock(root, 0, 0, ctx, shaper, undefined, {
+    const r2 = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, {
       availableBlockSize: 200, pageIndex: 1, resumeFrom: r1.breakToken,
     });
     expect(r2.box).not.toBeNull();
@@ -428,7 +429,7 @@ describe("BFC fragmentation — break-inside: avoid", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
     // C.6: X is alone on empty fragment → place it anyway, overflowing.
     expect(box).not.toBeNull();
     expect(box!.children).toHaveLength(1); // X placed (all 4 inner children)
@@ -455,7 +456,7 @@ describe("BFC fragmentation — break-inside: avoid", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
     // Expect smallChild placed; X pushed whole.
     expect(box).not.toBeNull();
     expect(box!.children).toHaveLength(1); // only smallChild
@@ -473,7 +474,7 @@ describe("BFC fragmentation — break-inside: avoid", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(box!.children).toHaveLength(1); // X with 2 inner children
     expect(breakToken).toBeNull();
@@ -491,7 +492,7 @@ describe("BFC fragmentation — break-after", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(box!.children).toHaveLength(2);
     expect(breakToken).toEqual({ type: "block", resumeChildIndex: 2, resumeChildToken: null });
@@ -507,7 +508,7 @@ describe("BFC fragmentation — break-after", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(box!.children).toHaveLength(3);
     expect(breakToken).toBeNull();
@@ -522,7 +523,7 @@ describe("BFC fragmentation — break-after", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(box!.children).toHaveLength(4);
     expect(breakToken).toBeNull();
@@ -569,7 +570,7 @@ describe("BFC fragmentation — margin truncation across breaks (CSS L4 §5.4)",
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
     // With truncation: child fits (childBlockOffset=10, remaining=90, blockSize=80<=90).
     expect(box).not.toBeNull();
     expect(box!.children).toHaveLength(1);
@@ -588,7 +589,7 @@ describe("BFC fragmentation — margin truncation across breaks (CSS L4 §5.4)",
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
     const shaper = createMockShaper(8, 16);
     // No fragmentation context
-    const { box, breakToken } = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const { box, breakToken } = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     expect(box).not.toBeNull();
     // blockSize = paddingBlockStart(10) + marginBlockStart(50) + blockSize(80) = 140
     expect(box!.height).toBe(140);
@@ -604,7 +605,7 @@ describe("BFC fragmentation — resume from BlockBreakToken", () => {
     const shaper = createMockShaper(8, 16);
 
     // First fragment: child 0..1 placed, breakToken at 2.
-    const r1 = layoutBlock(root, 0, 0, ctx, shaper, undefined, {
+    const r1 = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, {
       availableBlockSize: 250, pageIndex: 0, resumeFrom: null,
     });
     expect(r1.box).not.toBeNull();
@@ -612,7 +613,7 @@ describe("BFC fragmentation — resume from BlockBreakToken", () => {
     expect(r1.breakToken).toEqual({ type: "block", resumeChildIndex: 2, resumeChildToken: null });
 
     // Second fragment: resume at child 2.
-    const r2 = layoutBlock(root, 0, 0, ctx, shaper, undefined, {
+    const r2 = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, {
       availableBlockSize: 250, pageIndex: 1, resumeFrom: r1.breakToken,
     });
     expect(r2.box).not.toBeNull();
@@ -620,7 +621,7 @@ describe("BFC fragmentation — resume from BlockBreakToken", () => {
     expect(r2.breakToken).toEqual({ type: "block", resumeChildIndex: 4, resumeChildToken: null });
 
     // Third fragment: resume at child 4 (last).
-    const r3 = layoutBlock(root, 0, 0, ctx, shaper, undefined, {
+    const r3 = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, {
       availableBlockSize: 250, pageIndex: 2, resumeFrom: r2.breakToken,
     });
     expect(r3.box).not.toBeNull();
@@ -638,7 +639,7 @@ describe("BFC fragmentation — resume from BlockBreakToken", () => {
     const shaper = createMockShaper(8, 16);
     // Should not throw; IFC token is accepted (though not consumed for block children).
     expect(() =>
-      layoutBlock(root, 0, 0, ctx, shaper, undefined, {
+      layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, {
         availableBlockSize: 250,
         pageIndex: 0,
         resumeFrom: { type: "ifc", resumeAtLine: 0, paraFlowStart: 0 },
@@ -660,7 +661,7 @@ describe("BFC fragmentation — resume from BlockBreakToken", () => {
     const shaper = createMockShaper(8, 16);
 
     // First fragment: root BFC fragments the paragraph's inline content.
-    const r1 = layoutBlock(root, 0, 0, ctx, shaper, undefined, {
+    const r1 = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, {
       availableBlockSize: 80, pageIndex: 0, resumeFrom: null,
     });
     expect(r1.box).not.toBeNull();
@@ -680,7 +681,7 @@ describe("BFC fragmentation — resume from BlockBreakToken", () => {
     expect(ifcBT.resumeAtLine).toBe(5);
 
     // Second fragment: root BFC resumes; threads IFC token to paragraph.
-    const r2 = layoutBlock(root, 0, 0, ctx, shaper, undefined, {
+    const r2 = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, {
       availableBlockSize: 80, pageIndex: 1, resumeFrom: r1.breakToken,
     });
     expect(r2.box).not.toBeNull();
@@ -701,7 +702,7 @@ describe("BFC fragmentation — overflow rule (alone-on-empty-fragment, C.6)", (
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(box!.children).toHaveLength(1);
     expect(nth(placed(box).children, 0, "child").height).toBe(1500);
@@ -719,7 +720,7 @@ describe("BFC fragmentation — overflow rule (alone-on-empty-fragment, C.6)", (
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutBlock(root, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(box!.children).toHaveLength(1); // X placed
     expect(nth(placed(box).children, 0, "child").height).toBe(200); // X's full unfragmented size
@@ -740,7 +741,7 @@ describe("BFC fragmentation — overflow rule (alone-on-empty-fragment, C.6)", (
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined, fragmentation);
+    const { box, breakToken } = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(box!.children).toHaveLength(1); // only `small` placed
     expect(breakToken).toEqual({ type: "block", resumeChildIndex: 1, resumeChildToken: null });

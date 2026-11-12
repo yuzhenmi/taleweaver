@@ -43,6 +43,7 @@ import { createMockShaper } from "@taleweaver/core";
 import { makeRootContext } from "../layout/layout-context";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import type { LayoutBox, LineBox } from "../layout/layout-box";
+import { rootFrame } from "../layout/parent-frame";
 
 // charWidth = 10, lineHeight = 16 (matches floats-real.test.ts harness).
 const shaper = createMockShaper(10, 16);
@@ -88,7 +89,7 @@ function layoutRoot(key: string, children: readonly RenderNode[]): LayoutBox {
     cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
     CONTENT_WIDTH,
   );
-  const result = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+  const result = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
   if (result.box === null) throw new Error("layoutBlock returned null box");
   return result.box;
 }
@@ -204,7 +205,7 @@ describe("Floated image narrows the following paragraph (image-wrap topology)", 
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       CONTENT_WIDTH,
     );
-    const result = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined, {
+    const result = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined, {
       availableBlockSize: AVAILABLE,
       pageIndex: 0,
       resumeFrom: null,

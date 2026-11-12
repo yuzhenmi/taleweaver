@@ -39,6 +39,7 @@ import { resolvePixelPosition } from "../cursor/cursor-position";
 import { createPosition } from "@taleweaver/core";
 import type { BlockId, Document } from "@taleweaver/core";
 import type { RenderNode } from "@taleweaver/core";
+import { rootFrame } from "./parent-frame";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -208,7 +209,7 @@ describe("tab-stops S3 — IFC left/default-grid advance", () => {
       const document = tabDoc(stops);
       const root = cascadePass(render(document, componentRegistry, attrRegistry).root);
       if (root.type !== "element") throw new Error("expected element root");
-      const result = layoutBlock(root, 0, 0, ctx, shaper, undefined);
+      const result = layoutBlock(root, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
       if (result.box === null) throw new Error("layoutBlock returned null");
       return { document, layout: result.box };
     };
@@ -379,7 +380,7 @@ function layoutParaWithChildren(
   // The IFC reads the inline base direction from `ctx.direction`; override for
   // the RTL case (makeRootContext derives it from the root computed style).
   const ctx = direction === baseCtx.direction ? baseCtx : { ...baseCtx, direction };
-  const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+  const result = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
   if (result.box === null) throw new Error("layoutInlineContent returned null box");
   return result.box.children.filter((c): c is LineBox => c.type === "line");
 }

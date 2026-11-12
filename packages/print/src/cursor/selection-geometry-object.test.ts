@@ -254,13 +254,15 @@ function boxesOf(ctx: NavCtx, tree: LayoutBox, id: BlockId): SelectionRect[] {
 const BCD_WITH_PILCROW: SelectionRect = { x: 8, y: 0, width: 40, height: 16, pageIndex: 0 };
 const BCD: SelectionRect = { x: 8, y: 0, width: 24, height: 16, pageIndex: 0 };
 const OBJECT_HEIGHT: Record<ObjectKind, number> = { rule: 16, image: 40, table: 32 };
+// A block image's box is its own 50px width (explicit width + height); rules and tables fill the column.
+const OBJECT_WIDTH: Record<ObjectKind, number> = { rule: 800, image: 50, table: 800 };
 
 describe("range selections paint covered object blocks whole", () => {
   for (const kind of ["rule", "image", "table"] as const) {
     it(`${kind}: across / starting on / ending on it (either direction)`, () => {
       const { ctx, text, object, after } = objectRangeDoc(kind);
       const obj = boxesOf(ctx, positioned(ctx), object);
-      expect(obj).toEqual([{ x: 0, y: 24, width: 800, height: OBJECT_HEIGHT[kind], pageIndex: 0 }]);
+      expect(obj).toEqual([{ x: 0, y: 24, width: OBJECT_WIDTH[kind], height: OBJECT_HEIGHT[kind], pageIndex: 0 }]);
       const p = createPosition;
       // Across: the text lines exactly as for a text-only range, plus the object.
       expect(rangeRects(ctx, p(text, 1), p(after, 0))).toEqual([BCD_WITH_PILCROW, ...obj]);

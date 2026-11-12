@@ -57,7 +57,7 @@ function pageConfig() {
  * paragraph holds enough text to wrap and flow beside the float, so a click in
  * its wrapped text (outside the image rect) must resolve to a TEXT position.
  */
-function docWithFloatImage(): Document {
+function docWithFloatImage(wrap: string | null = "left"): Document {
   return buildDocument({
     rootId: "doc",
     blocks: [
@@ -72,7 +72,7 @@ function docWithFloatImage(): Document {
         type: "image",
         parentId: "doc",
         nextSiblingId: "para",
-        attrs: { src: "float.png", width: IMG_W, height: IMG_H, wrap: "left" },
+        attrs: { src: "float.png", width: IMG_W, height: IMG_H, ...(wrap === null ? {} : { wrap }) },
       }),
       buildBlock({
         id: "para",
@@ -100,8 +100,8 @@ interface Built {
   page0: PageBox;
 }
 
-function build(): Built {
-  const document = docWithFloatImage();
+function build(wrap: string | null = "left"): Built {
+  const document = docWithFloatImage(wrap);
   const root = render(
     document,
     createDefaultComponentRegistry(),
@@ -180,6 +180,19 @@ describe("resolvePositionFromPixel — object-selection (#525)", () => {
     if (hit === null) throw new Error("expected a text hit beside the image");
     // Must be the wrapped paragraph, NOT the image.
     expect(hit.position.blockId).toBe(PARA_ID);
+  });
+
+  it("a click beside an in-flow (non-wrapped) block image, in its band, selects the image, not the next paragraph", () => {
+    // The image box is its own 100px width; the click at 300 is outside it but
+    // in its row of the column (Google Docs / Word: the caret stays on the image's row).
+    const { document, page0 } = build(null);
+    const resolver = createDefaultComponentRegistry();
+    const rect = getAtomicBoxIndex(page0, resolver, document).get(FLOAT_IMG_ID);
+    if (rect === undefined) throw new Error("image not indexed");
+    expect(rect.width).toBe(IMG_W);
+    const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
+    const hit = resolvePositionFromPixel(document, page0, shaper, 300, rect.y + rect.height / 2, 0, resolver);
+    expect(hit?.position).toEqual({ blockId: FLOAT_IMG_ID, offset: 0 });
   });
 
   it("a click on a plain paragraph (resolver passed) is an unchanged text hit", () => {

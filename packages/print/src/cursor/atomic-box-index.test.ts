@@ -368,6 +368,8 @@ describe("getAtomicBoxIndex (#525)", () => {
       width: expected.width,
       height: expected.height,
       pageIndex: 0,
+      // In flow: hit on its whole row of the 500px column (see `AtomicRect`).
+      hitBand: { x: 0, y: expected.y, width: 500, height: expected.height, pageIndex: 0 },
     });
   });
 
@@ -431,6 +433,8 @@ describe("getAtomicBoxIndex (#525)", () => {
       width: expected.width,
       height: expected.height,
       pageIndex: 0,
+      // In flow: hit on its whole row of the 500px column (see `AtomicRect`).
+      hitBand: { x: 0, y: expected.y, width: 500, height: expected.height, pageIndex: 0 },
     });
   });
 });

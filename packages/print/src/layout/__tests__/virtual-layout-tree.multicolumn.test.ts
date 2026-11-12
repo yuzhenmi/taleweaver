@@ -32,6 +32,7 @@ import type { SectionPlan } from "../section-plan";
 import { IMPLICIT_SECTION_PLAN } from "../section-plan";
 import type { ColumnConfig } from "@taleweaver/core";
 import { makeVirtualLayoutTree } from "../virtual-layout-tree";
+import { paginateRoot } from "../paginate";
 import {
   resolveFootnotes,
   buildBlockToTopLevelIndex,
@@ -122,7 +123,7 @@ function columnSectionPlan(columnConfig: ColumnConfig): SectionPlan {
 }
 
 /** Build a `VirtualLayoutTree` for `root` under `sectionPlan` + `pageConfig`. */
-function buildTree(root: ElementBox, pageConfig: PageConfig, sectionPlan: SectionPlan) {
+function buildTree(root: ElementBox, pageConfig: PageConfig, sectionPlan: SectionPlan, direction: "ltr" | "rtl" = "ltr") {
   const pageContentInlineSize =
     pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
   const shaper = createMockShaper(8, 16);
@@ -134,7 +135,7 @@ function buildTree(root: ElementBox, pageConfig: PageConfig, sectionPlan: Sectio
   const plan = measurePass(metas, pageConfig, sectionPlan, flattenContents(root.children), undefined, undefined, (w) =>
     buildBlockFitMetas(root, shaper, undefined, w),
   );
-  const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
+  const ctx = makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction }, pageConfig.pageInlineSize);
   const tree = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(8, 16), pageConfig);
   return { plan, tree };
 }
@@ -691,5 +692,43 @@ describe("#499 — footnote anchored in a multi-column section", () => {
     expect(nth(mc.columns, 0, "column").children.length).toBeGreaterThan(0);
     expect(nth(mc.columns, 1, "column").children.length).toBeGreaterThan(0);
     expect(page.footnoteSlot).not.toBeNull();
+  });
+});
+
+describe("B5 — an RTL page's children sit in the page frame", () => {
+  // Asymmetric margins: inline-start (physical right in RTL) 72, inline-end 36.
+  const pageConfig: PageConfig = {
+    pageInlineSize: 600,
+    pageBlockSize: 400,
+    pageMargins: { blockStart: 10, blockEnd: 10, inlineStart: 72, inlineEnd: 36 },
+    pageGap: 20,
+  };
+  const rtlRoot = () => cascadeRoot(
+    { display: "block", direction: "rtl" } as Style,
+    Array.from({ length: 4 }, (_, i) => fixedBlock(`b${i}`, 50)),
+  );
+
+  it("the single-column body sits at the inline-end margin (physical left)", () => {
+    const { tree } = buildTree(rtlRoot(), pageConfig, IMPLICIT_SECTION_PLAN, "rtl");
+    const body = bodyBoxOf(tree.getPage(0));
+    expect([body.inlineOffset, body.x, body.width]).toEqual([72, 36, 492]);
+  });
+
+  it("the legacy paginated body sits at the inline-end margin too", () => {
+    const ctx = makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, pageConfig.pageInlineSize);
+    const page = nth(paginateRoot(rtlRoot(), ctx, createMockShaper(8, 16), undefined, pageConfig).children, 0, "page");
+    if (page.type !== "page") throw new Error("expected a page");
+    const body = bodyBoxOf(page);
+    expect([body.x, body.width]).toEqual([36, 492]);
+  });
+
+  it("an RTL multicol body's column 0 sits at the physical right", () => {
+    const { tree } = buildTree(rtlRoot(), pageConfig, columnSectionPlan({ columnCount: 2, columnGap: 30, columnRule: null }), "rtl");
+    const mc = bodyBoxOf(tree.getPage(0));
+    if (mc.type !== "multicolumn") throw new Error("expected a MultiColumnBox body");
+    expect([mc.x, mc.width]).toEqual([36, 492]);
+    const track = (492 - 30) / 2; // 231
+    expect(nth(mc.columns, 0, "column").x).toBe(492 - track);
+    expect(nth(mc.columns, 1, "column").x).toBe(0);
   });
 });

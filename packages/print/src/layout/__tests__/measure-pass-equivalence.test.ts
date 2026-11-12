@@ -30,6 +30,7 @@ import type { PagePlanEntry } from "../measure-pass";
 import { IMPLICIT_SECTION_PLAN } from "../section-plan";
 import type { LineBox } from "../layout-box";
 import { runOracle, nth } from "./equivalence-oracle";
+import { rootFrame } from "../parent-frame";
 
 /**
  * Run the full equivalence assertion for a cascaded root: oracle vs measurePass.
@@ -866,7 +867,7 @@ describe("measure-pass equivalence — (k) auto-hyphenation", () => {
     // were not threaded correctly), making the equivalence assertion vacuous.
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const contentCtx: LayoutContext = { ...ctx, containingInlineSize: pageConfig.pageInlineSize };
-    const { box: rootBox } = layoutBlock(root, 0, 0, contentCtx, createMockShaper(8, 16), hyphenator, {
+    const { box: rootBox } = layoutBlock(root, 0, 0, rootFrame(contentCtx), contentCtx, createMockShaper(8, 16), hyphenator, {
       availableBlockSize: 999999,
       pageIndex: 0,
       resumeFrom: null,

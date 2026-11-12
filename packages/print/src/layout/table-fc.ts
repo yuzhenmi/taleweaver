@@ -12,6 +12,7 @@ import { isDevMode } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
 import type { Hyphenator } from "@taleweaver/core";
 import { layoutBlock } from "./bfc";
+import type { ParentFrame } from "./parent-frame";
 import { computeUsedStyle } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeChildContext } from "./layout-context";
@@ -306,6 +307,8 @@ export function layoutTable(
   node: ElementBox,
   inlineOffset: number,
   blockOffset: number,
+  // The parent's border box this table is positioned in (see `ParentFrame`).
+  frame: ParentFrame,
   ctx: LayoutContext,
   shaper: TextShaper,
   // Auto-hyphenation: threaded ALONGSIDE `shaper` to the per-cell
@@ -328,13 +331,16 @@ export function layoutTable(
   const cs = node.computedStyle;
   const availableInlineSize = ctx.containingInlineSize;
   const writingMode = ctx.writingMode;
-  const direction = ctx.direction;
 
   const explicitColumnWidths = node.metadata?.columnWidths;
 
   const tableUsedStyle = computeUsedStyle(cs, availableInlineSize, "indefinite");
 
   const tableInlineSize = availableInlineSize;
+  // A cell interior is laid out only for its children, which sit in the cell
+  // box (its border box is the column slot); the interior box itself is dropped,
+  // so its own frame is nominal: a row's.
+  const rowFrame: ParentFrame = { direction: cs.direction, inlineSize: tableInlineSize };
 
   let columnPxWidths: number[];
 
@@ -493,7 +499,7 @@ export function layoutTable(
 
       // Lay out cell interior as BFC at cellInlineSize.
       const cellCtx = makeCellContext(ctx, cellEl, cellInlineSize);
-      const interiorResult = layoutBlock(cellEl, 0, 0, cellCtx, shaper, hyphenator, undefined, pageFlowBase);
+      const interiorResult = layoutBlock(cellEl, 0, 0, rowFrame, cellCtx, shaper, hyphenator, undefined, pageFlowBase);
       if (interiorResult.box === null) {
         throw new Error("layoutBlock without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
       }
@@ -560,7 +566,7 @@ export function layoutTable(
       let interiorAbsoluteChildren: readonly LayoutBox[] | undefined;
       if (cont.interiorBreakToken !== null) {
         const cellCtx = makeCellContext(ctx, cellEl, inlineSize);
-        const r = layoutBlock(cellEl, 0, 0, cellCtx, shaper, hyphenator, {
+        const r = layoutBlock(cellEl, 0, 0, rowFrame, cellCtx, shaper, hyphenator, {
           availableBlockSize: Number.MAX_SAFE_INTEGER,
           pageIndex: fragmentation.pageIndex,
           resumeFrom: cont.interiorBreakToken,
@@ -796,7 +802,7 @@ export function layoutTable(
           // token, so a rowSpan≥3 cell re-breaks from where it left off (the
           // continuation chain across >2 pages).
           const cellCtx = makeCellContext(ctx, lc.cellEl, lc.inlineSize);
-          const frag = layoutBlock(lc.cellEl, 0, 0, cellCtx, shaper, hyphenator, {
+          const frag = layoutBlock(lc.cellEl, 0, 0, rowFrame, cellCtx, shaper, hyphenator, {
             availableBlockSize: placedHeight,
             pageIndex: fragmentation.pageIndex,
             resumeFrom: lc.resumeInteriorToken ?? null,
@@ -875,10 +881,10 @@ export function layoutTable(
       return {
         box: createTableBox(
           node.key, inlineOffset, blockOffset, tableInlineSize, partialBlockSize,
-          writingMode, direction,
+          writingMode, frame.direction,
           cs, tableUsedStyle,
           placedRows, columnPxWidths, gridInfoFor(emittedGlobalRows),
-          /* containingInlineSize */ availableInlineSize,
+          /* containingInlineSize */ frame.inlineSize,
         ),
         breakToken,
         inFlowConsumed: partialBlockSize,
@@ -892,10 +898,10 @@ export function layoutTable(
 
   return { box: createTableBox(
     node.key, inlineOffset, blockOffset, tableInlineSize, tableBlockSize,
-    writingMode, direction,
+    writingMode, frame.direction,
     cs, tableUsedStyle,
     rowBoxes, columnPxWidths, gridInfoFor(emittedRows),
-    /* containingInlineSize */ availableInlineSize,
+    /* containingInlineSize */ frame.inlineSize,
   ), breakToken: null, inFlowConsumed: tableBlockSize };
   } finally {
     markEnd("table.layout", t);

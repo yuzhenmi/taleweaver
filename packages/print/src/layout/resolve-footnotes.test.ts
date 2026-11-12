@@ -40,6 +40,7 @@ import {
 import type { FootnoteContinuation } from "./measure-pass";
 import type { BreakToken } from "./fragmentation";
 import { buildVirtualPaginatedTree } from "./virtual-producer";
+import { rootFrame } from "./parent-frame";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -1172,7 +1173,7 @@ function partialToken(body: ElementBox, available: number): BreakToken {
     ...slotCtx(),
     containingInlineSize: SLOT_INLINE,
   };
-  const { breakToken } = layoutBlock(body, 0, 0, ctx, FN_SHAPER, undefined, {
+  const { breakToken } = layoutBlock(body, 0, 0, rootFrame(ctx), ctx, FN_SHAPER, undefined, {
     availableBlockSize: available,
     pageIndex: 0,
     resumeFrom: null,

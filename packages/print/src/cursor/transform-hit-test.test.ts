@@ -24,6 +24,7 @@ import { computeStackingContextRole } from "@taleweaver/core";
 import { establishesAbsoluteContainingBlock } from "../layout/layout-context";
 import type { ElementBox } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
+import { rootFrame } from "../layout/parent-frame";
 
 const shaper = createMockShaper(8, 16);
 
@@ -40,7 +41,7 @@ function layoutDoc(pStyle: Record<string, unknown>, content = "hello world"): La
   );
   if (tree.type !== "element") throw new Error("expected element root");
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-  const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
+  const r = layoutBlock(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
   if (r.box === null) throw new Error("layout produced no box");
   return r.box;
 }
@@ -163,7 +164,7 @@ describe("transform hit-test (approach b)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
     const lines: readonly AbsoluteLineBox[] = getLineIndex(r.box).all;
     const tl = lines.find((l) => l.inverseTransform !== undefined && l.inverseTransform !== "singular");
@@ -194,7 +195,7 @@ describe("abs-pos descendant inside a transformed box is hit-test-reachable", ()
     const tree = cascadePass(createElementBox("doc", { display: "block" }, [root]) as ElementBox);
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
 
     const lines = getLineIndex(r.box).all;

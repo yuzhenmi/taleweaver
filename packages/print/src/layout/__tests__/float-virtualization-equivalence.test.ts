@@ -48,6 +48,7 @@ import { makeVirtualLayoutTree } from "../virtual-layout-tree";
 import type { PageBox } from "../page-box";
 import type { LayoutBox } from "../layout-box";
 import { runOracle, nth } from "./equivalence-oracle";
+import { rootFrame } from "../parent-frame";
 
 // ---------------------------------------------------------------------------
 // Page configs + fixtures (mirror float-pagination-coherent.test.ts).
@@ -141,7 +142,7 @@ function makeMeasurer(
       root,
       a.inlineOrigin,
       a.blockOrigin,
-      pageCtx,
+      rootFrame(pageCtx), pageCtx,
       shaper,
       hyphenator,
       {
@@ -500,7 +501,7 @@ function makePushingMeasurer(
       a.incomingPushedFloats, env, pageCtx, root, shaper, undefined, a.pageFlowBase,
     );
     const { box, breakToken, inFlowConsumed } = layoutBlock(
-      root, a.inlineOrigin, a.blockOrigin, pageCtx, shaper, undefined,
+      root, a.inlineOrigin, a.blockOrigin, rootFrame(pageCtx), pageCtx, shaper, undefined,
       {
         availableBlockSize: a.contentBlockSize,
         pageIndex: 0,

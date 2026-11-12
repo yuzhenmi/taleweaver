@@ -135,7 +135,7 @@ describe("print — range selections over object blocks through the controller",
     const m = mount({ type: "INSERT_IMAGE", src: "x.png", width: 50, height: 40 });
     drag(m, pointAt(m, at(m.text, 1)), { clientX: 20, clientY: 40 });
     expect(m.get().selection).toEqual(core.createSpan(at(m.text, 1), at(m.obj, 0)));
-    expect(m.selectionFills()).toEqual([BCD, { x: 0, y: 24, w: 600, h: 40 }]);
+    expect(m.selectionFills()).toEqual([BCD, { x: 0, y: 24, w: 50, h: 40 }]);
     m.controller.destroy();
   });
 

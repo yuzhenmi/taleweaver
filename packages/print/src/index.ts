@@ -133,7 +133,7 @@ export { getAtomicBoxIndex } from "./cursor/atomic-box-index";
 export { getBoundaryMarkIndex, boundaryMarkRectOf } from "./cursor/boundary-mark-index";
 export type { BoundaryMarkRect } from "./cursor/boundary-mark-index";
 export type { MarkerBox, BoundaryMarkBox, BoundaryMarkPlacement } from "./layout/layout-box";
-export type { AtomicBoxIndex, AbsoluteRect } from "./cursor/atomic-box-index";
+export type { AtomicBoxIndex, AtomicRect, AbsoluteRect } from "./cursor/atomic-box-index";
 export type { AbsoluteLineBox, LineLeaf, LineIndex } from "./cursor/line-flatten";
 export {
   collectLineBoxes,

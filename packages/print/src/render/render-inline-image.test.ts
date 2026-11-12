@@ -16,6 +16,7 @@ import type { BreakToken, FragmentationContext } from "../layout/fragmentation";
 import { getLineIndex } from "../cursor/line-flatten";
 import { buildLineBidiView, inlineCoordForOffset, offsetInLeaf } from "../cursor/line-bidi";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
+import { rootFrame } from "../layout/parent-frame";
 
 const reg = createDefaultComponentRegistry();
 const attrReg = createDefaultAttrRegistry();
@@ -135,7 +136,7 @@ describe("render — inline-image embed (Option B inline-block atom)", () => {
       cascaded,
       0,
       0,
-      makeRootContext(INITIAL_COMPUTED_STYLE, 500),
+      rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500),
       shaper,
       undefined,
     );
@@ -232,7 +233,7 @@ function layoutParas(
   );
   if (cascaded.type !== "element") throw new Error("cascaded root is not an element");
   const r = layoutBlock(
-    cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, opts.width ?? 500), shaper, undefined, opts.fragmentation,
+    cascaded, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, opts.width ?? 500)), makeRootContext(INITIAL_COMPUTED_STYLE, opts.width ?? 500), shaper, undefined, opts.fragmentation,
     opts.pageFlowBase,
   );
   if (r.box === null || r.box.type !== "block") throw new Error("layoutBlock returned no block");

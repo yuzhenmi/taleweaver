@@ -29,20 +29,26 @@ export function bfcRootFrame(inlineSize: number, direction: Direction): FloatFra
 
 /**
  * The env frame of a box's content box, given the line-left edge and size of
- * the area the box was laid out in (its containing block minus its margins) —
- * the box sits at that area's inline-start edge.
+ * the area the box was laid out in (its containing block minus its margins).
+ * The box sits at that area's inline-start edge in its CONTAINING block's
+ * direction (CSS 2.1 §10.3.3); its padding runs in its own `direction`.
  */
 export function contentFrame(
   areaLineLeft: number,
   areaInlineSize: number,
+  containingDirection: Direction,
+  boxInlineSize: number,
   direction: Direction,
   paddingInlineStart: number,
   contentInlineSize: number,
   bfcInlineSize: number,
 ): FloatFrame {
+  const boxLineLeft = containingDirection === "rtl"
+    ? areaLineLeft + areaInlineSize - boxInlineSize
+    : areaLineLeft;
   const lineLeft = direction === "rtl"
-    ? areaLineLeft + areaInlineSize - paddingInlineStart - contentInlineSize
-    : areaLineLeft + paddingInlineStart;
+    ? boxLineLeft + boxInlineSize - paddingInlineStart - contentInlineSize
+    : boxLineLeft + paddingInlineStart;
   return { lineLeft, inlineSize: contentInlineSize, direction, bfcInlineSize };
 }
 

@@ -15,6 +15,7 @@
 // `VirtualLayoutTree` for the carry-forward memo; pass it only when the prior
 // layout was virtual.
 
+import { rootFrame } from "./parent-frame";
 import type { ElementBox } from "@taleweaver/core";
 import type { BlockId } from "@taleweaver/core";
 import type { FootnoteAnchorRef } from "@taleweaver/core";
@@ -309,6 +310,8 @@ export function buildVirtualPaginatedTree(
             patchedRoot,
             a.inlineOrigin,
             a.blockOrigin,
+            // Measure only: the body box's position is discarded.
+            rootFrame(pageCtx),
             pageCtx,
             shaper,
             hyphenator,
@@ -534,7 +537,7 @@ function computeSlotInsets(
     // does (containingInlineSize = the content area). Lay the body at its
     // natural height (no clip, no page-break).
     const sectionContentCtx: LayoutContext = { ...ctx, containingInlineSize: effContentInlineSize };
-    const { box } = layoutBlock(body, 0, 0, sectionContentCtx, shaper, hyphenator, {
+    const { box } = layoutBlock(body, 0, 0, rootFrame(sectionContentCtx), sectionContentCtx, shaper, hyphenator, {
       availableBlockSize: Number.MAX_SAFE_INTEGER,
       pageIndex: 0,
       resumeFrom: null,

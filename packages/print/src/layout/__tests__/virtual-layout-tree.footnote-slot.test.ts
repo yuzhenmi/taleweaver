@@ -319,18 +319,12 @@ describe("FN-4.3 — PageBox.footnoteSlot rendered via buildVirtualPaginatedTree
     assertNoSeparatorOnlyBodies(slot, 1);
   });
 
-  it("(a3) RTL — the body sits at slot-local inlineOffset 0 (narrowed by the fixed indent) and the leading-number marker HANGS just inline-end of the body's content edge inside the right-hand gutter, preceding the text in reading order", () => {
-    // Mirror of (a) but RTL: same 1-line numbered fresh body, same fixed
-    // list-matching gutter (FOOTNOTE_BODY_INDENT = 30, direction-independent), but
-    // the gutter is on the INLINE-END (right) edge. The body content box stays at
-    // slot-local inlineOffset 0 (RTL does not inset it — the gutter is on the
-    // right) and is narrowed to `effContentInlineSize − 30` = 570. The marker
-    // HANGS just inline-end (right) of the body's right content edge (570), one gap
-    // (4) clear of it: markerInlineOffset = (600 − 30) + 4 = 574 — the mirror of
-    // LTR's `indent − markerWidth − gap`. Marker "1." = 2 chars × 8px = 16px ⇒
-    // markerWidth 16; its right edge 574 + 16 = 590 stays within the 600 content
-    // edge (inside the reserved 30px right gutter), and it reads BEFORE the text in
-    // RTL reading order.
+  it("(a3) RTL — the body is inset by the gutter on its inline-start (physical right) and the leading-number marker hangs in that gutter, one gap right of the body's content edge", () => {
+    // Mirror of (a) in RTL: same 1-line numbered fresh body, same fixed
+    // list-matching gutter (FOOTNOTE_BODY_INDENT = 30). Offsets are logical in the
+    // slot's frame, so the LTR formulas apply unchanged and the frame mirrors
+    // them: the body lands physically at x 0..570 and the 16px marker "1." at
+    // 574..590, inside the 30px right-hand gutter, read before the text.
     const root = cascadeRoot([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
     const fnRootId = "fn0" as BlockId;
     const embed = new Map<BlockId, ElementBox>([[fnRootId, cascadeBody(fnBody("fn0", 1, "1."))]]);
@@ -353,30 +347,23 @@ describe("FN-4.3 — PageBox.footnoteSlot rendered via buildVirtualPaginatedTree
     expect(marker).toBeDefined();
     if (marker === undefined) throw new Error("footnote leading-number marker missing");
 
-    // RTL: the body content box sits at slot-local inlineOffset 0 (NOT inset — the
-    // gutter is on the right), narrowed to `effContentInlineSize − 30` = 570. This
-    // is the load-bearing RTL assertion: in LTR the body is inset (= 30); here it
-    // must be 0 with the narrowing applied as a width reduction instead.
-    expect(body.inlineOffset).toBe(0);
+    // RTL: the gutter is the slot's inline-start (physical right) side. The body
+    // is inset by it LOGICALLY (inlineOffset 30, like LTR) and narrowed to
+    // `effContentInlineSize − 30` = 570, so it sits physically at x 0..570.
+    expect(body.inlineOffset).toBe(FOOTNOTE_BODY_INDENT);
     expect(body.inlineSize).toBe(slot.inlineSize - FOOTNOTE_BODY_INDENT); // 570
+    expect(body.x).toBe(0);
 
-    // The marker HANGS just inline-end of the body's right content edge (570),
-    // one gap clear of it, inside the reserved 30px right gutter:
-    // markerInlineOffset = (effContentInlineSize − indent) + gap = 570 + 4 = 574 —
-    // the mirror of LTR's `indent − markerWidth − gap`. (Would FAIL if the RTL
-    // marker regressed to 0/LTR placement, or to the old `content − markerWidth`.)
+    // The marker hangs in the gutter one gap clear of the body's content edge:
+    // logically `indent − markerWidth − gap` = 10 (the LTR formula), physically
+    // just right of the body's right edge (570 + 4 = 574), inside the gutter.
     const markerWidth = marker.inlineSize;
     expect(markerWidth).toBe(16);
+    expect(marker.inlineOffset).toBe(FOOTNOTE_BODY_INDENT - markerWidth - FOOTNOTE_MARKER_GAP); // 10
     const bodyContentEdge = slot.inlineSize - FOOTNOTE_BODY_INDENT; // 570
-    const expectedMarkerOffset = bodyContentEdge + FOOTNOTE_MARKER_GAP; // 574
-    expect(marker.inlineOffset).toBe(expectedMarkerOffset);
-    expect(marker.inlineOffset).toBe(574);
-
-    // Marker PRECEDES the body text in RTL reading order and stays WITHIN the
-    // reserved right gutter: its left edge is at/right of the body's right content
-    // edge (outboard of the text), and its right edge stays within the content box.
-    expect(marker.inlineOffset).toBeGreaterThanOrEqual(body.inlineOffset + body.inlineSize);
-    expect(marker.inlineOffset + markerWidth).toBeLessThanOrEqual(slot.inlineSize); // within the gutter (590 ≤ 600)
+    expect(marker.x).toBe(bodyContentEdge + FOOTNOTE_MARKER_GAP); // 574
+    expect(marker.x).toBeGreaterThanOrEqual(body.x + body.width);
+    expect(marker.x + markerWidth).toBeLessThanOrEqual(slot.inlineSize); // within the gutter (590 ≤ 600)
 
     // Still exactly one body fragment + its marker, no separator box.
     assertNoSeparatorOnlyBodies(slot, 1);

@@ -31,6 +31,7 @@ import { layoutTree } from "../dispatch";
 import { layoutBlock } from "../bfc";
 import type { LayoutContext } from "../layout-context";
 import type { VirtualLayoutTree } from "../virtual-layout-tree";
+import { rootFrame } from "../parent-frame";
 
 // ---------------------------------------------------------------------------
 // Fixture builders (mirror virtual-layout-tree.test.ts / measure-pass-equiv).
@@ -351,7 +352,7 @@ describe("growing-slot — (M2) landscape section header uses the section's own 
     const narrowCtx = makeRootContext(INITIAL_COMPUTED_STYLE, docWide.pageInlineSize);
     const narrowContent = docWide.pageInlineSize - 15 - 15; // 170
     const narrowSlotCtx: LayoutContext = { ...narrowCtx, containingInlineSize: narrowContent };
-    const { box: narrowBox } = layoutBlock(hdrBody, 0, 0, narrowSlotCtx, shaper(), undefined, {
+    const { box: narrowBox } = layoutBlock(hdrBody, 0, 0, rootFrame(narrowSlotCtx), narrowSlotCtx, shaper(), undefined, {
       availableBlockSize: Number.MAX_SAFE_INTEGER,
       pageIndex: 0,
       resumeFrom: null,
