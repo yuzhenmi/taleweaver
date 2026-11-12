@@ -21,7 +21,11 @@ import { holdsAll } from "../document/blocks";
 import type * as Y from "yjs";
 import type { Document } from "../document/types";
 import { blockObjectAt } from "../position/block-object";
-import { type Assoc, type ModelPosition, type ModelSelection, caretAt, isAllSelection, isObjectSelection } from "../position/model-position";
+import { type Assoc, type ModelPosition, type ModelSelection, caretAt, isAllSelection, isCellSelection, isObjectSelection } from "../position/model-position";
+import type { BlockId } from "../block";
+import { cellMarkAt, cellOf, cellSelectionOf, implicitAt, virtualCellParagraph } from "../position/cell-selection";
+import { edgeParagraphOf } from "../position/block-object";
+import { roleOf } from "../scan/tokens";
 import { paragraphLayout } from "../position/paragraph-layout";
 import { positionAtPoint, terminatorAtPoint } from "../position/position-at-point";
 import { isBlockObject } from "../scan/kinds";
@@ -136,6 +140,14 @@ function mapPoint(from: Document, to: Document, piece: Y.Text, index: number, as
  */
 export function mapSelection(from: Document, to: Document, sel: ModelSelection): ModelSelection | null {
   if (isAllSelection(sel)) return holdsAll(to, sel.container) ? sel : null;
+  if (isCellSelection(sel)) {
+    const a = mapCell(from, to, sel.anchor);
+    const h = mapCell(from, to, sel.head);
+    const both = a === null || h === null ? null : cellSelectionOf(to, a, h);
+    const one = a ?? h;
+    const p = both !== null || one === null ? null : edgeParagraphOf(to, one, 1);
+    return both ?? (p === null ? null : caretAt(p, 0));
+  }
   if (isObjectSelection(sel)) {
     const o = blockObjectAt(from, sel.object);
     const m = o === null ? null : mapPoint(from, to, o.point.piece, o.point.index, 1);
@@ -148,4 +160,24 @@ export function mapSelection(from: Document, to: Document, sel: ModelSelection):
   }
   const m = (p: ModelPosition): ModelPosition => mapPosition(from, to, p, -1).position ?? p;
   return { anchor: m(sel.anchor), focus: m(sel.focus) };
+}
+
+/** Cell `id` of `from` in `to`: the cell at its mapped `⟨c⟩` while it survives, else the cell holding the mapped point. */
+function mapCell(from: Document, to: Document, id: BlockId): BlockId | null {
+  const m = cellMarkAt(from, id);
+  if (m === null) {
+    const p = virtualCellParagraph(from, id);
+    const q = p === null ? null : mapPosition(from, to, { blockId: p, offset: 0 }, 1).position;
+    // A row's virtual cells share one point, which resolves to the first: back to this one's column.
+    const at = q === null ? null : paragraphLayout(to, q.blockId)?.head;
+    const own = p === null || q === null ? null : (at == null ? null : implicitAt(to, p, q.blockId, at)) ?? q.blockId;
+    return own === null ? null : cellOf(to, own);
+  }
+  const x = mapPoint(from, to, m.point.piece, m.point.index, 1);
+  const fs = to.flows.get(m.fs.holderId);
+  if (x === null || fs === undefined) return null;
+  const t = x.deleted ? null : terminatorAtPoint(fs, m.point.piece, x.index);
+  if (t !== null && roleOf(t.token) === "newCell") return t.token.id;
+  const p = positionAtPoint(to, fs, m.point.piece, x.index, 1);
+  return p === null ? null : cellOf(to, p.blockId);
 }

@@ -41,7 +41,7 @@ import { sameRead } from "../oracle/storage-snapshot";
 import type { Plan } from "../plan";
 import { rangeOf } from "../commands/helpers/at";
 import { objectSelection, selectAll } from "../commands/selections";
-import { type ModelPosition, type ModelSelection, isAllSelection, isObjectSelection, isTextSelection, samePosition } from "../position/model-position";
+import { type ModelPosition, type ModelSelection, isAllSelection, isCellSelection, isObjectSelection, isTextSelection, samePosition } from "../position/model-position";
 import { paragraphLayout } from "../position/paragraph-layout";
 import { positionAtPoint } from "../position/position-at-point";
 import { resolvePosition } from "../position/resolve-position";
@@ -132,6 +132,7 @@ function spanOf(L: Linear, sel: ModelSelection): { s: number; e: number; object?
     return i === undefined ? null : { s: i, e: objectSpan(L.units, i), object: true };
   }
   if (isAllSelection(sel)) return { s: 0, e: L.units.length - 1 };
+  if (isCellSelection(sel)) return null;
   const a = indexOf(L, sel.anchor);
   const f = indexOf(L, sel.focus);
   return a === null || f === null ? null : { s: Math.min(a, f), e: Math.max(a, f) };

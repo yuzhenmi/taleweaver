@@ -29,12 +29,14 @@ import type { Document } from "./document/types";
 import type { Model } from "./model";
 import { applyPlan, type Plan } from "./plan";
 import { blockObjectAt } from "./position/block-object";
-import { type Assoc, type ModelPosition, type ModelSelection, caretAt, isAllSelection, isObjectSelection, samePosition } from "./position/model-position";
+import { type Assoc, type ModelPosition, type ModelSelection, caretAt, isAllSelection, isCellSelection, isObjectSelection, samePosition } from "./position/model-position";
+import { cellMarkAt, cellOf, cellSelectionOf, implicitAt, virtualCellParagraph } from "./position/cell-selection";
+import { edgeParagraphOf } from "./position/block-object";
+import { roleOf } from "./scan/tokens";
 import { paragraphLayout } from "./position/paragraph-layout";
 import { positionAtPoint, terminatorAtPoint } from "./position/position-at-point";
 import { comparePoints } from "./position/storage-points";
 import { anchorPoint, fromRelativePosition, pointOfRelative, relativeItemLive, toRelativePosition } from "./mapping/relative-position";
-import { emptyCellParagraphId, virtualCellId, virtualCellParagraphOf } from "./ids";
 import { isBlockObject } from "./scan/kinds";
 import { flowContainerDeleteFilter } from "./storage/history-hooks";
 import { ROOT_MAP } from "./storage/keys";
@@ -55,11 +57,14 @@ interface StoredPosition {
    */
   readonly implicit?: BlockId;
 }
-/** A text selection's ends; an object selection as a RelativePosition AT its object's item (Yjs follows a re-created object's `redone` chain); a select-all as its flow. */
+/** A cell of a cell selection: a RelativePosition AT its `⟨c⟩` (as an object), or a virtual cell's caret (its implicit paragraph). */
+type StoredCell = { readonly rel: Y.RelativePosition } | { readonly pos: StoredPosition };
+/** A text selection's ends; an object selection as a RelativePosition AT its object's item (Yjs follows a re-created object's `redone` chain); a select-all as its flow; a cell selection as its two cells. */
 type StoredSelection =
   | { readonly kind: "text"; readonly anchor: StoredPosition; readonly focus: StoredPosition }
   | { readonly kind: "object"; readonly rel: Y.RelativePosition }
-  | { readonly kind: "all"; readonly container: string };
+  | { readonly kind: "all"; readonly container: string }
+  | { readonly kind: "cells"; readonly anchor: StoredCell; readonly head: StoredCell };
 interface Entry {
   readonly before: StoredSelection | null;
   readonly after: StoredSelection | null;
@@ -92,6 +97,11 @@ function storePosition(d: Document, p: ModelPosition, assoc: Assoc): StoredPosit
  */
 function storeSelection(d: Document, sel: ModelSelection): StoredSelection | null {
   if (isAllSelection(sel)) return { kind: "all", container: sel.container };
+  if (isCellSelection(sel)) {
+    const anchor = storeCell(d, sel.anchor);
+    const head = storeCell(d, sel.head);
+    return anchor === null || head === null ? null : { kind: "cells", anchor, head };
+  }
   if (isObjectSelection(sel)) {
     const o = blockObjectAt(d, sel.object);
     return o === null ? null : { kind: "object", rel: Y.createRelativePositionFromTypeIndex(o.point.piece, o.point.index, 0) };
@@ -111,19 +121,8 @@ function restorePosition(d: Document, s: StoredPosition): ModelPosition | null {
   // nearest column left of it that reads.
   const at = s.implicit === undefined ? null : pointOfRelative(d, s.rel);
   if (at === null) return p;
-  const reads = (id: BlockId): boolean => {
-    const head = paragraphLayout(d, id)?.head;
-    return head != null && head.piece === at.piece && head.index === at.index;
-  };
-  const v = virtualCellParagraphOf(s.implicit ?? "");
-  if (v === null) return s.implicit !== undefined && reads(s.implicit) ? { blockId: s.implicit, offset: 0 } : p;
-  for (const mark of [v.mark, virtualCellParagraphOf(p.blockId)?.mark]) {
-    for (let col = v.col; mark !== undefined && col >= 0; col--) {
-      const id = emptyCellParagraphId(virtualCellId(mark, col));
-      if (reads(id)) return { blockId: id, offset: 0 };
-    }
-  }
-  return p;
+  const id = s.implicit === undefined ? null : implicitAt(d, s.implicit, p.blockId, at);
+  return id === null ? p : { blockId: id, offset: 0 };
 }
 
 /** An object selection's restore: the object at its point while it is the stored object or its re-created copy (an undo's: its new id), else a caret there (mapSelection's deleted guard). */
@@ -135,8 +134,39 @@ function restoreObject(d: Document, rel: Y.RelativePosition): ModelSelection | n
   return p === null || paragraphLayout(d, p.blockId) === null ? null : caretAt(p.blockId, p.offset);
 }
 
+function storeCell(d: Document, id: BlockId): StoredCell | null {
+  const m = cellMarkAt(d, id);
+  if (m !== null) return { rel: Y.createRelativePositionFromTypeIndex(m.point.piece, m.point.index, 0) };
+  const p = virtualCellParagraph(d, id);
+  const pos = p === null ? null : storePosition(d, { blockId: p, offset: 0 }, 1);
+  return pos === null ? null : { pos };
+}
+
+/** A stored cell's restore: the cell at its `⟨c⟩` while it is that cell or its re-created copy, else the cell holding the point. */
+function restoreCell(d: Document, s: StoredCell): BlockId | null {
+  if ("pos" in s) {
+    const p = restorePosition(d, s.pos);
+    return p === null ? null : cellOf(d, p.blockId);
+  }
+  const at = pointOfRelative(d, s.rel);
+  const t = at === null || !relativeItemLive(d, s.rel) ? null : terminatorAtPoint(at.fs, at.piece, at.index);
+  if (t !== null && roleOf(t.token) === "newCell") return t.token.id;
+  const p = at === null ? null : positionAtPoint(d, at.fs, at.piece, at.index, 1);
+  return p === null ? null : cellOf(d, p.blockId);
+}
+
+/** Cells `a` / `h` as a cell selection when one table holds both; else a caret at the start of the one that reads. */
+export function cellsOrCaret(d: Document, a: BlockId | null, h: BlockId | null): ModelSelection | null {
+  const both = a === null || h === null ? null : cellSelectionOf(d, a, h);
+  if (both !== null) return both;
+  const one = a ?? h;
+  const p = one === null ? null : edgeParagraphOf(d, one, 1);
+  return p === null ? null : caretAt(p, 0);
+}
+
 function restoreSelection(d: Document, s: StoredSelection | null): ModelSelection | null {
   if (s === null) return null;
+  if (s.kind === "cells") return cellsOrCaret(d, restoreCell(d, s.anchor), restoreCell(d, s.head));
   if (s.kind === "all") return holdsAll(d, s.container) ? { kind: "all", container: s.container } : null;
   if (s.kind === "object") return restoreObject(d, s.rel);
   const anchor = restorePosition(d, s.anchor);

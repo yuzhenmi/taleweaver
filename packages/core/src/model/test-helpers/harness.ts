@@ -13,7 +13,7 @@ import { Model } from "../model";
 import { BUILTIN_OBJECT_KINDS } from "../object-kinds";
 import { OPTIONS, editKindOf } from "../oracle/random-command";
 import type { Plan } from "../plan";
-import { type ModelPosition, type ModelSelection, caretAt, isAllSelection, isObjectSelection, isTextSelection } from "../position/model-position";
+import { type ModelPosition, type ModelSelection, caretAt, isAllSelection, isCellSelection, isObjectSelection, isTextSelection } from "../position/model-position";
 import { resolvePosition } from "../position/resolve-position";
 import { createEditorOrigin } from "../storage/history-hooks";
 import { expectSameVersion } from "./expect-same-version";
@@ -132,6 +132,7 @@ export class Harness {
     const s = this.selection;
     if (isObjectSelection(s)) return `object ${ids.indexOf(s.object)}`;
     if (isAllSelection(s)) return "all";
+    if (isCellSelection(s)) return `cells ${s.anchor}-${s.head}`;
     const p = (x: ModelPosition): string => `${ids.indexOf(x.blockId)}:${x.offset}`;
     const a = p(s.anchor);
     const f = p(s.focus);
@@ -190,6 +191,7 @@ export function selectionOf(d: Document, sel: ModelSelection): string {
   };
   if (isAllSelection(sel)) return `all ${holders.indexOf(sel.container)}`;
   if (isObjectSelection(sel)) return `object ${at(sel.object)}`;
+  if (isCellSelection(sel)) return `cells ${at(sel.anchor)}-${at(sel.head)}`;
   return `${at(sel.anchor.blockId)}:${sel.anchor.offset}-${at(sel.focus.blockId)}:${sel.focus.offset}`;
 }
 

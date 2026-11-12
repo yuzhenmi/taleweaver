@@ -1,7 +1,7 @@
 import { BLOCK_TYPES, type BlockId } from "../../block";
 import { resolveBlock } from "../../document/blocks";
 import type { Document } from "../../document/types";
-import { type ModelPosition, isAllSelection, isObjectSelection, position, samePosition } from "../../position/model-position";
+import { type ModelPosition, isAllSelection, isCellSelection, isObjectSelection, position, samePosition } from "../../position/model-position";
 import { type ParagraphLayout, type StoragePoint, flowStart, paragraphLayout, terminatorOf } from "../../position/paragraph-layout";
 import { resolveOffset } from "../../position/resolve-position";
 import { comparePoints, pointAfter, pointOf } from "../../position/storage-points";
@@ -76,7 +76,7 @@ export function containerKey(d: Document, L: ParagraphLayout): BlockId {
  */
 export function rangeOf(ctx: CommandContext): Range | null {
   const sel = ctx.selection;
-  if (isObjectSelection(sel)) return null;
+  if (isObjectSelection(sel) || isCellSelection(sel)) return null;
   if (isAllSelection(sel)) {
     const p = containerParagraphs(ctx.version, sel.container);
     if (p === null) return null;

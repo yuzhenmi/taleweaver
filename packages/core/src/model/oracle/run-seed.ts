@@ -62,7 +62,8 @@ import type { Document } from "../document/types";
 import { type HistoryStep, UNDO_COALESCE_PAUSE_MS } from "../history";
 import { BUILTIN_OBJECT_KINDS } from "../object-kinds";
 import { blockObjectAt } from "../position/block-object";
-import { type ModelSelection, isAllSelection, isObjectSelection, isTextSelection } from "../position/model-position";
+import { type ModelSelection, isAllSelection, isCellSelection, isObjectSelection, isTextSelection } from "../position/model-position";
+import { cellSelectionOf } from "../position/cell-selection";
 import { paragraphLayout } from "../position/paragraph-layout";
 import { resolvePosition } from "../position/resolve-position";
 import { getDocMap } from "../storage/doc-map";
@@ -122,7 +123,7 @@ function snapped(d: Document, sel: ModelSelection): ModelSelection {
 }
 
 const resolves = (d: Document, sel: ModelSelection): boolean =>
-  isAllSelection(sel) ? holdsAll(d, sel.container) : isObjectSelection(sel) ? blockObjectAt(d, sel.object) !== null : paragraphLayout(d, sel.anchor.blockId) !== null && paragraphLayout(d, sel.focus.blockId) !== null;
+  isAllSelection(sel) ? holdsAll(d, sel.container) : isCellSelection(sel) ? cellSelectionOf(d, sel.anchor, sel.head) !== null : isObjectSelection(sel) ? blockObjectAt(d, sel.object) !== null : paragraphLayout(d, sel.anchor.blockId) !== null && paragraphLayout(d, sel.focus.blockId) !== null;
 
 /**
  * One seed. Multi-peer firings are counted by class in `quirks` (labels include `UNCLASSIFIED:*`,

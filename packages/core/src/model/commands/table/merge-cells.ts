@@ -15,9 +15,7 @@ import { type Keys, diffKeys, scalar } from "../helpers/paragraph-keys";
 import { deleteBetween, insertAt, keysWrite, materialize } from "../helpers/writes";
 import { type CellAt, cellParagraphAt, nextMarkId, selectedCell, spanValue } from "./table-at";
 import { type TableMarks, tableMarks } from "./table-mark-walk";
-
-/** A grid slot: [row, col]. */
-export type Slot = readonly [number, number];
+import { type Box, type Slot, grown } from "./cell-rect";
 
 /**
  * T6: merge the rectangle `from`–`to` (two corner slots of the selected cell's table), grown until no cell crosses its
@@ -98,39 +96,6 @@ export function mergeCells(ctx: CommandContext, from: Slot, to: Slot): Plan | nu
     const q = cellParagraphAt(after, fs.holderId, c.tableId, box.r0, box.c0);
     return q === null ? sel : caretAt(q, 0);
   });
-}
-
-/** A rectangle of grid slots, inclusive. */
-interface Box {
-  readonly r0: number;
-  readonly r1: number;
-  readonly c0: number;
-  readonly c1: number;
-}
-
-/** The rectangle `from`–`to` grown until no placed cell (clipped spans) crosses its edge. */
-function grown(c: CellAt, from: Slot, to: Slot): Box {
-  const R = c.form.rows.length;
-  let r0 = Math.min(from[0], to[0]);
-  let r1 = Math.max(from[0], to[0]);
-  let c0 = Math.min(from[1], to[1]);
-  let c1 = Math.max(from[1], to[1]);
-  for (let grew = true; grew; ) {
-    grew = false;
-    c.form.rows.forEach((row, i) => {
-      for (const p of row.placed) {
-        const end = i + Math.min(p.rowSpan, R - i) - 1;
-        const right = p.gridCol + p.colSpan - 1;
-        if (i > r1 || end < r0 || p.gridCol > c1 || right < c0) continue;
-        if (i < r0 || end > r1 || p.gridCol < c0 || right > c1) grew = true;
-        r0 = Math.min(r0, i);
-        r1 = Math.max(r1, end);
-        c0 = Math.min(c0, p.gridCol);
-        c1 = Math.max(c1, right);
-      }
-    });
-  }
-  return { r0, r1, c0, c1 };
 }
 
 /** A real cell of the rectangle, in its own row. */

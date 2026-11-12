@@ -24,12 +24,23 @@ export interface AllSelection {
   readonly container: BlockId;
 }
 
-export type ModelSelection = TextSelection | ObjectSelection | AllSelection;
+/**
+ * A rectangle of table cells (ProseMirror tables' CellSelection): the bounding box of cells `anchor` and `head` of one
+ * table (a virtual end cell's slot id allowed), grown until no merged cell crosses its edge (GDocs).
+ */
+export interface CellSelection {
+  readonly kind: "cells";
+  readonly anchor: BlockId;
+  readonly head: BlockId;
+}
+
+export type ModelSelection = TextSelection | ObjectSelection | AllSelection | CellSelection;
 
 /** (Model selection kinds are compared only here: `text` / `object` / `all` name selection kinds, not flow kinds.) */
 export const isTextSelection = (s: ModelSelection): s is TextSelection => s.kind === undefined || s.kind === "text";
 export const isObjectSelection = (s: ModelSelection): s is ObjectSelection => s.kind === "object";
 export const isAllSelection = (s: ModelSelection): s is AllSelection => s.kind === "all";
+export const isCellSelection = (s: ModelSelection): s is CellSelection => s.kind === "cells";
 
 export const position = (blockId: BlockId, offset: number): ModelPosition => ({ blockId, offset });
 
