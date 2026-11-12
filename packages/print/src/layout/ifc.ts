@@ -1752,6 +1752,13 @@ export function layoutInlineContent(
   let lineBlockOffset = blockOffset;
   let currentUnits: WrapUnit[] = [];
   let currentWidth = 0;
+  // Per-line wrap-back tracking (reset by `flushLine`): the first unit with
+  // in-flow content (-1: none), the last unit the line may break before with
+  // content ahead of it (-1: none), and how many units the glued-chain
+  // interior search has already covered.
+  let firstContentIdx = -1;
+  let lastBreakableHead = -1;
+  let chainScannedEnd = 0;
   let lineIndex = 0;
   let pendingHyphen: HyphenBreak | null = null;
   // Track the first and last token index for the units accumulated on the current line.
@@ -2285,6 +2292,9 @@ export function layoutInlineContent(
     lineBlockOffset += line.blockSize;
     currentUnits = [];
     currentWidth = 0;
+    firstContentIdx = -1;
+    lastBreakableHead = -1;
+    chainScannedEnd = 0;
     pendingHyphen = null;
     currentLineStartTokenIdx = -1;
     currentLineEndTokenIdx = -1;
@@ -2317,7 +2327,54 @@ export function layoutInlineContent(
    * wrap rules (the next unit may move it below a float, never wraps away from it).
    */
   function lineHasContent(): boolean {
-    return currentUnits.some((u) => u.tokens.some((t) => t.inlineBlock?.floatKey === undefined));
+    return firstContentIdx >= 0;
+  }
+
+  /**
+   * Remove `currentUnits[from..]` from the line, rolling back the width, the
+   * offset cursor and the token range, and return them. The caller flushes
+   * the line next (which resets the per-line chain tracking).
+   */
+  function takeUnitsFrom(from: number): WrapUnit[] {
+    const moved = currentUnits.splice(from);
+    for (const u of moved) cursorOffset -= unitOffsetContribution(u);
+    currentWidth = currentUnits.reduce((w, u) => w + u.totalWidth, 0);
+    const last = currentUnits[currentUnits.length - 1];
+    if (last === undefined) {
+      currentLineStartTokenIdx = -1;
+      currentLineEndTokenIdx = -1;
+      currentLineStartOffset = -1;
+    } else {
+      currentLineEndTokenIdx = last.tokenEndIdx;
+    }
+    return moved;
+  }
+
+  /**
+   * The last interior break (UAX #14 soft, then hyphenation) inside the glued
+   * chain `currentUnits[chainStart..]` whose prefix fits the line, searched
+   * from the last unit back. Units below `chainScannedEnd` were searched
+   * already on this line (their room does not change), so each unit is
+   * searched at most once per line.
+   */
+  function lastInteriorBreakInChain(
+    chainStart: number,
+    lineInlineSize: number,
+  ): { readonly index: number; readonly prefix: WrapUnit; readonly suffix: WrapUnit; readonly hyphen: HyphenBreak | null } | null {
+    const from = Math.max(chainStart, chainScannedEnd);
+    let before = currentWidth;
+    for (let k = currentUnits.length - 1; k >= from; k--) {
+      const u = currentUnits[k];
+      if (u === undefined) throw new Error(`ifc: chain unit ${k} missing (unreachable)`);
+      before -= u.totalWidth;
+      const room = lineInlineSize - before;
+      const soft = trySoftSplit(u, room);
+      if (soft !== null) return { index: k, prefix: soft[0], suffix: soft[1], hyphen: null };
+      const hy = tryHyphenSplit(u, room);
+      if (hy !== null) return { index: k, prefix: hy[0], suffix: hy[1], hyphen: hy[2] };
+    }
+    chainScannedEnd = currentUnits.length;
+    return null;
   }
 
   /**
@@ -2329,6 +2386,16 @@ export function layoutInlineContent(
     currentLineEndTokenIdx = unit.tokenEndIdx;
     if (currentLineStartOffset < 0) currentLineStartOffset = cursorOffset;
     cursorOffset += unitOffsetContribution(unit);
+    const head = unit.tokens[0];
+    const isPlaceholder = head?.inlineBlock?.floatKey !== undefined;
+    // A break may precede this unit (and there is in-flow content before it):
+    // the start of any glued chain that later units continue.
+    if (head !== undefined && !head.isSpace && !isPlaceholder && head.breakableBefore !== false && firstContentIdx >= 0) {
+      lastBreakableHead = currentUnits.length;
+    }
+    if (firstContentIdx < 0 && unit.tokens.some((t) => t.inlineBlock?.floatKey === undefined)) {
+      firstContentIdx = currentUnits.length;
+    }
     currentUnits.push(unit);
     currentWidth += unit.totalWidth;
     lastUnitWasForcedBreak = false;
@@ -2623,13 +2690,12 @@ export function layoutInlineContent(
         unitQueue.splice(uqi, 0, suffixUnit);
         continue;
       }
-      // No split possible — normal word wrap. This is the ONLY path here that
-      // emits a break BEFORE the unit (the whole unit moves to the next line), so
-      // it is the one gated by `breakableBefore`: a unit glued to the previous by
-      // an NBSP (breakableBefore===false) is instead force-placed on the current
-      // line — it overflows `lineInlineSize` (CSS-correct for a no-break space:
-      // the line legitimately extends past its content box), falling through to
-      // the end-of-loop `pushUnit`. Absent/true ⇒ unchanged (normal wrap).
+      // No split possible — normal word wrap. A break BEFORE the unit (the whole
+      // unit moves to the next line) is gated by `breakableBefore`: a unit glued
+      // to the previous one (an NBSP, or a word continuing across a style-run
+      // boundary) instead breaks the line at its glued chain's last opportunity
+      // (below); only when the line has none does it emergency-break or
+      // force-place and overflow.
       const headTok = unit.tokens[0];
       if (headTok === undefined) throw new Error("ifc: wrap unit has no tokens (unreachable)");
       if (headTok.breakableBefore !== false) {
@@ -2637,7 +2703,27 @@ export function layoutInlineContent(
         // Recompute dims for the new line position
         ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
       } else {
-        // Glued (NBSP, breakableBefore===false): the unit can't move to a fresh
+        // Glued (NBSP, or a word continuing across a style-run boundary): the
+        // unbreakable unit is the glued chain ending in this unit. Break at the
+        // line's last opportunity before the chain and move the whole chain down
+        // (UAX #14 / browsers: a word is split only when it cannot fit alone).
+        // An interior opportunity inside an earlier unit of the chain is later
+        // than the chain head, so it wins.
+        const interior = lastInteriorBreakInChain(Math.max(lastBreakableHead, 0), lineInlineSize);
+        if (interior !== null) {
+          const moved = takeUnitsFrom(interior.index);
+          pushUnit(interior.prefix);
+          flushLine(lineInlineCursor, lineInlineSize, interior.hyphen ?? pendingHyphen);
+          unitQueue.splice(uqi, 0, interior.suffix, ...moved.slice(1), unit);
+          continue;
+        }
+        if (lastBreakableHead > 0) {
+          const moved = takeUnitsFrom(lastBreakableHead);
+          flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
+          unitQueue.splice(uqi, 0, ...moved, unit);
+          continue;
+        }
+        // No opportunity on the line: the unit can't move to a fresh
         // line, so without break-word it force-places + overflows. Under
         // `overflow-wrap: break-word` break it HERE as a last resort (CSS §5.1) —
         // prefix stays on the current line, suffix continues. (When breakableBefore
@@ -3577,16 +3663,32 @@ export interface LineSourceRangeU16 {
  * keeps the helper unit-testable without constructing a complete `WrapUnit`.
  */
 export interface LineRangeUnit {
-  readonly tokens: readonly { readonly absoluteSourceBase: number; readonly text: string }[];
+  readonly tokens: readonly {
+    readonly absoluteSourceBase: number;
+    readonly text: string;
+    readonly inlineBlock?: unknown;
+  }[];
+}
+
+/**
+ * A token's DISPLAY span in the assembled source: its text, or the one OBJECT
+ * REPLACEMENT char an inline-block atom (image, tab, footnote marker, field,
+ * float placeholder — all `text: ""`) occupies. Hard-break embed and `\n`
+ * LINE_BREAK units never reach a line's units (the wrap loop flushes on them
+ * without `pushUnit`), so they need no case here.
+ */
+function displaySpanU16(tok: LineRangeUnit["tokens"][number]): number {
+  return tok.inlineBlock !== undefined ? 1 : tok.text.length;
 }
 
 /**
  * Derive a line's half-open U16 source range from its wrap units.
  *
  * The start is the FIRST real token's `absoluteSourceBase`; the end is the LAST
- * real token's `absoluteSourceBase + text.length` (an EXCLUSIVE display-U16
+ * real token's `absoluteSourceBase` + its display span (an EXCLUSIVE display-U16
  * offset — `text` is the DISPLAY string, so trailing collapsed/hung whitespace
- * folded into a token's display extends the span to the visible edge).
+ * folded into a token's display extends the span to the visible edge; an atom
+ * spans its one OBJECT REPLACEMENT char).
  *
  * "Real" excludes synthetic tokens (the hyphen glyph is appended AFTER this in
  * `buildLineWithFragments`, never inside `units`, but a defensive empty-tokens
@@ -3606,9 +3708,9 @@ export function deriveLineSourceRangeU16(
     for (const tok of unit.tokens) {
       if (startU16 < 0) startU16 = tok.absoluteSourceBase;
       // The end advances with EVERY real token; the last one wins. Using the
-      // token's display `text.length` (not `sourceLength`) keeps the end on the
+      // token's display span (not `sourceLength`) keeps the end on the
       // display-U16 axis the bidi levels are indexed in.
-      endU16 = tok.absoluteSourceBase + tok.text.length;
+      endU16 = tok.absoluteSourceBase + displaySpanU16(tok);
     }
   }
   if (startU16 < 0) return null;

@@ -14,7 +14,7 @@ import { makeRootContext } from "../layout/layout-context";
 import type { LayoutBox, InlineBlockBox, LineBox, BlockBox } from "../layout/layout-box";
 import type { BreakToken, FragmentationContext } from "../layout/fragmentation";
 import { getLineIndex } from "../cursor/line-flatten";
-import { buildLineBidiView, inlineCoordForOffset } from "../cursor/line-bidi";
+import { buildLineBidiView, inlineCoordForOffset, offsetInLeaf } from "../cursor/line-bidi";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 
 const reg = createDefaultComponentRegistry();
@@ -426,19 +426,49 @@ describe("layout — wrapped inline image floats at its paragraph top", () => {
     expect(inlineCoordForOffset(view, 4, undefined, measurer)).toBe(124);
   });
 
-  it("is not a line-break opportunity: a float between two runs breaks exactly like the runs alone", () => {
+  it("an inline image (wrapped or not) ending an RTL line: no throw, the atom is on the line and its offsets map", () => {
+    const rtl = { attrs: [{ dir: "rtl" }] };
+    const measurer = adaptShaperToMeasurer(shaper);
+    // Not wrapped: "ab" (16px, LTR run) then the 40px image (paragraph level 1),
+    // packed against the right edge in RTL visual order: image left of "ab".
+    const plain = embed(INLINE_IMAGE_EMBED_TYPE, { src: "i.png", width: 40, height: 30 });
+    const r = layoutParas([[text("ab"), plain]], rtl);
+    const line = only(para(r, 0).lines);
+    expect([line.inlineOffsetStart, line.inlineOffsetEnd]).toEqual([0, 3]);
+    const img = line.children.find((c) => c.type === "inline-block");
+    const ab = line.children.find((c) => c.type === "text-run");
+    expect([img?.x, ab?.x]).toEqual([444, 484]);
+    const view = buildLineBidiView(only(getLineIndex(r.root).all));
+    expect(view.logicalLeaves.map((l) => [l.logStart, l.logEnd])).toEqual([[0, 2], [2, 3]]);
+    // The RTL-level image leads at its right edge: offset 2 (before it) = 484,
+    // offset 3 (after it) = its left edge 444; a click in its left half → 3.
+    expect(inlineCoordForOffset(view, 2, "after", measurer)).toBe(484);
+    expect(inlineCoordForOffset(view, 3, undefined, measurer)).toBe(444);
+    const imgLeaf = view.logicalLeaves[1];
+    if (imgLeaf === undefined) throw new Error("no image leaf");
+    expect(imgLeaf.level).toBe(1);
+    expect(offsetInLeaf(imgLeaf, 10, measurer, view.axisMap)).toBe(3);
+    expect(offsetInLeaf(imgLeaf, 30, measurer, view.axisMap)).toBe(2);
+    // Wrapped: the zero-width placeholder ends the line beside the float.
+    const w = layoutParas([[text("ab"), wrapped("left")]], rtl);
+    const wp = para(w, 0);
+    const wline = only(wp.lines);
+    expect([wline.x, wline.width, wline.inlineOffsetStart, wline.inlineOffsetEnd]).toEqual([100, 400, 0, 3]);
+    expect([wp.box.x + only(wp.floats).x]).toEqual([0]);
+    const wview = buildLineBidiView(only(getLineIndex(w.root).all));
+    expect(wview.logicalLeaves.map((l) => [l.logStart, l.logEnd])).toEqual([[0, 2], [2, 3]]);
+  });
+
+  it("is not a line-break opportunity: a float between two runs of one word moves down with the word", () => {
     // width 80 = 10 chars; the float sits far below (offsetBlock) so it does not narrow lines.
     const far = wrapped("left", { offsetBlock: 1000 });
     const lineSpans = (items: InlineItem[]) =>
       para(layoutParas([items], { width: 80 }), 0).lines.map((l) => [l.inlineOffsetStart, l.inlineOffsetEnd]);
-    // Mid-word: "yyyy|zzzz" (bold keeps the runs apart) breaks the same with
-    // the float between the runs: the float only adds its one offset (at 9),
-    // glued to "yyyy".
+    // Mid-word: "yyyy|zzzz" (bold keeps the runs apart) is one word that moves
+    // whole to the next line, the float (its one offset, at 9) inside it.
     const bold = text("zzzz", { bold: true });
-    const shift = (o: number) => (o >= 9 ? o + 1 : o);
-    expect(lineSpans([text("xxxx yyyy"), far, bold])).toEqual(
-      lineSpans([text("xxxx yyyy"), bold]).map((span) => span.map(shift)),
-    );
+    expect(lineSpans([text("xxxx yyyy"), bold])).toEqual([[0, 5], [5, 13]]);
+    expect(lineSpans([text("xxxx yyyy"), far, bold])).toEqual([[0, 5], [5, 14]]);
     // After a space the break stays where it was, and the float stays with the content before it.
     expect(lineSpans([text("xxxx yyyy "), far, text("zzzz")])).toEqual([[0, 11], [11, 15]]);
     expect(lineSpans([text("xxxx yyyy zzzz")])).toEqual([[0, 10], [10, 14]]);
@@ -492,8 +522,6 @@ describe("layout — wrapped inline image floats at its paragraph top", () => {
   });
 
   it("an RTL paragraph's float is read on its PHYSICAL side by the next LTR paragraph", () => {
-    // (The image leads its paragraph: an inline-block ending an RTL line trips a
-    // separate bidi bug, ticketed.)
     const attrs = [{ dir: "rtl" }, undefined];
     const l = layoutParas([[wrapped("left"), text("ab")], [text(WORDS)]], { attrs });
     const lp0 = para(l, 0);

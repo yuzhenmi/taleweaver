@@ -2045,7 +2045,7 @@ describe("IFC — RTL bidi reordering", () => {
 describe("deriveLineSourceRangeU16 (P4-C.1 T3: line's half-open U16 source span)", () => {
   // Build a minimal wrap-unit-shaped object: the helper reads only
   // tokens[].absoluteSourceBase and tokens[].text (the LineRangeUnit shape).
-  function unit(...tokens: { absoluteSourceBase: number; text: string }[]): LineRangeUnit {
+  function unit(...tokens: LineRangeUnit["tokens"][number][]): LineRangeUnit {
     return { tokens };
   }
 
@@ -2077,6 +2077,11 @@ describe("deriveLineSourceRangeU16 (P4-C.1 T3: line's half-open U16 source span)
     // single-line paragraph this equals source.length ("ab cd ".length === 6).
     expect(range?.endU16).toBe(6);
     expect("ab cd ".length).toBe(6);
+  });
+
+  it("an inline-block atom (text \"\") ending the line spans its one OBJECT REPLACEMENT char", () => {
+    const ib = { absoluteSourceBase: 2, text: "", inlineBlock: {} };
+    expect(deriveLineSourceRangeU16([unit({ absoluteSourceBase: 0, text: "ab" }), unit(ib)])?.endU16).toBe(3);
   });
 
   it("empty / strut-only line (no units, or empty-tokens unit) → null", () => {
@@ -3623,6 +3628,66 @@ describe("IFC — overflow-wrap: break-word (OW.S2)", () => {
     expect(nth(lines, 0, "line").width).toBeLessThanOrEqual(80); // broken, not force-placed past the column
     // Sanity: under `normal` the glued word force-places on ONE overflowing line.
     expect(linesOf("word longword", 80, "normal").length).toBe(1);
+  });
+
+  it("a word made of two runs (no break between them) moves whole to the next line; only a word wider than the line emergency-splits", () => {
+    const linesOfRuns = (runs: readonly string[], width: number, overflowWrap: ComputedStyle["overflowWrap"] = "break-word", autoHyphens = false) => {
+      const tree = cascadePass(createElementBox("p", { display: "block", overflowWrap, ...(autoHyphens ? { hyphens: "auto" as const, language: "en" } : {}) },
+        runs.map((t, k) => createTextBox(`t${k}`, k % 2 === 1 ? { fontWeight: 700 } : {}, t))));
+      if (tree.type !== "element") throw new Error("?");
+      const hyphenator = autoHyphens ? createMockHyphenator({ every: 3 }) : undefined;
+      const result = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, hyphenator, 0);
+      if (result.box === null) throw new Error("null box");
+      return result.box.children.filter((c): c is LineBox => c.type === "line");
+    };
+    const spans = (runs: readonly string[], width: number, overflowWrap: ComputedStyle["overflowWrap"] = "break-word") =>
+      linesOfRuns(runs, width, overflowWrap).map((l) => [l.inlineOffsetStart, l.inlineOffsetEnd]);
+    // An opportunity INSIDE an earlier run of the glued chain wins over the
+    // chain head: CJK "中文中文" + "。" (CL, glued) moves only "文。" down.
+    expect(spans(["一二三四五六", "中文中文", "。"], 80)).toEqual([[0, 9], [9, 11]]);
+    // hyphens:auto — "documentation" + "." hyphenates at its last fitting point
+    // (mock every 3, limits keep {3,6,9}: "documenta-" fits 13px of room).
+    const hy = linesOfRuns(["x ", "documentation", "."], 120, "break-word", true);
+    expect(hy.map((l) => [l.inlineOffsetStart, l.inlineOffsetEnd])).toEqual([[0, 11], [11, 16]]);
+    expect(hy[0]?.endsWithHyphenContinuation).toBe(true);
+    // 80px = 10 chars: "yyyyzzzz" (8) does not fit after "xxxx " (5) but fits a line.
+    expect(spans(["xxxx yyyy", "zzzz"], 80)).toEqual([[0, 5], [5, 13]]);
+    // Three runs, the break opportunity two runs back.
+    expect(spans(["xxxx yy", "yy", "zzzz"], 80)).toEqual([[0, 5], [5, 13]]);
+    // Under `normal` the same: the word moves; nothing overflows.
+    expect(spans(["xxxx yyyy", "zzzz"], 80, "normal")).toEqual([[0, 5], [5, 13]]);
+    // "yyyyzzzzzzzz" (12) is wider than any line: it still moves off the shared
+    // line first, then emergency-splits on its own line.
+    expect(spans(["xxxx yyyy", "zzzzzzzz"], 80)).toEqual([[0, 5], [5, 15], [15, 17]]);
+    // At the line start there is nowhere to break back to: split in place.
+    expect(spans(["yyyyyy", "zzzzzz"], 80)).toEqual([[0, 10], [10, 12]]);
+  });
+
+  it("a long glued chain on an overflowing line is searched once per unit (linear, not quadratic)", () => {
+    // 2,000 alternating-style runs form ONE word under overflow-wrap: normal in a
+    // 24px column, so every run overflows a line that never breaks. Each run has
+    // hyphenation points that never fit (the shortest prefix + "-" is 32px), and
+    // every hyphenation attempt shapes the "-" once: counting those shapes counts
+    // the interior-break searches. Each unit is tried as the overflowing unit and
+    // once more inside the chain → ~2 per run; a re-walk of the chain per run
+    // would be ~N²/2.
+    let hyphenShapes = 0;
+    const counting: TextShaper = {
+      ...shaper,
+      shape: (text, style, dir) => {
+        if (text === "-") hyphenShapes++;
+        return shaper.shape(text, style, dir);
+      },
+    };
+    const N = 2000;
+    const runs = ["x", ...Array.from({ length: N }, () => "abcdefgh")];
+    const tree = cascadePass(createElementBox("p", { display: "block", hyphens: "auto", language: "en" },
+      runs.map((t, k) => createTextBox(`t${k}`, k % 2 === 1 ? { fontWeight: 700 } : {}, t))));
+    if (tree.type !== "element") throw new Error("?");
+    const result = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 24), counting, createMockHyphenator({ every: 3 }), 0);
+    expect(result.box?.children.filter((c) => c.type === "line")).toHaveLength(1);
+    expect(hyphenShapes).toBeGreaterThan(0);
+    expect(hyphenShapes).toBeLessThanOrEqual(3 * N);
   });
 
   it("break-word prefix/suffix re-sum to the original word (no dropped chars / NaN)", () => {

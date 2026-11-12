@@ -205,7 +205,7 @@ function sourceStartOf(leaf: LineLeaf): number {
  *     even-level → `base + w`, odd-level → `base + size − w`, where `base`/`size`
  *     are the leaf's coord/extent along the INLINE physical axis (`am.inline`).
  *   - inline-block: the atomic box owns one state unit; the coord is the leading
- *     edge at `logStart` else the trailing edge.
+ *     edge at `logStart` else the trailing edge (level parity picks the side).
  *
  * The base coord + extent are projected onto the inline axis via `am`
  * (`coordOf`/`sizeAlong`), so for h-tb (`am.inline === "x"`) this returns the
@@ -231,8 +231,11 @@ export function caretInlineCoordInLeaf(
   const size = sizeAlong(leaf, am.inline);
 
   if (leaf.kind === "inline-block") {
-    // Atomic embed: leading edge at logStart, trailing edge past it.
-    return localState === 0 ? base : base + size;
+    // Atomic embed: leading edge at logStart, trailing edge past it. The
+    // leading edge is the inline-start side for an even (LTR) level, the
+    // inline-end side for an odd (RTL) one.
+    const atLeading = localState === 0;
+    return atLeading === (v.level % 2 === 0) ? base : base + size;
   }
 
   // text-run. STATE → DISPLAY index via sourceDisplayLengths (mirrors
@@ -268,7 +271,8 @@ export function caretInlineCoordInLeaf(
  *   - text-run: even-level → `findCharOffset(text, localInline)`; odd-level →
  *     measured from `size − localInline`. The display offset is reverse-mapped to
  *     STATE via `sourceDisplayLengths`, then added to `logStart`.
- *   - inline-block: `localInline < size/2` → `logStart`, else `logEnd`.
+ *   - inline-block: the leading half → `logStart`, else `logEnd` (level parity
+ *     picks the side).
  *
  * The extent (`size`) is the leaf's INLINE-axis extent (`sizeAlong(leaf,
  * am.inline)`). For h-tb this is `leaf.width` (unchanged); for vertical it is
@@ -294,10 +298,10 @@ export function offsetInLeaf(
   const size = sizeAlong(leaf, am.inline);
 
   if (leaf.kind === "inline-block") {
-    // Midpoint split: first half → before the embed (logStart), second half →
-    // after it (logEnd).
-    const midpoint = size / 2;
-    return localInline >= midpoint ? v.logEnd : v.logStart;
+    // Midpoint split: the leading half → before the embed (logStart), the
+    // trailing half → after it (logEnd); an odd (RTL) level leads at inline-end.
+    const inStartHalf = localInline < size / 2;
+    return inStartHalf === (v.level % 2 === 0) ? v.logStart : v.logEnd;
   }
 
   const sdl = leaf.box.sourceDisplayLengths;
