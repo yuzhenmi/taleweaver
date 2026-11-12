@@ -317,7 +317,7 @@ describe("an unclosed table (concurrency only)", () => {
 });
 
 describe("container-scoped ranges and select-all", () => {
-  it("a range from the body into a cell, or across two cells, is refused; one across a whole table deletes it (C9)", () => {
+  it("a range from the body into a cell is refused (across two cells: a cell selection, N7); one across a whole table deletes it (C9)", () => {
     const h = raw("p¶ ⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟧ q¶");
     const t = tableOf(h);
     const before = h.read();
@@ -325,7 +325,6 @@ describe("container-scoped ranges and select-all", () => {
     const b = cellPara(h, t, 0, 1);
     const ranges: [ModelPosition, ModelPosition][] = [
       [h.at(0, 1), { blockId: a.id, offset: 1 }],
-      [{ blockId: a.id, offset: 0 }, { blockId: b.id, offset: 1 }],
       [{ blockId: b.id, offset: 1 }, h.at(2, 0)],
     ];
     for (const [x, y] of ranges) {

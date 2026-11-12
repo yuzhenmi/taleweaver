@@ -7,6 +7,8 @@ import { roleOf } from "../scan/tokens";
 import { edgeParagraphOf } from "../position/block-object";
 import { isObjectEnd } from "../position/table-extent";
 import type { CommandContext } from "./command-context";
+import { clearCells } from "./table/clear-cells";
+import { cellsRect } from "./table/cell-rect";
 import { deleteBlockObject } from "./delete-block-object";
 import { containerKey, rangeOf } from "./helpers/at";
 import { plan } from "./helpers/build-plan";
@@ -23,6 +25,8 @@ import { keepParagraph } from "./helpers/writes";
  * nothing. At a cell's end (`⟨c⟩` / `⟨r⟩` / `⟧` from inside) nothing, as at the flow's end; a mark is never deleted.
  */
 export function deleteForward(ctx: CommandContext): Plan | null {
+  const cells = cellsRect(ctx);
+  if (cells !== null) return clearCells(ctx, cells); // N7: every cell cleared, the selection stays
   if (isObjectSelection(ctx.selection)) return deleteBlockObject(ctx, ctx.selection.object); // C10
   const r = rangeOf(ctx);
   if (r === null) return null;

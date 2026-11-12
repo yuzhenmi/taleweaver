@@ -76,7 +76,7 @@ export function realizeVirtual(rect: CellRect, i: number, keys: LeadKeys): Write
 }
 
 /** A virtual cell `id` holding stored paragraphs (a row's lead): a text range over them; null for an empty one. */
-function leadRange(d: Document, id: BlockId): TextSelection | null {
+export function leadRange(d: Document, id: BlockId): TextSelection | null {
   if (paragraphLayout(d, emptyCellParagraphId(id)) !== null) return null;
   const first = edgeParagraphOf(d, id, 1);
   const last = edgeParagraphOf(d, id, -1);

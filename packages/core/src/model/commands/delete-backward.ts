@@ -9,6 +9,8 @@ import { isObjectEnd } from "../position/table-extent";
 import { followingOf, paragraphBefore } from "../position/terminator-neighbours";
 import { holdsFlows, isAtomicBlockObject, isParagraphBreak, isRemovedByJoin } from "../scan/kinds";
 import type { CommandContext } from "./command-context";
+import { clearCells } from "./table/clear-cells";
+import { cellsRect } from "./table/cell-rect";
 import { deleteBlockObject } from "./delete-block-object";
 import { containerKey, rangeOf } from "./helpers/at";
 import { plan } from "./helpers/build-plan";
@@ -26,6 +28,8 @@ import { keepParagraph } from "./helpers/writes";
  * after a rule paragraph C4r; after `[S]` C7; else the C3 join.
  */
 export function deleteBackward(ctx: CommandContext): Plan | null {
+  const cells = cellsRect(ctx);
+  if (cells !== null) return clearCells(ctx, cells); // N7: every cell cleared, the selection stays
   if (isObjectSelection(ctx.selection)) return deleteBlockObject(ctx, ctx.selection.object); // C10
   const r = rangeOf(ctx);
   if (r === null) return null;

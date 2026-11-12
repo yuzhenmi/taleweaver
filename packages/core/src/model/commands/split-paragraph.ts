@@ -6,6 +6,8 @@ import { isParagraphBreak } from "../scan/kinds";
 import { newParagraphMark } from "../storage/new-items";
 import { caretAt } from "../position/model-position";
 import type { CommandContext } from "./command-context";
+import { clearCells } from "./table/clear-cells";
+import { cellsRect } from "./table/cell-rect";
 import { type Range, rangeOf } from "./helpers/at";
 import { plan } from "./helpers/build-plan";
 import { isListItem, listExit } from "./helpers/list-exit";
@@ -19,6 +21,8 @@ import { insertAt } from "./helpers/writes";
  * E2: at the very start of a table's first cell, no ¶ before the table, a default ¶ goes before the table; the caret stays.
  */
 export function splitParagraph(ctx: CommandContext): Plan | null {
+  const cells = cellsRect(ctx);
+  if (cells !== null) return clearCells(ctx, cells, splitParagraph); // N7 (GDocs): clear, split in the first
   return overSelection(ctx, split);
 }
 

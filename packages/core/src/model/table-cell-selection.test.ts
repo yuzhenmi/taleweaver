@@ -3,6 +3,11 @@ import { describe, expect, it } from "vitest";
 import { BLOCK_TYPES, type Block } from "./block";
 import { selectedRect } from "./commands/table/cell-rect";
 import { insertText } from "./commands/insert-text";
+import { deleteBackward } from "./commands/delete-backward";
+import { deleteForward } from "./commands/delete-forward";
+import { deleteSelection } from "./commands/delete-selection";
+import { paste } from "./commands/paste";
+import { splitParagraph } from "./commands/split-paragraph";
 import { setMarks } from "./commands/set-marks";
 import { setParagraphAttrs } from "./commands/set-paragraph-attrs";
 import { setTableAttrs } from "./commands/table/set-table-attrs";
@@ -13,7 +18,7 @@ import { mapSelection } from "./mapping/map-position";
 import { type CellSelection, type ModelSelection, caretAt, isCellSelection } from "./position/model-position";
 import { childrenOf } from "./test-helpers/fixture";
 import type { Harness } from "./test-helpers/harness";
-import { raw, selectCells } from "./test-helpers/table";
+import { raw, selectCells, shape } from "./test-helpers/table";
 
 const tableIn = (h: Harness, parent?: string): Block => {
   const t = (parent === undefined ? h.paragraphs() : childrenOf(h.version, "block", parent)).find((b) => b.type === BLOCK_TYPES.table);
@@ -197,5 +202,72 @@ describe("formatting across cells (N7 step 3)", () => {
     const rows = childrenOf(d, "block", tableIn(h).id).map((r) => childrenOf(d, "block", r.id).map((c) => [c.attrs["background"] ?? null, c.id.includes("/fill")]));
     expect(rows).toEqual([[["red", false], [null, false]], [["red", false], [null, true]]]);
     expect(formatted(h).map((c) => c[0])).toEqual(["a:paragraph", "b:paragraph", "t:paragraph", ":paragraph"]);
+  });
+});
+
+describe("delete / type over cells (N7 step 4)", () => {
+  const grid = (h: Harness): string[][] => shape(h.version, tableIn(h).id);
+  // Cell (0,2) holds a nested table: cleared with its content.
+  const text = "⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ b2¶ ⟨c⟩ ⟦@1 ⟨r⟩@1 ⟨c⟩@1 n¶ ⟧@1 c¶ ⟨r⟩ ⟨c⟩ d¶ ⟨c⟩ e¶ ⟨c⟩ f¶ ⟧ q¶";
+  const deletes = [
+    ["deleteSelection", deleteSelection],
+    ["deleteBackward", deleteBackward],
+    ["deleteForward", deleteForward],
+  ] as const;
+
+  it.each(deletes)("%s clears every cell of the rectangle to one empty paragraph; the selection stays; undo / redo exact", (_, del) => {
+    const h = raw(text);
+    const before = h.read();
+    selectCells(h, [0, 1], [1, 2]);
+    const sel = h.selection;
+    expect(h.run(del)).toBe(true);
+    expect(grid(h)).toEqual([["a", "", ""], ["d", "", ""]]);
+    expect(h.selection).toEqual(sel);
+    const after = h.read();
+    expect(h.undo()).toBe(true);
+    expect(h.read()).toEqual(before);
+    expect(h.redo()).toBe(true);
+    expect(h.read()).toEqual(after);
+    // A text range across cells reads the same.
+    const g = raw(text);
+    const t = tableIn(g);
+    g.selection = { anchor: { blockId: firstParagraph(g, cell(g, t, 1, 2)), offset: 1 }, focus: { blockId: firstParagraph(g, cell(g, t, 0, 1)), offset: 0 } };
+    expect(g.run(del)).toBe(true);
+    expect(grid(g)).toEqual([["a", "", ""], ["d", "", ""]]);
+  });
+
+  it("typing, Enter and a non-table paste clear every cell, then act at the start of the top-left cell; the caret ends there; undo / redo exact", () => {
+    const cases: [string, (h: Harness) => boolean, string[][]][] = [
+      ["insertText", (h) => h.run(insertText, "X"), [["a", "X", ""], ["d", "", ""]]],
+      ["splitParagraph", (h) => h.run(splitParagraph), [["a", "|", ""], ["d", "", ""]]],
+      ["paste", (h) => h.run(paste, [{ k: "text", text: "P" }, { k: "para" }, { k: "text", text: "Q" }]), [["a", "P|Q", ""], ["d", "", ""]]],
+    ];
+    const carets: Record<string, [number, number]> = { insertText: [0, 1], splitParagraph: [1, 0], paste: [1, 1] };
+    for (const [name, run, expected] of cases) {
+      const h = raw(text);
+      const before = h.read();
+      selectCells(h, [0, 1], [1, 2]);
+      expect(run(h), name).toBe(true);
+      expect(grid(h), name).toEqual(expected);
+      const top = childrenOf(h.version, "block", cell(h, tableIn(h), 0, 1));
+      const [i, offset] = carets[name] ?? [0, 0];
+      expect(h.selection, name).toEqual(caretAt(top[i]?.id ?? "", offset));
+      const after = h.read();
+      expect(h.undo(), name).toBe(true);
+      expect(h.read(), name).toEqual(before);
+      expect(h.redo(), name).toBe(true);
+      expect(h.read(), name).toEqual(after);
+    }
+  });
+
+  it("a virtual top-left cell: the others clear, the text goes in it (made real)", () => {
+    const h = raw("⟦ ⟨r⟩ ⟨c⟩ a¶ ⟨c⟩ b¶ ⟨c⟩ c¶ ⟨r⟩ ⟨c⟩ d¶ ⟨r⟩ ⟨c⟩ g¶ ⟨c⟩ h¶ ⟨c⟩ i¶ ⟧ q¶");
+    const before = h.read();
+    selectCells(h, [1, 1], [2, 2]);
+    expect(h.run(insertText, "X")).toBe(true);
+    // Made real as typing at a caret there does (the row's virtual cells after it too).
+    expect(grid(h)).toEqual([["a", "b", "c"], ["d", "X", ""], ["g", "", ""]]);
+    expect(h.undo()).toBe(true);
+    expect(h.read()).toEqual(before);
   });
 });

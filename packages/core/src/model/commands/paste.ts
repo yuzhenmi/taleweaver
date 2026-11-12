@@ -10,6 +10,8 @@ import { holdsFlows, isParagraphBreak, isSectionBreak, isStructural } from "../s
 import { typeId } from "../storage/item-id";
 import { newParagraphMark } from "../storage/new-items";
 import type { CommandContext } from "./command-context";
+import { clearCells } from "./table/clear-cells";
+import { cellsRect } from "./table/cell-rect";
 import { rangeOf } from "./helpers/at";
 import { plan } from "./helpers/build-plan";
 import { deleteRange } from "./helpers/delete-range";
@@ -32,6 +34,9 @@ import { idAfter, insertAt, materialize } from "./helpers/writes";
  */
 export function paste(ctx: CommandContext, fragment: readonly FragmentItem[]): Plan | null {
   if (fragment.length === 0) return null;
+  const cells = cellsRect(ctx);
+  // N7 (GDocs): non-table content clears the cells, then goes into the first; table cells over cells are step 5.
+  if (cells !== null) return fragment.some((i) => holdsFlows(i.k)) ? null : clearCells(ctx, cells, (c) => paste(c, fragment));
   if (!isObjectSelection(ctx.selection)) return pasteAt(ctx, fragment, null);
   const o = overObject(ctx);
   return o === null ? null : withWrites(o.writes, pasteAt(o.ctx, fragment, o.object));
