@@ -21,6 +21,7 @@ import { createMockShaper } from "@taleweaver/core";
 import { makeRootContext } from "../layout/layout-context";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-box";
+import { rootFrame } from "../layout/parent-frame";
 
 const shaper = createMockShaper(10, 16);
 
@@ -66,7 +67,7 @@ describe("Real CSS 9.5 floats — end-to-end", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       200,
     );
-    const outResult1 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const outResult1 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (outResult1.box === null) throw new Error("layoutBlock returned null box");
     const out = outResult1.box;
     const f2Box = findBoxByKey(out, "f2");
@@ -91,7 +92,7 @@ describe("Real CSS 9.5 floats — end-to-end", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       200,
     );
-    const outResult2 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const outResult2 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (outResult2.box === null) throw new Error("layoutBlock returned null box");
     const out = outResult2.box;
     const fsBox = findBoxByKey(out, "fs");
@@ -116,7 +117,7 @@ describe("Real CSS 9.5 floats — end-to-end", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       200,
     );
-    const outResult3 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const outResult3 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (outResult3.box === null) throw new Error("layoutBlock returned null box");
     if (outResult3.box.type !== "block") throw new Error("layoutBlock returned non-block box");
     const out = outResult3.box;
@@ -142,7 +143,7 @@ describe("Real CSS 9.5 floats — end-to-end", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       300,
     );
-    const outResult4 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const outResult4 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (outResult4.box === null) throw new Error("layoutBlock returned null box");
     const out = outResult4.box;
     const clrBox = findBoxByKey(out, "clr");
@@ -163,7 +164,7 @@ describe("Real CSS 9.5 floats — end-to-end", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       500,
     );
-    const outResult5 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const outResult5 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (outResult5.box === null) throw new Error("layoutBlock returned null box");
     if (outResult5.box.type !== "block") throw new Error("layoutBlock returned non-block box");
     const out = outResult5.box;
@@ -198,7 +199,7 @@ describe("Real CSS 9.5 floats — edge cases (Plan 3.J Task 3)", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       500,
     );
-    const outResult6 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const outResult6 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (outResult6.box === null) throw new Error("layoutBlock returned null box");
     const out = outResult6.box;
     const fRightBox = findBoxByKey(out, "ec-f-right");
@@ -236,7 +237,7 @@ describe("Real CSS 9.5 floats — edge cases (Plan 3.J Task 3)", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       500,
     );
-    const outResult7 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const outResult7 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (outResult7.box === null) throw new Error("layoutBlock returned null box");
     const out = outResult7.box;
     const clearedBox = findBoxByKey(out, "clr-block");
@@ -270,7 +271,7 @@ describe("Real CSS 9.5 floats — edge cases (Plan 3.J Task 3)", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       300,
     );
-    const outResult8 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const outResult8 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (outResult8.box === null) throw new Error("layoutBlock returned null box");
     const out = outResult8.box;
     const line = findFirstLine(out);
@@ -298,7 +299,7 @@ describe("Float box honors explicit block-size (paint/hit-test geometry)", () =>
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       500,
     );
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined).box;
+    const out = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined).box;
     if (out === null) throw new Error("layoutBlock returned null box");
     const fBox = findBoxByKey(out, "atomic-float");
     expect(fBox).not.toBeNull();
@@ -325,7 +326,7 @@ describe("Float box honors explicit block-size (paint/hit-test geometry)", () =>
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       500,
     );
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined).box;
+    const out = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined).box;
     if (out === null) throw new Error("layoutBlock returned null box");
     const fBox = findBoxByKey(out, "tall-float");
     expect(fBox).not.toBeNull();
@@ -365,7 +366,7 @@ describe("In-flow block honors explicit block-size (paint/hit-test geometry)", (
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       500,
     );
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined).box;
+    const out = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined).box;
     if (out === null) throw new Error("layoutBlock returned null box");
     const cBox = findBoxByKey(out, "tall-block");
     expect(cBox).not.toBeNull();
@@ -414,7 +415,7 @@ describe("In-flow display:table with explicit block-size preserves its rows", ()
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       500,
     );
-    const out = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined).box;
+    const out = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined).box;
     if (out === null) throw new Error("layoutBlock returned null box");
     const tBox = findBoxByKey(out, "tall-table");
     expect(tBox).not.toBeNull();

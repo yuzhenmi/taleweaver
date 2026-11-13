@@ -84,6 +84,7 @@ export { layoutTree } from "./layout/dispatch";
 export { layoutTreeIncremental } from "./layout/layout-incremental";
 export { establishesNewBFC } from "./layout/bfc-establishment";
 export { sourceBlockIdOf, markerOwnerKey, collectTokens } from "./layout/ifc";
+export { isFloatBox } from "./layout/is-float-box";
 export { collectPageFields } from "./layout/collect-page-fields";
 export type { IFCState, IFCStateCache } from "./layout/ifc-state";
 export { createIFCStateCache } from "./layout/ifc-state";
@@ -133,7 +134,7 @@ export { getAtomicBoxIndex } from "./cursor/atomic-box-index";
 export { getBoundaryMarkIndex, boundaryMarkRectOf } from "./cursor/boundary-mark-index";
 export type { BoundaryMarkRect } from "./cursor/boundary-mark-index";
 export type { MarkerBox, BoundaryMarkBox, BoundaryMarkPlacement } from "./layout/layout-box";
-export type { AtomicBoxIndex, AbsoluteRect } from "./cursor/atomic-box-index";
+export type { AtomicBoxIndex, AtomicRect, AbsoluteRect } from "./cursor/atomic-box-index";
 export type { AbsoluteLineBox, LineLeaf, LineIndex } from "./cursor/line-flatten";
 export {
   collectLineBoxes,

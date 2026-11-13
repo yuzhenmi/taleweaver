@@ -9,6 +9,7 @@ import { createBlockBox } from "./layout-box";
 import { physicalizeVertical } from "./physicalize-vertical";
 import type { PageBox } from "./page-box";
 import { createPageBox } from "./page-box";
+import { pageFrame } from "./parent-frame";
 import { layoutBlock } from "./bfc";
 import { flattenContents } from "./group-children";
 import { computeUsedStyle } from "./used-style";
@@ -218,11 +219,13 @@ export function paginateRoot(
       availableBlockSize: pageContentBlockSize,
       pageIndex,
       resumeFrom,
+      flowRoot: true,
     };
     const result = layoutBlock(
       root,
       margins.inlineStart,
       margins.blockStart,
+      pageFrame(ctx.direction, pageConfig.pageInlineSize),
       contentCtx,
       shaper,
       hyphenator,

@@ -545,24 +545,22 @@ describe("fitOnePage (fit-core, block packing)", () => {
     //   para0 (32) fits 0..32; para1: remaining 60−32=28 ⇒ 1 line fits but widows
     //   (2) force pushing the whole paragraph ⇒ break at child idx 1, the inner
     //   flow consumed 32.
-    // Reconstructed partial container height = paddingStart 10 + consumed 32 +
-    //   trailingMargin 0 (paddingBlockEnd 10 ⇒ noBottomBoundary false, but the
-    //   last placed child is an anon-free paragraph leaf carrying no margin) +
-    //   paddingEnd 10 = 52, which fits in remaining 70 ⇒ container is last on the
-    //   page. The OUTER flow's consumedBlockSize = 30 (spacer) + 52 = 82 — the
-    //   container's own block padding (20) is folded in, NOT dropped. This pins
+    // Reconstructed partial container height = paddingStart 10 + consumed 32 =
+    //   42 (a non-final fragment slices its end padding and truncates the trailing
+    //   margin: box-decoration-break: slice), which fits in remaining 70 ⇒
+    //   container is last on the page. The OUTER flow's consumedBlockSize = 30
+    //   (spacer) + 42 = 72 — the container's start padding is folded in. This pins
     //   `FitPageResult.consumedBlockSize` for a padded fragmenting container by
     //   value (the field a grandparent reads to reconstruct ITS partial height).
     const spacer = blockMeta(30);
     const padded = blockMeta(10 + 64 + 10, {
       children: [ifcMeta(2, 16), ifcMeta(2, 16)],
-      paddingBlockStart: 10,
-      paddingBlockEnd: 10,
-      noBottomBoundary: false,
+      blockStartDecoration: 10,
+      blockEndDecoration: 10,
     });
     const result = fitOnePage([spacer, padded], 0, null, 100, 0);
     expect(result.childrenCount).toBe(1); // only the spacer is a whole block
-    expect(result.consumedBlockSize).toBe(82);
+    expect(result.consumedBlockSize).toBe(72);
     expect(result.trailingMarginBlockEnd).toBe(0);
     // Container threads its nested paragraph resume token (last block on page).
     expect(result.resumeOut).toEqual({

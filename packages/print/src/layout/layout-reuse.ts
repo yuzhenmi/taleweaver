@@ -1,8 +1,9 @@
 import type { LayoutBox } from "./layout-box";
 import type { RenderNode } from "@taleweaver/core";
 import type { ComputedStyle } from "@taleweaver/core";
-import { computedStylesEqual } from "@taleweaver/core";
+import { computedStylesEqual, usedStylesEqual } from "@taleweaver/core";
 import { flattenContents } from "./group-children";
+import { computeUsedStyle } from "./used-style";
 
 /** Entry stored per render-node key in the cache. */
 export interface LayoutBoxCacheEntry {
@@ -22,13 +23,18 @@ export interface LayoutBoxCacheEntry {
    * it ON THE BOX (`BlockBox.inFlowConsumed`) at its full / partial-fragment
    * return sites, so the cache reads it back EXACTLY. For a box enclosing a
    * float TALLER than its in-flow content, `box.blockSize`
-   * (`Math.max(inFlow, lowestFloatBlockEdge + paddingBlockEnd)`) over-states the
+   * (`Math.max(inFlow, lowestFloatBlockEdge + blockEndDecoration)`) over-states the
    * in-flow value; the on-box `inFlowConsumed` does not. A BlockBox that never
    * enclosed a float carries no on-box scalar (it equals `blockSize` by
    * construction), and any non-BlockBox box (line/table inner) has no float
    * either — both fall back to `box.blockSize`.
    */
   readonly inFlowConsumed: number;
+  /**
+   * Whether bfc laid the box at a fragmentainer start (read back from the
+   * box's `atFragmentainerStart` stamp): reusable only where that holds again.
+   */
+  readonly atFragmentainerStart?: boolean;
 }
 
 /**
@@ -125,7 +131,8 @@ export function buildLayoutBoxCacheFromTree(
       box.type === "block" && box.inFlowConsumed !== undefined
         ? box.inFlowConsumed
         : box.blockSize;
-    cache.set(box.key, { box, renderNode: rn, inFlowConsumed });
+    const atFragmentainerStart = box.type === "block" && box.atFragmentainerStart === true;
+    cache.set(box.key, { box, renderNode: rn, inFlowConsumed, atFragmentainerStart });
     if (!("children" in box) || rn.type !== "element") return;
     // Index by the FLATTENED render-node children: `box.children` come from
     // `groupChildren`/`layoutBlock`, which flatten `display: contents` elements,
@@ -194,6 +201,7 @@ export interface ReuseInputs {
   readonly computedStyle: ComputedStyle;
   readonly availableInlineSize: number;
   readonly writingMode: ComputedStyle["writingMode"];
+  /** The box's own direction (its content's). */
   readonly direction: ComputedStyle["direction"];
   /**
    * Float environment dirty-block-offset: if any float was placed at-or-above
@@ -202,6 +210,12 @@ export interface ReuseInputs {
    * float environment, or environments are identical).
    */
   readonly floatEnvDirtyBlockOffset: number;
+  /**
+   * The containing block's inline size when the box's own size was resolved by
+   * its caller (`availableInlineSize` is then that size): the box's percent
+   * used style resolves against it, so the cached used style must match whole.
+   */
+  readonly percentBasis?: number;
 }
 
 /**
@@ -232,10 +246,15 @@ export function isLayoutBoxReusable(
   if (prev.inlineSize !== inputs.availableInlineSize) {
     return false;
   }
+  if (inputs.percentBasis !== undefined &&
+    !usedStylesEqual(prev.usedStyle, computeUsedStyle(inputs.computedStyle, inputs.percentBasis, "indefinite"))) {
+    return false;
+  }
 
-  // Writing-mode + direction.
+  // Writing-mode + the box's OWN direction (`prev.direction` is its containing
+  // block's — the frame — which the caller compares separately to reposition).
   if (prev.writingMode !== inputs.writingMode) return false;
-  if (prev.direction !== inputs.direction) return false;
+  if (prev.computedStyle.direction !== inputs.direction) return false;
 
   // Float-env: if the dirty block-offset is at or above this box's block-end,
   // a float change may have pushed content in this box and we must re-layout.

@@ -1,5 +1,5 @@
 import type { PageBox, LayoutBox } from "@taleweaver/print";
-import { sourceBlockIdOf, markerOwnerKey, boundaryMarkRectOf, createMarkerBox } from "@taleweaver/print";
+import { sourceBlockIdOf, markerOwnerKey, boundaryMarkRectOf, createMarkerBox, isFloatBox } from "@taleweaver/print";
 import type { BoundaryMarkPlacement } from "@taleweaver/print";
 import { physicalBorderSides, isOpenableLinkUrl } from "@taleweaver/core";
 import { ContentStreamBuilder } from "./content-stream";
@@ -85,6 +85,20 @@ type TextLeafBox = Extract<LayoutBox, { type: "text-run" | "marker" }>;
  * glyphs. Running background-first guarantees future graphics sit beneath text.
  */
 type EmitPhase = "background" | "foreground";
+
+/** A float lifted out of the tree walk into its layer's float slot, with its walk context. */
+interface DeferredFloat {
+  readonly box: LayoutBox;
+  readonly parentAbsX: number;
+  readonly parentAbsY: number;
+  readonly insideTocEntry: boolean;
+  readonly ownerBlockId: string | null;
+}
+
+/** A deferred float with the floats of its own subtree. */
+interface LayerFloat extends DeferredFloat {
+  readonly nested: readonly LayerFloat[];
+}
 
 function isTextLeaf(box: LayoutBox): box is TextLeafBox {
   return box.type === "text-run" || box.type === "marker";
@@ -320,7 +334,7 @@ function emitBoxBorders(
   pageHeightPx: number,
   builder: ContentStreamBuilder,
 ): void {
-  const sides = physicalBorderSides(box.usedStyle);
+  const sides = physicalBorderSides(box.usedStyle, box.sidesToInclude);
   const W = box.width;
   const H = box.height;
 
@@ -589,6 +603,9 @@ function walk(
   mcidCounter: McidCounter,
   structRefs: StructRef[],
   page: PageBox,
+  // The current layer's float slot: float children are deferred here (with the
+  // context they would have been walked in) instead of walked in tree order.
+  floats: DeferredFloat[],
 ): void {
   // Accumulate the box's absolute origin: parent-relative physical (x, y) plus
   // the optional `position: relative` paint-time delta — mirroring the canvas
@@ -618,12 +635,13 @@ function walk(
   // sources: a TOC entry container (`metadata.navTarget`, whole-line click) and a
   // cross-ref atom (`InlineBlockBox.targetId`). A cross-ref atom INSIDE a TOC
   // entry is redundant with the container's whole-line link → suppressed.
-  let childInsideTocEntry = insideTocEntry;
+  // The TOC context is tracked in both phases: the background walk defers floats
+  // with it.
+  const childInsideTocEntry = insideTocEntry || (box.type === "block" && box.metadata?.navTarget !== undefined);
   if (phase === "foreground") {
     if (box.type === "block" && box.metadata?.navTarget !== undefined) {
       const [lx, ly, lw, lh] = rectYUp(absX, absY, box.width, box.height, pageHeightPx);
       internalLinkRects.push({ targetId: box.metadata.navTarget, rect: [lx, ly, lx + lw, ly + lh] });
-      childInsideTocEntry = true;
     } else if (box.type === "inline-block" && box.targetId !== undefined && !insideTocEntry) {
       const [lx, ly, lw, lh] = rectYUp(absX, absY, box.width, box.height, pageHeightPx);
       internalLinkRects.push({ targetId: box.targetId, rect: [lx, ly, lx + lw, ly + lh] });
@@ -668,9 +686,15 @@ function walk(
     emitTabLeader(box, absX, absY, pageHeightPx, builder);
   }
   if (box.type === "multicolumn") {
-    for (const col of box.columns) walk(col, absX, absY, pageHeightPx, phase, builder, deps, usedHandleByKey, usedImageByKey, linkRects, internalLinkRects, childInsideTocEntry, region, childOwnerBlockId, mcidCounter, structRefs, page);
+    for (const col of box.columns) walk(col, absX, absY, pageHeightPx, phase, builder, deps, usedHandleByKey, usedImageByKey, linkRects, internalLinkRects, childInsideTocEntry, region, childOwnerBlockId, mcidCounter, structRefs, page, floats);
   } else if (hasChildren(box)) {
-    for (const child of box.children) walk(child, absX, absY, pageHeightPx, phase, builder, deps, usedHandleByKey, usedImageByKey, linkRects, internalLinkRects, childInsideTocEntry, region, childOwnerBlockId, mcidCounter, structRefs, page);
+    for (const child of box.children) {
+      if (isFloatBox(child)) {
+        floats.push({ box: child, parentAbsX: absX, parentAbsY: absY, insideTocEntry: childInsideTocEntry, ownerBlockId: childOwnerBlockId });
+        continue;
+      }
+      walk(child, absX, absY, pageHeightPx, phase, builder, deps, usedHandleByKey, usedImageByKey, linkRects, internalLinkRects, childInsideTocEntry, region, childOwnerBlockId, mcidCounter, structRefs, page, floats);
+    }
   }
   // `position: absolute` descendants are OUT of `children`; they live in
   // `absoluteChildren` and are positioned in THIS box's coordinate frame, so
@@ -678,7 +702,7 @@ function walk(
   // as the painter does. Document order: children/columns first, then abs.
   const absChildren = box.absoluteChildren;
   if (absChildren !== undefined) {
-    for (const ac of absChildren) walk(ac, absX, absY, pageHeightPx, phase, builder, deps, usedHandleByKey, usedImageByKey, linkRects, internalLinkRects, childInsideTocEntry, region, childOwnerBlockId, mcidCounter, structRefs, page);
+    for (const ac of absChildren) walk(ac, absX, absY, pageHeightPx, phase, builder, deps, usedHandleByKey, usedImageByKey, linkRects, internalLinkRects, childInsideTocEntry, region, childOwnerBlockId, mcidCounter, structRefs, page, floats);
   }
 }
 
@@ -725,17 +749,30 @@ export function emitPageContent(page: PageBox, deps: PageEmitDeps): PageEmitResu
     ...(page.footnoteSlot !== null ? [{ roots: [page.footnoteSlot], region: "footnote" as const }] : []),
   ];
 
-  for (const phase of ["background", "foreground"] as const) {
-    for (const group of rootGroups) {
-      for (const r of group.roots) {
-        walk(
-          r, 0, 0, pageHeightPx, phase, builder, deps,
-          usedHandleByKey, usedImageByKey, linkRects, internalLinkRects, false,
-          group.region, null, mcidCounter, structRefs, page,
-        );
-      }
-    }
-  }
+  // Floats paint after the in-flow backgrounds and before the in-flow glyphs
+  // (CSS 2.1 Appendix E step 4), as the canvas painter does: the background walk
+  // defers each float it meets; the foreground walk emits them first.
+  const walkLayer = (root: DeferredFloat, region: EmitRegion, phase: EmitPhase, floats: DeferredFloat[]): void => walk(
+    root.box, root.parentAbsX, root.parentAbsY, pageHeightPx, phase, builder, deps,
+    usedHandleByKey, usedImageByKey, linkRects, internalLinkRects, root.insideTocEntry,
+    region, root.ownerBlockId, mcidCounter, structRefs, page, floats,
+  );
+  // A layer: a region's roots (the page body's children are one layer) or one float.
+  const layerBackground = (roots: readonly DeferredFloat[], region: EmitRegion): LayerFloat[] => {
+    const floats: DeferredFloat[] = [];
+    for (const r of roots) walkLayer(r, region, "background", floats);
+    return floats.map((f) => ({ ...f, nested: layerBackground([f], region) }));
+  };
+  const layerForeground = (roots: readonly DeferredFloat[], region: EmitRegion, floats: readonly LayerFloat[]): void => {
+    for (const f of floats) layerForeground([f], region, f.nested);
+    for (const r of roots) walkLayer(r, region, "foreground", []); // its floats were emitted above
+  };
+  const layers = rootGroups.map((group) => ({
+    roots: group.roots.map((box) => ({ box, parentAbsX: 0, parentAbsY: 0, insideTocEntry: false, ownerBlockId: null })),
+    region: group.region,
+  }));
+  const layerFloats = layers.map((l) => layerBackground(l.roots, l.region));
+  layers.forEach((l, i) => layerForeground(l.roots, l.region, layerFloats[i] ?? []));
   return {
     contentBytes: builder.toBytes(),
     usedHandles: [...usedHandleByKey.values()],

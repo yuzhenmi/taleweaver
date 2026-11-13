@@ -1,0 +1,199 @@
+import type { ReadonlyAttrs } from "../../block";
+import { type InsertUnit, type Write, chunked } from "../../plan";
+import { type Container, allowedIn, isParagraphBreak, isSectionBreak, isStructural } from "../../scan/kinds";
+import { type ObjectProps, newBodyOf, newField, newFootnoteOf, newHorizontalRule, newLineBreak, newObject, newParagraphMark, newSectionBreak, newTableOfContents } from "../../storage/new-items";
+import type { FlatKeys } from "../../storage/scalar";
+import { newCellMark, newRowMark, newTableEnd, newTableStart } from "../../storage/table-marks";
+import type { CommandContext } from "../command-context";
+import { BODIES_KEY, COL_SPAN_KEY, HEADER_KEY, ROW_SPAN_KEY } from "../../storage/keys";
+import { childMap } from "../../storage/map-reads";
+import { freshBodyId } from "./body-id";
+import { linkKey } from "./header-footer-link";
+import { placeFragment } from "./fragment-table";
+import { checkKeys, checkScalars, validField, validObjectShape } from "./validate";
+
+// ---------------------------------------------------------------------------
+// C17 paste
+// ---------------------------------------------------------------------------
+
+/** A model fragment item (what copy produces; a paste payload). */
+export type FragmentItem =
+  | { readonly k: "text"; readonly text: string; readonly attrs?: ReadonlyAttrs }
+  /** A ¶ with its `p:*` / `m:*` keys. */
+  | { readonly k: "para"; readonly keys?: FlatKeys }
+  | { readonly k: "object"; readonly kind: string; readonly props?: ObjectProps; readonly attrs?: ReadonlyAttrs }
+  | { readonly k: "hr"; readonly attrs?: ReadonlyAttrs }
+  | { readonly k: "lineBreak"; readonly attrs?: ReadonlyAttrs }
+  /** A field: `field` page-number / page-count, `numberStyle` default decimal. */
+  | { readonly k: "field"; readonly field: string; readonly numberStyle?: string; readonly attrs?: ReadonlyAttrs }
+  /** A footnote anchor and its body: items placeable in a footnote body, ¶-terminated (the last ¶'s keys kept). */
+  | { readonly k: "footnote"; readonly body: readonly FragmentItem[]; readonly attrs?: ReadonlyAttrs }
+  /** A TOC block object (`a:*` keys). */
+  | { readonly k: "toc"; readonly keys?: FlatKeys }
+  /**
+   * A section break: `s:*` keys (an `h:*` key there is dropped unless it is `"none"`, a section showing no header /
+   * footer), and its header / footer `bodies` by link key
+   * (`h:<region>:<variant>`), each ¶-terminated; paste makes a fresh body for each and links it (Word copies them with the break).
+   */
+  | { readonly k: "S"; readonly keys?: FlatKeys; readonly bodies?: Readonly<Record<string, readonly FragmentItem[]>> }
+  /** A table of `rows` × `cols` empty cells, columns of equal weight (integers ≥ 1). */
+  | { readonly k: "table"; readonly rows: number; readonly cols: number }
+  | FragmentTable;
+
+/** A pasted table's cell: its content (a ¶-terminated payload), spans (default 1), and `a:*` keys. */
+export interface FragmentCell {
+  readonly items: readonly FragmentItem[];
+  readonly rowSpan?: number;
+  readonly colSpan?: number;
+  readonly keys?: FlatKeys;
+}
+
+/**
+ * A table with content (N7 step 5): rows of own cells, placed left to right into free slots ({@link placeFragment});
+ * `widths` one weight per grid column (default none stored: equal columns), `header` the header-row count, `keys` the table's `a:*`,
+ * `rowKeys` each row's `a:*`.
+ */
+export interface FragmentTable {
+  readonly k: "table";
+  readonly cells: readonly (readonly FragmentCell[])[];
+  readonly widths?: readonly number[];
+  readonly header?: number;
+  readonly keys?: FlatKeys;
+  readonly rowKeys?: readonly FlatKeys[];
+}
+
+/** Read units of a fragment item that is neither a ¶ nor structural. */
+export const fragmentUnits = (i: FragmentItem): number => ("text" in i ? i.text.length : 1);
+
+/** Can every item go in `container` (a footnote's body items in a footnote body)? A paste of a payload that cannot is refused whole. */
+export const placeable = (items: readonly FragmentItem[], container: Container): boolean =>
+  items.every(
+    (i) =>
+      allowedIn(i.k, container) &&
+      (!("body" in i) || placeable(i.body, "footnote")) &&
+      (!("bodies" in i) || Object.values(i.bodies ?? {}).every((b) => placeable(b, "headerFooter"))) &&
+      (!("cells" in i) || i.cells.every((r) => r.every((c) => placeable(c.items, "cell")))),
+  );
+
+/** Throws unless a table's row and column counts are integers ≥ 1. */
+export function checkTableSize(rows: number, cols: number): void {
+  if (!Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) throw new Error("model: a table needs integer rows and columns ≥ 1");
+}
+
+/** `⟦ (⟨r⟩ (⟨c⟩ ¶)×C)×R ⟧` at depth `d`, `cols` holding C weights of 1. Throws unless both counts are integers ≥ 1. */
+function tableUnits(rows: number, cols: number, d: number): InsertUnit[] {
+  checkTableSize(rows, cols);
+  const out: InsertUnit[] = [{ embed: newTableStart(d, Array.from({ length: cols }, () => 1)), attrs: {} }];
+  for (let r = 0; r < rows; r++) {
+    out.push({ embed: newRowMark(d), attrs: {} });
+    for (let c = 0; c < cols; c++) out.push({ embed: newCellMark(d), attrs: {} }, { embed: newParagraphMark(), attrs: {} });
+  }
+  out.push({ embed: newTableEnd(d), attrs: {} });
+  return out;
+}
+
+/** A pasted cell at depth `d` with spans `rowSpan` × `colSpan`: its `⟨c⟩` (keys checked) and its content one level deeper. */
+export function cellUnits(ctx: CommandContext, cell: FragmentCell, rowSpan: number, colSpan: number, d: number): InsertUnit[] {
+  if (cell.items.at(-1)?.k !== "para") throw new Error("model: a pasted cell's content must end in a ¶");
+  const spans = { ...(rowSpan > 1 ? { [ROW_SPAN_KEY]: rowSpan } : {}), ...(colSpan > 1 ? { [COL_SPAN_KEY]: colSpan } : {}) };
+  return [{ embed: newCellMark(d, { ...checkKeys(cell.keys ?? {}, ["a:"], "cell"), ...spans }), attrs: {} }, ...units(ctx, cell.items, d + 1)];
+}
+
+/** A table with content at depth `d`: its marks (spans clipped, keys checked) and each cell's content one level deeper. */
+function contentTableUnits(ctx: CommandContext, t: FragmentTable, d: number): InsertUnit[] {
+  const g = placeFragment(t.cells);
+  // No widths: none stored, as a table that reads without `columnWidths` (equal columns).
+  const widths = t.widths ?? [];
+  if (t.widths !== undefined && (widths.length !== g.cols || !widths.every((w) => Number.isFinite(w) && w > 0))) throw new Error("model: a pasted table needs one positive width per column");
+  if (t.header !== undefined && (!Number.isInteger(t.header) || t.header < 0 || t.header > g.rows)) throw new Error("model: a pasted table's header count is out of range");
+  // Only flags that read are written (as setHeaderRows): no span crosses the header band's lower boundary.
+  const header = g.header(t.header ?? 0);
+  const out: InsertUnit[] = [{ embed: newTableStart(d, widths, checkKeys(t.keys ?? {}, ["a:"], "table")), attrs: {} }];
+  for (let i = 0; i < g.rows; i++) {
+    const keys = checkKeys(t.rowKeys?.[i] ?? {}, ["a:"], "row");
+    out.push({ embed: newRowMark(d, i < header ? { ...keys, [HEADER_KEY]: true } : keys), attrs: {} });
+    for (const p of g.cells) {
+      if (p.row !== i) continue;
+      out.push(...cellUnits(ctx, p.cell, p.rowSpan, p.colSpan, d));
+    }
+  }
+  out.push({ embed: newTableEnd(d), attrs: {} });
+  return out;
+}
+
+/** The link keys an `[S]` may carry. */
+const LINK_KEYS: ReadonlySet<string> = new Set((["header", "footer"] as const).flatMap((r) => (["default", "first", "even"] as const).map((v) => linkKey(r, v))));
+
+/**
+ * The payload as insert units (its placement checked first, {@link placeable}); `depth`: the number of tables around
+ * the insertion point (a pasted table's marks store it); `entries` receives the writes of a pasted `[S]`'s new
+ * header / footer bodies. Throws on a payload that breaks W1 / W2.
+ */
+export function units(ctx: CommandContext, items: readonly FragmentItem[], depth = 0, entries: Write[] = []): InsertUnit[] {
+  const out: InsertUnit[] = [];
+  let prev: FragmentItem | null = null;
+  for (const i of items) {
+    // W1 inside the payload: a block object or [S] follows a ¶ (or starts the payload); a block object may also follow an
+    // [S] (as insertTable stores at a section's start). [S][S] is never made by a single user (O5).
+    const after = prev === null || isParagraphBreak(prev.k) || (isSectionBreak(prev.k) && !isSectionBreak(i.k));
+    if (isStructural(i.k) && !after) throw new Error("model: a pasted block object or [S] must follow a ¶");
+    // After a block object any inline content is legal (storage W2): it reads as the paragraph after it.
+    const attrs = "attrs" in i && i.attrs !== undefined ? checkScalars(i.attrs, "pasted attr") : {};
+    switch (i.k) {
+      case "text":
+        if (i.text !== "") out.push({ text: i.text, attrs });
+        break;
+      case "para":
+        out.push({ embed: newParagraphMark(checkKeys(i.keys ?? {}, ["p:", "m:"], "paragraph")), attrs: {} });
+        break;
+      case "object":
+        validObjectShape(i.props ?? {});
+        out.push({ embed: newObject(i.kind, i.props ?? {}), attrs });
+        break;
+      case "hr":
+        out.push({ embed: newHorizontalRule(), attrs });
+        break;
+      case "lineBreak":
+        out.push({ embed: newLineBreak(), attrs });
+        break;
+      case "field": {
+        const style = i.numberStyle ?? "decimal";
+        validField(i.field, style);
+        out.push({ embed: newField(i.field, style), attrs });
+        break;
+      }
+      case "footnote": {
+        // The body ends in its own ¶ (G3), in pieces within the cap (X11); nested types created with their parent (G1).
+        if (i.body.at(-1)?.k !== "para") throw new Error("model: a pasted footnote's body must end in a ¶");
+        const body = units(ctx, i.body);
+        out.push({ embed: newFootnoteOf(...chunked(body)), attrs });
+        break;
+      }
+      case "toc":
+        out.push({ embed: newTableOfContents(checkKeys(i.keys ?? {}, ["a:"], "TOC")), attrs: {} });
+        break;
+      case "table":
+        out.push(...("cells" in i ? contentTableUnits(ctx, i, depth) : tableUnits(i.rows, i.cols, depth)));
+        break;
+      case "S": {
+        const keys = checkKeys(Object.fromEntries(Object.entries(i.keys ?? {}).filter(([k]) => !k.startsWith("h:"))), ["s:"], "section");
+        // "none" (the section shows no header / footer) reads without a body, so it is pasted as stored.
+        for (const [k, v] of Object.entries(i.keys ?? {})) if (LINK_KEYS.has(k) && v === "none") keys[k] = v;
+        for (const [link, body] of Object.entries(i.bodies ?? {})) {
+          if (!LINK_KEYS.has(link)) throw new Error(`model: a pasted section's body key ${link} is not h:<header|footer>:<default|first|even>`);
+          if (body.at(-1)?.k !== "para") throw new Error("model: a pasted header / footer body must end in a ¶");
+          const bodies = childMap(ctx.version.docMap, BODIES_KEY);
+          const doc = ctx.version.docMap.doc;
+          if (bodies === null || doc === null) throw new Error("model: the document has no header / footer bodies map");
+          const id = freshBodyId(doc, entries.length + 1);
+          entries.push({ k: "entry", map: bodies, key: id, value: newBodyOf(...chunked(units(ctx, body))) });
+          keys[link] = id;
+        }
+        out.push({ embed: newSectionBreak(keys), attrs: {} });
+        break;
+      }
+    }
+    prev = i;
+  }
+  return out;
+}

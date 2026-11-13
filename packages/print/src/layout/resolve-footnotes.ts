@@ -29,6 +29,7 @@
  * assignment needs. Anchors nested inside a NON-transparent container resolve
  * to `undefined` in the index and are skipped defensively (not supported).
  */
+import { rootFrame } from "./parent-frame";
 import type { ElementBox, RenderNode } from "@taleweaver/core";
 import type { BlockId } from "@taleweaver/core";
 import type { FootnoteAnchorRef } from "@taleweaver/core";
@@ -50,7 +51,12 @@ import {
   type PagePlan,
   type PagePlanEntry,
   type SlotInsets,
+  type FloatPageMeasurer,
 } from "./measure-pass";
+import type { PlacedFloat, PushedFloat } from "./float-context";
+import { floatsCarriedPast, shiftBreakToken, shiftColumnsFit, shiftFloats } from "./float-carry";
+import { placedFloatListsEqual, pushedFloatListsEqual } from "./float-lists-equal";
+import { footnoteBodyContext } from "./footnote-body-context";
 import { pageConfigsEqual, sectionStateAt, type SectionPlan } from "./section-plan";
 import type { BreakToken } from "./fragmentation";
 import { breakTokensEqual, innerBfcToken } from "./fragmentation";
@@ -386,12 +392,6 @@ export function computeSlotLayout(
   const outbound: FootnoteContinuation[] = [];
   let overflowed = false;
 
-  // The body content context at the FULL slot width (no marker gutter). Reused
-  // by reference for continuation tails (gutter 0) so the partition is byte-
-  // identical to the pre-gutter behaviour; a fresh body with a marker gets a
-  // freshly-narrowed context below.
-  const fullWidthCtx: LayoutContext = { ...ctx, containingInlineSize: contentInlineSize };
-
   for (const item of workList) {
     if (overflowed) {
       // Past the split point: defer this item UNCHANGED (its resumeToken stays
@@ -425,16 +425,18 @@ export function computeSlotLayout(
     // possibly taller) body the materialize pass will render. A continuation tail
     // (`isFresh === false`) repeats no number ⇒ gutter 0 ⇒ full width.
     const gutter = footnoteMarkerGutter(body, item.isFresh);
-    const bodyLayoutCtx: LayoutContext =
-      gutter === 0
-        ? fullWidthCtx
-        : { ...ctx, containingInlineSize: Math.max(0, contentInlineSize - gutter) };
+    // Its own BFC (a fresh float env), as `materializePage` lays it.
+    const bodyLayoutCtx = footnoteBodyContext(ctx, Math.max(0, contentInlineSize - gutter));
 
     _bodyLayoutCallCount++;
-    const { box, breakToken } = layoutBlock(body, 0, 0, bodyLayoutCtx, shaper, hyphenator, {
+    const { box, breakToken } = layoutBlock(body, 0, 0, rootFrame(bodyLayoutCtx), bodyLayoutCtx, shaper, hyphenator, {
       availableBlockSize: remaining,
       pageIndex: 0,
       resumeFrom: item.resumeToken,
+      // A flow root (its trailing end margin truncates at the area's end); only
+      // the first body starts the footnote area. Lockstep with `materializePage`.
+      flowRoot: true,
+      atFragmentainerStart: placed.length === 0,
     });
 
     // Nothing-fit rule: the split point is BEFORE this item. `box === null` is the
@@ -574,6 +576,11 @@ export function resolveFootnotes(
   // footnote pass). Absent ⇒ fall back to the full-width `metas` — the drift-prone
   // path that is only safe for width-independent fixed-height content.
   buildMetasAtWidth?: (inlineSize: number) => readonly BlockFitMeta[],
+  // R2-5: a single-column float doc's page measurer — the SAME real-`layoutBlock`
+  // call `materializePage` makes. When present every swept page is re-fit with it
+  // (at the slot-reduced block size) instead of the float-blind `fitOnePage`, and
+  // the float carry is threaded through the sweep exactly like `measurePass`.
+  floatPageMeasurer?: FloatPageMeasurer,
 ): PagePlan {
   // (1) Footnote-free doc ⇒ ref-equal no-op (zero cost). The `prevResolvedPlan`
   // path never runs for a footnote-free doc — the early return fires first.
@@ -720,6 +727,11 @@ export function resolveFootnotes(
   // `computeSlotLayout(inboundContinuations, freshIds, …)`, and advances it to
   // the resolved `outboundContinuations` for the next page.
   let inboundContinuations: readonly FootnoteContinuation[] = EMPTY_FOOTNOTE_CONTINUATIONS;
+  // The float carry into the CURRENT page (cumulative flow frame), threaded as
+  // `measurePass` threads it: the first swept page starts from its raw entry's.
+  // Always empty for a float-free doc.
+  let incomingFloats: readonly PlacedFloat[] = firstRaw.incomingActiveFloats;
+  let incomingPushed: readonly PushedFloat[] = firstRaw.incomingPushedFloats;
 
   // Hard page-count bound (defensive), mirroring measurePass: a correct re-fit
   // advances state every page. The footnote slot can only REDUCE the per-page
@@ -765,11 +777,8 @@ export function resolveFootnotes(
       // the worst case (a continuation tail repeats no marker ⇒ wider ⇒ no taller),
       // so this stays a sound loose upper bound.
       const gutter = footnoteMarkerGutter(body, /* isFresh */ true);
-      const heightCtx: LayoutContext = {
-        ...ctx,
-        containingInlineSize: Math.max(0, boundInlineSize - gutter),
-      };
-      const { box } = layoutBlock(body, 0, 0, heightCtx, shaper, hyphenator, {
+      const heightCtx = footnoteBodyContext(ctx, Math.max(0, boundInlineSize - gutter));
+      const { box } = layoutBlock(body, 0, 0, rootFrame(heightCtx), heightCtx, shaper, hyphenator, {
         availableBlockSize: Number.MAX_SAFE_INTEGER,
         pageIndex: 0,
         resumeFrom: null,
@@ -859,19 +868,30 @@ export function resolveFootnotes(
     // fit's consumed). Stamped onto `PagePlanEntry.inFlowConsumed` and accumulated
     // into the running gapless `pageFlowBase`.
     let resolvedConsumed = 0;
+    // The float carry this page hands to the next one.
+    let resolvedNextFloats: readonly PlacedFloat[] = NO_INCOMING_FLOATS;
+    let resolvedNextPushed: readonly PushedFloat[] = NO_INCOMING_PUSHED_FLOATS;
     let reused = false;
 
     if (prevResolvedIndexByStartIndex !== null && prevResolvedPlan !== undefined) {
       const prevK = prevResolvedIndexByStartIndex.get(startIndex);
       const prevEntry = prevK !== undefined ? prevResolvedPlan.entries[prevK] : undefined;
       const prevNext = prevK !== undefined ? prevResolvedPlan.entries[prevK + 1] : undefined;
+      // T-ae: the prior entry's floats and break tokens are in the prior cycle's
+      // flow frame; move them by this page's flow-base shift before comparing or
+      // carrying them.
+      const flowShift = prevEntry !== undefined ? pageFlowBase - prevEntry.pageFlowBase : 0;
       if (
         prevEntry !== undefined &&
         canReuseFootnotePage(
-          prevEntry, prevNext, resumeInto, effCfg, effTopInset, effBottomInset,
+          prevEntry, shiftBreakToken(prevEntry.resumeInto, flowShift), prevNext, resumeInto,
+          effCfg, effTopInset, effBottomInset,
           rootChildren, startIndex, metas.length, sectionCap, cascadedEmbedContents,
           prevCascadedEmbedContents, inboundContinuations,
-        )
+        ) &&
+        // The floats crossing in from the prior page shaped this page's fit.
+        placedFloatListsEqual(incomingFloats, shiftFloats(prevEntry.incomingActiveFloats, flowShift)) &&
+        pushedFloatListsEqual(incomingPushed, prevEntry.incomingPushedFloats)
       ) {
         reused = true;
         resolvedContentBlockIds = prevEntry.footnoteContentBlockIds;
@@ -892,14 +912,14 @@ export function resolveFootnotes(
         // consistent pattern (defends against any future gate relaxation), the
         // same way measurePass's reuse path stamps `st.nextBoundaryIndex`.
         resolvedStopBeforeIndex = tightenCap(sectionCap, undefined);
-        resolvedResumeOut = prevEntry.resumeOut;
+        resolvedResumeOut = shiftBreakToken(prevEntry.resumeOut, flowShift);
         resolvedChildrenCount = prevEntry.children.length;
         // Coherent float+pagination: carry the prior entry's in-flow consumed (the
         // reuse gate proved the fit is unchanged), keeping `pageFlowBase` gapless.
         resolvedConsumed = prevEntry.inFlowConsumed;
         // Carry the prior measure-pass entry's column distribution. The reuse
         // gate proved this page's fit is unchanged, so its `columnFit` is still valid.
-        resolvedColumnFit = prevEntry.columnFit;
+        resolvedColumnFit = shiftColumnsFit(prevEntry.columnFit, flowShift);
         // Carry the prior entry's rendered per-column height; the reuse gate
         // proved this page's fit/geometry are unchanged, so it is still valid.
         resolvedBalancedColumnHeight = prevEntry.balancedColumnHeight;
@@ -913,6 +933,9 @@ export function resolveFootnotes(
         const listCounterDelta =
           prevNext !== undefined ? prevNext.listCounterAtStart - prevEntry.listCounterAtStart : 0;
         resolvedListCounterAtEnd = listCounterAtStart + listCounterDelta;
+        // The prior cycle stamped this page's outgoing carry onto its next entry.
+        resolvedNextFloats = shiftFloats(prevNext?.incomingActiveFloats ?? NO_INCOMING_FLOATS, flowShift);
+        resolvedNextPushed = prevNext?.incomingPushedFloats ?? NO_INCOMING_PUSHED_FLOATS;
       }
     }
 
@@ -982,9 +1005,17 @@ export function resolveFootnotes(
       // (single-column: the fit's `consumedBlockSize`; multicol: the tallest
       // column's consumed). Threaded to `PagePlanEntry.inFlowConsumed`.
       readonly consumedBlockSize: number;
+      // A float page's placed (cumulative) and pushed floats; empty otherwise.
+      readonly placedFloats: readonly PlacedFloat[];
+      readonly pushedFloats: readonly PushedFloat[];
     }
-    const fitBody = (columnHeight: number, cap: number | undefined): BodyFit => {
+    const measureBody = (columnHeight: number, cap: number | undefined): BodyFit => {
       if (effColCfg.columnCount > 1) {
+        if (floatPageMeasurer !== undefined) {
+          throw new Error(
+            "resolveFootnotes: floatPageMeasurer with multicol page — producer gate should have routed to legacy",
+          );
+        }
         const cf = fitColumnsOnPage(
           colMetas, startIndex, innerResumeInto, columnHeight,
           effColCfg.columnCount, listCounterAtStart, cap,
@@ -1015,6 +1046,34 @@ export function resolveFootnotes(
           listCounterAtEnd: cf.listCounterAtEnd,
           columnFit: cf,
           consumedBlockSize: cf.columns.reduce((m, c) => Math.max(m, c.consumedBlockSize), 0),
+          placedFloats: NO_INCOMING_FLOATS,
+          pushedFloats: NO_INCOMING_PUSHED_FLOATS,
+        };
+      }
+      if (floatPageMeasurer !== undefined) {
+        // The real `layoutBlock` page measure, with the inputs `materializePage`
+        // uses: same origin, body area after the slot, resume token, flow base,
+        // cap and seeded float env.
+        const fr = floatPageMeasurer({
+          startIndex,
+          resumeInto: innerResumeInto,
+          pageFlowBase,
+          incomingFloats,
+          incomingPushedFloats: incomingPushed,
+          contentBlockSize: columnHeight,
+          stopBeforeIndex: cap,
+          listCounterAtStart,
+          inlineOrigin: effCfg.pageMargins.inlineStart,
+          blockOrigin: effTopInset,
+        });
+        return {
+          childrenCount: fr.childrenCount,
+          resumeOut: fr.resumeOut,
+          listCounterAtEnd: fr.listCounterAtEnd,
+          columnFit: undefined,
+          consumedBlockSize: fr.inFlowConsumed,
+          placedFloats: fr.placedFloats,
+          pushedFloats: fr.pushedFloats,
         };
       }
       const r = fitOnePage(metas, startIndex, innerResumeInto, columnHeight, listCounterAtStart, cap, pageFlowBase);
@@ -1024,7 +1083,18 @@ export function resolveFootnotes(
         listCounterAtEnd: r.listCounterAtEnd,
         columnFit: undefined,
         consumedBlockSize: r.consumedBlockSize,
+        placedFloats: NO_INCOMING_FLOATS,
+        pushedFloats: NO_INCOMING_PUSHED_FLOATS,
       };
+    };
+    // A page without footnotes re-fits at the same height and cap as its seed;
+    // skip the repeat (a full page layout on a float page).
+    let lastFit: { readonly columnHeight: number; readonly cap: number | undefined; readonly fit: BodyFit } | undefined;
+    const fitBody = (columnHeight: number, cap: number | undefined): BodyFit => {
+      if (lastFit !== undefined && lastFit.columnHeight === columnHeight && lastFit.cap === cap) return lastFit.fit;
+      const fit = measureBody(columnHeight, cap);
+      lastFit = { columnHeight, cap, fit };
+      return fit;
     };
     const seedNoSlotFit = fitBody(pageContentBlockSize, sectionCap ?? undefined);
     let contentBlockIds = unionIds(
@@ -1145,6 +1215,8 @@ export function resolveFootnotes(
     resolvedListCounterAtEnd = fit.listCounterAtEnd;
     // Coherent float+pagination: the body fit's in-flow consumed for this page.
     resolvedConsumed = fit.consumedBlockSize;
+    resolvedNextFloats = floatsCarriedPast(fit.placedFloats, pageFlowBase + fit.consumedBlockSize);
+    resolvedNextPushed = fit.pushedFloats;
     // The multicol distribution from the final `fitBody` (a `ColumnsFitResult`
     // for a multicol page; `undefined` for single-column). Threads to
     // `materializePage` so a footnote-bearing multicol page builds a MultiColumnBox.
@@ -1261,12 +1333,10 @@ export function resolveFootnotes(
       // page, so the materialize pass can thread it into its per-column
       // `layoutBlock` and reproduce the planned resume tokens.
       pageFlowBase,
-      // resolveFootnotes is float-unaware: preserve the empty default.
-      // The float carry pass rewrites the shadowed entries.
-      incomingActiveFloats: NO_INCOMING_FLOATS,
-      // resolveFootnotes is float-unaware (footnote+float docs route to
-      // the legacy path), so the pushed-float carry stays the empty default here.
-      incomingPushedFloats: NO_INCOMING_PUSHED_FLOATS,
+      // The floats crossing into this page (hanging / pushed from the prior
+      // page) — on the reuse path the gate proved them equal to the prior entry's.
+      incomingActiveFloats: incomingFloats,
+      incomingPushedFloats: incomingPushed,
     });
 
     // `recordBlockMaps` reasons about the block-axis index range, so it takes the
@@ -1292,7 +1362,12 @@ export function resolveFootnotes(
     // content; the carried footnote remainder rendered at the top of each slot)
     // until the chain empties — the "spans 3+ pages" edge. When BOTH
     // are exhausted the document is fully laid out.
-    if (resolvedResumeOut === null && resolvedOutboundContinuations.length === 0) break;
+    // A float pushed off the last body page still needs a page to land on.
+    if (
+      resolvedResumeOut === null &&
+      resolvedOutboundContinuations.length === 0 &&
+      resolvedNextPushed.length === 0
+    ) break;
 
     // Thread loop state forward (mirrors measurePass). Section-state (active id +
     // within-section page index) is recomputed at the next startIndex so a swept
@@ -1304,12 +1379,15 @@ export function resolveFootnotes(
       startIndex = nextStartIndex;
       resumeInto = resolvedResumeOut;
     } else {
-      // Body content is DONE but footnotes remain: emit a continuation-only tail
-      // page. It carries NO body blocks (`startIndex` at the document end, a
-      // fresh `resumeInto`), only the inbound footnote remainder.
+      // Body content is DONE but footnotes (or pushed floats) remain: emit a
+      // tail page. It carries NO body blocks: `startIndex` at the document end,
+      // resuming past the last child (a null token would re-lay the body from
+      // its start), only the inbound footnote remainder / landing floats.
       startIndex = metas.length;
-      resumeInto = null;
+      resumeInto = { type: "block", resumeChildIndex: metas.length, resumeChildToken: null };
     }
+    incomingFloats = resolvedNextFloats;
+    incomingPushed = resolvedNextPushed;
     listCounterAtStart = resolvedListCounterAtEnd;
     // Thread THIS page's outbound carries forward as the NEXT page's
     // inbound continuation list (rendered at the top of its slot).
@@ -1397,6 +1475,8 @@ function sameIds(a: readonly BlockId[], b: readonly BlockId[]): boolean {
  */
 function canReuseFootnotePage(
   prevEntry: PagePlanEntry,
+  // `prevEntry.resumeInto` in the current flow frame (T-ae).
+  prevResumeInto: BreakToken | null,
   prevNext: PagePlanEntry | undefined,
   resumeInto: BreakToken | null,
   effCfg: PageConfig,
@@ -1431,7 +1511,7 @@ function canReuseFootnotePage(
   if ((sectionCap ?? null) !== prevEntry.stopBeforeIndex) return false;
 
   // (2) resumeInto structural-equality.
-  if (!breakTokensEqual(prevEntry.resumeInto, resumeInto)) return false;
+  if (!breakTokensEqual(prevResumeInto, resumeInto)) return false;
 
   // (3) Effective geometry unchanged.
   if (!pageConfigsEqual(effCfg, prevEntry.pageConfig)) return false;

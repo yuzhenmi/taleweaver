@@ -270,6 +270,8 @@ describe("FN-5.5 — materializePage renders the inbound footnote continuation (
     expect(eLast.footnoteContentBlockIds.length).toBe(0); // no FRESH bodies start here
 
     const pageLast = tree.getPage(last);
+    // The tail page resumes past the body's last block: it repeats none of it.
+    expect(pageLast.children.reduce((n, c) => n + countLines(c), 0)).toBe(0);
     const slotLast = pageLast.footnoteSlot;
     expect(slotLast).not.toBeNull();
     if (slotLast === null) throw new Error("unreachable");

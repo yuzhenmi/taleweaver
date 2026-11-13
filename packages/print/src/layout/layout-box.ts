@@ -17,8 +17,9 @@ interface LayoutBoxBase {
   readonly key: string;
 
   // PARENT-RELATIVE LOGICAL POSITIONS. inlineOffset and blockOffset are
-  // measured from the parent's content-edge origin. The document root is
-  // placed at (0, 0) relative to nothing.
+  // measured from the parent's BORDER-BOX start edges, in the parent's (the
+  // containing block's) writing direction — see `parent-frame.ts`. The
+  // document root is placed at (0, 0) relative to nothing.
   //
   // Painter, hit-test, and selection-geometry walk the tree accumulating
   // parent offsets cumulatively (see canvas-renderer.ts:paintBox and
@@ -29,15 +30,17 @@ interface LayoutBoxBase {
   readonly blockSize:    number;
 
   // PARENT-RELATIVE PHYSICAL POSITIONS. Derived from the logical fields via
-  // logicalToPhysical(); `containingInlineSize` is required at factory time
-  // to support RTL inline-axis inversion.
+  // logicalToPhysical(); `containingInlineSize` (the parent's border-box
+  // inline size) is required at factory time to support RTL inline-axis inversion.
   // Identity for LTR; mirrored along the inline axis for RTL.
   readonly x: number;
   readonly y: number;
   readonly width:  number;
   readonly height: number;
 
-  // Containing-block writing-mode + direction at this point
+  // `direction`: the containing block's (the parent frame's), which the
+  // physical inline coordinate mirrors in — NOT the box's own (that is
+  // `computedStyle.direction`). `writingMode` is the laid-out box's own.
   readonly writingMode: WritingMode;
   readonly direction:   Direction;
 
@@ -83,6 +86,30 @@ interface LayoutBoxBase {
   // untransformed box keeps the §E.2 reorder gate off and the common paint path
   // byte-identical.
   readonly stackingContextRole?: StackingContextRole;
+
+  // FRAGMENTATION — which block-axis sides of a box split across fragmentainers
+  // this fragment owns (CSS Fragmentation L3 §5.4 `box-decoration-break: slice`,
+  // the initial value; Blink LayoutNG `sides_to_include`). A sliced side has no
+  // border and no padding: a continuation fragment's content starts at its top,
+  // a non-final fragment ends at its last content. Set at layout from the break
+  // tokens; ABSENT for a box that is not split (both sides included).
+  readonly sidesToInclude?: SidesToInclude;
+}
+
+/** The block-axis sides a fragment of a split box includes (see `sidesToInclude`). */
+export interface SidesToInclude {
+  readonly blockStart: boolean;
+  readonly blockEnd: boolean;
+}
+
+/**
+ * Stamp a fragment's `sidesToInclude`. A box with both sides included is not
+ * split: it keeps no field (byte-identical to an unfragmented box).
+ */
+export function withSidesToInclude<T extends LayoutBox>(box: T, sides: SidesToInclude | undefined): T {
+  if (sides === undefined || (sides.blockStart && sides.blockEnd)) return box;
+  const sidesToInclude = Object.freeze({ blockStart: sides.blockStart, blockEnd: sides.blockEnd });
+  return Object.freeze(Object.assign({}, box, { sidesToInclude }));
 }
 
 export interface BlockBox extends LayoutBoxBase {
@@ -95,7 +122,7 @@ export interface BlockBox extends LayoutBoxBase {
    * BOX so the layout-box cache can read it back EXACTLY after the original
    * in-flow scalar is gone (`buildLayoutBoxCacheFromTree`).
    *
-   * `blockSize` is `Math.max(inFlowBlockSize, lowestFloatBlockEdge + paddingBlockEnd)`,
+   * `blockSize` is `Math.max(inFlowBlockSize, lowestFloatBlockEdge + blockEndDecoration)`,
    * so a box enclosing a float TALLER than its in-flow content has
    * `blockSize > inFlowConsumed`. Stamped only at the `bfc.layoutBlock` full /
    * partial-fragment return sites (and threaded verbatim through the
@@ -105,6 +132,38 @@ export interface BlockBox extends LayoutBoxBase {
    * `blockSize` by construction; consumers read `inFlowConsumed ?? blockSize`.
    */
   readonly inFlowConsumed?: number;
+  /**
+   * Set when `bfc.layoutBlock` laid this box with `atFragmentainerStart` (a
+   * margin before its first content may have truncated, CSS Fragmentation
+   * §5.2). Stamped at the full-return site and kept across the clone paths;
+   * the layout-box cache reuses the box only where that holds again. Absent ⇒ false.
+   */
+  readonly atFragmentainerStart?: true;
+  /**
+   * Set when `bfc.layoutBlock` laid this box, not a BFC root, and it placed a
+   * float into its parent's BFC or a float reached into it (P3 F3). Such a box
+   * is never reused by the layout-box cache: a reuse would leave its floats out
+   * of the env, or keep line narrowing for a float that moved. Stamped at the
+   * full-return site and kept across the re-creation paths (`withLayoutStamps`).
+   * Absent ⇒ false.
+   */
+  readonly floatSensitive?: true;
+}
+
+/** Stamp `atFragmentainerStart` on a box bfc laid at a fragmentainer start. */
+export function withFragmentainerStart(box: BlockBox, atStart: boolean): BlockBox {
+  return atStart ? Object.freeze(Object.assign({}, box, { atFragmentainerStart: true as const })) : box;
+}
+
+/** Stamp `floatSensitive` on a box whose layout placed or saw a float. */
+export function withFloatSensitive(box: BlockBox, sensitive: boolean): BlockBox {
+  return sensitive ? Object.freeze(Object.assign({}, box, { floatSensitive: true as const })) : box;
+}
+
+/** Carry `from`'s layout stamps (`atFragmentainerStart`, `floatSensitive`) onto its re-created box. */
+export function withLayoutStamps(box: BlockBox, from: LayoutBox): BlockBox {
+  if (from.type !== "block") return box;
+  return withFloatSensitive(withFragmentainerStart(box, from.atFragmentainerStart === true), from.floatSensitive === true);
 }
 
 export interface LineBox extends LayoutBoxBase {
@@ -309,6 +368,13 @@ export interface InlineBlockBox extends LayoutBoxBase {
    * non-replaced inline-block.
    */
   readonly isReplaced?: boolean;
+  /**
+   * Set on a FLOATED atom's zero-width, non-painting placeholder (a wrapped
+   * inline image): the key of its float box, which the BFC places as a child of
+   * the paragraph's box. The placeholder owns the atom's one state offset.
+   * Identity metadata, copied verbatim through every rebuild.
+   */
+  readonly floatKey?: string;
 }
 
 export interface MarkerBox extends LayoutBoxBase {
@@ -638,6 +704,7 @@ export function createInlineBlockBox(
   relativeOffset?: { readonly dx: number; readonly dy: number },
   targetId?: string,
   isReplaced?: boolean,
+  floatKey?: string,
 ): InlineBlockBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
@@ -653,6 +720,7 @@ export function createInlineBlockBox(
     inlineMeta,
     targetId,
     isReplaced,
+    floatKey,
   });
 }
 
@@ -751,11 +819,14 @@ export function createTableCellBox(
   grid: TableCellGrid,
   containingInlineSize: number,
   containingBlockSize?: number,
+  // Abs-pos descendants whose containing block is this (positioned) cell, in
+  // the cell's own frame — the cell interior's, carried over.
+  absoluteChildren?: readonly LayoutBox[],
 ): TableCellBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
     writingMode, direction, computedStyle, usedStyle, containingInlineSize,
-    containingBlockSize,
+    containingBlockSize, absoluteChildren,
   });
   return Object.freeze({
     type: "table-cell" as const,
@@ -876,7 +947,7 @@ export function withPhysicalInlineOffset(
         box.writingMode, "ltr", box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.sourceStart, box.bidiLevel,
         /* containingBlockSize */ undefined, box.inlineMeta, box.relativeOffset,
-        box.targetId, box.isReplaced,
+        box.targetId, box.isReplaced, box.floatKey,
       );
     case "marker":
       return createMarkerBox(
@@ -975,7 +1046,7 @@ export function withBidiLevel(
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.sourceStart, level,
         /* containingBlockSize */ undefined, box.inlineMeta, box.relativeOffset,
-        box.targetId, box.isReplaced,
+        box.targetId, box.isReplaced, box.floatKey,
       );
     case "marker":
       return createMarkerBox(
@@ -1023,6 +1094,22 @@ export function rebuildBoxWithOffsets(
   containingInlineSize: number,
   containingBlockSize?: number,
 ): LayoutBox {
+  // A split box's fragment keeps its sliced sides, and a block its layout
+  // stamps, across every reposition.
+  const rebuilt = withSidesToInclude(
+    rebuildFromFactory(box, newInlineOffset, newBlockOffset, containingInlineSize, containingBlockSize),
+    box.sidesToInclude,
+  );
+  return rebuilt.type === "block" ? withLayoutStamps(rebuilt, box) : rebuilt;
+}
+
+function rebuildFromFactory(
+  box: LayoutBox,
+  newInlineOffset: number,
+  newBlockOffset: number,
+  containingInlineSize: number,
+  containingBlockSize: number | undefined,
+): LayoutBox {
   switch (box.type) {
     case "block":
       return createBlockBox(
@@ -1068,7 +1155,7 @@ export function rebuildBoxWithOffsets(
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.sourceStart, box.bidiLevel,
         containingBlockSize, box.inlineMeta, box.relativeOffset,
-        box.targetId, box.isReplaced,
+        box.targetId, box.isReplaced, box.floatKey,
       );
     case "marker":
       return createMarkerBox(
@@ -1096,7 +1183,7 @@ export function rebuildBoxWithOffsets(
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children,
         { gridRow: box.gridRow, gridCol: box.gridCol, rowSpan: box.rowSpan, colSpan: box.colSpan },
-        containingInlineSize, containingBlockSize,
+        containingInlineSize, containingBlockSize, box.absoluteChildren,
       );
     case "multicolumn":
       // Reposition the container at the new offsets; the column boxes are

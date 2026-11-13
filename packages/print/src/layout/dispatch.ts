@@ -1,4 +1,5 @@
 import type { RenderNode, ElementBox } from "@taleweaver/core";
+import { rootFrame } from "./parent-frame";
 import type { LayoutBox } from "./layout-box";
 import type { TextShaper } from "@taleweaver/core";
 import type { Hyphenator } from "@taleweaver/core";
@@ -101,11 +102,11 @@ export function layoutTree(
       if (cs.display === "block") {
         // Virtual mode unless the document uses a feature the measure pass
         // can't reproduce — `position:absolute`, or a float doc that is ALSO
-        // multi-column or footnote-bearing (single-column float/`clear` docs now
+        // multi-column (single-column float/`clear` docs, footnotes included,
         // take the virtualized fast path) — in which case fall back to the legacy
         // positioned page tree. This is the full (non-incremental) build (tests and
         // the incremental unsupported-display fallback), so there is no carry-forward memo.
-        result = paginationFallsBackToLegacy(layoutRoot, footnoteAnchors)
+        result = paginationFallsBackToLegacy(layoutRoot)
           ? paginateRoot(layoutRoot, ctx, shaper, hyphenator, pageConfig)
           : buildVirtualPaginatedTree(
               layoutRoot, ctx, shaper, pageConfig, undefined,
@@ -115,7 +116,7 @@ export function layoutTree(
       } else {
         // Non-block root with pagination: layout without pagination for now.
         if (cs.display === "table") {
-          const tableResult = layoutTable(layoutRoot, 0, 0, ctx, shaper, hyphenator);
+          const tableResult = layoutTable(layoutRoot, 0, 0, rootFrame(ctx), ctx, shaper, hyphenator);
           if (tableResult.box === null) {
             throw new Error("layoutTable at dispatch returned null box; should be unreachable in unpaginated path");
           }
@@ -127,7 +128,7 @@ export function layoutTree(
     } else {
       switch (cs.display) {
         case "block": {
-          const blockResult = layoutBlock(layoutRoot, 0, 0, ctx, shaper, hyphenator);
+          const blockResult = layoutBlock(layoutRoot, 0, 0, rootFrame(ctx), ctx, shaper, hyphenator);
           if (blockResult.box === null) {
             throw new Error("layoutBlock at dispatch returned null box; should be unreachable in unpaginated path");
           }
@@ -135,7 +136,7 @@ export function layoutTree(
           break;
         }
         case "table": {
-          const tableResult = layoutTable(layoutRoot, 0, 0, ctx, shaper, hyphenator);
+          const tableResult = layoutTable(layoutRoot, 0, 0, rootFrame(ctx), ctx, shaper, hyphenator);
           if (tableResult.box === null) {
             throw new Error("layoutTable at dispatch returned null box; should be unreachable in unpaginated path");
           }

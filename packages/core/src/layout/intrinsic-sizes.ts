@@ -35,6 +35,27 @@ export interface IntrinsicContribution {
   readonly maxContent: number;
   readonly firstCluster: number;
   readonly restMin: number;
+  /**
+   * The floats an INLINE box holds (floated atoms nested in it, e.g. a wrapped
+   * image inside a bold span). They are not inline content: the four fields
+   * above describe the box's inline content only, and the enclosing block folds
+   * these in as floats (CSS 2.1 §10.3.5 shrink-to-fit). Absent when there are none.
+   */
+  readonly floats?: IntrinsicFloats;
+}
+
+/** The float component of an inline box's {@link IntrinsicContribution} (margin boxes). */
+export interface IntrinsicFloats {
+  /** Widest float min-content: each float is one unbreakable item. */
+  readonly min: number;
+  /** Summed max-content of the side floats on the line's inline-start side. */
+  readonly startMax: number;
+  /** Summed max-content of the side floats on the line's inline-end side. */
+  readonly endMax: number;
+  /** Widest max-content of the floats that take a line of their own (`break`). */
+  readonly ownLineMax: number;
+  /** The box holds nothing but floats: no inline content to start the line. */
+  readonly alone: boolean;
 }
 
 /**

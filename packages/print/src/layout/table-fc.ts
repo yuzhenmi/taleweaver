@@ -3,7 +3,8 @@ import type { ComputedStyle } from "@taleweaver/core";
 import type { BlockId } from "@taleweaver/core";
 import { asBlockId } from "@taleweaver/core";
 import type { TableBox, TableRowBox, TableCellBox, LayoutBox } from "./layout-box";
-import { createTableBox, createTableRowBox, createTableCellBox } from "./layout-box";
+import { createTableBox, createTableRowBox, createTableCellBox, withSidesToInclude } from "./layout-box";
+import { NO_RESERVE, reserveTotal } from "./complete-reserve";
 import { assignTableGrid } from "./table-grid";
 import type { GridCellInput, AssignedCell } from "./table-grid";
 import { distributeColumnIntrinsics } from "./table-column-sizing";
@@ -12,6 +13,7 @@ import { isDevMode } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
 import type { Hyphenator } from "@taleweaver/core";
 import { layoutBlock } from "./bfc";
+import type { ParentFrame } from "./parent-frame";
 import { computeUsedStyle } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeChildContext } from "./layout-context";
@@ -236,6 +238,8 @@ interface LaidCell {
   readonly cellUsedStyle: ReturnType<typeof computeUsedStyle>;
   readonly interiorChildren: LayoutBox[];
   readonly interiorHeight: number;
+  /** The interior's abs-pos children (a positioned cell is their containing block). */
+  readonly interiorAbsoluteChildren?: readonly LayoutBox[];
   readonly inlineOffset: number;
   readonly inlineSize: number;
   readonly placement: AssignedCell;
@@ -277,6 +281,17 @@ function materializeCellElement(cg: CellGroup): ElementBox | null {
   };
 }
 
+/**
+ * The context a cell's interior is laid out under: entered with the CELL's own
+ * style, so the cell is a BFC root (CSS 9.4.1) with its own float env — its
+ * floats wrap its own content, are enclosed by it, and never reach other cells.
+ */
+function makeCellContext(ctx: LayoutContext, cellEl: ElementBox, inlineSize: number): LayoutContext {
+  const cellCs = cellEl.computedStyle;
+  if (cellCs === undefined) throw new Error("cascade required");
+  return makeChildContext(ctx, cellCs, inlineSize, "indefinite");
+}
+
 // ---------------------------------------------------------------------------
 // Main layout entry point
 // ---------------------------------------------------------------------------
@@ -293,6 +308,8 @@ export function layoutTable(
   node: ElementBox,
   inlineOffset: number,
   blockOffset: number,
+  // The parent's border box this table is positioned in (see `ParentFrame`).
+  frame: ParentFrame,
   ctx: LayoutContext,
   shaper: TextShaper,
   // Auto-hyphenation: threaded ALONGSIDE `shaper` to the per-cell
@@ -315,13 +332,16 @@ export function layoutTable(
   const cs = node.computedStyle;
   const availableInlineSize = ctx.containingInlineSize;
   const writingMode = ctx.writingMode;
-  const direction = ctx.direction;
 
   const explicitColumnWidths = node.metadata?.columnWidths;
 
   const tableUsedStyle = computeUsedStyle(cs, availableInlineSize, "indefinite");
 
   const tableInlineSize = availableInlineSize;
+  // A cell interior is laid out only for its children, which sit in the cell
+  // box (its border box is the column slot); the interior box itself is dropped,
+  // so its own frame is nominal: a row's.
+  const rowFrame: ParentFrame = { direction: cs.direction, inlineSize: tableInlineSize };
 
   let columnPxWidths: number[];
 
@@ -479,8 +499,8 @@ export function layoutTable(
       if (cellEl === null) continue;
 
       // Lay out cell interior as BFC at cellInlineSize.
-      const cellCtx = makeChildContext(ctx, cs, cellInlineSize, "indefinite");
-      const interiorResult = layoutBlock(cellEl, 0, 0, cellCtx, shaper, hyphenator, undefined, pageFlowBase);
+      const cellCtx = makeCellContext(ctx, cellEl, cellInlineSize);
+      const interiorResult = layoutBlock(cellEl, 0, 0, rowFrame, cellCtx, shaper, hyphenator, undefined, pageFlowBase);
       if (interiorResult.box === null) {
         throw new Error("layoutBlock without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
       }
@@ -495,6 +515,7 @@ export function layoutTable(
         cellUsedStyle,
         interiorChildren: Array.from(interior.children),
         interiorHeight: interior.height,
+        interiorAbsoluteChildren: interior.absoluteChildren,
         inlineOffset: cellInlineOffset,
         inlineSize: cellInlineSize,
         placement,
@@ -543,9 +564,10 @@ export function layoutTable(
       // continuation (null token) contributes no interior.
       let interiorChildren: LayoutBox[] = [];
       let interiorHeight = 0;
+      let interiorAbsoluteChildren: readonly LayoutBox[] | undefined;
       if (cont.interiorBreakToken !== null) {
-        const cellCtx = makeChildContext(ctx, cs, inlineSize, "indefinite");
-        const r = layoutBlock(cellEl, 0, 0, cellCtx, shaper, hyphenator, {
+        const cellCtx = makeCellContext(ctx, cellEl, inlineSize);
+        const r = layoutBlock(cellEl, 0, 0, rowFrame, cellCtx, shaper, hyphenator, {
           availableBlockSize: Number.MAX_SAFE_INTEGER,
           pageIndex: fragmentation.pageIndex,
           resumeFrom: cont.interiorBreakToken,
@@ -553,6 +575,7 @@ export function layoutTable(
         if (r.box !== null && r.box.type === "block") {
           interiorChildren = Array.from(r.box.children);
           interiorHeight = r.box.height;
+          interiorAbsoluteChildren = r.box.absoluteChildren;
         }
       }
 
@@ -562,6 +585,7 @@ export function layoutTable(
         cellUsedStyle,
         interiorChildren,
         interiorHeight,
+        interiorAbsoluteChildren,
         inlineOffset,
         inlineSize,
         placement: {
@@ -658,7 +682,9 @@ export function layoutTable(
       const end = start + lc.placement.rowSpan;
       let spannedBlockSize = 0;
       for (let rr = start; rr < end; rr++) spannedBlockSize += rowHeights[rr] ?? 0;
-      return createTableCellBox(
+      // A rowSpan cell resumed from an earlier fragment is its continuation: its
+      // start side was sliced off there (box-decoration-break: slice).
+      return withSidesToInclude(createTableCellBox(
         lc.key, lc.inlineOffset, 0, lc.inlineSize, spannedBlockSize,
         cs.writingMode, cs.direction,
         lc.cellCs, lc.cellUsedStyle,
@@ -670,7 +696,9 @@ export function layoutTable(
           colSpan: lc.placement.colSpan,
         },
         /* containingInlineSize */ tableInlineSize,
-      );
+        /* containingBlockSize */ undefined,
+        lc.interiorAbsoluteChildren,
+      ), { blockStart: lc.spanOrigin === undefined, blockEnd: true });
     });
 
     rowBoxes.push(createTableRowBox(
@@ -706,17 +734,29 @@ export function layoutTable(
     // Greedily pack BODY rows (`rowBoxes[headerCount..]`) into the space remaining
     // after the header reservation.
     const bodyAvailable = fragmentation.availableBlockSize - headerUsed;
-    let bodyUsed = 0;
-    let placedBodyCount = 0;
-    for (let i = headerCount; i < rowBoxes.length; i++) {
-      const rb = rowBoxes[i];
-      if (rb === undefined) break;
-      if (bodyUsed + rb.blockSize > bodyAvailable) break;
-      bodyUsed += rb.blockSize;
-      placedBodyCount++;
-    }
-
+    const packBodyRows = (available: number): { used: number; count: number } => {
+      let used = 0;
+      let count = 0;
+      for (let i = headerCount; i < rowBoxes.length; i++) {
+        const rb = rowBoxes[i];
+        if (rb === undefined) break;
+        if (used + rb.blockSize > available) break;
+        used += rb.blockSize;
+        count++;
+      }
+      return { used, count };
+    };
     const bodyRowTotal = rowBoxes.length - headerCount;
+    let packed = packBodyRows(bodyAvailable);
+    // The end-decoration reserve (FragmentationContext.completeReserve): when
+    // every row fits but the reserve does not, the last row(s) move with the
+    // ancestors' end decorations. Lockstep: fit-core's table-leaf refit.
+    const reserve = reserveTotal(fragmentation.completeReserve ?? NO_RESERVE);
+    if (reserve > 0 && packed.count === bodyRowTotal && packed.count > 0 && packed.used + reserve > bodyAvailable) {
+      packed = packBodyRows(bodyAvailable - reserve);
+    }
+    let bodyUsed = packed.used;
+    let placedBodyCount = packed.count;
 
     if (placedBodyCount === 0) {
       // No body row fits. On a continuation with a header, PROGRESS forces exactly
@@ -776,17 +816,22 @@ export function layoutTable(
           // the resume preamble, it is the incoming continuation's interior
           // token, so a rowSpan≥3 cell re-breaks from where it left off (the
           // continuation chain across >2 pages).
-          const cellCtx = makeChildContext(ctx, cs, lc.inlineSize, "indefinite");
-          const frag = layoutBlock(lc.cellEl, 0, 0, cellCtx, shaper, hyphenator, {
+          const cellCtx = makeCellContext(ctx, lc.cellEl, lc.inlineSize);
+          const frag = layoutBlock(lc.cellEl, 0, 0, rowFrame, cellCtx, shaper, hyphenator, {
             availableBlockSize: placedHeight,
             pageIndex: fragmentation.pageIndex,
             resumeFrom: lc.resumeInteriorToken ?? null,
+            // A fresh cell's content sits where Pass A put it (CSS Fragmentation
+            // §5.2: no break before it); a resumed one starts this fragmentainer.
+            atFragmentainerStart: (lc.resumeInteriorToken ?? null) !== null,
           }, pageFlowBase);
           const top = frag.box;
           const topChildren =
             top !== null && top.type === "block" ? Array.from(top.children) : [];
 
-          const trimmed = createTableCellBox(
+          // The cell straddles the break: this part has no end side, and a
+          // continuation (resumed span) has no start side either.
+          const trimmed = withSidesToInclude(createTableCellBox(
             lc.key, lc.inlineOffset, 0, lc.inlineSize, placedHeight,
             cs.writingMode, cs.direction,
             lc.cellCs, lc.cellUsedStyle,
@@ -798,7 +843,9 @@ export function layoutTable(
               colSpan: lc.placement.colSpan,
             },
             /* containingInlineSize */ tableInlineSize,
-          );
+            /* containingBlockSize */ undefined,
+            top?.absoluteChildren,
+          ), { blockStart: lc.spanOrigin === undefined, blockEnd: false });
           let m = trimmedByRow.get(start);
           if (m === undefined) {
             m = new Map();
@@ -852,13 +899,14 @@ export function layoutTable(
           : { type: "table" as const, resumeAtRow: breakRow };
 
       return {
-        box: createTableBox(
+        // A non-final fragment of the table: its end side is sliced.
+        box: withSidesToInclude(createTableBox(
           node.key, inlineOffset, blockOffset, tableInlineSize, partialBlockSize,
-          writingMode, direction,
+          writingMode, frame.direction,
           cs, tableUsedStyle,
           placedRows, columnPxWidths, gridInfoFor(emittedGlobalRows),
-          /* containingInlineSize */ availableInlineSize,
-        ),
+          /* containingInlineSize */ frame.inlineSize,
+        ), { blockStart: startBodyRow === 0, blockEnd: false }),
         breakToken,
         inFlowConsumed: partialBlockSize,
       };
@@ -869,13 +917,14 @@ export function layoutTable(
 
   const tableBlockSize = rowBlockOffset;
 
-  return { box: createTableBox(
+  // A continuation (resumed past row 0) slices its start side.
+  return { box: withSidesToInclude(createTableBox(
     node.key, inlineOffset, blockOffset, tableInlineSize, tableBlockSize,
-    writingMode, direction,
+    writingMode, frame.direction,
     cs, tableUsedStyle,
     rowBoxes, columnPxWidths, gridInfoFor(emittedRows),
-    /* containingInlineSize */ availableInlineSize,
-  ), breakToken: null, inFlowConsumed: tableBlockSize };
+    /* containingInlineSize */ frame.inlineSize,
+  ), { blockStart: startBodyRow === 0, blockEnd: true }), breakToken: null, inFlowConsumed: tableBlockSize };
   } finally {
     markEnd("table.layout", t);
   }

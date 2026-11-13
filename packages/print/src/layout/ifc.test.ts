@@ -15,6 +15,7 @@ import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import type { Direction } from "@taleweaver/core";
 import { makeRootContext } from "./layout-context";
 import { HARD_BREAK_EMBED_TYPE } from "@taleweaver/core";
+import { rootFrame } from "./parent-frame";
 
 const shaper = createMockShaper(8, 16);
 
@@ -69,7 +70,7 @@ function ifcOf(text: string, width: number) {
   );
   if (tree.type !== "element") throw new Error("?");
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
-  const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+  const result = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
   if (result.box === null) throw new Error("layoutInlineContent returned null box");
   return result.box.children;
 }
@@ -137,6 +138,18 @@ describe("layoutInlineContent — empty inline content (strut line)", () => {
   // line-height of vertical space, per CSS line-box "strut" semantics — not as
   // zero-height. The IFC emits one empty LineBox carrying the parent block's
   // font line-height so adjacent paragraphs don't visually collapse together.
+  it("RTL lines mirror against the block's border box; the wrap cache keys on it (B5)", () => {
+    const tree = cascadePass(createElementBox("p", { display: "block", direction: "rtl" }, [createTextBox("t", {}, "abc")]));
+    if (tree.type !== "element") throw new Error("?");
+    // One context (one wrap cache), content 500 at padding-inline-start 20.
+    const ctx = makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 500);
+    for (const [frameInlineSize, x] of [[530, 10], [560, 40]] as const) {
+      const box = layoutInlineContent(tree, 20, 0, { direction: "rtl", inlineSize: frameInlineSize }, ctx, shaper, undefined, 0).box;
+      if (box === null) throw new Error("null box");
+      expect(nth(box.children, 0, "line").x).toBe(x);
+    }
+  });
+
   it("empty inline-bearing-leaf block layouts to one line-height tall", () => {
     // A block with a single empty TextBox child — this is what the IFC sees
     // when an inline-bearing-leaf component has no inline content items.
@@ -147,7 +160,7 @@ describe("layoutInlineContent — empty inline content (strut line)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+    const result = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     const block = result.box;
     expect(block.children).toHaveLength(1);
@@ -174,7 +187,7 @@ describe("layoutInlineContent — empty inline content (strut line)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+    const result = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     const line = nth(result.box.children, 0, "child");
     if (line.type !== "line") throw new Error("expected line box");
@@ -194,7 +207,7 @@ describe("layoutInlineContent — empty inline content (strut line)", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -215,7 +228,7 @@ describe("layoutInlineContent — empty inline content (strut line)", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -235,7 +248,7 @@ describe("layoutInlineContent — empty inline content (strut line)", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -256,7 +269,7 @@ describe("IFC whiteSpace handling", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r1 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 50), shaper, undefined);
+    const r1 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 50)), makeRootContext(INITIAL_COMPUTED_STYLE, 50), shaper, undefined);
     if (r1.box === null) throw new Error("layoutBlock returned null box");
     const out = r1.box;
     if (out.type !== "block") throw new Error("?");
@@ -272,7 +285,7 @@ describe("IFC whiteSpace handling", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r2 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
+    const r2 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 200)), makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
     if (r2.box === null) throw new Error("layoutBlock returned null box");
     const out = r2.box;
     if (out.type !== "block") throw new Error("?");
@@ -287,7 +300,7 @@ describe("IFC whiteSpace handling", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r3 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 30), shaper, undefined);
+    const r3 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 30)), makeRootContext(INITIAL_COMPUTED_STYLE, 30), shaper, undefined);
     if (r3.box === null) throw new Error("layoutBlock returned null box");
     const out = r3.box;
     if (out.type !== "block") throw new Error("?");
@@ -310,7 +323,7 @@ describe("IFC whiteSpace handling", () => {
         ]),
       );
       if (tree.type !== "element") throw new Error("?");
-      const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
+      const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 200)), makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
       if (r.box === null) throw new Error("layoutBlock returned null box");
       const out = r.box;
       if (out.type !== "block") throw new Error("?");
@@ -347,7 +360,7 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -384,7 +397,7 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -412,7 +425,7 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -451,7 +464,7 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -493,7 +506,7 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("?");
     if (r.box.type !== "block") throw new Error("?");
     const lines = r.box.children.filter((c): c is import("./layout-box").LineBox => c.type === "line");
@@ -516,7 +529,7 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -582,7 +595,7 @@ describe("IFC — break-spaces (#314, Google-Docs trailing-space wrap)", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, width)), makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -703,7 +716,7 @@ describe("IFC — trailing-space HANG (#338 P1: a space unit never triggers its 
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, width)), makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -802,7 +815,7 @@ describe("IFC — hung-space CLAMP (#338 P2: clamp hung-space box geometry to th
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, width)), makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -902,7 +915,7 @@ describe("IFC — hung-space CLAMP (#338 P2: clamp hung-space box geometry to th
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, W), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, W)), makeRootContext(INITIAL_COMPUTED_STYLE, W), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -965,7 +978,7 @@ describe("IFC — hung-space CLAMP inside an INLINE element (#340: clamp the PHY
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, width)), makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1073,7 +1086,7 @@ describe("IFC — default pipeline now break-spaces (#314)", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1104,7 +1117,7 @@ describe("IFC — first-class inline boxes", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r4 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r4 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r4.box === null) throw new Error("layoutBlock returned null box");
     const out = r4.box;
     if (out.type !== "block") throw new Error("?");
@@ -1128,7 +1141,7 @@ describe("IFC — first-class inline boxes", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r5 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r5 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r5.box === null) throw new Error("layoutBlock returned null box");
     const out = r5.box;
     if (out.type !== "block") throw new Error("?");
@@ -1156,7 +1169,7 @@ describe("IFC — inline-block atomic placement", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r6 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r6 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r6.box === null) throw new Error("layoutBlock returned null box");
     const out = r6.box;
     if (out.type !== "block") throw new Error("?");
@@ -1177,7 +1190,7 @@ describe("IFC — inline-block atomic placement", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r7 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper, undefined);
+    const r7 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 60)), makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper, undefined);
     if (r7.box === null) throw new Error("layoutBlock returned null box");
     const out = r7.box;
     if (out.type !== "block") throw new Error("?");
@@ -1210,7 +1223,7 @@ describe("IFC — inline-block atomic placement", () => {
 
     // Lay out the inline content in a vertical-lr PARENT context (production path).
     const ctx = makeRootContext(vlrCs, 500);
-    const res = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+    const res = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
     if (res.box === null || res.box.type !== "block") throw new Error("?");
     const line = res.box.children.find(c => c.type === "line");
     if (line === undefined || line.type !== "line") throw new Error("?");
@@ -1313,7 +1326,7 @@ describe("IFC — line TextRunBox carries sourceStart + clusterWidths (P4-C bidi
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null || r.box.type !== "block") throw new Error("?");
     const line = r.box.children.find(c => c.type === "line");
     if (line === undefined || line.type !== "line") throw new Error("?");
@@ -1344,7 +1357,7 @@ describe("IFC — line TextRunBox carries sourceStart + clusterWidths (P4-C bidi
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null || r.box.type !== "block") throw new Error("?");
     const line = r.box.children.find(c => c.type === "line");
     if (line === undefined || line.type !== "line") throw new Error("?");
@@ -1372,7 +1385,7 @@ describe("IFC — fragmentEdge across lines", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r8 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper, undefined);
+    const r8 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 60)), makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper, undefined);
     if (r8.box === null) throw new Error("layoutBlock returned null box");
     const out = r8.box;
     if (out.type !== "block") throw new Error("?");
@@ -1408,7 +1421,7 @@ describe("IFC — fragmentEdge across lines", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r9 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r9 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r9.box === null) throw new Error("layoutBlock returned null box");
     const out = r9.box;
     if (out.type !== "block") throw new Error("?");
@@ -1443,7 +1456,7 @@ describe("IFC — fragmentEdge across lines", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 60)), makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1478,7 +1491,7 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r10 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r10 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r10.box === null) throw new Error("layoutBlock returned null box");
     const out = r10.box;
     if (out.type !== "block") throw new Error("?");
@@ -1498,7 +1511,7 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r11 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r11 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r11.box === null) throw new Error("layoutBlock returned null box");
     const out = r11.box;
     if (out.type !== "block") throw new Error("?");
@@ -1519,7 +1532,7 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r12 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r12 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r12.box === null) throw new Error("layoutBlock returned null box");
     const out = r12.box;
     if (out.type !== "block") throw new Error("?");
@@ -1543,7 +1556,7 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1568,7 +1581,7 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1611,7 +1624,7 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1659,7 +1672,7 @@ describe("IFC — verticalAlign super / sub (true superscript / subscript)", () 
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1751,7 +1764,7 @@ describe("IFC — text wraps around floats", () => {
     );
     if (tree.type !== "element") throw new Error("?");
 
-    const ifcResult = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+    const ifcResult = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
     if (ifcResult.box === null) throw new Error("layoutInlineContent returned null box");
     const lines = ifcResult.box.children;
 
@@ -1774,7 +1787,7 @@ describe("IFC — text wraps around floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const ifcResult2 = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+    const ifcResult2 = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
     if (ifcResult2.box === null) throw new Error("layoutInlineContent returned null box");
     const lines2 = ifcResult2.box.children;
 
@@ -1800,7 +1813,7 @@ describe("IFC — text wraps around floats", () => {
     );
     if (tree.type !== "element") throw new Error("?");
 
-    const ifcResult3 = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+    const ifcResult3 = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
     if (ifcResult3.box === null) throw new Error("layoutInlineContent returned null box");
     const lines3 = ifcResult3.box.children;
 
@@ -1835,7 +1848,7 @@ describe("IFC — RTL bidi reordering", () => {
     const ifcResultRtl = layoutInlineContent(
       tree,
       0, 0,
-      makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
+      rootFrame(makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200)), makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
       rtlShaper, undefined
     , 0);
     if (ifcResultRtl.box === null) throw new Error("layoutInlineContent returned null box");
@@ -1883,7 +1896,7 @@ describe("IFC — RTL bidi reordering", () => {
     const ifcResultRtl = layoutInlineContent(
       tree,
       0, 0,
-      makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
+      rootFrame(makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200)), makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
       rtlShaper, undefined
     , 0);
     if (ifcResultRtl.box === null) throw new Error("layoutInlineContent returned null box");
@@ -1912,7 +1925,7 @@ describe("IFC — RTL bidi reordering", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const ifcResultLtr = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), ltrShaper, undefined, 0);
+    const ifcResultLtr = layoutInlineContent(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 200)), makeRootContext(INITIAL_COMPUTED_STYLE, 200), ltrShaper, undefined, 0);
     if (ifcResultLtr.box === null) throw new Error("layoutInlineContent returned null box");
     const linesLtr = ifcResultLtr.box.children;
 
@@ -1945,7 +1958,7 @@ describe("IFC — RTL bidi reordering", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const result = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), rtlShaper, undefined, 0);
+    const result = layoutInlineContent(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 200)), makeRootContext(INITIAL_COMPUTED_STYLE, 200), rtlShaper, undefined, 0);
     if (result.box === null) throw new Error("null box");
     const line = nth(result.box.children, 0, "child");
     if (line.type !== "line") throw new Error("expected line");
@@ -1980,7 +1993,7 @@ describe("IFC — RTL bidi reordering", () => {
     if (tree.type !== "element") throw new Error("?");
     const result = layoutInlineContent(
       tree, 0, 0,
-      makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
+      rootFrame(makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200)), makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
       rtlShaper, undefined
     , 0);
     if (result.box === null) throw new Error("null box");
@@ -2017,7 +2030,7 @@ describe("IFC — RTL bidi reordering", () => {
     if (tree.type !== "element") throw new Error("?");
     const result = layoutInlineContent(
       tree, 0, 0,
-      makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl", textAlign: "center" }, 200),
+      rootFrame(makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl", textAlign: "center" }, 200)), makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl", textAlign: "center" }, 200),
       rtlShaper, undefined
     , 0);
     if (result.box === null) throw new Error("null box");
@@ -2045,7 +2058,7 @@ describe("IFC — RTL bidi reordering", () => {
 describe("deriveLineSourceRangeU16 (P4-C.1 T3: line's half-open U16 source span)", () => {
   // Build a minimal wrap-unit-shaped object: the helper reads only
   // tokens[].absoluteSourceBase and tokens[].text (the LineRangeUnit shape).
-  function unit(...tokens: { absoluteSourceBase: number; text: string }[]): LineRangeUnit {
+  function unit(...tokens: LineRangeUnit["tokens"][number][]): LineRangeUnit {
     return { tokens };
   }
 
@@ -2077,6 +2090,11 @@ describe("deriveLineSourceRangeU16 (P4-C.1 T3: line's half-open U16 source span)
     // single-line paragraph this equals source.length ("ab cd ".length === 6).
     expect(range?.endU16).toBe(6);
     expect("ab cd ".length).toBe(6);
+  });
+
+  it("an inline-block atom (text \"\") ending the line spans its one OBJECT REPLACEMENT char", () => {
+    const ib = { absoluteSourceBase: 2, text: "", inlineBlock: {} };
+    expect(deriveLineSourceRangeU16([unit({ absoluteSourceBase: 0, text: "ab" }), unit(ib)])?.endU16).toBe(3);
   });
 
   it("empty / strut-only line (no units, or empty-tokens unit) → null", () => {
@@ -2116,7 +2134,7 @@ describe("IFC — P4-C.1 T3 paragraphBidi plumbing (fast path + no behavior chan
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const result = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined, 0);
+    const result = layoutInlineContent(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 200)), makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined, 0);
     if (result.box === null) throw new Error("null box");
     const line = nth(result.box.children, 0, "child");
     if (line.type !== "line") throw new Error("expected line");
@@ -2144,7 +2162,7 @@ describe("IFC — P4-C.1 T3 paragraphBidi plumbing (fast path + no behavior chan
     if (tree.type !== "element") throw new Error("?");
     const result = layoutInlineContent(
       tree, 0, 0,
-      makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
+      rootFrame(makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200)), makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
       rtlShaper, undefined
     , 0);
     if (result.box === null) throw new Error("null box");
@@ -2166,7 +2184,7 @@ describe("IFC — P4-C.1 T3 paragraphBidi plumbing (fast path + no behavior chan
   it("empty paragraph (no source) lays out a strut without crash (paragraphBidi === null)", () => {
     const tree = cascadePass(createElementBox("p", { display: "block" }, []));
     if (tree.type !== "element") throw new Error("?");
-    const result = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined, 0);
+    const result = layoutInlineContent(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 200)), makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined, 0);
     if (result.box === null) throw new Error("null box");
     // One strut line, no crash.
     expect(result.box.children.length).toBe(1);
@@ -2240,7 +2258,7 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
 
     const ifcResultH1 = layoutInlineContent(
       tree, 0, 0,
-      makeRootContext(INITIAL_COMPUTED_STYLE, 60),
+      rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 60)), makeRootContext(INITIAL_COMPUTED_STYLE, 60),
       shaperWithHyphen(), undefined
     , 0);
     if (ifcResultH1.box === null) throw new Error("layoutInlineContent returned null box");
@@ -2269,7 +2287,7 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
 
     const ifcResultH2 = layoutInlineContent(
       tree, 0, 0,
-      makeRootContext(INITIAL_COMPUTED_STYLE, 60),
+      rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 60)), makeRootContext(INITIAL_COMPUTED_STYLE, 60),
       shaperWithHyphen(), undefined
     , 0);
     if (ifcResultH2.box === null) throw new Error("layoutInlineContent returned null box");
@@ -2310,7 +2328,7 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
 
     const result = layoutInlineContent(
       tree, 0, 0,
-      makeRootContext(INITIAL_COMPUTED_STYLE, 60),
+      rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 60)), makeRootContext(INITIAL_COMPUTED_STYLE, 60),
       shaperWithHyphen(), undefined
     , 0);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
@@ -2516,7 +2534,7 @@ describe("layoutInlineContent — LineBox-canonical fields (E-E.1)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+    const result = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     const line = nth(result.box.children, 0, "child");
     if (line.type !== "line") throw new Error("expected line");
@@ -2536,8 +2554,8 @@ describe("layoutInlineContent — LineBox-canonical fields (E-E.1)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 200);
-    const r1 = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
-    const r2 = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+    const r1 = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
+    const r2 = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
     if (r1.box === null || r2.box === null) throw new Error("?");
     const l1 = nth(r1.box.children, 0, "line");
     const l2 = nth(r2.box.children, 0, "line");
@@ -2563,7 +2581,7 @@ describe("layoutInlineContent — LineBox-canonical fields (E-E.1)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+    const result = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     const line = nth(result.box.children, 0, "child");
     if (line.type !== "line") throw new Error("expected line");
@@ -2584,7 +2602,7 @@ describe("layoutInlineContent — LineBox-canonical fields (E-E.1)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+    const result = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     const line = nth(result.box.children, 0, "child");
     if (line.type !== "line") throw new Error("expected line");
@@ -2611,7 +2629,7 @@ describe("layoutInlineContent — LineBox-canonical fields (E-E.1)", () => {
 
     // First fragment: limit block size to fit ~2 lines (line height 16
     // → 32 px fits exactly 2 lines).
-    const r1 = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0, {
+    const r1 = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0, {
       availableBlockSize: 32,
       resumeFrom: null,
       pageIndex: 0,
@@ -2623,7 +2641,7 @@ describe("layoutInlineContent — LineBox-canonical fields (E-E.1)", () => {
 
     // Resume from the break token. Big availableBlockSize so it
     // finishes.
-    const r2 = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0, {
+    const r2 = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0, {
       availableBlockSize: 10_000,
       resumeFrom: r1.breakToken,
       pageIndex: 1,
@@ -2901,7 +2919,8 @@ describe("collectTokens — absoluteSourceBase (P4-C.1: token's absolute UTF-16 
     // line 2 starts with the suffix "fgh".
     const result = layoutInlineContent(
       tree, 0, 0,
-      // Width that fits "xy" + "abcde-" but not the whole word, forcing a split.
+      rootFrame(// Width that fits "xy" + "abcde-" but not the whole word, forcing a split.
+      makeRootContext(INITIAL_COMPUTED_STYLE, 80)), // Width that fits "xy" + "abcde-" but not the whole word, forcing a split.
       makeRootContext(INITIAL_COMPUTED_STYLE, 80),
       makeHyphenShaper(), undefined, 0
     );
@@ -3050,7 +3069,7 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
     if (tree.type !== "element") throw new Error("?");
     // layoutBlock → layoutInlineContent provides a non-null parentCtx to
     // collectInlineTokens (the production path that applies the clamp).
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, containingInlineSize), shp, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, containingInlineSize)), makeRootContext(INITIAL_COMPUTED_STYLE, containingInlineSize), shp, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     if (r.box.type !== "block") throw new Error("?");
     const line = r.box.children.find(c => c.type === "line");
@@ -3115,7 +3134,7 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 30), shp, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 30)), makeRootContext(INITIAL_COMPUTED_STYLE, 30), shp, undefined);
     if (r.box === null || r.box.type !== "block") throw new Error("?");
     const line = r.box.children.find(c => c.type === "line");
     if (line?.type !== "line") throw new Error("no line");
@@ -3329,7 +3348,7 @@ describe("IFC — hyphens: soft-hyphen break handling (HYPH.S2/S3)", () => {
   }
   function linesOf(text: string, width: number, hyphens?: ComputedStyle["hyphens"]): LineBox[] {
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
-    const result = layoutInlineContent(styledTree(text, hyphens), 0, 0, ctx, shaper, undefined, 0);
+    const result = layoutInlineContent(styledTree(text, hyphens), 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     return result.box.children.filter((c): c is LineBox => c.type === "line");
   }
@@ -3394,8 +3413,8 @@ describe("IFC — hyphens: soft-hyphen break handling (HYPH.S2/S3)", () => {
     // (a re-wrap would allocate fresh LineBoxes).
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 40);
     const tree = styledTree("hy" + SHY + "phen", "manual");
-    const r1 = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
-    const r2 = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0); // same ctx → cache hit
+    const r1 = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
+    const r2 = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0); // same ctx → cache hit
     if (r1.box === null || r2.box === null) throw new Error("null box");
     expect(r2.box.children.length).toBe(2);
     expect(nth(r2.box.children, 0, "line")).toBe(nth(r1.box.children, 0, "line")); // same LineBox ref → cache reuse
@@ -3567,7 +3586,7 @@ describe("IFC — overflow-wrap: break-word (OW.S2)", () => {
   }
   function linesOf(text: string, width: number, overflowWrap?: ComputedStyle["overflowWrap"], hyphens?: ComputedStyle["hyphens"]): LineBox[] {
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
-    const result = layoutInlineContent(styledTree(text, overflowWrap, hyphens), 0, 0, ctx, shaper, undefined, 0);
+    const result = layoutInlineContent(styledTree(text, overflowWrap, hyphens), 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
     if (result.box === null) throw new Error("null box");
     return result.box.children.filter((c): c is LineBox => c.type === "line");
   }
@@ -3625,6 +3644,66 @@ describe("IFC — overflow-wrap: break-word (OW.S2)", () => {
     expect(linesOf("word longword", 80, "normal").length).toBe(1);
   });
 
+  it("a word made of two runs (no break between them) moves whole to the next line; only a word wider than the line emergency-splits", () => {
+    const linesOfRuns = (runs: readonly string[], width: number, overflowWrap: ComputedStyle["overflowWrap"] = "break-word", autoHyphens = false) => {
+      const tree = cascadePass(createElementBox("p", { display: "block", overflowWrap, ...(autoHyphens ? { hyphens: "auto" as const, language: "en" } : {}) },
+        runs.map((t, k) => createTextBox(`t${k}`, k % 2 === 1 ? { fontWeight: 700 } : {}, t))));
+      if (tree.type !== "element") throw new Error("?");
+      const hyphenator = autoHyphens ? createMockHyphenator({ every: 3 }) : undefined;
+      const result = layoutInlineContent(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, width)), makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, hyphenator, 0);
+      if (result.box === null) throw new Error("null box");
+      return result.box.children.filter((c): c is LineBox => c.type === "line");
+    };
+    const spans = (runs: readonly string[], width: number, overflowWrap: ComputedStyle["overflowWrap"] = "break-word") =>
+      linesOfRuns(runs, width, overflowWrap).map((l) => [l.inlineOffsetStart, l.inlineOffsetEnd]);
+    // An opportunity INSIDE an earlier run of the glued chain wins over the
+    // chain head: CJK "中文中文" + "。" (CL, glued) moves only "文。" down.
+    expect(spans(["一二三四五六", "中文中文", "。"], 80)).toEqual([[0, 9], [9, 11]]);
+    // hyphens:auto — "documentation" + "." hyphenates at its last fitting point
+    // (mock every 3, limits keep {3,6,9}: "documenta-" fits 13px of room).
+    const hy = linesOfRuns(["x ", "documentation", "."], 120, "break-word", true);
+    expect(hy.map((l) => [l.inlineOffsetStart, l.inlineOffsetEnd])).toEqual([[0, 11], [11, 16]]);
+    expect(hy[0]?.endsWithHyphenContinuation).toBe(true);
+    // 80px = 10 chars: "yyyyzzzz" (8) does not fit after "xxxx " (5) but fits a line.
+    expect(spans(["xxxx yyyy", "zzzz"], 80)).toEqual([[0, 5], [5, 13]]);
+    // Three runs, the break opportunity two runs back.
+    expect(spans(["xxxx yy", "yy", "zzzz"], 80)).toEqual([[0, 5], [5, 13]]);
+    // Under `normal` the same: the word moves; nothing overflows.
+    expect(spans(["xxxx yyyy", "zzzz"], 80, "normal")).toEqual([[0, 5], [5, 13]]);
+    // "yyyyzzzzzzzz" (12) is wider than any line: it still moves off the shared
+    // line first, then emergency-splits on its own line.
+    expect(spans(["xxxx yyyy", "zzzzzzzz"], 80)).toEqual([[0, 5], [5, 15], [15, 17]]);
+    // At the line start there is nowhere to break back to: split in place.
+    expect(spans(["yyyyyy", "zzzzzz"], 80)).toEqual([[0, 10], [10, 12]]);
+  });
+
+  it("a long glued chain on an overflowing line is searched once per unit (linear, not quadratic)", () => {
+    // 2,000 alternating-style runs form ONE word under overflow-wrap: normal in a
+    // 24px column, so every run overflows a line that never breaks. Each run has
+    // hyphenation points that never fit (the shortest prefix + "-" is 32px), and
+    // every hyphenation attempt shapes the "-" once: counting those shapes counts
+    // the interior-break searches. Each unit is tried as the overflowing unit and
+    // once more inside the chain → ~2 per run; a re-walk of the chain per run
+    // would be ~N²/2.
+    let hyphenShapes = 0;
+    const counting: TextShaper = {
+      ...shaper,
+      shape: (text, style, dir) => {
+        if (text === "-") hyphenShapes++;
+        return shaper.shape(text, style, dir);
+      },
+    };
+    const N = 2000;
+    const runs = ["x", ...Array.from({ length: N }, () => "abcdefgh")];
+    const tree = cascadePass(createElementBox("p", { display: "block", hyphens: "auto", language: "en" },
+      runs.map((t, k) => createTextBox(`t${k}`, k % 2 === 1 ? { fontWeight: 700 } : {}, t))));
+    if (tree.type !== "element") throw new Error("?");
+    const result = layoutInlineContent(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 24)), makeRootContext(INITIAL_COMPUTED_STYLE, 24), counting, createMockHyphenator({ every: 3 }), 0);
+    expect(result.box?.children.filter((c) => c.type === "line")).toHaveLength(1);
+    expect(hyphenShapes).toBeGreaterThan(0);
+    expect(hyphenShapes).toBeLessThanOrEqual(3 * N);
+  });
+
   it("break-word prefix/suffix re-sum to the original word (no dropped chars / NaN)", () => {
     const lines = linesOf("aaaaaaaa", 40, "break-word");
     const text = lines
@@ -3675,7 +3754,7 @@ describe("IFC — hard-break embed forced line break", () => {
       createElementBox("p", { display: "block" }, children),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -3733,7 +3812,7 @@ describe("IFC — hard-break embed forced line break", () => {
       createElementBox("p", { display: "block", overflowWrap: "break-word" }, children),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, width)), makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -3803,7 +3882,7 @@ describe("IFC — hard-break embed forced line break", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null || r.box.type !== "block") throw new Error("?");
     const lines = r.box.children.filter(
       (c): c is import("./layout-box").LineBox => c.type === "line",
@@ -3841,7 +3920,7 @@ describe("TextRunBox.link — PDF /Link foundation", () => {
     );
     if (tree.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
-    const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+    const result = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     return collectTextRuns(result.box.children);
   }
@@ -3866,7 +3945,7 @@ describe("TextRunBox.link — PDF /Link foundation", () => {
     );
     if (tree.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 50);
-    const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+    const result = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     const lines = result.box.children.filter((c): c is LineBox => c.type === "line");
     expect(lines.length).toBeGreaterThanOrEqual(2);
@@ -3890,7 +3969,7 @@ describe("TextRunBox.link — PDF /Link foundation", () => {
     );
     if (tree.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 60);
-    const result = layoutInlineContent(tree, 0, 0, ctx, makeHyphenShaper(), undefined, 0);
+    const result = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, makeHyphenShaper(), undefined, 0);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     const lines = result.box.children.filter((c): c is LineBox => c.type === "line");
     expect(lines.length).toBeGreaterThanOrEqual(2);
@@ -3917,7 +3996,7 @@ describe("TextRunBox.link — PDF /Link foundation", () => {
     );
     if (tree.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 20);
-    const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+    const result = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     const lines = result.box.children.filter((c): c is LineBox => c.type === "line");
     // ≥2 lines proves the single CJK unit was interior-split (no spaces to wrap at).
@@ -3943,7 +4022,7 @@ describe("TextRunBox.link — PDF /Link foundation", () => {
     );
     if (tree.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 200);
-    const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+    const result = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     const runs = collectTextRuns(result.box.children);
     const linked = runs.filter((r) => r.text.includes("click"));
@@ -3952,5 +4031,44 @@ describe("TextRunBox.link — PDF /Link foundation", () => {
     expect(plain.length).toBeGreaterThan(0);
     for (const run of linked) expect(run.link).toBe("https://x.com");
     for (const run of plain) expect(run.link).toBeUndefined();
+  });
+});
+
+describe("IFC — wrap cache gates on the lines' inline offset (T-m)", () => {
+  it("a padding-start change with the content width unchanged re-lays the lines at the new offset", () => {
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    // One cascade: the text keeps its style identity, as an incremental cascade keeps it.
+    const p = cascadePass(createElementBox("p", { display: "block" }, [createTextBox("t", {}, "abc")]));
+    if (p.type !== "element" || p.computedStyle === undefined) throw new Error("?");
+    const cs = p.computedStyle;
+    const lineOffset = (paddingInlineStart: number, paddingInlineEnd: number): number => {
+      const padded = { ...p, computedStyle: { ...cs, paddingInlineStart, paddingInlineEnd } };
+      const box = layoutBlock(padded, 0, 0, rootFrame(ctx), ctx, shaper, undefined).box;
+      const l = box !== null && "children" in box ? box.children[0] : undefined;
+      if (l === undefined) throw new Error("no line");
+      return l.inlineOffset;
+    };
+    expect(lineOffset(10, 20)).toBe(10);
+    // Same content width (570), shared IFC cache: the lines move to 20.
+    expect(lineOffset(20, 10)).toBe(20);
+  });
+});
+
+describe("IFC — wrap cache gates on the lines' block offset (T-r)", () => {
+  it("a padding-block-start change and nothing else re-lays the lines at the new y", () => {
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const p = cascadePass(createElementBox("p", { display: "block" }, [createTextBox("t", {}, "abc")]));
+    if (p.type !== "element" || p.computedStyle === undefined) throw new Error("?");
+    const cs = p.computedStyle;
+    const lineY = (paddingBlockStart: number): number => {
+      const padded = { ...p, computedStyle: { ...cs, paddingBlockStart } };
+      const box = layoutBlock(padded, 0, 0, rootFrame(ctx), ctx, shaper, undefined).box;
+      const l = box !== null && "children" in box ? box.children[0] : undefined;
+      if (l === undefined) throw new Error("no line");
+      return l.blockOffset;
+    };
+    expect(lineY(10)).toBe(10);
+    // Shared IFC cache, same tokens and content width: the lines move to 20.
+    expect(lineY(20)).toBe(20);
   });
 });

@@ -43,6 +43,24 @@ describe("FloatEnvironment — CSS 9.5.1 placement", () => {
     env.placeFloat("inline-start", 0, 80, 100, 200);
     expect(env.availableInlineSizeAt(50, 200)).toEqual({ inlineStartSize: 80, inlineEndSize: 0 });
     expect(env.availableInlineSizeAt(150, 200)).toEqual({ inlineStartSize: 0, inlineEndSize: 0 });
+    // Over a range: every float the range intersects, even one starting inside it.
+    env.placeFloat("inline-end", 120, 30, 10, 200);
+    expect(env.availableInlineSizeOver(110, 126, 200)).toEqual({ inlineStartSize: 0, inlineEndSize: 30 });
+    expect(env.availableInlineSizeOver(90, 110, 200)).toEqual({ inlineStartSize: 80, inlineEndSize: 0 });
+    expect(env.availableInlineSizeOver(130, 140, 200)).toEqual({ inlineStartSize: 0, inlineEndSize: 0 });
+  });
+
+  it("two side-by-side floats on one side occupy up to the furthest edge (sum of widths), both sides", () => {
+    for (const side of ["inline-start", "inline-end"] as const) {
+      const env = createFloatEnvironment();
+      env.placeFloat(side, 0, 80, 100, 300);
+      const second = env.placeFloat(side, 0, 50, 100, 300);
+      expect(second).toEqual({ blockOffset: 0, inlineOffset: side === "inline-start" ? 80 : 170 });
+      const occupied = env.availableInlineSizeAt(50, 300);
+      expect(side === "inline-start" ? occupied.inlineStartSize : occupied.inlineEndSize).toBe(130);
+      // A third that fits only beyond both is pushed below them.
+      expect(env.placeFloat(side, 0, 200, 10, 300).blockOffset).toBe(100);
+    }
   });
 
   it("lowestFloatBlockEdge returns max block-edge across floats", () => {
@@ -130,5 +148,39 @@ describe("pushFloat channel", () => {
     // Pushing does NOT place: no exclusion region, clearance unchanged at the queried offset.
     expect(env.getPlacedFloats().length).toBe(0);
     expect(env.clearance("both", 7)).toBe(7);
+  });
+});
+
+describe("mark / rollback (R2-2) and fragmentainers (R2-3)", () => {
+  it("rollback forgets the floats placed and pushed since the mark; hasFloatIn stays exact", () => {
+    const env = createFloatEnvironment();
+    env.placeFloat("inline-start", 0, 80, 50, 200);
+    const m = env.mark();
+    env.placeFloat("inline-start", 100, 80, 50, 200);
+    env.pushFloat({ node: createElementBox("f", { display: "block", float: "inline-start" }, []), side: "inline-start" });
+    env.rollback(m);
+    expect(env.getPlacedFloats().length).toBe(1);
+    expect(env.pushedFloats().length).toBe(0);
+    // The early-out bound is still 150 (an upper bound): the scan answers.
+    expect(env.hasFloatIn(100, 150)).toBe(false);
+    expect(env.hasFloatIn(40, 60)).toBe(true);
+  });
+
+  it("anchored floats, landed notes and forced breaks leave at the next fragmentainer; landed notes roll back", () => {
+    const env = createFloatEnvironment();
+    env.placeFloat("inline-start", 0, 80, 50, 200);
+    env.seedPlaced({ side: "inline-start", inlineOffset: 80, blockOffset: 30, inlineSize: 80, blockSize: 50, anchorKey: "img", paragraphKey: "p" });
+    expect(env.anchoredFloat("img")?.paragraphKey).toBe("p");
+    const m = env.mark();
+    env.noteLanded("img");
+    expect([...env.landedSince(m)]).toEqual(["img"]);
+    env.rollback(m);
+    expect([...env.landedSince(m)]).toEqual([]);
+    env.setBreaksBefore(new Set(["p"]));
+    expect(env.breaksBefore("p")).toBe(true);
+    env.beginFragmentainer({ top: 100, end: 200 });
+    expect(env.getPlacedFloats().map((f) => f.anchorKey)).toEqual([undefined]);
+    expect(env.breaksBefore("p")).toBe(false);
+    expect(env.fragmentainer()).toEqual({ top: 100, end: 200 });
   });
 });

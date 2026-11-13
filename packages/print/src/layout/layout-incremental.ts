@@ -1,4 +1,5 @@
 import type { RenderNode, ElementBox } from "@taleweaver/core";
+import { rootFrame } from "./parent-frame";
 import type { LayoutBox } from "./layout-box";
 import type { TextShaper } from "@taleweaver/core";
 import type { Hyphenator } from "@taleweaver/core";
@@ -117,10 +118,10 @@ export function layoutTreeIncremental(
     if (pageConfig !== undefined && cs.display === "block") {
       // Paginated mode. The measure pass / fit-core reproduce only the
       // features it models; `position:absolute` docs — and float docs that are
-      // ALSO multi-column or footnote-bearing — fall back to the legacy
-      // positioned `paginateRoot` path (single-column float/`clear` docs now take
-      // the virtualized fast path; see `paginationFallsBackToLegacy`).
-      if (!paginationFallsBackToLegacy(layoutRoot, footnoteAnchors)) {
+      // ALSO multi-column — fall back to the legacy positioned `paginateRoot`
+      // path (single-column float/`clear` docs, footnotes included, take the
+      // virtualized fast path; see `paginationFallsBackToLegacy`).
+      if (!paginationFallsBackToLegacy(layoutRoot)) {
         // Virtual mode: build the page plan + a lazily-materializing
         // `VirtualLayoutTree`. No page is positioned here; consumers position
         // only the pages they need via `getPage(i)` — the whole document is
@@ -139,7 +140,7 @@ export function layoutTreeIncremental(
     } else {
       switch (cs.display) {
         case "block": {
-          const blockResult = layoutBlock(layoutRoot, 0, 0, rootCtx, shaper, hyphenator);
+          const blockResult = layoutBlock(layoutRoot, 0, 0, rootFrame(rootCtx), rootCtx, shaper, hyphenator);
           if (blockResult.box === null) {
             throw new Error("layoutBlock at dispatch returned null box; should be unreachable in unpaginated path");
           }
@@ -147,7 +148,7 @@ export function layoutTreeIncremental(
           break;
         }
         case "table": {
-          const tableResult = layoutTable(layoutRoot, 0, 0, rootCtx, shaper, hyphenator);
+          const tableResult = layoutTable(layoutRoot, 0, 0, rootFrame(rootCtx), rootCtx, shaper, hyphenator);
           if (tableResult.box === null) {
             throw new Error("layoutTable without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
           }

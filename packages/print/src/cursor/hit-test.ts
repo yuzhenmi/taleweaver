@@ -154,8 +154,12 @@ function hitTest(
     // matches the line band/leaf picks' half-open convention.
     if (resolver !== undefined) {
       const atomicIndex = getAtomicBoxIndex(layoutTree, resolver, document);
-      for (const [blockId, rect] of atomicIndex) {
-        if (rect.pageIndex !== pageIndex) continue;
+      for (const [blockId, atomic] of atomicIndex) {
+        if (atomic.pageIndex !== pageIndex) continue;
+        // An in-flow atomic is hit anywhere on its row of the column (its
+        // `hitBand`); the model has only the on-object position, so a click
+        // beside it selects it. A float is hit only inside its own rect.
+        const rect = atomic.hitBand ?? atomic;
         if (
           x >= rect.x &&
           x < rect.x + rect.width &&

@@ -17,9 +17,10 @@ import { createAbsPosEnvironment } from "./abs-pos-context";
  * `inset*` against (CSS Positioned Layout 3 §3). The document root's abc is the
  * page/viewport content area.
  *
- * `origin` is the abc CONTENT-box top-left, expressed in the ESTABLISHING box's
- * OWN coordinate frame (the frame `absoluteChildren` are pushed into and the
- * painter recurses them with) — i.e. `(paddingInlineStart, paddingBlockStart)`.
+ * `origin` is the abc's top-left, expressed in the ESTABLISHING box's OWN
+ * coordinate frame (the frame `absoluteChildren` are pushed into and the
+ * painter recurses them with): its padding edge (CSS 2.1 §10.1,
+ * `borderInlineStartWidth` / `borderBlockStartWidth`).
  * The second pass resolves an abs child's position as `origin.inlineOffset +
  * insetStart` etc., yielding offsets in the establishing box's frame.
  *
@@ -72,7 +73,7 @@ export function establishesAbsoluteContainingBlock(cs: ComputedStyle): boolean {
  * and `ctx.containingInlineSize` for percent / shrink-to-fit resolution.
  *
  * When recursing into a child, build the child's context via
- * `makeChildContext(ctx, parentCs, contentInlineSize, contentBlockSize)`.
+ * `makeChildContext(ctx, enteredCs, contentInlineSize, contentBlockSize)`.
  */
 export interface LayoutContext {
   readonly writingMode: WritingMode;
@@ -147,16 +148,31 @@ export interface LayoutContext {
     readonly inlineOffset: number;
     readonly blockOffset: number;
   };
+  /**
+   * F4: where the box laid out under this context sits in its BFC's float-env
+   * frame (see `float-frame.ts`): the line-left edge of its area (the
+   * `containingInlineSize`-wide slot it is laid out in) and the BFC root's
+   * content inline size. A BFC root's own context carries `{0, containingInlineSize}`;
+   * the root's frame is its content box (`bfcRootFrame`), so it is not read there.
+   */
+  readonly floatArea: FloatArea;
+}
+
+export interface FloatArea {
+  readonly lineLeft: number;
+  readonly bfcInlineSize: number;
 }
 
 /**
  * Build a layout context for a child being laid out within a parent box.
  *
  * @param parent the parent's layout context (the parent box's containing block).
- * @param parentCs the parent's computed style — provides writing-mode + direction
- *   for the child (CSS: writing-mode and direction are inherited).
- * @param contentInlineSize the parent's content area inline-size; the child's
- *   containing block has this as its inline-size.
+ * @param enteredCs the computed style of the box BEING ENTERED (the box this
+ *   context lays out — NOT its parent): its writing-mode + direction become the
+ *   context's, and it decides whether the box establishes a new BFC (fresh float
+ *   env) and / or an absolute containing block.
+ * @param contentInlineSize the inline size the entered box is laid out in (its
+ *   containing block's inline size, as the entered box's layout reads it).
  * @param contentBlockSize the parent's content area block-size, if known.
  *   Pass `"indefinite"` if the parent has auto block-size.
  * @param contentOrigin the entered (child) box's in-flow position within the
@@ -170,19 +186,22 @@ export interface LayoutContext {
  */
 export function makeChildContext(
   parent: LayoutContext,
-  parentCs: ComputedStyle,
+  enteredCs: ComputedStyle,
   contentInlineSize: number,
   contentBlockSize: number | "indefinite",
   contentOrigin: { readonly inlineOffset: number; readonly blockOffset: number } = {
     inlineOffset: 0,
     blockOffset: 0,
   },
+  // F4: the entered box's area in the float-env frame. Ignored for a BFC root
+  // (a fresh frame); defaults to the parent's (an area that coincides with it).
+  floatArea: FloatArea = parent.floatArea,
 ): LayoutContext {
   // If the child establishes a new BFC, give it a fresh float environment so
   // that floats inside it don't leak to the parent's BFC. Otherwise, inherit
   // the parent's env so that floats inside non-BFC blocks rise to the nearest
   // ancestor BFC.
-  const isBFCRoot = establishesNewBFC(parentCs);
+  const isBFCRoot = establishesNewBFC(enteredCs);
   const floatEnv = isBFCRoot
     ? createFloatEnvironment()
     : parent.floatEnv;
@@ -203,7 +222,7 @@ export function makeChildContext(
   // at establish time; the draining box's second pass uses its own RESOLVED
   // locals (content inline-size, total block-size, padding) as the authoritative
   // abc frame, so an indefinite/placeholder here never mis-positions.
-  const establishesAbc = establishesAbsoluteContainingBlock(parentCs);
+  const establishesAbc = establishesAbsoluteContainingBlock(enteredCs);
   const absoluteContainingBlock: AbsoluteContainingBlock = establishesAbc
     ? {
         inlineSize: contentInlineSize,
@@ -220,8 +239,8 @@ export function makeChildContext(
       };
 
   return {
-    writingMode: parentCs.writingMode,
-    direction:   parentCs.direction,
+    writingMode: enteredCs.writingMode,
+    direction:   enteredCs.direction,
     containingInlineSize: contentInlineSize,
     containingBlockSize:  contentBlockSize,
     intrinsicCache: parent.intrinsicCache,
@@ -233,6 +252,30 @@ export function makeChildContext(
     absoluteContainingBlock,
     ownsAbsoluteContainingBlock: establishesAbc,
     originFromAbc,
+    floatArea: isBFCRoot ? { lineLeft: 0, bfcInlineSize: contentInlineSize } : floatArea,
+  };
+}
+
+/**
+ * The context of a block's own inline content (its anonymous inline-run box):
+ * the same box, so the same BFC and absolute containing block as `blockCtx` —
+ * a BFC root establishes ONE formatting context for all its content (CSS 9.4.1),
+ * its inline runs and block children alike. Only the containing block changes,
+ * to the block's content box (`contentInlineSize`, placed at `floatArea`).
+ */
+export function makeInlineRunContext(
+  blockCtx: LayoutContext,
+  blockCs: ComputedStyle,
+  contentInlineSize: number,
+  floatArea: FloatArea,
+): LayoutContext {
+  return {
+    ...blockCtx,
+    writingMode: blockCs.writingMode,
+    direction: blockCs.direction,
+    containingInlineSize: contentInlineSize,
+    containingBlockSize: "indefinite",
+    floatArea,
   };
 }
 
@@ -270,5 +313,6 @@ export function makeRootContext(
     },
     ownsAbsoluteContainingBlock: true,
     originFromAbc: { inlineOffset: 0, blockOffset: 0 },
+    floatArea: { lineLeft: 0, bfcInlineSize: containerInlineSize },
   };
 }

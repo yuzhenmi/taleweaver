@@ -120,6 +120,15 @@ describe("physicalBorderSides — writing-mode generalization (P3.4)", () => {
     expect(sides.topPadding).toBe(40);
   });
 
+  // ── BM4 box-decoration-break: slice — a sliced block side has no border or
+  //    padding, mapped to its physical side (vertical-rl: block-start = right). ──
+  it("a sliced block side drops its border + padding on its physical side", () => {
+    const rl = physicalBorderSides(makeUsedStyle("vertical-rl", "ltr"), { blockStart: false, blockEnd: true });
+    expect([rl.rightWidth, rl.rightPadding, rl.leftWidth, rl.leftPadding]).toEqual([0, 0, 2, 20]);
+    const tb = physicalBorderSides(makeUsedStyle("horizontal-tb", "ltr"), { blockStart: true, blockEnd: false });
+    expect([tb.topWidth, tb.bottomWidth, tb.bottomPadding, tb.leftWidth]).toEqual([1, 0, 0, 3]);
+  });
+
   // ── h-tb LTR full record stays byte-identical to the legacy mapping. ─────────
   it("h-tb LTR: full record byte-identical to legacy mapping", () => {
     const sides = physicalBorderSides(makeUsedStyle("horizontal-tb", "ltr"));

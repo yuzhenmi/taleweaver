@@ -25,6 +25,15 @@ describe("flattenLengths", () => {
     expect(out.fontSize).toBe(INITIAL_COMPUTED_STYLE.fontSize * 2);
   });
 
+  it("a border with style none has computed width 0 (CSS Backgrounds 3 §4.3)", () => {
+    const out = flattenLengths({
+      ...INITIAL_COMPUTED_STYLE,
+      borderBlockStartWidth: 5, borderBlockEndWidth: 5, borderInlineStartWidth: 5, borderInlineEndWidth: 5,
+      borderInlineEndStyle: "solid",
+    });
+    expect([out.borderBlockStartWidth, out.borderBlockEndWidth, out.borderInlineStartWidth, out.borderInlineEndWidth]).toEqual([0, 0, 0, 5]);
+  });
+
   it("passes through px fontSize unchanged", () => {
     const cs: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, fontSize: 20 };
     const out = flattenLengths(cs);

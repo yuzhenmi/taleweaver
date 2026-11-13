@@ -1,7 +1,10 @@
+import type { CompleteReserve } from "./complete-reserve";
 // packages/core/src/layout/fragmentation.ts
 
 import type { LayoutBox } from "./layout-box";
 import type { BlockId } from "@taleweaver/core";
+import type { PlacedFloat } from "./float-context";
+import { placedFloatListsEqual } from "./float-lists-equal";
 
 /**
  * Break-token continuation model. When a fragmentation-aware layout call
@@ -32,6 +35,21 @@ export interface IFCBreakToken {
    *  property of where the paragraph began, carried across fragments so a later
    *  task can query floats at the line's TRUE cumulative offset. */
   readonly paraFlowStart: number;
+  /**
+   * R2-1: the float exclusions the paragraph's earlier lines wrapped around
+   * (env frame, cumulative), one segment per fragment that placed them. The
+   * resumed fragment re-wraps from line 0: each line before `resumeAtLine`
+   * queries only its segment's floats (none when no segment covers it), so it
+   * wraps exactly as when it was placed — never painted, never placed. Absent ≡ none.
+   */
+  readonly floats?: readonly CarriedFloats[];
+}
+
+/** The exclusions lines `[fromLine, untilLine)` wrapped around, cut at their furthest checked extent. */
+export interface CarriedFloats {
+  readonly fromLine: number;
+  readonly untilLine: number;
+  readonly floats: readonly PlacedFloat[];
 }
 
 /**
@@ -150,7 +168,8 @@ export function breakTokensEqual(a: BreakToken | null, b: BreakToken | null): bo
       breakTokensEqual(a.resumeChildToken, b.resumeChildToken);
   }
   if (a.type === "ifc" && b.type === "ifc") {
-    return a.resumeAtLine === b.resumeAtLine && a.paraFlowStart === b.paraFlowStart;
+    return a.resumeAtLine === b.resumeAtLine && a.paraFlowStart === b.paraFlowStart &&
+      carriedFloatsEqual(a.floats ?? [], b.floats ?? []);
   }
   if (a.type === "table" && b.type === "table") {
     return a.resumeAtRow === b.resumeAtRow &&
@@ -225,6 +244,29 @@ export interface FragmentationContext {
    * overflow behavior. Undefined ⇒ no pushing.
    */
   readonly enableFloatPushing?: boolean;
+  /**
+   * What must still fit after this box's content IF the box completes on this
+   * fragmentainer: the end padding + border of the ancestors that complete with
+   * it, plus an end margin they enclose (see `complete-reserve.ts`). Each
+   * container hands it only to its LAST in-flow child. A fragment that breaks
+   * ignores it. Lockstep with fit-core. Undefined ⇒ `NO_RESERVE`.
+   */
+  readonly completeReserve?: CompleteReserve;
+  /**
+   * Whether this flow starts its fragmentainer, so the margins before its first
+   * content adjoin the break and truncate (CSS Fragmentation §5.2). bfc sets it
+   * for each child flow (true only while nothing precedes it on the
+   * fragmentainer); lockstep with fit-core. Undefined ⇒ true: the caller lays a
+   * fragmentainer root (a page, column or region body).
+   */
+  readonly atFragmentainerStart?: boolean;
+  /**
+   * The call lays the root of a fragmentation flow (a page body, a multicol
+   * column, a footnote body): its trailing end margin truncates at the
+   * fragmentainer end (CSS Fragmentation §5.2), so it never pushes or breaks.
+   * Not propagated to child flows.
+   */
+  readonly flowRoot?: boolean;
 }
 
 /**
@@ -276,4 +318,42 @@ export function normalizeBreakValue(raw: string): "auto" | "page" | "avoid" {
   if (raw === "page" || raw === "always") return "page";
   if (raw === "avoid" || raw === "avoid-page") return "avoid";
   return "auto";
+}
+
+/**
+ * True when a resume-token chain ultimately says "start from the
+ * beginning at every level": the chain is null, or each block-typed
+ * level resumes at child 0 with a degenerate inner token, or the
+ * terminal IFC level resumes at line 0. Used by the paginated-mode
+ * cache reuse check — a cached complete-block layout is
+ * a valid reuse target only when the requested call doesn't have
+ * partial mid-fragmentation state to honor.
+ *
+ * Note: `{block, resumeChildIndex:0, resumeChildToken:{ifc, resumeAtLine:0}}`
+ * is classified as degenerate because the CSS Fragmentation L4 §3.5
+ * overflow rule guarantees the first
+ * child always fits on a fragment — if it can't fit, the rule re-
+ * invokes layout without fragmentation and accepts the overflowing
+ * box. A token at child-0/line-0 can therefore only arise from a
+ * full-layout round-trip in practice, not from a genuine mid-
+ * fragmentation state. If the overflow rule ever changes (or a future FC introduces
+ * a different overflow rule), revisit this case — a non-degenerate
+ * `{idx:0, line:0}` token could silently win cache reuse and emit a
+ * complete-block layout where a partial-fragment was expected.
+ */
+export function isResumeFromDegenerate(rf: BreakToken | null): boolean {
+  if (rf === null) return true;
+  if (rf.type === "ifc") return rf.resumeAtLine === 0;
+  if (rf.type === "block") {
+    return rf.resumeChildIndex === 0 && isResumeFromDegenerate(rf.resumeChildToken);
+  }
+  // Other types (table) — be conservative.
+  return false;
+}
+
+function carriedFloatsEqual(a: readonly CarriedFloats[], b: readonly CarriedFloats[]): boolean {
+  return a.length === b.length && a.every((x, i) => {
+    const y = b[i];
+    return y !== undefined && x.fromLine === y.fromLine && x.untilLine === y.untilLine && placedFloatListsEqual(x.floats, y.floats);
+  });
 }

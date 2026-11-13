@@ -30,7 +30,19 @@ export interface AbsoluteRect {
  * so they are absent from the LineBox-canonical `LineIndex`; this index is the
  * geometry source object-selection consumes for them.
  */
-export type AtomicBoxIndex = ReadonlyMap<BlockId, AbsoluteRect>;
+export type AtomicBoxIndex = ReadonlyMap<BlockId, AtomicRect>;
+
+/**
+ * An atomic leaf's painted rect plus, for an IN-FLOW one (not floated, not
+ * abs-pos), its hit band: its row of the containing column — the parent box's
+ * extent along the inline axis, its own along the block axis. A click beside a
+ * narrow block image, on its row, selects it (Google Docs / Word keep the caret
+ * on the image's row, never the next paragraph). Floats have no band, so text
+ * wrapped beside them still resolves to text.
+ */
+export interface AtomicRect extends AbsoluteRect {
+  readonly hitBand?: AbsoluteRect;
+}
 
 /**
  * Cache keyed on the per-page `LayoutBox` identity. A new layout cycle produces
@@ -51,12 +63,13 @@ export function getAtomicBoxIndex(
 ): AtomicBoxIndex {
   const cached = _atomicBoxIndexCache.get(layoutTree);
   if (cached !== undefined) return cached;
-  const out = new Map<BlockId, AbsoluteRect>();
-  collect(layoutTree, 0, 0, 0, (box, rect) => {
+  const out = new Map<BlockId, AtomicRect>();
+  collect(layoutTree, 0, 0, 0, null, (box, rect, parent) => {
     if (box.type !== "block") return false;
     const atomicId = atomicLeafBlockFor(box.key, resolver, document);
     if (atomicId === null) return false;
-    out.set(atomicId, rect);
+    const inFlow = box.computedStyle.float === "none" && box.computedStyle.position !== "absolute";
+    out.set(atomicId, inFlow && parent !== null ? { ...rect, hitBand: rowBand(box, rect, parent) } : rect);
     // An atomic leaf has no atomic-leaf descendants; nothing to walk into.
     return true;
   });
@@ -83,7 +96,7 @@ export function getObjectBoxes(layoutTree: LayoutBox, document: Document): reado
   const cached = _objectBoxesCache.get(layoutTree);
   if (cached !== undefined) return cached;
   const out: ObjectBox[] = [];
-  collect(layoutTree, 0, 0, 0, (box, rect) => {
+  collect(layoutTree, 0, 0, 0, null, (box, rect) => {
     if (box.type !== "block" && box.type !== "table") return false;
     const id = coerceBlockId(box.key);
     const block = id === undefined ? null : resolveBlock(document, id)?.block ?? null;
@@ -143,24 +156,27 @@ function collect(
   parentX: number,
   parentY: number,
   pageIndex: number,
-  visit: (box: LayoutBox, rect: AbsoluteRect) => boolean,
+  // The parent box's absolute rect (`null` for the walk's root).
+  parent: AbsoluteRect | null,
+  visit: (box: LayoutBox, rect: AbsoluteRect, parent: AbsoluteRect | null) => boolean,
 ): void {
   if (box.type === "page") {
+    const pageRect: AbsoluteRect = { x: 0, y: 0, width: box.width, height: box.height, pageIndex: box.pageIndex };
     // Header/footer/footnote SLOTS are page-local BlockBoxes kept OUT of
     // `children` as named fields; descend them too (an image can live in a
     // header/footer body). Page-content frame origin `(0, 0)`, the page's own
     // `pageIndex`.
     if (box.headerSlot !== null) {
-      collect(box.headerSlot, 0, 0, box.pageIndex, visit);
+      collect(box.headerSlot, 0, 0, box.pageIndex, pageRect, visit);
     }
     for (const child of box.children) {
-      collect(child, 0, 0, box.pageIndex, visit);
+      collect(child, 0, 0, box.pageIndex, pageRect, visit);
     }
     if (box.footerSlot !== null) {
-      collect(box.footerSlot, 0, 0, box.pageIndex, visit);
+      collect(box.footerSlot, 0, 0, box.pageIndex, pageRect, visit);
     }
     if (box.footnoteSlot !== null) {
-      collect(box.footnoteSlot, 0, 0, box.pageIndex, visit);
+      collect(box.footnoteSlot, 0, 0, box.pageIndex, pageRect, visit);
     }
     return;
   }
@@ -169,15 +185,16 @@ function collect(
   const absX = parentX + box.x;
   const absY = parentY + box.y;
 
-  if (visit(box, { x: absX, y: absY, width: box.width, height: box.height, pageIndex })) return;
+  const rect: AbsoluteRect = { x: absX, y: absY, width: box.width, height: box.height, pageIndex };
+  if (visit(box, rect, parent)) return;
 
   if (box.type === "multicolumn") {
     for (const col of box.columns) {
-      collect(col, absX, absY, pageIndex, visit);
+      collect(col, absX, absY, pageIndex, rect, visit);
     }
   } else if ("children" in box) {
     for (const child of box.children) {
-      collect(child, absX, absY, pageIndex, visit);
+      collect(child, absX, absY, pageIndex, rect, visit);
     }
   }
 
@@ -186,7 +203,14 @@ function collect(
   // atomic leaf is reachable (mirrors `collectAbsoluteLineBoxes`).
   if (box.absoluteChildren !== undefined) {
     for (const absChild of box.absoluteChildren) {
-      collect(absChild, absX, absY, pageIndex, visit);
+      collect(absChild, absX, absY, pageIndex, rect, visit);
     }
   }
+}
+
+/** A box's row of its parent: the parent's extent on the inline axis, the box's on the block axis. */
+function rowBand(box: LayoutBox, rect: AbsoluteRect, parent: AbsoluteRect): AbsoluteRect {
+  return box.writingMode === "horizontal-tb"
+    ? { ...rect, x: parent.x, width: parent.width }
+    : { ...rect, y: parent.y, height: parent.height };
 }

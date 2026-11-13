@@ -7,6 +7,7 @@ import { createMockShaper } from "@taleweaver/core";
 import { makeRootContext } from "../layout/layout-context";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-box";
+import { rootFrame } from "../layout/parent-frame";
 
 const shaper = createMockShaper(10, 16);
 
@@ -40,7 +41,7 @@ describe("Anonymous box generation — end-to-end", () => {
     if (cascaded.type !== "element") throw new Error();
 
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const outResult = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const outResult = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (outResult.box === null) throw new Error("layoutBlock returned null box");
     const out = outResult.box;
 
@@ -67,7 +68,7 @@ describe("Anonymous box generation — end-to-end", () => {
     if (cascaded.type !== "element") throw new Error();
 
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 200);
-    const tableResult = layoutTable(cascaded, 0, 0, ctx, shaper, undefined);
+    const tableResult = layoutTable(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (tableResult.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
     const out = tableResult.box;
 
@@ -94,7 +95,7 @@ describe("Anonymous box generation — end-to-end", () => {
     if (cascaded.type !== "element") throw new Error();
 
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const tableResult = layoutTable(cascaded, 0, 0, ctx, shaper, undefined);
+    const tableResult = layoutTable(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (tableResult.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
     const out = tableResult.box;
 

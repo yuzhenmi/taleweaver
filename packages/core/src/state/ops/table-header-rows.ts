@@ -2,7 +2,7 @@ import type { Document } from "../document";
 import { getBlock } from "../document";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
-import type { TableGrid } from "../table-grid-core";
+import type { TableGrid } from "../../table-grid/assign-table-grid";
 
 /**
  * Pure validators for the `headerRowCount` table attr (repeating-header rows).

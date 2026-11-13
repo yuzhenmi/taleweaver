@@ -23,6 +23,7 @@ import { createElementBox, createTextBox } from "@taleweaver/core";
 import type { ElementBox } from "@taleweaver/core";
 import type { Style } from "@taleweaver/core";
 import { breakTokensEqual } from "../fragmentation";
+import type { BreakToken } from "../fragmentation";
 import type { PageConfig } from "../page-config";
 import { buildBlockFitMetas } from "../build-fit-metas";
 import { measurePass, measurePassUnsupported, paginationFallsBackToLegacy } from "../measure-pass";
@@ -30,14 +31,15 @@ import type { PagePlanEntry } from "../measure-pass";
 import { IMPLICIT_SECTION_PLAN } from "../section-plan";
 import type { LineBox } from "../layout-box";
 import { runOracle, nth } from "./equivalence-oracle";
+import { rootFrame } from "../parent-frame";
 
 /**
  * Run the full equivalence assertion for a cascaded root: oracle vs measurePass.
  * Also exercises `paginateRoot` to confirm the page count matches the page-by-
  * page oracle (a sanity tie-back to the real production paginator).
  */
-function assertEquivalent(root: ElementBox, pageConfig: PageConfig, hyphenator?: Hyphenator): void {
-  const shaper = createMockShaper(8, 16);
+function assertEquivalent(root: ElementBox, pageConfig: PageConfig, hyphenator?: Hyphenator, lineHeight = 16): void {
+  const shaper = createMockShaper(8, lineHeight);
   const oracle = runOracle(root, shaper, pageConfig, hyphenator);
 
   // Tie-back: paginateRoot (the real production entry) must produce the same
@@ -45,13 +47,13 @@ function assertEquivalent(root: ElementBox, pageConfig: PageConfig, hyphenator?:
   const paginated = paginateRoot(
     root,
     makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize),
-    createMockShaper(8, 16), hyphenator, pageConfig,
+    createMockShaper(8, lineHeight), hyphenator, pageConfig,
   );
   expect(paginated.children.length).toBe(oracle.pages.length);
 
   const pageContentInlineSize =
     pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
-  const metas = buildBlockFitMetas(root, createMockShaper(8, 16), hyphenator, pageContentInlineSize);
+  const metas = buildBlockFitMetas(root, createMockShaper(8, lineHeight), hyphenator, pageContentInlineSize);
   const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
 
   // Page count.
@@ -449,10 +451,8 @@ describe("measure-pass equivalence — (e) mixed block+inline container content"
 // ---------------------------------------------------------------------------
 // (f) PADDED / BORDERED container (#254): block-axis padding/border insets the
 // children's available space and adds to the container's consumed height.
-// bfc starts `childBlockOffset` at paddingBlockStart and ends the box at
-// childBlockOffset + paddingBlockEnd; border-block-width does NOT shift block-
-// axis geometry in this engine (it only governs margin-collapse-through via
-// noTopBoundary/noBottomBoundary). The oracle settles the border question.
+// bfc starts `childBlockOffset` at border + padding block-start and ends the box
+// at childBlockOffset + padding + border block-end (BM3: borders take block space).
 // ---------------------------------------------------------------------------
 
 describe("measure-pass equivalence — (f) padded/bordered container space", () => {
@@ -480,7 +480,10 @@ describe("measure-pass equivalence — (f) padded/bordered container space", () 
   it("bordered container spanning a boundary (settles border's geometry role)", () => {
     const quote = createElementBox(
       "quote",
-      { display: "block", borderBlockStartWidth: 10, borderBlockEndWidth: 10 } as Style,
+      {
+        display: "block", borderBlockStartWidth: 10, borderBlockEndWidth: 10,
+        borderBlockStartStyle: "solid", borderBlockEndStyle: "solid",
+      } as Style,
       [paragraph("q0", 4), paragraph("q1", 4), paragraph("q2", 4)],
     );
     const root = cascadeRoot({ display: "block" }, [quote]);
@@ -496,6 +499,8 @@ describe("measure-pass equivalence — (f) padded/bordered container space", () 
         paddingBlockEnd: 15,
         borderBlockStartWidth: 5,
         borderBlockEndWidth: 5,
+        borderBlockStartStyle: "solid",
+        borderBlockEndStyle: "solid",
       } as Style,
       [paragraph("q0", 4), paragraph("q1", 4), paragraph("q2", 4)],
     );
@@ -510,6 +515,296 @@ describe("measure-pass equivalence — (f) padded/bordered container space", () 
       [paragraph("q0", 4), paragraph("q1", 4)],
     );
     const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 50), quote]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  // T-s / BM4: a paragraph's OWN block padding + border, sliced across fragments
+  // (start on the first fragment, end on the last).
+  it("padded paragraph leaf (padding 10/6, 12 lines) across pages", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      paragraph("p", 12, { paddingBlockStart: 10, paddingBlockEnd: 6 }),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("bordered + padded paragraph leaf after a block, then a block on the last page", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 40),
+      paragraph("p", 14, {
+        paddingBlockStart: 4, paddingBlockEnd: 5,
+        borderBlockStartWidth: 2, borderBlockEndWidth: 3,
+        borderBlockStartStyle: "solid", borderBlockEndStyle: "solid",
+      }),
+      fixedBlock("b1", 30),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("padded paragraph whose end padding alone overflows: the last lines move with it", () => {
+    // 30 + 4 lines = 94 fits; the 10px end padding does not → refit in 60.
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 30),
+      paragraph("p", 4, { paddingBlockEnd: 10 }),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("first on the page, the end padding breaks before the last lines instead of overflowing", () => {
+    const root = cascadeRoot({ display: "block" }, [paragraph("p", 6, { paddingBlockEnd: 10 })]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("the end-padding refit leaves too few lines (orphans): the paragraph moves whole", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 50),
+      paragraph("p", 3, { paddingBlockEnd: 6 }),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  // BM4 reserve: a box that completes here must leave room for the end
+  // decorations of the ancestors that complete with it.
+  const ended = (key: string, w: number, children: ElementBox[]) =>
+    createElementBox(key, { display: "block", borderBlockEndWidth: w, borderBlockEndStyle: "solid" } as Style, children);
+
+  it("reserve: a container's end border moves its last paragraph's last lines", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 30),
+      ended("c", 10, [paragraph("p", 4, { borderBlockEndWidth: 2, borderBlockEndStyle: "solid" })]),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("reserve: nested C1 > C2 > P", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 30), ended("c1", 4, [ended("c2", 4, [paragraph("p", 4)])]),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("reserve: an unsplittable last child moves whole", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 20), ended("c", 10, [paragraph("p", 2), fixedBlock("f", 40)]),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("reserve: a last bare inline run in a mixed container", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 30), ended("c", 10, [fixedBlock("m0", 6), bareInlineRun("r", 4)]),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("reserve: a last table's last rows move with the container's end border", () => {
+    const rows = Array.from({ length: 4 }, (_, i) =>
+      createElementBox(`row-${i}`, { display: "table-row", blockSize: 22 } as Style, [
+        createElementBox(`cell-${i}`, { display: "table-cell" } as Style, [createTextBox(`ct-${i}`, {}, "x")]),
+      ]));
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 10), ended("c", 10, [createElementBox("tbl", { display: "table" } as Style, rows)]),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("reserve: a last child's end margin enclosed by the container's end border", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 10), ended("c", 2, [paragraph("p", 5, { marginBlockEnd: 12 })]),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("reserve: a last child's end margin collapses through an undecorated container", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 10),
+      createElementBox("c", { display: "block" } as Style, [paragraph("p", 5, { marginBlockEnd: 12 })]),
+      fixedBlock("b1", 30),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("reserve: an enclosed margin carried through an undecorated middle container", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 10),
+      ended("c1", 2, [createElementBox("c2", { display: "block", marginBlockEnd: 6 } as Style, [paragraph("p", 5, { marginBlockEnd: 12 })])]),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("reserve: a collapse-through empty last child carries its collapsed margin", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      // P ends at 80 + its 12px margin = 92; the empty block's 8px end margin
+      // collapses into that 12 → C = 94 fits (8 more would not).
+      ended("c", 2, [paragraph("p", 5, { marginBlockEnd: 12 }), createElementBox("e", { display: "block", marginBlockEnd: 8 } as Style, [])]),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("reserve: a margin collapsing through an undecorated middle box is enclosed by the outer border (BM5)", () => {
+    // P's 12px margin collapses through B and is enclosed by A's end border:
+    // A = 80 + 12 + 2 = 94 at 10 overflows the page, so P's last lines move with
+    // the border. Reserve 14 leaves P 76 → 4 lines; widows 2 → 3 lines here.
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 10),
+      ended("a", 2, [createElementBox("b", { display: "block" } as Style, [paragraph("p", 5, { marginBlockEnd: 12 })])]),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+    const oracle = runOracle(root, createMockShaper(8, 16), noMarginPageConfig(100));
+    const resumeAt = (t: BreakToken | null): number | null => {
+      if (t === null) return null;
+      if (t.type === "ifc") return t.resumeAtLine;
+      return t.type === "block" ? resumeAt(t.resumeChildToken) : null;
+    };
+    expect([oracle.pages.length, resumeAt(nth(oracle.pages, 0, "page").resumeOut)]).toEqual([2, 3]);
+  });
+
+  it("reserve: a last child whose children are all empty collapses through, as in bfc", () => {
+    const d = createElementBox("d", { display: "block", marginBlockEnd: 8 } as Style, [createElementBox("e", { display: "block" } as Style, [])]);
+    const root = cascadeRoot({ display: "block" }, [
+      ended("c", 2, [paragraph("p", 5, { marginBlockEnd: 12 }), d]),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("a resumed container's last fragment ending in a collapse-through empty child", () => {
+    // Page 1: C's start border + 6 lines; page 2: the remaining line, P's 12px
+    // margin, the empty E whose 8px end margin collapses into it, the border, then b1.
+    const root = cascadeRoot({ display: "block" }, [
+      createElementBox("c", {
+        display: "block", borderBlockStartWidth: 2, borderBlockEndWidth: 2,
+        borderBlockStartStyle: "solid", borderBlockEndStyle: "solid",
+      } as Style, [
+        paragraph("p", 9, { marginBlockEnd: 12 }),
+        createElementBox("e", { display: "block", marginBlockEnd: 8 } as Style, []),
+      ]),
+      // bfc: C's last fragment = 48 + 12 + 2 = 62, so b1 (34) fits on page 2.
+      fixedBlock("b1", 34),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("a 0-height paragraph between margins collapses through, as in bfc", () => {
+    // bfc: b0 80; the empty paragraph takes no space and its 10/10 margins
+    // collapse into one 10 → b1 at 90..98 fits on page 1.
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 80),
+      paragraph("z", 1, { marginBlockStart: 10, marginBlockEnd: 10 }),
+      fixedBlock("b1", 8),
+    ]);
+    // A 0-line-height shaper makes the paragraph 0 tall.
+    assertEquivalent(root, noMarginPageConfig(100), undefined, 0);
+  });
+
+  // BM5 margin collapse (CSS 2.1 §8.3.1) and T-w (CSS Fragmentation §5.2).
+  const chainA = (bStyle: Style) => createElementBox("a", { display: "block", marginBlockEnd: 5 } as Style, [
+    createElementBox("b", bStyle, [paragraph("p", 2, { marginBlockEnd: 20 })]),
+  ]);
+
+  it("BM5: a last child's end margin collapses through A > B into one margin before S", () => {
+    // A ends at 82; S at 82 + 20 = 102 moves to page 2 (at + 10 it would fit).
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 50), chainA({ display: "block" } as Style), fixedBlock("s", 5, { marginBlockStart: 10 }),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("BM5: B's end border keeps P's margin inside B", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 40),
+      chainA({ display: "block", borderBlockEndWidth: 1, borderBlockEndStyle: "solid" } as Style),
+      fixedBlock("s", 5, { marginBlockStart: 10 }),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("BM5: a first child's top margin collapses through its parent", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 50),
+      createElementBox("a", { display: "block" } as Style, [fixedBlock("c", 25, { marginBlockStart: 30 })]),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("T-w: mid-page first-child margins are kept inside a BFC root and below a top border", () => {
+    const firstChild = (key: string) => fixedBlock(key, 10, { marginBlockStart: 20 });
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 20),
+      createElementBox("fr", { display: "flow-root" } as Style, [firstChild("fr-p")]),
+      createElementBox("d", { display: "block", borderBlockStartWidth: 2, borderBlockStartStyle: "solid" } as Style, [firstChild("d-p")]),
+      fixedBlock("b1", 10),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("T-w: a BFC root's first-child margin at the page start truncates", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 95),
+      createElementBox("fr", { display: "flow-root" } as Style, [fixedBlock("fr-p", 30, { marginBlockStart: 20 })]),
+      fixedBlock("b1", 55),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("BM5 r1: a collapsing container holding a flow-root at the page top drops the truncated margin", () => {
+    // Page 2 starts with C > G(flow-root) > P(space-before 20): truncated, C = 30,
+    // so b1 (70) still fits beside it.
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 95),
+      createElementBox("c", { display: "block" } as Style, [
+        createElementBox("g", { display: "flow-root" } as Style, [fixedBlock("p", 30, { marginBlockStart: 20 })]),
+      ]),
+      fixedBlock("b1", 70),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("BM5 r1: the page's last child's end margin overflowing the page truncates", () => {
+    const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 90), fixedBlock("p", 8, { marginBlockEnd: 12 })]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("BM5 r1: a nested flow-root encloses its last child's end margin in the reserve", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 10),
+      createElementBox("fr", { display: "flow-root" } as Style, [paragraph("p", 5, { marginBlockEnd: 12 })]),
+    ]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("reserve: a splitting last child is not shrunk", () => {
+    const root = cascadeRoot({ display: "block" }, [ended("c", 10, [paragraph("p", 10)])]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("a bordered container's fragment drops the next child's top margin at the break", () => {
+    const c = createElementBox(
+      "c",
+      {
+        display: "block", borderBlockStartWidth: 2, borderBlockEndWidth: 2,
+        borderBlockStartStyle: "solid", borderBlockEndStyle: "solid",
+      } as Style,
+      [paragraph("p1", 3), paragraph("p2", 3, { marginBlockStart: 20 })],
+    );
+    const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 40), c]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("a first-on-page container that overflows yet split resumes on the next page", () => {
+    const c = createElementBox("c", { display: "block" } as Style, [
+      paragraph("tall", 8, { breakInside: "avoid" }), paragraph("p", 3),
+    ]);
+    const root = cascadeRoot({ display: "block" }, [c]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("padded container resumed on the next page, followed by a block there", () => {
+    const quote = createElementBox(
+      "quote",
+      { display: "block", paddingBlockStart: 20, paddingBlockEnd: 20 } as Style,
+      [paragraph("q0", 4), paragraph("q1", 2)],
+    );
+    // Page 1: 20 + 4 lines; q1 moves. Page 2: q1 + end padding (52), then b1 fits.
+    const root = cascadeRoot({ display: "block" }, [quote, fixedBlock("b1", 30)]);
     assertEquivalent(root, noMarginPageConfig(100));
   });
 
@@ -554,7 +849,10 @@ describe("measurePassUnsupported gate after #253/#254", () => {
   it("bordered container is now SUPPORTED (false)", () => {
     const quote = createElementBox(
       "quote",
-      { display: "block", borderBlockStartWidth: 10, borderBlockEndWidth: 10 } as Style,
+      {
+        display: "block", borderBlockStartWidth: 10, borderBlockEndWidth: 10,
+        borderBlockStartStyle: "solid", borderBlockEndStyle: "solid",
+      } as Style,
       [paragraph("q0", 4), paragraph("q1", 4)],
     );
     const root = cascadeRoot({ display: "block" }, [quote]);
@@ -579,7 +877,7 @@ describe("measurePassUnsupported gate after #253/#254", () => {
     // `measurePassUnsupported` now flags ONLY position:absolute (float/clear lifted).
     expect(measurePassUnsupported(root)).toBe(false);
     // A single-column, footnote-free float doc routes to the virtualized fast path.
-    expect(paginationFallsBackToLegacy(root, [])).toBe(false);
+    expect(paginationFallsBackToLegacy(root)).toBe(false);
   });
 
   it("single-column clear:both document is no longer measurePassUnsupported, and uses the virtual fast path (VL float fast-path)", () => {
@@ -588,7 +886,7 @@ describe("measurePassUnsupported gate after #253/#254", () => {
     ]);
     const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 40), cleared]);
     expect(measurePassUnsupported(root)).toBe(false);
-    expect(paginationFallsBackToLegacy(root, [])).toBe(false);
+    expect(paginationFallsBackToLegacy(root)).toBe(false);
   });
 
   it("position:absolute document is UNSUPPORTED (true) — must fall back to legacy positioned layout", () => {
@@ -866,7 +1164,7 @@ describe("measure-pass equivalence — (k) auto-hyphenation", () => {
     // were not threaded correctly), making the equivalence assertion vacuous.
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const contentCtx: LayoutContext = { ...ctx, containingInlineSize: pageConfig.pageInlineSize };
-    const { box: rootBox } = layoutBlock(root, 0, 0, contentCtx, createMockShaper(8, 16), hyphenator, {
+    const { box: rootBox } = layoutBlock(root, 0, 0, rootFrame(contentCtx), contentCtx, createMockShaper(8, 16), hyphenator, {
       availableBlockSize: 999999,
       pageIndex: 0,
       resumeFrom: null,

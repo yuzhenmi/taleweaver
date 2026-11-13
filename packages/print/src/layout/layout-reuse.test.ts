@@ -3,7 +3,7 @@ import { createElementBox, createTextBox } from "@taleweaver/core";
 import { cascadePass, cascadePassIncremental } from "@taleweaver/core";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import { makeRootContext } from "./layout-context";
-import { layoutBlock } from "./bfc";
+import { layoutBlock, __getLayoutCacheStatsForTest, __resetLayoutCacheStatsForTest } from "./bfc";
 import { createMockShaper } from "@taleweaver/core";
 import {
   isLayoutBoxReusable,
@@ -19,6 +19,8 @@ import { layoutTree } from "./dispatch";
 import { layoutTreeIncremental } from "./layout-incremental";
 import { positionTreeForTest } from "../test-utils/position-tree";
 import type { LayoutBox } from "./layout-box";
+import { rootFrame } from "./parent-frame";
+import { computeUsedStyle } from "./used-style";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -86,6 +88,19 @@ describe("isLayoutBoxReusable", () => {
   it("does not reuse when availableInlineSize differs", () => {
     const prev = makeBlockBox({ inlineSize: 500 });
     expect(isLayoutBoxReusable(prev, makeInputs({ availableInlineSize: 400 }))).toBe(false);
+  });
+
+  it("with a caller-resolved size, does not reuse when its used style's percent basis changed", () => {
+    // Cached at basis 600: reused at 600, not at 500 — for every percent field
+    // of the used style (inline / block padding, a margin), not a listed few.
+    const pct = { value: 10, unit: "percent" } as const;
+    for (const field of ["paddingInlineStart", "paddingBlockStart", "marginInlineStart"] as const) {
+      const cs = { ...INITIAL_COMPUTED_STYLE, [field]: pct };
+      const prev = createBlockBox("f", 0, 0, 160, 20, cs.writingMode, cs.direction, cs, computeUsedStyle(cs, 600, "indefinite"), [], 600);
+      const inputs = (percentBasis: number) => makeInputs({ computedStyle: cs, availableInlineSize: 160, percentBasis });
+      expect([field, isLayoutBoxReusable(prev, inputs(600))]).toEqual([field, true]);
+      expect([field, isLayoutBoxReusable(prev, inputs(500))]).toEqual([field, false]);
+    }
   });
 
   it("does not reuse when writingMode differs", () => {
@@ -171,7 +186,7 @@ describe("buildLayoutBoxCacheFromTree", () => {
     const cascaded = cascadePass(parent);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const rootResult = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const rootResult = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (rootResult.box === null) throw new Error("layoutBlock returned null box");
     const rootBox = rootResult.box;
     const cache = buildLayoutBoxCacheFromTree(rootBox, cascaded);
@@ -204,7 +219,7 @@ describe("buildLayoutBoxCacheFromTree", () => {
     const cascaded = cascadePass(parent);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const rootResult = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const rootResult = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (rootResult.box === null) throw new Error("layoutBlock returned null box");
     const cache = buildLayoutBoxCacheFromTree(rootResult.box, cascaded);
     // The flattened grandchildren are indexed (reachable for reuse).
@@ -230,7 +245,7 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     if (cascaded.type !== "element") throw new Error("?");
 
     const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r1 = layoutBlock(cascaded, 0, 0, ctx1, shaper, undefined);
+    const r1 = layoutBlock(cascaded, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined);
     if (r1.box === null) throw new Error("layoutBlock returned null box");
     if (r1.box.type !== "block") throw new Error("layoutBlock returned non-block box");
     const out1 = r1.box;
@@ -259,7 +274,7 @@ describe("layoutBlock subtree reuse (incremental)", () => {
       prevLayoutCache: prevCache,
       prevFloatEnv: null,
     };
-    const r2 = layoutBlock(cascadedEdited, 0, 0, ctx2, shaper, undefined);
+    const r2 = layoutBlock(cascadedEdited, 0, 0, rootFrame(ctx2), ctx2, shaper, undefined);
     if (r2.box === null) throw new Error("layoutBlock returned null box");
     if (r2.box.type !== "block") throw new Error("layoutBlock returned non-block box");
     const out2 = r2.box;
@@ -273,6 +288,76 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     const p1Box1 = out1.children.find((c) => c.key === "p1");
     const p1Box2 = out2.children.find((c) => c.key === "p1");
     expect(p1Box2).not.toBe(p1Box1);
+  });
+
+  it("a cached fragment of a split box is never reused as the whole box (BM4)", () => {
+    const text = Array.from({ length: 8 }, () => "x").join("\n");
+    const p = createElementBox("p", { display: "block", whiteSpace: "pre", paddingBlockEnd: 6 }, [createTextBox("t", { whiteSpace: "pre" }, text)]);
+    const doc = cascadePass(createElementBox("doc", { display: "block" }, [p]));
+    if (doc.type !== "element") throw new Error("?");
+    const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const page1 = layoutBlock(doc, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined, { availableBlockSize: 100, pageIndex: 0, resumeFrom: null }).box;
+    if (page1 === null) throw new Error("null box");
+    const fragment = page1.type === "block" ? page1.children[0] : undefined;
+    expect(fragment?.sidesToInclude).toEqual({ blockStart: true, blockEnd: false });
+    const ctx2: LayoutContext = { ...makeRootContext(INITIAL_COMPUTED_STYLE, 600), prevLayoutCache: buildLayoutBoxCacheFromTree(page1, doc), prevFloatEnv: null };
+    const whole = layoutBlock(doc, 0, 0, rootFrame(ctx2), ctx2, shaper, undefined).box;
+    const pBox = whole !== null && whole.type === "block" ? whole.children[0] : undefined;
+    expect(pBox).not.toBe(fragment);
+    expect(pBox?.sidesToInclude).toBeUndefined();
+    expect(pBox?.blockSize).toBe(8 * 16 + 6);
+  });
+
+  it("a reused float with a percent relative offset takes the offset of its new containing block", () => {
+    const f = createElementBox("f", { display: "block", float: "inline-start", inlineSize: 100, position: "relative", insetInlineStart: { value: 10, unit: "percent" } }, [createTextBox("t", {}, "a")]);
+    const doc = cascadePass(createElementBox("doc", { display: "block" }, [f]));
+    if (doc.type !== "element") throw new Error("?");
+    const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const out1 = layoutBlock(doc, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined).box;
+    if (out1 === null) throw new Error("null box");
+    const ctx2: LayoutContext = { ...makeRootContext(INITIAL_COMPUTED_STYLE, 500), prevLayoutCache: buildLayoutBoxCacheFromTree(out1, doc), prevFloatEnv: null };
+    const out2 = layoutBlock(doc, 0, 0, rootFrame(ctx2), ctx2, shaper, undefined).box;
+    const float2 = out2 !== null && "children" in out2 ? out2.children.find((c) => c.key === "f") : undefined;
+    // Same resolved size (100), containing block 600 → 500: dx 10% of 500.
+    expect(float2?.relativeOffset).toEqual({ dx: 50, dy: 0 });
+  });
+
+  it("a reused box is repositioned when only its parent's frame changed (B5)", () => {
+    const p = createElementBox("p", { display: "block", direction: "rtl" }, [createTextBox("t", {}, "abc")]);
+    const doc = cascadePass(createElementBox("doc", { display: "block", direction: "rtl", paddingInlineStart: 20, paddingInlineEnd: 10 }, [p]));
+    if (doc.type !== "element") throw new Error("?");
+    const rtl = { ...INITIAL_COMPUTED_STYLE, direction: "rtl" as const };
+    const ctx1 = makeRootContext(rtl, 600);
+    const out1 = layoutBlock(doc, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined).box;
+    if (out1 === null) throw new Error("null box");
+    const pBox1 = out1.children.find((c) => c.key === "p");
+    const pNode = doc.children[0];
+    if (pBox1 === undefined || pBox1.type !== "block" || pNode === undefined || pNode.type !== "element") throw new Error("?");
+    expect(pBox1.x).toBe(10);
+    // Same node, same offset + area (570), but the parent's border box is now 650
+    // wide, then LTR: the cached content is reused, the box itself moves.
+    const ctx2: LayoutContext = { ...makeRootContext(rtl, 570), prevLayoutCache: buildLayoutBoxCacheFromTree(out1, doc), prevFloatEnv: null };
+    for (const [frame, x] of [[{ direction: "rtl", inlineSize: 650 }, 60], [{ direction: "ltr", inlineSize: 600 }, 20]] as const) {
+      const pBox2 = layoutBlock(pNode, 20, 0, frame, ctx2, shaper, undefined).box;
+      if (pBox2 === null || pBox2.type !== "block") throw new Error("?");
+      expect(pBox2.x).toBe(x);
+      expect(pBox2.children[0]).toBe(pBox1.children[0]);
+    }
+  });
+
+  it("a reused relatively-positioned box takes the offset of its new frame direction (B5)", () => {
+    const p = createElementBox("p", { display: "block", direction: "rtl", position: "relative", insetInlineStart: 10 }, [createTextBox("t", {}, "abc")]);
+    const doc = cascadePass(createElementBox("doc", { display: "block", direction: "rtl" }, [p]));
+    if (doc.type !== "element") throw new Error("?");
+    const rtl = { ...INITIAL_COMPUTED_STYLE, direction: "rtl" as const };
+    const ctx1 = makeRootContext(rtl, 600);
+    const out1 = layoutBlock(doc, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined).box;
+    const pNode = doc.children[0];
+    if (out1 === null || pNode === undefined || pNode.type !== "element") throw new Error("?");
+    expect(out1.children.find((c) => c.key === "p")?.relativeOffset).toEqual({ dx: -10, dy: 0 });
+    const ctx2: LayoutContext = { ...makeRootContext(rtl, 600), prevLayoutCache: buildLayoutBoxCacheFromTree(out1, doc), prevFloatEnv: null };
+    const pBox2 = layoutBlock(pNode, 0, 0, { direction: "ltr", inlineSize: 600 }, ctx2, shaper, undefined).box;
+    expect(pBox2?.relativeOffset).toEqual({ dx: 10, dy: 0 });
   });
 
   it("reused box's inFlowConsumed excludes an enclosed taller float (not box.blockSize)", () => {
@@ -294,7 +379,7 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     // Fresh layout: blockSize is dragged up to the float (≥60); inFlowConsumed
     // is the short text line (<60).
     const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r1 = layoutBlock(tree, 0, 0, ctx1, shaper, undefined);
+    const r1 = layoutBlock(tree, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined);
     if (r1.box === null) throw new Error("layoutBlock returned null box");
     if (r1.box.type !== "block") throw new Error("expected block root");
     expect(r1.box.blockSize).toBeGreaterThanOrEqual(60);
@@ -319,7 +404,7 @@ describe("layoutBlock subtree reuse (incremental)", () => {
       prevLayoutCache: prevCache,
       prevFloatEnv: null,
     };
-    const r2 = layoutBlock(tree, 0, 0, ctx2, shaper, undefined);
+    const r2 = layoutBlock(tree, 0, 0, rootFrame(ctx2), ctx2, shaper, undefined);
     if (r2.box === null) throw new Error("layoutBlock returned null box");
     if (r2.box.type !== "block") throw new Error("expected block root");
     // Cache reuse fired (same box reference returned for same-position hit).
@@ -335,7 +420,7 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     if (cascaded.type !== "element") throw new Error("?");
 
     const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r3 = layoutBlock(cascaded, 0, 0, ctx1, shaper, undefined);
+    const r3 = layoutBlock(cascaded, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined);
     if (r3.box === null) throw new Error("layoutBlock returned null box");
     if (r3.box.type !== "block") throw new Error("layoutBlock returned non-block box");
     const out1 = r3.box;
@@ -349,7 +434,7 @@ describe("layoutBlock subtree reuse (incremental)", () => {
       prevLayoutCache: prevCache,
       prevFloatEnv: null,
     };
-    const r4 = layoutBlock(cascaded, 0, 0, ctx2, shaper, undefined);
+    const r4 = layoutBlock(cascaded, 0, 0, rootFrame(ctx2), ctx2, shaper, undefined);
     if (r4.box === null) throw new Error("layoutBlock returned null box");
     if (r4.box.type !== "block") throw new Error("layoutBlock returned non-block box");
     const out2 = r4.box;
@@ -364,7 +449,7 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     if (cascaded.type !== "element") throw new Error("?");
 
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r5 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const r5 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (r5.box === null) throw new Error("layoutBlock returned null box");
     const out = r5.box;
     expect(out.type).toBe("block");
@@ -385,7 +470,7 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     if (cascadedA.type !== "element") throw new Error("?");
 
     const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r6 = layoutBlock(cascadedA, 0, 0, ctx1, shaper, undefined);
+    const r6 = layoutBlock(cascadedA, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined);
     if (r6.box === null) throw new Error("layoutBlock returned null box");
     const out1 = r6.box;
     const docBox1 = out1;
@@ -408,12 +493,120 @@ describe("layoutBlock subtree reuse (incremental)", () => {
       prevLayoutCache: prevCache,
       prevFloatEnv: null,
     };
-    const r7 = layoutBlock(cascadedB, 0, 0, ctx2, shaper, undefined);
+    const r7 = layoutBlock(cascadedB, 0, 0, rootFrame(ctx2), ctx2, shaper, undefined);
     if (r7.box === null) throw new Error("layoutBlock returned null box");
     const out2 = r7.box;
 
     // The parent box itself is reused: same reference as before.
     expect(out2).toBe(docBox1);
+  });
+});
+
+// F3: a paragraph that holds a float, or sits beside one, is never reused
+// (block reuse) and never takes the IFC wrap-cache fast path.
+describe("float paragraphs are not reused (P3 F3)", () => {
+  const WORDS = "aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll";
+  // A wrapped inline image: a floated inline-block atom in the paragraph's inline run.
+  const floatAtom = (width: number) => createElementBox("img", { display: "inline-block", float: "inline-start", inlineSize: width, blockSize: 48 }, []);
+  const para = (key: string, children: Parameters<typeof createElementBox>[2]) => createElementBox(key, { display: "block" }, children);
+  // p0 holds a 48px-tall float; p1 starts at y=16, beside it; p2 starts below it.
+  function doc(floatWidth: number, p1Text: string, p1?: ReturnType<typeof para>, p2?: ReturnType<typeof para>, p0?: ReturnType<typeof para>) {
+    return createElementBox("doc", { display: "block" }, [
+      p0 ?? para("p0", [floatAtom(floatWidth), createTextBox("t0", { display: "inline" }, "ab")]),
+      p1 ?? para("p1", [createTextBox("t1", { display: "inline" }, p1Text)]),
+      p2 ?? para("p2", [createTextBox("t2", { display: "inline" }, "x\ny\nz\nw\nv")]),
+    ]);
+  }
+  function child(box: LayoutBox | null, key: string): BlockBox {
+    const c = box !== null && box.type === "block" ? box.children.find((b) => b.key === key) : undefined;
+    if (c === undefined || c.type !== "block") throw new Error(`no ${key}`);
+    return c;
+  }
+  const firstLine = (p: BlockBox) => {
+    const l = p.children.find((c) => c.type === "line");
+    if (l === undefined) throw new Error("no line");
+    return l;
+  };
+
+  it("block reuse: a reused paragraph holding a float still excludes it (an edited neighbour wraps around it)", () => {
+    const a = doc(100, WORDS);
+    const ca = cascadePass(a);
+    if (ca.type !== "element") throw new Error("?");
+    const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const out1 = layoutBlock(ca, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined).box;
+    expect(firstLine(child(out1, "p1")).x).toBe(100);
+    // Edit p1 only; p0 (holding the float) is unchanged by reference.
+    const b = doc(100, WORDS + " mmmm", undefined, a.children[2] as ReturnType<typeof para>, a.children[0] as ReturnType<typeof para>);
+    const cb = cascadePassIncremental(b, a, ca);
+    if (cb.type !== "element") throw new Error("?");
+    const ctx2: LayoutContext = { ...makeRootContext(INITIAL_COMPUTED_STYLE, 500), prevLayoutCache: buildLayoutBoxCacheFromTree(out1 as LayoutBox, ca), prevFloatEnv: null };
+    const out2 = layoutBlock(cb, 0, 0, rootFrame(ctx2), ctx2, shaper, undefined).box;
+    expect(child(out2, "p0").children.some((c) => c.key === "img")).toBe(true);
+    expect(firstLine(child(out2, "p1")).x).toBe(100);
+  });
+
+  it("block reuse: an empty wrapper holding only a float (collapsed through) still excludes it", () => {
+    const wrapper = createElementBox("w", { display: "block" }, [
+      createElementBox("img", { display: "block", float: "inline-start", inlineSize: 100, blockSize: 48 }, []),
+    ]);
+    const a = createElementBox("doc", { display: "block" }, [wrapper, para("p1", [createTextBox("t1", { display: "inline" }, WORDS)])]);
+    const ca = cascadePass(a);
+    if (ca.type !== "element") throw new Error("?");
+    const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const out1 = layoutBlock(ca, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined).box;
+    expect(firstLine(child(out1, "p1")).x).toBe(100);
+    // Edit p1 only; the wrapper is the same node.
+    const b = createElementBox("doc", { display: "block" }, [wrapper, para("p1", [createTextBox("t1", { display: "inline" }, WORDS + " mmmm")])]);
+    const cb = cascadePassIncremental(b, a, ca);
+    if (cb.type !== "element") throw new Error("?");
+    const ctx2: LayoutContext = { ...makeRootContext(INITIAL_COMPUTED_STYLE, 500), prevLayoutCache: buildLayoutBoxCacheFromTree(out1 as LayoutBox, ca), prevFloatEnv: null };
+    const out2 = layoutBlock(cb, 0, 0, rootFrame(ctx2), ctx2, shaper, undefined).box;
+    expect(firstLine(child(out2, "p1")).x).toBe(100);
+  });
+
+  it("block reuse: a paragraph beside an earlier paragraph's float is re-laid when the float changes; one far from it is reused", () => {
+    const a = doc(100, WORDS);
+    const ca = cascadePass(a);
+    if (ca.type !== "element") throw new Error("?");
+    const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const out1 = layoutBlock(ca, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined).box;
+    const p1Before = child(out1, "p1");
+    const p2Before = child(out1, "p2");
+    expect(p2Before.y).toBeGreaterThanOrEqual(48);
+    // Widen the float; p1 and p2 are the same nodes.
+    const ap = a.children;
+    const b = doc(150, WORDS, ap[1] as ReturnType<typeof para>, ap[2] as ReturnType<typeof para>);
+    const cb = cascadePassIncremental(b, a, ca);
+    if (cb.type !== "element") throw new Error("?");
+    const ctx2: LayoutContext = { ...makeRootContext(INITIAL_COMPUTED_STYLE, 500), prevLayoutCache: buildLayoutBoxCacheFromTree(out1 as LayoutBox, ca), prevFloatEnv: null };
+    __resetLayoutCacheStatsForTest();
+    const out2 = layoutBlock(cb, 0, 0, rootFrame(ctx2), ctx2, shaper, undefined).box;
+    expect(child(out2, "p1")).not.toBe(p1Before);
+    expect(firstLine(child(out2, "p1")).x).toBe(150);
+    // Perf guard: p2, below the float, is still reused.
+    expect(child(out2, "p2")).toBe(p2Before);
+    expect(__getLayoutCacheStatsForTest().hits).toBe(1);
+  });
+
+  it("IFC wrap cache: a paragraph holding a float re-wraps when the float changes; one far from it hits the cache", () => {
+    const a = doc(100, WORDS);
+    const ca = cascadePass(a);
+    if (ca.type !== "element") throw new Error("?");
+    const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const out1 = layoutBlock(ca, 0, 0, rootFrame(ctx1), ctx1, shaper, undefined).box;
+    expect(firstLine(child(out1, "p0")).x).toBe(100);
+    const ap = a.children;
+    const b = doc(150, WORDS, ap[1] as ReturnType<typeof para>, ap[2] as ReturnType<typeof para>);
+    const cb = cascadePassIncremental(b, a, ca);
+    if (cb.type !== "element") throw new Error("?");
+    // No block reuse: only the IFC wrap cache carries over.
+    const ctx2: LayoutContext = { ...makeRootContext(INITIAL_COMPUTED_STYLE, 500), ifcStateCache: ctx1.ifcStateCache };
+    const out2 = layoutBlock(cb, 0, 0, rootFrame(ctx2), ctx2, shaper, undefined).box;
+    expect(child(out2, "p0").children.some((c) => c.key === "img")).toBe(true);
+    expect(firstLine(child(out2, "p0")).x).toBe(150);
+    expect(firstLine(child(out2, "p1")).x).toBe(150);
+    // Perf guard: p2's lines come from the cache (same line objects).
+    expect(firstLine(child(out2, "p2"))).toBe(firstLine(child(out1, "p2")));
   });
 });
 

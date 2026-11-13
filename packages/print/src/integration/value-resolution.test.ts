@@ -283,7 +283,7 @@ describe("Value resolution — end-to-end (cascade + layout)", () => {
     const doc = createElementBox("doc", { display: "block" }, [
       createElementBox(
         "p",
-        { display: "block", borderBlockStartWidth: 2 },
+        { display: "block", borderBlockStartWidth: 2, borderBlockStartStyle: "solid" },
         [],
       ),
     ]);

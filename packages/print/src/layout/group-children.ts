@@ -72,7 +72,7 @@ export function flattenContents(
  * Determine if a child should be treated as inline-display for the purpose
  * of anonymous block-run grouping.
  */
-function isInlineChild(child: RenderNode): boolean {
+export function isInlineChild(child: RenderNode): boolean {
   if (child.type === "text") return true;
   if (!child.computedStyle) return false;
   const d = child.computedStyle.display;
@@ -136,4 +136,21 @@ export function groupChildren(parent: ElementBox): readonly ChildGroup[] {
 /** Generate the stable layout key for an anonymous block produced by an inline-run group. */
 export function anonymousBlockKey(parentKey: string, positionalIndex: number): string {
   return `${parentKey}/anon[${positionalIndex}]`;
+}
+
+/**
+ * The index of the last in-flow child group (not a float, not abs-pos): the
+ * child that inherits the end-decoration reserve. -1 when there is none.
+ */
+export function lastInFlowGroupIndex(groups: readonly ChildGroup[]): number {
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const g = groups[i];
+    if (g === undefined) continue;
+    if (g.kind === "inline-run") return i;
+    const cs = g.child.type === "element" ? g.child.computedStyle : undefined;
+    if (cs === undefined) continue;
+    if (cs.float === "inline-start" || cs.float === "inline-end" || cs.position === "absolute") continue;
+    return i;
+  }
+  return -1;
 }

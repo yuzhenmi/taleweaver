@@ -111,6 +111,16 @@ describe("merged table-cell paint (#P8.S4.T4)", () => {
     expect(right).toBeDefined();
   });
 
+  it("a split cell skips its sliced side (box-decoration-break: slice, BM4)", () => {
+    const cell = { ...box("table-cell", 0, 0, 300, 16, []), sidesToInclude: { blockStart: true, blockEnd: false } } as LayoutBox;
+    const row = box("table-row", 0, 0, 300, 16, [cell], BASE_CS);
+    const table = box("table", 0, 0, 300, 16, [row], BASE_CS);
+    paint(ctx, box("block", 0, 0, 300, 16, [table], BASE_CS));
+    // Top border drawn; no bottom border (y = 16 − 2).
+    expect(ctx._rects.some((r) => r.y === 0 && r.h === 2 && r.w === 300)).toBe(true);
+    expect(ctx._rects.some((r) => r.y === 14 && r.h === 2)).toBe(false);
+  });
+
   it("a 1×1 cell paints its border at its own column width (control)", () => {
     const cell = box("table-cell", 0, 0, 300, 16, []);
     const row = box("table-row", 0, 0, 300, 16, [cell], BASE_CS);

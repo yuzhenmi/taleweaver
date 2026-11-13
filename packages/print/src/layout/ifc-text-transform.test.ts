@@ -7,6 +7,7 @@ import type { TextTransform } from "@taleweaver/core";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import { makeRootContext } from "./layout-context";
 import type { LayoutBox, TextRunBox } from "./layout-box";
+import { rootFrame } from "./parent-frame";
 
 const shaper = createMockShaper(8, 16);
 
@@ -27,7 +28,7 @@ function textRunLeavesOf(
   );
   if (tree.type !== "element") throw new Error("expected element tree");
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
-  const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+  const result = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
   if (result.box === null) throw new Error("layoutInlineContent returned null box");
 
   const leaves: TextRunBox[] = [];

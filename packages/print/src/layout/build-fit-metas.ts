@@ -9,6 +9,7 @@
 // BFC) carries recursive `children`; a leaf carries either IFC line data
 // (a paragraph) or table row data.
 
+import { rootFrame } from "./parent-frame";
 import type { ElementBox } from "@taleweaver/core";
 import type { LayoutBox, LineBox } from "./layout-box";
 import type { BlockFitMeta } from "./fit-core";
@@ -18,8 +19,13 @@ import { groupChildren, anonymousBlockKey } from "./group-children";
 import type { ChildGroup } from "./group-children";
 import { layoutBlock } from "./bfc";
 import { layoutInlineContent } from "./ifc";
-import { makeRootContext, makeChildContext } from "./layout-context";
+import { makeRootContext, makeInlineRunContext } from "./layout-context";
 import { computeUsedStyle } from "./used-style";
+import { borderBoxInlineSize, inlineDecoration } from "./box-inline-decoration";
+import { blockEndDecoration, contentBlockStart } from "./box-block-decoration";
+import { isCollapseThroughEmpty, resolveExplicitBlockSizeOrNull } from "./collapse-through";
+import { collapsedMarginBlockEnd, collapsedMarginBlockStart, endCollapsesThrough, hasNoInFlowContent, startCollapsesThrough } from "./margin-collapse";
+import { establishesNewBFC } from "./bfc-establishment";
 import { normalizeBreakValue } from "./fragmentation";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import type { ComputedStyle } from "@taleweaver/core";
@@ -210,7 +216,7 @@ function buildMetasForChildren(
  * parent's own inline padding was subtracted exactly once by the caller
  * (`buildMetasForChildren`). bfc lays this anonymous IFC at the parent's
  * `contentInlineSize` (bfc.ts:334) with the inline padding subtracted exactly
- * ONCE (bfc.ts:227), so we feed `parentContentInlineSize` to `makeChildContext`
+ * ONCE (bfc.ts:227), so we feed `parentContentInlineSize` to `makeInlineRunContext`
  * DIRECTLY — re-applying `contentInlineSizeOf` here would subtract the inline
  * padding a SECOND time and shrink the wrap width, changing the line count.
  *
@@ -235,16 +241,17 @@ function ifcLeafMetaFromInlineRun(
     computedStyle: parentCs,
     children: Object.freeze([...group.children]),
   });
-  // The anonymous IFC inherits the parent's containing block; its content
-  // inline-size IS `parentContentInlineSize` (already padding-reduced once). The
-  // root context's containing-inline-size is irrelevant to the wrap (the child
-  // context overrides it), but we pass the same value for consistency.
+  // The anonymous IFC is in its parent's BFC with the parent's content box as
+  // its containing block (`parentContentInlineSize`, already padding-reduced
+  // once) — the same `makeInlineRunContext` bfc.ts builds for it.
   const parentCtx = makeRootContext(parentCs, parentContentInlineSize);
-  const ifcCtx = makeChildContext(parentCtx, parentCs, parentContentInlineSize, "indefinite");
+  const ifcCtx = makeInlineRunContext(parentCtx, parentCs, parentContentInlineSize, {
+    lineLeft: 0, bfcInlineSize: parentContentInlineSize,
+  });
   // Unfragmented IFC layout (no FragmentationContext): produces every line.
   // `paraFlowStart: 0` — this unfragmented measure-pass call emits no break
   // token (no FragmentationContext), so the value is never read.
-  const result = layoutInlineContent(anonElement, 0, 0, ifcCtx, shaper, hyphenator, 0, undefined);
+  const result = layoutInlineContent(anonElement, 0, 0, rootFrame(ifcCtx), ifcCtx, shaper, hyphenator, 0, undefined);
   if (result.box === null) {
     throw new Error("buildBlockFitMetas: unfragmented inline-run layout returned null box");
   }
@@ -341,16 +348,23 @@ function buildChildMeta(
   }
 
   const used = computeUsedStyle(childCs, pageContentInlineSize, "indefinite");
-  const marginBlockStart = used.marginBlockStart;
-  const marginBlockEnd = used.marginBlockEnd;
+  // The margins bfc places for it: collapsed with its adjoining descendants'.
+  const marginBlockStart = collapsedMarginBlockStart(child, childCs, used, pageContentInlineSize);
+  const marginBlockEnd = collapsedMarginBlockEnd(child, childCs, used, pageContentInlineSize);
   const breakBefore = normalizeBreakValue(childCs.breakBefore ?? "auto");
   const breakAfter = normalizeBreakValue(childCs.breakAfter ?? "auto");
   const breakInsideAvoid = normalizeBreakValue(childCs.breakInside ?? "auto") === "avoid";
   const listItem = childCs.display === "list-item";
 
+  const isBFCRoot = establishesNewBFC(childCs);
   const common = {
     marginBlockStart,
     marginBlockEnd,
+    ...(startCollapsesThrough(childCs, used, isBFCRoot) ? { collapsesStart: true } : {}),
+    ...(endCollapsesThrough(childCs, used, isBFCRoot, pageContentInlineSize) ? { collapsesEnd: true } : {}),
+    ...(hasNoInFlowContent(child, childCs, used, pageContentInlineSize) ? { noInFlowContent: true } : {}),
+    ...(resolveExplicitBlockSizeOrNull(childCs.blockSize, pageContentInlineSize) === null ? { autoBlockSize: true } : {}),
+    ...(isBFCRoot && resolveExplicitBlockSizeOrNull(childCs.blockSize, pageContentInlineSize) === null ? { enclosesEndMargin: true } : {}),
     breakBefore,
     breakAfter,
     breakInsideAvoid,
@@ -364,6 +378,10 @@ function buildChildMeta(
   // `layoutBlock(child, …)` would skip those parent-applied rules and report a
   // 0-height box for an explicit-block-size empty spacer.
   const placed = layoutChildInWrapper(child, shaper, hyphenator, pageContentInlineSize);
+  // bfc's empty-block rule, by bfc's own predicate.
+  const emptyFlag = isCollapseThroughEmpty(childCs, used, placed.blockSize, pageContentInlineSize)
+    ? { collapseThrough: true }
+    : {};
 
   // --- Table leaf. ---
   if (childCs.display === "table") {
@@ -389,6 +407,7 @@ function buildChildMeta(
     return {
       kind: "table",
       ...common,
+      ...emptyFlag,
       totalBlockSize: placed.blockSize,
       rowBlockSizes,
       ...(headerRowCount > 0 ? { headerRowCount, headerBlockSize } : {}),
@@ -418,34 +437,32 @@ function buildChildMeta(
     return {
       kind: "ifc",
       ...common,
+      ...emptyFlag,
       totalBlockSize: placed.blockSize,
       lineBlockSizes,
       orphans: childCs.orphans ?? 2,
       widows: childCs.widows ?? 2,
       lineEndsWithHyphen,
+      // The paragraph's own border + padding, sliced across its fragments like bfc's.
+      blockStartDecoration: contentBlockStart(used),
+      blockEndDecoration: blockEndDecoration(used),
     };
   }
 
   // Container block: recurse into its block children.
   const children = buildMetasForChildren(child, shaper, hyphenator, contentInlineSizeOf(childCs, pageContentInlineSize));
-  // Block-axis padding insets the children's fragmentation space by
-  // `paddingBlockStart` (bfc.ts:229/350/540). `paddingBlockEnd` is added to the
-  // container height after children are placed (bfc.ts:728) — already folded
-  // into `totalBlockSize`; it ALSO inflates a fragmenting container's PARTIAL
-  // height (bfc.ts:299), which `fitOnePage`'s last-fragment check needs. `noBottomBoundary`
-  // (bfc.ts:224) decides whether the trailing child margin is suppressed in that
-  // partial height. Border-block-width never shifts block-axis geometry in this
-  // engine; it participates ONLY here, as a margin-collapse-through boundary.
-  const noBottomBoundary =
-    used.paddingBlockEnd === 0 && childCs.borderBlockEndWidth === 0;
+  // The block-start border + padding insets the children's fragmentation space
+  // (bfc's `childBlockOffset` starts at `contentBlockStart`); the end padding +
+  // border is added to the container height after its children — already folded
+  // into `totalBlockSize`; a resumed container's last fragment adds it back.
   return {
     kind: "block",
     ...common,
+    ...emptyFlag,
     totalBlockSize: placed.blockSize,
     children,
-    paddingBlockStart: used.paddingBlockStart,
-    paddingBlockEnd: used.paddingBlockEnd,
-    noBottomBoundary,
+    blockStartDecoration: contentBlockStart(used),
+    blockEndDecoration: blockEndDecoration(used),
   };
 }
 
@@ -474,7 +491,7 @@ function layoutChildInWrapper(
     children: Object.freeze([child]),
   };
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageContentInlineSize);
-  const result = layoutBlock(wrapper, 0, 0, ctx, shaper, hyphenator, undefined);
+  const result = layoutBlock(wrapper, 0, 0, rootFrame(ctx), ctx, shaper, hyphenator, undefined);
   if (result.box === null) {
     throw new Error("buildBlockFitMetas: unfragmented wrapper layout returned null box");
   }
@@ -499,10 +516,10 @@ function layoutChildInWrapper(
  */
 function contentInlineSizeOf(cs: ComputedStyle, availableInlineSize: number): number {
   const used = computeUsedStyle(cs, availableInlineSize, "indefinite");
-  // bfc.ts:226–227: `contentInlineSize = finalInlineSize − paddingInlineStart −
-  // paddingInlineEnd` (padding only; border is NOT subtracted there).
-  // finalInlineSize resolves `inline-size: auto` to the available width.
+  // bfc.layoutBlock: `contentInlineSize = finalInlineSize − inlineDecoration`
+  // (padding + borders). finalInlineSize resolves `inline-size: auto` to the
+  // available width and a length per box-sizing.
   const finalInlineSize =
-    typeof cs.inlineSize === "number" ? cs.inlineSize : availableInlineSize;
-  return finalInlineSize - used.paddingInlineStart - used.paddingInlineEnd;
+    typeof cs.inlineSize === "number" ? borderBoxInlineSize(cs.inlineSize, used) : availableInlineSize;
+  return finalInlineSize - inlineDecoration(used);
 }

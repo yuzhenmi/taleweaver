@@ -35,6 +35,7 @@ import { accumulateListCounter } from "../layout/fit-core";
 import { createFloatEnvironment } from "../layout/float-context";
 import { IMPLICIT_SECTION_PLAN } from "../layout/section-plan";
 import { makeVirtualLayoutTree } from "../layout/virtual-layout-tree";
+import { rootFrame } from "../layout/parent-frame";
 
 // 5 lines/page @ the mock shaper's 16px line-height; no margins so page-2 content
 // top == 0 (page-relative).
@@ -106,7 +107,7 @@ function makeMeasurer(
       root,
       a.inlineOrigin,
       a.blockOrigin,
-      pageCtx,
+      rootFrame(pageCtx), pageCtx,
       shaper,
       undefined,
       {

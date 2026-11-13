@@ -7,6 +7,7 @@ import { makeRootContext } from "./layout-context";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import type { LineBox, LayoutBox, TextRunBox, InlineBox } from "./layout-box";
 import type { Style } from "@taleweaver/core";
+import { rootFrame } from "./parent-frame";
 
 // The IFC test harness uses an 8px/char mock shaper.
 const shaper = createMockShaper(8, 16);
@@ -22,7 +23,7 @@ function layoutPara(text: string, width: number, style: Style): readonly LineBox
     ]),
   );
   if (tree.type !== "element") throw new Error("expected element tree");
-  const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
+  const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, width)), makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
   if (r.box === null) throw new Error("layoutBlock returned null box");
   if (r.box.type !== "block") throw new Error("expected block box");
   return r.box.children.filter((c): c is LineBox => c.type === "line");
@@ -200,7 +201,7 @@ describe("IFC — trailing letter-spacing trim inside an INLINE element (#434)",
       ]),
     );
     if (tree.type !== "element") throw new Error("expected element tree");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, width)), makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     if (r.box.type !== "block") throw new Error("expected block box");
     const lines = r.box.children.filter((c): c is LineBox => c.type === "line");
@@ -308,7 +309,7 @@ describe("IFC — trailing letter-spacing trim inside an INLINE element (#434)",
       ),
     );
     if (tree.type !== "element") throw new Error("expected element tree");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null || r.box.type !== "block") throw new Error("expected block box");
     const lines = r.box.children.filter((c): c is LineBox => c.type === "line");
     expect(lines).toHaveLength(1);

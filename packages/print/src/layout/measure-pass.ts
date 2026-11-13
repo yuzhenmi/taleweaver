@@ -15,6 +15,8 @@ import { breakTokensEqual, innerBfcToken } from "./fragmentation";
 import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
 import type { PlacedFloat, PushedFloat } from "./float-context";
+import { placedFloatListsEqual, pushedFloatListsEqual } from "./float-lists-equal";
+import { floatsCarriedPast, shiftBreakToken, shiftColumnsFit, shiftFloats } from "./float-carry";
 import { fitColumnsOnPage, balanceColumnHeight, type ColumnsFitResult } from "./column-fit";
 import { isDevMode } from "@taleweaver/core";
 import type { PageConfig } from "./page-config";
@@ -27,7 +29,6 @@ import {
   type SectionPlan,
   type SectionStateAt,
 } from "./section-plan";
-import type { FootnoteAnchorRef } from "@taleweaver/core";
 
 // ---------------------------------------------------------------------------
 // Test-only instrumentation: count `fitOnePage` invocations from `measurePass`.
@@ -419,8 +420,9 @@ export type SlotInsets = ReadonlyMap<BlockId | null, { readonly top: number; rea
  * placed-float list (incoming + this page's own, all cumulative).
  *
  * GUARD: only ever passed for SINGLE-COLUMN float docs (the producer gate routes
- * float+multicol / float+footnote / absolute docs to the legacy path), so the
- * multicol branch must NOT consult it — see the dev-assertion there.
+ * float+multicol / absolute docs to the legacy path), so the multicol branch
+ * must NOT consult it — see the dev-assertion there. `resolveFootnotes` re-fits
+ * footnote pages with the same measurer at the slot-reduced block size.
  */
 export interface FloatPageMeasureArgs {
   readonly startIndex: number;
@@ -512,7 +514,7 @@ export function measurePass(
   // measured by running the real `layoutBlock` via this callback (discarding
   // geometry, keeping only the plan outputs) instead of the pure `fitOnePage`.
   // The producer supplies it ONLY for single-column float docs (its gate routes
-  // float+multicol / float+footnote / absolute to the legacy path), so it is
+  // float+multicol / absolute to the legacy path), so it is
   // never consulted on the multicol branch (dev-asserted there). Absent ⇒ the
   // existing `fitOnePage` path, byte-identical to pre-float behavior.
   floatPageMeasurer?: FloatPageMeasurer,
@@ -733,10 +735,18 @@ export function measurePass(
       const prevK = prevPlanIndexByStartIndex.get(startIndex);
       const reusable = prevK !== undefined ? prevPlan.entries[prevK] : undefined;
       const prevNext = prevK !== undefined ? prevPlan.entries[prevK + 1] : undefined;
+      // T-ae: the prior entry's floats and break tokens (an IFC token's
+      // `paraFlowStart` + carried exclusions) sit in the OLD cumulative flow
+      // frame; an upstream page that consumed a different height shifts this
+      // page's frame. Move them into the current frame so the gate, the stamp and
+      // the carry below all compare like with like.
+      const flowShift = reusable !== undefined ? pageFlowBase - reusable.pageFlowBase : 0;
+      const reusedIncoming =
+        reusable !== undefined ? shiftFloats(reusable.incomingActiveFloats, flowShift) : NO_INCOMING_FLOATS;
       if (
         prevK !== undefined &&
         reusable !== undefined &&
-        breakTokensEqual(reusable.resumeInto, resumeInto) &&
+        breakTokensEqual(shiftBreakToken(reusable.resumeInto, flowShift), resumeInto) &&
         // Section status: the prior page may be reused at `startIndex`
         // ONLY when its section status is unchanged across cycles. `activeSectionId`
         // unchanged ⇒ the page belongs to the same section; `nextBoundaryIndex`
@@ -774,8 +784,13 @@ export function measurePass(
         // height re-pagination is this per-entry gate's job.
         effTop === reusable.effectiveTopInset &&
         effBottom === reusable.effectiveBottomInset &&
+        // T-ad: the floats crossing in from the prior page (hanging or pushed)
+        // shaped this page's fit; a changed upstream float re-fits it.
+        placedFloatListsEqual(incomingFloats, reusedIncoming) &&
+        pushedFloatListsEqual(incomingPushedFloats, reusable.incomingPushedFloats) &&
         canReusePage(rootChildren, startIndex, metas.length, reusable, prevNext)
       ) {
+        const reusedResumeOut = shiftBreakToken(reusable.resumeOut, flowShift);
         const reusedSliceEnd =
           reusable.resumeOut === null ? metas.length : startIndex + reusable.children.length;
         const reusedChildren: readonly RenderNode[] = rootChildren.slice(startIndex, reusedSliceEnd);
@@ -793,7 +808,7 @@ export function measurePass(
           // to the page's content), so the reused page's distribution is identical
           // — the reuse gate's `columnConfigsEqual` + `canReusePage` proofs cover
           // the inputs that determined it. `undefined` for single-column pages.
-          columnFit: reusable.columnFit,
+          columnFit: shiftColumnsFit(reusable.columnFit, flowShift),
           // Carry the prior entry's rendered per-column height — like
           // `columnFit`, it is position-INDEPENDENT (a pure function of the page's
           // content + column config, both proved unchanged by the reuse gate).
@@ -803,7 +818,7 @@ export function measurePass(
           resumeInto,
           // The ACTUAL prior token (a `ColumnBreakToken` for a reused overflowing
           // multicol page) — threaded to the next page, which unwraps it.
-          resumeOut: reusable.resumeOut,
+          resumeOut: reusedResumeOut,
           listCounterAtStart,
           // Stamp from the RUNNING section vars (computed above), NOT the prior
           // entry — `sectionPageIndex` is position-dependent and the running pair
@@ -853,7 +868,7 @@ export function measurePass(
           // stored value is empty), so it stays byte-identical for non-float docs.
           // (Independent of the float carry advance below, which seeds the next
           // FRESH-fit page's env; this is the reused page's OWN stamped value.)
-          incomingActiveFloats: reusable.incomingActiveFloats,
+          incomingActiveFloats: reusedIncoming,
           // A REUSED page keeps its OWN stamped pushed-float list (the
           // floats that landed on it from the prior page). Mirrors the
           // `incomingActiveFloats` reuse-path stamp above.
@@ -891,7 +906,7 @@ export function measurePass(
         // following fresh-fit page. Absent (last reused page / no successor) ⇒
         // empty. Only meaningful for a float doc; for non-float docs the prev
         // entries' value is empty, so this is byte-identical.
-        incomingFloats = prevPlan?.entries[prevK + 1]?.incomingActiveFloats ?? NO_INCOMING_FLOATS;
+        incomingFloats = shiftFloats(prevNext?.incomingActiveFloats ?? NO_INCOMING_FLOATS, flowShift);
         // Advance the pushed-float carry across this REUSED page the same
         // way — the next page's incoming = the NEXT prev entry's
         // `incomingPushedFloats`; mirrors the `incomingFloats` reuse advance above.
@@ -939,7 +954,7 @@ export function measurePass(
         const listCounterDelta =
           prevNext !== undefined ? prevNext.listCounterAtStart - reusable.listCounterAtStart : 0;
         startIndex = reusedNextStartIndex;
-        resumeInto = reusable.resumeOut;
+        resumeInto = reusedResumeOut;
         listCounterAtStart = listCounterAtStart + listCounterDelta;
         pageIndex++;
         continue;
@@ -1140,10 +1155,8 @@ export function measurePass(
       // block-bottom (`blockOffset + blockSize`) sits past this page's
       // content-bottom (`pageFlowBase + inFlowConsumed`) keeps shadowing the next
       // page; one that ends within this page drops out.
-      const nextContentTop = pageFlowBase + fr.inFlowConsumed;
-      incomingFloats = fr.placedFloats.filter(
-        (f) => f.blockOffset + f.blockSize > nextContentTop,
-      );
+      // An anchored float (a wrapped image) stays on its anchor's page (R2-3).
+      incomingFloats = floatsCarriedPast(fr.placedFloats, pageFlowBase + fr.inFlowConsumed);
       // Advance the pushed-float carry to the floats this page deferred to
       // the next page (`fr.pushedFloats`, from the BFC float branch's overflow check).
       incomingPushedFloats = fr.pushedFloats;
@@ -1679,8 +1692,9 @@ function elementUnsupported(node: ElementBox): boolean {
     // (paginated abs-pos fragmentation is a documented positioning gap). `fixed` is out of scope / absent from the union.
     //
     // NOTE: `float`/`clear` are not flagged here — a SINGLE-COLUMN float/clear doc
-    // is handled by the measure pass's `floatPageMeasurer` branch. The composite legacy gate that still routes
-    // float+multicol / float+footnote docs to legacy is `paginationFallsBackToLegacy`.
+    // (with or without footnotes) is handled by the measure pass's `floatPageMeasurer`
+    // branch. The composite legacy gate that still routes float+multicol docs to
+    // legacy is `paginationFallsBackToLegacy`.
     if (cs.position === "absolute") return true;
   }
 
@@ -1694,7 +1708,7 @@ function elementUnsupported(node: ElementBox): boolean {
  * True iff the subtree contains any `float` (`inline-start`/`inline-end`) or
  * `clear` (`!== "none"`) — single-column float-doc detection for the VL float
  * fast-path. A doc that has float/clear takes the measure pass's
- * `floatPageMeasurer` branch (when single-column + footnote-free per
+ * `floatPageMeasurer` branch (when single-column per
  * `paginationFallsBackToLegacy`), running the real `layoutBlock` per page. A
  * float-free doc returns false ⇒ the existing `fitOnePage` path, byte-identical.
  */
@@ -1717,16 +1731,14 @@ export function hasFloatOrClear(node: RenderNode): boolean {
  * The single legacy-vs-virtual pagination gate, called at every dispatch site
  * (`dispatch.ts` full-build + `layout-incremental.ts`). `measurePassUnsupported`
  * flags only `position:absolute`; a float doc routes to the virtualized fast path ONLY
- * when it is SINGLE-COLUMN AND footnote-free — the measure-pass float branch's
- * scope. Float+multicol, float+footnote, and absolute docs still fall back to the
- * legacy positioned `paginateRoot`.
+ * when it is SINGLE-COLUMN — the measure-pass float branch's scope (footnotes
+ * included: the footnote re-fit uses the same page measurer). Float+multicol
+ * and absolute docs still fall back to the legacy positioned `paginateRoot`.
  */
-export function paginationFallsBackToLegacy(
-  root: RenderNode,
-  footnoteAnchors: readonly FootnoteAnchorRef[],
-): boolean {
+export function paginationFallsBackToLegacy(root: RenderNode): boolean {
   if (measurePassUnsupported(root)) return true; // position:absolute
   if (!hasFloatOrClear(root)) return false; // float-free ⇒ virtual handles it
-  // Float doc ⇒ virtual ONLY when single-column + footnote-free (the float branch's scope).
-  return hasMultiColumnRegion(root) || footnoteAnchors.length > 0;
+  // Float doc ⇒ virtual ONLY when single-column (the float branch's scope;
+  // footnotes re-fit with the same page measurer).
+  return hasMultiColumnRegion(root);
 }

@@ -40,6 +40,7 @@ import {
 import type { FootnoteContinuation } from "./measure-pass";
 import type { BreakToken } from "./fragmentation";
 import { buildVirtualPaginatedTree } from "./virtual-producer";
+import { rootFrame } from "./parent-frame";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -1172,7 +1173,7 @@ function partialToken(body: ElementBox, available: number): BreakToken {
     ...slotCtx(),
     containingInlineSize: SLOT_INLINE,
   };
-  const { breakToken } = layoutBlock(body, 0, 0, ctx, FN_SHAPER, undefined, {
+  const { breakToken } = layoutBlock(body, 0, 0, rootFrame(ctx), ctx, FN_SHAPER, undefined, {
     availableBlockSize: available,
     pageIndex: 0,
     resumeFrom: null,
@@ -1182,6 +1183,31 @@ function partialToken(body: ElementBox, available: number): BreakToken {
   }
   return breakToken;
 }
+
+describe("computeSlotLayout — footnote body margins (BM5)", () => {
+  /** A footnote body holding one 16px paragraph with the given margins. */
+  const marginBody = (key: string, margins: Partial<Style>): ElementBox => fnCascade(
+    createElementBox(key, { display: "block" } as Style, [
+      createElementBox(`${key}-p`, { display: "block", ...margins } as Style, [createTextBox(`${key}-t`, {}, "x")]),
+    ]),
+  );
+
+  it("a body whose content fits exactly is placed; its trailing end margin truncates at the slot end", () => {
+    // pageContentBlockSize 45 → maxSlot = 45 − 16 − 13 = 16: the line fits, + 8 would not.
+    const bodies = new Map<BlockId, ElementBox>([["A" as BlockId, marginBody("A", { marginBlockEnd: 8 })]]);
+    const r = computeSlotLayout([], ["A" as BlockId], bodies, 45, SLOT_INLINE, slotCtx(), FN_SHAPER, undefined);
+    expect([r.slotContentBlockIds, r.slotHeight]).toEqual([["A"], FOOTNOTE_SEPARATOR_HEIGHT + 16]);
+  });
+
+  it("a second body's space-before is kept (it does not start the footnote area)", () => {
+    const bodies = new Map<BlockId, ElementBox>([
+      ["A" as BlockId, marginBody("A", {})],
+      ["B" as BlockId, marginBody("B", { marginBlockStart: 8 })],
+    ]);
+    const r = computeSlotLayout([], ["A" as BlockId, "B" as BlockId], bodies, 200, SLOT_INLINE, slotCtx(), FN_SHAPER, undefined);
+    expect(r.slotHeight).toBe(FOOTNOTE_SEPARATOR_HEIGHT + 16 + 8 + 16);
+  });
+});
 
 describe("computeSlotLayout (FN-5.3)", () => {
   it("(a) two fresh bodies: first fits, second splits; both START, remainder carries", () => {

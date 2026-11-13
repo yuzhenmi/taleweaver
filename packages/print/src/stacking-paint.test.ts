@@ -20,25 +20,37 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { paintCanvas } from "./canvas-renderer";
+import { createPaintCache } from "./paint-cache";
 import type { ComputedStyle } from "@taleweaver/core";
 import type { LayoutBox } from "./index";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 
 // ── Ordered-op spy ───────────────────────────────────────────────────────────
-interface Op { kind: "fillRect" | "fillText"; text?: string; x: number; y: number; }
-interface SpyCtx extends CanvasRenderingContext2D { _ops: Op[]; }
+// `tx` / `ty`: the canvas translation the op was issued under (the spy's matrix
+// stack models translations only).
+interface Op { kind: "fillRect" | "fillText"; text?: string; x: number; y: number; tx: number; ty: number; }
+interface SpyCtx extends CanvasRenderingContext2D { _ops: Op[]; _clears: { x: number; y: number; w: number; h: number }[]; }
 
 function createSpyCtx(width = 600, height = 800): SpyCtx {
   const ops: Op[] = [];
-  const ctx: Partial<CanvasRenderingContext2D> & { _ops: Op[] } = {
+  const clears: SpyCtx["_clears"] = [];
+  let m = { tx: 0, ty: 0 };
+  const stack: { tx: number; ty: number }[] = [];
+  const ctx: Partial<CanvasRenderingContext2D> & Pick<SpyCtx, "_ops" | "_clears"> = {
     _ops: ops,
+    _clears: clears,
     canvas: { width, height } as HTMLCanvasElement,
     font: "",
     textBaseline: "alphabetic",
     fillStyle: "",
-    clearRect() { /* no-op */ },
-    fillRect(x: number, y: number) { ops.push({ kind: "fillRect", x, y }); },
-    fillText(text: string, x: number, y: number) { ops.push({ kind: "fillText", text, x, y }); },
+    clearRect(x: number, y: number, w: number, h: number) { clears.push({ x, y, w, h }); },
+    fillRect(x: number, y: number) { ops.push({ kind: "fillRect", x, y, ...m }); },
+    fillText(text: string, x: number, y: number) { ops.push({ kind: "fillText", text, x, y, ...m }); },
+    save() { stack.push({ ...m }); },
+    restore() { m = stack.pop() ?? { tx: 0, ty: 0 }; },
+    transform(_a: number, _b: number, _c: number, _d: number, e: number, f: number) { m = { tx: m.tx + e, ty: m.ty + f }; },
+    getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: m.tx, f: m.ty }) as DOMMatrix,
+    setTransform: ((t: DOMMatrix) => { m = { tx: t.e, ty: t.f }; }) as CanvasRenderingContext2D["setTransform"],
     measureText: (text: string) => ({ width: text.length * 8 } as TextMetrics),
   };
   return ctx as unknown as SpyCtx;
@@ -251,5 +263,78 @@ describe("common-path-unchanged guarantee (no z-index / no stacking)", () => {
 
     expect(glyphIndex(ctx, "1")).toBeLessThan(glyphIndex(ctx, "2"));
     expect(glyphIndex(ctx, "2")).toBeLessThan(glyphIndex(ctx, "3"));
+  });
+});
+
+// P3 F5: floats paint after every in-flow block background of their stacking
+// context and before its in-flow inline content (§E.2 steps 3 → 4 → 5), however
+// deep in the tree the float sits.
+describe("float paint layer (§E.2 step 4)", () => {
+  let ctx: SpyCtx;
+  beforeEach(() => { ctx = createSpyCtx(); });
+
+  const fillAt = (x: number, y: number): number =>
+    ctx._ops.findIndex((o) => o.kind === "fillRect" && o.x === x && o.y === y);
+
+  // A float box: a block carrying `float`, with a background and a glyph.
+  const floatBox = (x: number, y: number): LayoutBox => makeBlock({
+    key: "f", x, y, width: 50, height: 40, cs: { float: "inline-start", backgroundColor: "#f00" },
+    children: [makeTextRun("F", 0, 0)],
+  });
+
+  it("a paragraph float hanging beside the next paragraph: next bg → float → in-flow text", () => {
+    // P1 (0..16) holds the float (its child, before its text); P2 (16..32) has a background.
+    const p1 = makeBlock({ key: "p1", x: 0, y: 0, width: 200, height: 16, bg: false, children: [floatBox(0, 0), makeTextRun("a", 50, 0)] });
+    const p2 = makeBlock({ key: "p2", x: 0, y: 16, width: 200, height: 16, children: [makeTextRun("b", 50, 0)] });
+    const root = makeBlock({ key: "root", x: 0, y: 0, width: 200, height: 100, bg: false, children: [p1, p2] });
+
+    paint(ctx, root);
+
+    expect(fillAt(0, 16)).toBeGreaterThanOrEqual(0);
+    expect(fillAt(0, 16)).toBeLessThan(fillAt(0, 0)); // P2's background, then the float's
+    expect(glyphIndex(ctx, "F")).toBeLessThan(glyphIndex(ctx, "a"));
+    expect(glyphIndex(ctx, "F")).toBeLessThan(glyphIndex(ctx, "b"));
+  });
+
+  it("a block float between two paragraphs follows the same order", () => {
+    const p1 = makeBlock({ key: "p1", x: 0, y: 0, width: 200, height: 16, bg: false, children: [makeTextRun("a", 0, 0)] });
+    const p2 = makeBlock({ key: "p2", x: 0, y: 16, width: 200, height: 16, children: [makeTextRun("b", 50, 0)] });
+    const root = makeBlock({ key: "root", x: 0, y: 0, width: 200, height: 100, bg: false, children: [p1, floatBox(0, 8), p2] });
+
+    paint(ctx, root);
+
+    expect(fillAt(0, 16)).toBeLessThan(fillAt(0, 8));
+    expect(glyphIndex(ctx, "F")).toBeLessThan(glyphIndex(ctx, "a"));
+    expect(glyphIndex(ctx, "F")).toBeLessThan(glyphIndex(ctx, "b"));
+  });
+
+  it("incremental paint: a moved float clears its old area and keeps the layer order", () => {
+    const p2 = makeBlock({ key: "p2", x: 0, y: 16, width: 200, height: 16, children: [makeTextRun("b", 50, 0)] });
+    const tree = (floatY: number) => makeBlock({
+      key: "root", x: 0, y: 0, width: 200, height: 100, bg: false,
+      children: [makeBlock({ key: "p1", x: 0, y: 0, width: 200, height: 16, bg: false, children: [floatBox(0, floatY), makeTextRun("a", 50, 0)] }), p2],
+    });
+    const cache = createPaintCache();
+    const paintWith = (root: LayoutBox) => paintCanvas(ctx, root, [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800, undefined, cache);
+    paintWith(tree(0));
+    ctx._ops.length = 0;
+    ctx._clears.length = 0;
+    paintWith(tree(50));
+    // The old float area (0,0)-(50,40) is cleared, so no stale float pixels remain.
+    expect(ctx._clears.some((c) => c.x <= 0 && c.y <= 0 && c.x + c.w >= 50 && c.y + c.h >= 40)).toBe(true);
+    expect(fillAt(0, 16)).toBeLessThan(fillAt(0, 50));
+    expect(glyphIndex(ctx, "F")).toBeLessThan(glyphIndex(ctx, "b"));
+  });
+
+  it("a float under a transformed box paints under that box's matrix", () => {
+    const p1 = makeBlock({ key: "p1", x: 0, y: 0, width: 200, height: 16, bg: false, children: [floatBox(0, 0), makeTextRun("a", 50, 0)] });
+    const moved = makeBlock({ key: "t", x: 0, y: 0, width: 200, height: 50, bg: false, cs: { transform: [{ fn: "translateX", tx: 40 }] }, children: [p1] });
+    const root = makeBlock({ key: "root", x: 0, y: 0, width: 200, height: 100, bg: false, children: [moved] });
+
+    paint(ctx, root);
+
+    expect(ctx._ops[fillAt(0, 0)]?.tx).toBe(40);
+    expect(ctx._ops[glyphIndex(ctx, "F")]?.tx).toBe(40);
+    expect(ctx._ops[glyphIndex(ctx, "a")]?.tx).toBe(40);
   });
 });

@@ -6,6 +6,29 @@ export interface PlacedFloat {
   readonly blockOffset: number;
   readonly inlineSize: number;
   readonly blockSize: number;
+  /**
+   * Present on a paragraph-anchored float (a wrapped inline image): its node
+   * key. An anchored float stays on its anchor's fragmentainer (Word / Google
+   * Docs): it never carries to the next one (R2-3).
+   */
+  readonly anchorKey?: string;
+  /** An anchored float's paragraph (the block whose inline run holds it). */
+  readonly paragraphKey?: string;
+  /** An anchored float shifted above its paragraph's top to fit its fragmentainer. */
+  readonly rose?: true;
+}
+
+/** A fragmentainer's cumulative block range, set by its flow root (R2-3). */
+export interface FragmentainerBounds {
+  readonly top: number;
+  readonly end: number;
+}
+
+/** A point in the env's history to roll back to (R2-2). */
+export interface FloatMark {
+  readonly placed: number;
+  readonly pushed: number;
+  readonly landed: number;
 }
 
 /**
@@ -63,6 +86,19 @@ export interface FloatEnvironment {
   ): { inlineStartSize: number; inlineEndSize: number };
 
   /**
+   * Inline-size occupied per side over the whole block range `[blockStart,
+   * blockEnd)` (CSS 9.5: a line box or float is shortened by every float its
+   * block extent intersects): the intersection of the free ranges, i.e. each
+   * side's furthest edge among the floats overlapping the range. An empty range
+   * reads as the point `blockStart`.
+   */
+  availableInlineSizeOver(
+    blockStart: number,
+    blockEnd: number,
+    containingInlineSize: number,
+  ): { inlineStartSize: number; inlineEndSize: number };
+
+  /**
    * For `clear`: returns the block-offset where the cleared side(s) have
    * no active float. Result ≥ `currentBlockOffset`.
    */
@@ -73,6 +109,13 @@ export interface FloatEnvironment {
 
   /** Lowest float block-edge across all placed floats. */
   lowestFloatBlockEdge(): number;
+
+  /**
+   * Whether any placed float's block range intersects `[blockStart, blockEnd)`.
+   * O(1) when no float reaches below `blockStart` (the common case away from
+   * floats); otherwise a scan of the placed floats.
+   */
+  hasFloatIn(blockStart: number, blockEnd: number): boolean;
 
   /**
    * Returns the smallest float block-bottom strictly greater than `blockOffset`.
@@ -102,6 +145,42 @@ export interface FloatEnvironment {
   /** The floats pushed to the next page, in push order. */
   pushedFloats(): readonly PushedFloat[];
 
+  /** The env's current history point. */
+  mark(): FloatMark;
+
+  /**
+   * Forget every float placed or pushed since `m` — a discarded layout attempt
+   * (a child moved to the next fragmentainer, or re-laid). `hasFloatIn`'s
+   * early-out bound stays an upper bound, which is still correct.
+   */
+  rollback(m: FloatMark): void;
+
+  /**
+   * A flow root starts a fragmentainer: anchored floats of the previous one
+   * leave the env (they never carry), and anchored floats placed from now on
+   * are kept within `bounds`.
+   */
+  beginFragmentainer(bounds: FragmentainerBounds): void;
+
+  /** The current fragmentainer, if a flow root set one. */
+  fragmentainer(): FragmentainerBounds | undefined;
+
+  /** The anchored float with this key, if one is in the env (a seed of the re-lay). */
+  anchoredFloat(key: string): PlacedFloat | undefined;
+
+  /** An anchored float's paragraph placed a line here: its float boxes landed. */
+  noteLanded(key: string): void;
+
+  /** The anchored floats whose boxes landed since `m` (rolled back with the rest). */
+  landedSince(m: FloatMark): ReadonlySet<string>;
+
+  /**
+   * The paragraphs that must start on the next fragmentainer (their own risen
+   * float pushed them off); cleared when a fragmentainer begins.
+   */
+  setBreaksBefore(paragraphKeys: ReadonlySet<string>): void;
+  breaksBefore(paragraphKey: string): boolean;
+
   /** For incremental-layout diffing. Returns a frozen reference to the placed floats. */
   getPlacedFloats(): readonly PlacedFloat[];
 
@@ -117,6 +196,15 @@ export interface FloatEnvironment {
 export function createFloatEnvironment(): FloatEnvironment {
   const placed: PlacedFloat[] = [];
   const pushed: PushedFloat[] = [];
+  let bounds: FragmentainerBounds | undefined;
+  const landed: string[] = [];
+  let breaks: ReadonlySet<string> = new Set();
+  // Upper bound on every placed float's block end, for `hasFloatIn`'s early out.
+  let maxBlockEnd = Number.NEGATIVE_INFINITY;
+  function add(f: PlacedFloat): void {
+    placed.push(f);
+    maxBlockEnd = Math.max(maxBlockEnd, f.blockOffset + f.blockSize);
+  }
 
   function nextFloatBottomBelow(blockOffset: number): number {
     let candidate = Infinity;
@@ -129,24 +217,21 @@ export function createFloatEnvironment(): FloatEnvironment {
     return candidate === Infinity ? blockOffset : candidate;
   }
 
-  function activeAt(blockOffset: number) {
+  // Occupied inline size per side over `[blockStart, blockEnd)` (a point when
+  // empty): the distance from each containing edge to the furthest edge, on that
+  // side, of the floats overlapping the range (CSS 9.5.1 — side-by-side floats
+  // add up), against `containingInlineSize`, the frame the floats were placed in.
+  function activeOver(blockStart: number, blockEnd: number, containingInlineSize: number) {
     let inlineStartSize = 0;
     let inlineEndSize = 0;
+    if (blockStart >= maxBlockEnd) return { inlineStartSize, inlineEndSize };
     for (const f of placed) {
-      if (blockOffset < f.blockOffset) continue;
-      if (blockOffset >= f.blockOffset + f.blockSize) continue;
+      if (f.blockOffset + f.blockSize <= blockStart) continue;
+      if (f.blockOffset > blockStart && f.blockOffset >= blockEnd) continue;
       if (f.side === "inline-start") {
         inlineStartSize = Math.max(inlineStartSize, f.inlineOffset + f.inlineSize);
       } else {
-        // For inline-end floats, inline-end "size" is the right-side occupied width.
-        // (Stored: f.inlineOffset is the inline-offset from start; for inline-end floats,
-        // the inline-end edge is at containingInlineSize; the float's left edge is at
-        // f.inlineOffset, so the inline-end occupied size is containingInlineSize - f.inlineOffset.)
-        // Simpler: track per-float, take the max occupied inline-end size.
-        // We don't have containingInlineSize here, but the placement stored f.inlineOffset
-        // s.t. f.inlineOffset + f.inlineSize === containingInlineSize for inline-end floats.
-        // So: end-occupied = f.inlineSize.
-        inlineEndSize = Math.max(inlineEndSize, f.inlineSize);
+        inlineEndSize = Math.max(inlineEndSize, containingInlineSize - f.inlineOffset);
       }
     }
     return { inlineStartSize, inlineEndSize };
@@ -169,7 +254,7 @@ export function createFloatEnvironment(): FloatEnvironment {
     // Iterate: try at the requested offset; if doesn't fit, push to next float bottom.
     // Cap iterations to prevent infinite loops in pathological cases.
     for (let iter = 0; iter < 1000; iter++) {
-      const active = activeAt(candidateBlockOffset);
+      const active = activeOver(candidateBlockOffset, candidateBlockOffset, containingInlineSize);
       const free = containingInlineSize - active.inlineStartSize - active.inlineEndSize;
 
       if (free >= inlineSize) {
@@ -199,7 +284,7 @@ export function createFloatEnvironment(): FloatEnvironment {
   return {
     placeFloat(side, requestedBlockOffset, inlineSize, blockSize, containingInlineSize) {
       const landing = computeLanding(side, requestedBlockOffset, inlineSize, containingInlineSize);
-      placed.push({
+      add({
         side,
         inlineOffset: landing.inlineOffset,
         blockOffset: landing.blockOffset,
@@ -213,8 +298,12 @@ export function createFloatEnvironment(): FloatEnvironment {
       return computeLanding(side, requestedBlockOffset, inlineSize, containingInlineSize);
     },
 
-    availableInlineSizeAt(blockOffset, _containingInlineSize) {
-      return activeAt(blockOffset);
+    availableInlineSizeAt(blockOffset, containingInlineSize) {
+      return activeOver(blockOffset, blockOffset, containingInlineSize);
+    },
+
+    availableInlineSizeOver(blockStart, blockEnd, containingInlineSize) {
+      return activeOver(blockStart, blockEnd, containingInlineSize);
     },
 
     clearance(side, currentBlockOffset) {
@@ -240,8 +329,13 @@ export function createFloatEnvironment(): FloatEnvironment {
       return nextFloatBottomBelow(blockOffset);
     },
 
+    hasFloatIn(blockStart, blockEnd) {
+      if (blockStart >= maxBlockEnd) return false;
+      return placed.some((f) => f.blockOffset < blockEnd && f.blockOffset + f.blockSize > blockStart);
+    },
+
     seedPlaced(f) {
-      placed.push(f);
+      add(f);
     },
 
     pushFloat(pf) {
@@ -254,6 +348,48 @@ export function createFloatEnvironment(): FloatEnvironment {
 
     getPlacedFloats() {
       return placed;
+    },
+
+    mark() {
+      return { placed: placed.length, pushed: pushed.length, landed: landed.length };
+    },
+
+    rollback(m) {
+      placed.length = Math.min(placed.length, m.placed);
+      pushed.length = Math.min(pushed.length, m.pushed);
+      landed.length = Math.min(landed.length, m.landed);
+    },
+
+    beginFragmentainer(b) {
+      let kept = 0;
+      for (const f of placed) if (f.anchorKey === undefined) placed[kept++] = f;
+      placed.length = kept;
+      bounds = b;
+      breaks = new Set();
+    },
+
+    fragmentainer() {
+      return bounds;
+    },
+
+    noteLanded(key) {
+      landed.push(key);
+    },
+
+    landedSince(m) {
+      return new Set(landed.slice(m.landed));
+    },
+
+    setBreaksBefore(keys) {
+      breaks = keys;
+    },
+
+    breaksBefore(key) {
+      return breaks.has(key);
+    },
+
+    anchoredFloat(key) {
+      return placed.find((f) => f.anchorKey === key);
     },
 
     dirtyBlockOffsetSince(prev) {

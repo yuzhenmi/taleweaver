@@ -31,6 +31,16 @@ module.exports = {
           "|(^|/)(print|digital|pdf|react)/(dist|src)/)",
       },
     },
+    {
+      name: "core-model-independent-of-state",
+      severity: "error",
+      comment:
+        "The schema-4 model (src/model/) replaces schema-3 state/ at the cut-over (P8); " +
+        "it must not depend on anything in state/, directly or through another module.",
+      from: { path: "^src/model/" },
+      // reachable: transitive — no import path from model/ may reach state/.
+      to: { path: "^src/state/", reachable: true },
+    },
   ],
   options: {
     tsConfig: { fileName: "tsconfig.json" },

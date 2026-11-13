@@ -21,17 +21,21 @@ import type { TextShaper } from "@taleweaver/core";
 import type { Hyphenator } from "@taleweaver/core";
 import type { PageConfig } from "./page-config";
 import type { BlockBox, LayoutBox, MultiColumnBox } from "./layout-box";
-import { createBlockBox, createMarkerBox, createMultiColumnBox } from "./layout-box";
+import { createBlockBox, createMarkerBox, createMultiColumnBox, withSidesToInclude } from "./layout-box";
 import { physicalizeVertical } from "./physicalize-vertical";
 import { adaptShaperToMeasurer } from "@taleweaver/core";
 import type { PageBox } from "./page-box";
 import { createPageBox } from "./page-box";
+import { pageFrame } from "./parent-frame";
+import type { ParentFrame } from "./parent-frame";
 import { layoutBlock, placeIncomingPushedFloats } from "./bfc";
 import { computeUsedStyle } from "./used-style";
 import type { ComputedStyle, UsedStyle } from "@taleweaver/core";
 import type { PagePlan, PagePlanEntry, FootnoteContinuation } from "./measure-pass";
 import type { PlacedFloat, PushedFloat } from "./float-context";
 import { createFloatEnvironment } from "./float-context";
+import { footnoteBodyContext } from "./footnote-body-context";
+import { placedFloatListsEqual, pushedFloatListsEqual } from "./float-lists-equal";
 import type { BreakToken } from "./fragmentation";
 import { breakTokensEqual } from "./fragmentation";
 import { pageConfigsEqual } from "./section-plan";
@@ -301,54 +305,6 @@ function childrenRefsEqual(a: readonly unknown[], b: readonly unknown[]): boolea
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
     if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
-
-/**
- * Field-wise equality of two incoming active-float shadow lists (VL float
- * fast-path). Equal iff same length AND each element agrees on every
- * placement field (`side` / `inlineOffset` / `blockOffset` / `inlineSize` /
- * `blockSize`). A changed upstream float (resized, moved sides, or re-placed at a
- * different offset) flips one of these → the downstream page re-materializes.
- * Compared by value (not reference) since the carry pass builds fresh
- * `PlacedFloat` objects each measure cycle.
- */
-function placedFloatListsEqual(a: readonly PlacedFloat[], b: readonly PlacedFloat[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    const x = a[i];
-    const y = b[i];
-    if (x === undefined || y === undefined) return false;
-    if (
-      x.side !== y.side ||
-      x.inlineOffset !== y.inlineOffset ||
-      x.blockOffset !== y.blockOffset ||
-      x.inlineSize !== y.inlineSize ||
-      x.blockSize !== y.blockSize
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/**
- * Field-wise equality of two pushed-float lists. Equal iff same length
- * AND each element agrees on its float `node` (reference ===, the cascaded
- * RenderNode) and `side`. A pushed-float carries no geometry (it is re-laid-out
- * on the landing page), so only node identity + side define it. Two empty lists
- * (no-pushed-float docs) compare equal.
- */
-function pushedFloatListsEqual(a: readonly PushedFloat[], b: readonly PushedFloat[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    const x = a[i];
-    const y = b[i];
-    if (x === undefined || y === undefined) return false;
-    if (x.node !== y.node || x.side !== y.side) {
-      return false;
-    }
   }
   return true;
 }
@@ -750,6 +706,9 @@ export function makeVirtualLayoutTree(
     const effContentCtx: LayoutContext = sameInline
       ? contentCtx
       : { ...ctx, containingInlineSize: effContentInlineSize };
+    // Every page child (body / multicol box, header / footer / footnote slot)
+    // is positioned in the page box.
+    const pageChildFrame = pageFrame(ctx.direction, effCfg.pageInlineSize);
 
     // NOTE: an earlier version threaded a per-page `prevLayoutCache` built from
     // the prior tree's PageBox (buildLayoutBoxCacheFromTree(prevPage, …)) so
@@ -794,6 +753,8 @@ export function makeVirtualLayoutTree(
       // block-size; the section's final page: the balanced height) — the SAME
       // per-column height the measure pass distributed against.
       const columnHeight = mcEntry.balancedColumnHeight;
+      // The columns are the MultiColumnBox's children: its box is their frame.
+      const mcFrame: ParentFrame = { direction: ctx.direction, inlineSize: effContentInlineSize };
       const columnBoxes: BlockBox[] = [];
       for (let k = 0; k < N; k++) {
         const fit = columnFit.columns[k];
@@ -819,6 +780,7 @@ export function makeVirtualLayoutTree(
           substitutedRoot,
           columnInlineStart,
           0,
+          mcFrame,
           // Override ONLY the inline size to the track width (mirrors the per-page
           // inline override at the `effContentCtx` computation above — there is no
           // `makeChildContext` helper in this scope).
@@ -828,6 +790,7 @@ export function makeVirtualLayoutTree(
           {
             availableBlockSize: columnHeight,
             pageIndex,
+            flowRoot: true,
             // Each column resumes from the inner BFC token the measure pass seeded
             // it with (column 0's is the page's `resumeInto` unwrapped, set inside
             // `fitColumnsOnPage`; NEVER a column token).
@@ -875,7 +838,7 @@ export function makeVirtualLayoutTree(
             rootComputed,
             effRootUsedStyle,
             [],
-            trackInlineSize,
+            mcFrame.inlineSize,
           );
         columnBoxes.push(colBox);
       }
@@ -895,7 +858,7 @@ export function makeVirtualLayoutTree(
         effRootUsedStyle,
         columnBoxes,
         entry.columnConfig.columnRule,
-        effContentInlineSize,
+        pageChildFrame.inlineSize,
       );
     };
 
@@ -916,10 +879,8 @@ export function makeVirtualLayoutTree(
       _getPageDriverCount++;
       // VL float fast-path: seed a fresh per-page FloatEnvironment with the floats whose
       // shadow crosses into this page from a prior page (cumulative frame, VERBATIM — no
-      // translation). For a non-float page `incomingActiveFloats` is empty ⇒ reuse
-      // `effContentCtx` by reference, byte-identical to today. (Also fixes the latent
-      // shared-floatEnv-across-pages leak: each materialized page gets its OWN env, so
-      // this page's floats — placed by its own layoutBlock — never bleed into the next.)
+      // translation). Every page gets its OWN env, as in the measure pass, so a
+      // page's floats never bleed into another page or into its header / footer.
       const pageFloatEnv = createFloatEnvironment();
       for (const f of entry.incomingActiveFloats) pageFloatEnv.seedPlaced(f);
       // The floats PUSHED onto this page from the prior page are placed
@@ -929,12 +890,7 @@ export function makeVirtualLayoutTree(
       // body placed itself); the measure pass discards its copies. Mirror the
       // measure closure (virtual-producer.ts) field-for-field for equivalence. The
       // field participates in the page-reuse fingerprint (`pushedFloatListsEqual`).
-      const usesFloatEnv =
-        entry.incomingActiveFloats.length > 0 || entry.incomingPushedFloats.length > 0;
-      const pageContentCtx: LayoutContext =
-        usesFloatEnv
-          ? { ...effContentCtx, floatEnv: pageFloatEnv, isBFCRoot: true }
-          : effContentCtx;
+      const pageContentCtx: LayoutContext = { ...effContentCtx, floatEnv: pageFloatEnv, isBFCRoot: true };
       const landedPushedFloats = placeIncomingPushedFloats(
         entry.incomingPushedFloats, pageFloatEnv, pageContentCtx,
         substitutedRoot, shaper, hyphenator, entry.pageFlowBase,
@@ -948,6 +904,7 @@ export function makeVirtualLayoutTree(
         // header has grown `effectiveTopInset` past `blockStart`, pushing the body
         // down. For a no-slot page this equals `effMargins.blockStart`.
         effTopInset,
+        pageChildFrame,
         pageContentCtx,
         shaper,
         hyphenator,
@@ -955,6 +912,7 @@ export function makeVirtualLayoutTree(
           availableBlockSize: effContentBlockSize,
           pageIndex,
           resumeFrom: entry.resumeInto,
+          flowRoot: true,
           stopBeforeIndex,
           // Opt into float pushing ONLY when the plan was built with the
           // float-aware measure pass (the producer sets `enableFloatPushing` for
@@ -978,20 +936,20 @@ export function makeVirtualLayoutTree(
       if (landedPushedFloats.length > 0) {
         if (box !== null && box.type === "block") {
           const b = box;
-          box = createBlockBox(
+          box = withSidesToInclude(createBlockBox(
             b.key, b.inlineOffset, b.blockOffset, b.inlineSize, b.blockSize,
             b.writingMode, b.direction, b.computedStyle, b.usedStyle,
             [...b.children, ...landedPushedFloats],
-            effContentInlineSize,
+            pageChildFrame.inlineSize,
             b.metadata, /* containingBlockSize */ undefined,
             b.relativeOffset, b.absoluteChildren, b.inFlowConsumed,
-          );
+          ), b.sidesToInclude);
         } else if (box === null) {
           box = createBlockBox(
             `${cascadedRoot.key}-p${pageIndex}-body`,
             effMargins.inlineStart, effTopInset, effContentInlineSize, 0,
-            ctx.writingMode, ctx.direction, rootComputed, effRootUsedStyle,
-            landedPushedFloats, effContentInlineSize,
+            ctx.writingMode, pageChildFrame.direction, rootComputed, effRootUsedStyle,
+            landedPushedFloats, pageChildFrame.inlineSize,
           );
         }
       }
@@ -1045,10 +1003,13 @@ export function makeVirtualLayoutTree(
         body,
         effMargins.inlineStart,
         slotBlockStart,
-        effContentCtx,
+        pageChildFrame,
+        // Its own BFC, as `computeSlotInsets` measures it: no body float reaches it.
+        { ...effContentCtx, floatEnv: createFloatEnvironment(), isBFCRoot: true },
         shaper,
         hyphenator,
-        { availableBlockSize: Number.MAX_SAFE_INTEGER, pageIndex, resumeFrom: null },
+        // A header / footer does not start a fragmentainer: its margins stay.
+        { availableBlockSize: Number.MAX_SAFE_INTEGER, pageIndex, resumeFrom: null, atFragmentainerStart: false },
       );
       return slotBox;
     };
@@ -1083,6 +1044,8 @@ export function makeVirtualLayoutTree(
             const slotBlockStart =
               effCfg.pageBlockSize - effBottomInset - footnoteSlotHeight;
             const slotChildren: LayoutBox[] = [];
+            // The slot's children (bodies + markers) sit in the slot box.
+            const slotFrame: ParentFrame = { direction: ctx.direction, inlineSize: effContentInlineSize };
             // NO separator rule (user directive, deliberate deviation from Google
             // Docs): the thin horizontal line that used to sit at the slot's top
             // edge is removed. `FOOTNOTE_SEPARATOR_HEIGHT` is RETAINED as a plain
@@ -1097,6 +1060,7 @@ export function makeVirtualLayoutTree(
             // plan.
             let cursor = FOOTNOTE_SEPARATOR_HEIGHT;
             let remaining = footnoteSlotHeight - FOOTNOTE_SEPARATOR_HEIGHT;
+            let bodiesPlaced = 0;
             // Lay ONE footnote body (continuation or fresh) into the slot, bounded
             // by `remaining`, resumed from `resumeToken`. Advances the cursor +
             // shrinks `remaining` by the laid box's height. Guards a missing body
@@ -1186,28 +1150,27 @@ export function makeVirtualLayoutTree(
                 showsMarker && rootCs !== undefined
                   ? measurer.measureWidth(bodyMarkerText ?? "", rootCs)
                   : 0;
-              // The body's content box is narrowed by the gutter; in LTR it is also
-              // shifted right by the gutter so the gutter sits at the inline-start.
+              // The body's content box is narrowed by the gutter and shifted past
+              // it: the gutter sits at the slot's inline-start (physical right in
+              // RTL — the slot's frame mirrors the offset).
               const bodyInlineSize = Math.max(0, effContentInlineSize - gutter);
-              const isRtl = ctx.direction === "rtl";
               // Slot-LOCAL inline-offset: the slot wrapper is positioned at
               // the page content inline-start, so its CHILDREN are 0-based — NOT
-              // `effMargins.inlineStart` (that double-padded the bodies). LTR insets
-              // the body past the gutter; RTL keeps the body at 0 (gutter is on the
-              // right).
-              const bodyInlineOffset = isRtl ? 0 : gutter;
-              const bodyCtx: LayoutContext =
-                gutter === 0
-                  ? effContentCtx
-                  : { ...effContentCtx, containingInlineSize: bodyInlineSize };
+              // `effMargins.inlineStart` (that double-padded the bodies).
+              const bodyInlineOffset = gutter;
+              // Its own BFC (a fresh float env), as `computeSlotLayout` lays it.
+              const bodyCtx = footnoteBodyContext(effContentCtx, bodyInlineSize);
               const { box: bodyBox } = layoutBlock(
                 body,
                 bodyInlineOffset,
                 cursor,
+                slotFrame,
                 bodyCtx,
                 shaper,
                 hyphenator,
-                { availableBlockSize: remaining, pageIndex, resumeFrom: resumeToken },
+                // Lockstep with `computeSlotLayout`: a flow root; only the
+                // first body starts the footnote area.
+                { availableBlockSize: remaining, pageIndex, resumeFrom: resumeToken, flowRoot: true, atFragmentainerStart: bodiesPlaced === 0 },
               );
               // Stack the body ONLY if it actually fits the remaining slot area.
               // This mirrors computeSlotLayout's overflow bound (`box === null ||
@@ -1220,6 +1183,7 @@ export function makeVirtualLayoutTree(
               // signal, so throw — in prod skip gracefully.
               if (bodyBox !== null && bodyBox.blockSize <= remaining) {
                 slotChildren.push(bodyBox);
+                bodiesPlaced++;
                 if (showsMarker && rootCs !== undefined) {
                   const rootUs = computeUsedStyle(
                     rootCs,
@@ -1233,17 +1197,11 @@ export function makeVirtualLayoutTree(
                   // and "10." both align their text at the indent), exactly like the
                   // BFC's list-item outside marker (`markerContentEdge − markerWidth
                   // − markerGap`).
-                  //   LTR: the text edge is at `gutter`; the marker's right edge
-                  //     sits one gap (FOOTNOTE_MARKER_GAP) short of it ⇒ offset
-                  //     `gutter − markerInlineSize − gap`.
-                  //   RTL (mirror): the body's right content edge is at
-                  //     `effContentInlineSize − gutter`; the marker hangs just
-                  //     inline-end (right) of it, one gap clear, inside the reserved
-                  //     right gutter ⇒ offset `(effContentInlineSize − gutter) + gap`.
-                  // Both place the number BEFORE the text in reading order.
-                  const markerInlineOffset = isRtl
-                    ? effContentInlineSize - gutter + FOOTNOTE_MARKER_GAP
-                    : gutter - markerInlineSize - FOOTNOTE_MARKER_GAP;
+                  // The text edge is at logical `gutter`; the marker's inline-end
+                  // edge sits one gap (FOOTNOTE_MARKER_GAP) short of it ⇒ offset
+                  // `gutter − markerInlineSize − gap` (the slot's frame mirrors it
+                  // in RTL), placing the number BEFORE the text in reading order.
+                  const markerInlineOffset = gutter - markerInlineSize - FOOTNOTE_MARKER_GAP;
                   slotChildren.push(
                     createMarkerBox(
                       `${body.key}-marker`,
@@ -1252,11 +1210,11 @@ export function makeVirtualLayoutTree(
                       markerInlineSize,
                       markerBlockSize,
                       ctx.writingMode,
-                      ctx.direction,
+                      slotFrame.direction,
                       rootCs,
                       rootUs,
                       bodyMarkerText ?? "",
-                      effContentInlineSize,
+                      slotFrame.inlineSize,
                     ),
                   );
                 }
@@ -1321,11 +1279,11 @@ export function makeVirtualLayoutTree(
               effContentInlineSize,
               footnoteSlotHeight,
               ctx.writingMode,
-              ctx.direction,
+              pageChildFrame.direction,
               rootComputed,
               effRootUsedStyle,
               slotChildren,
-              effContentInlineSize,
+              pageChildFrame.inlineSize,
             );
           })();
 

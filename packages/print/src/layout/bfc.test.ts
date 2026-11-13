@@ -1,11 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "@taleweaver/core";
+import type { Style } from "@taleweaver/core";
 import { listItemComponent } from "@taleweaver/core";
 import { cascadePass } from "@taleweaver/core";
 import { createMockShaper } from "@taleweaver/core";
 import { layoutBlock } from "./bfc";
 import { makeRootContext } from "./layout-context";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
+import { rootFrame } from "./parent-frame";
+import { physicalizeVertical } from "./physicalize-vertical";
 
 const shaper = createMockShaper(8, 16);
 
@@ -19,7 +22,7 @@ function layoutOf(tree: ReturnType<typeof createElementBox>) {
   const cascaded = cascadePass(tree);
   if (cascaded.type !== "element") throw new Error("?");
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
-  const result = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+  const result = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
   const box = result.box;
   if (box === null) throw new Error("layoutBlock returned null box");
   if (box.type !== "block") throw new Error("layoutBlock returned non-block box");
@@ -90,16 +93,24 @@ describe("layoutBlock — margin collapse: adjacent siblings", () => {
 });
 
 describe("layoutBlock — margin collapse: parent / first child", () => {
-  it("first child marginBlockStart is suppressed when parent has no top padding/border", () => {
+  it("first child marginBlockStart collapses through a parent with no top padding/border (CSS 2.1 §8.3.1)", () => {
     const child = createElementBox("c", {
       display: "block", blockSize: 20, marginBlockStart: 30,
     }, []);
-    const tree = createElementBox("root", { display: "block" }, [child]);
-    const out = layoutOf(tree);
-    const ch0 = nth(out.children, 0, "child");
-    if (ch0.type !== "block") throw new Error("?");
-    expect(ch0.y).toBe(0);   // marginBlockStart suppressed
-    expect(out.height).toBe(20);
+    const a = createElementBox("a", { display: "block" }, [child]);
+    const out = layoutOf(createElementBox("root", { display: "block" }, [a]));
+    const aBox = nth(out.children, 0, "a");
+    if (aBox.type !== "block") throw new Error("?");
+    // The child sits at A's top; A moves down by the one collapsed margin.
+    expect([nth(aBox.children, 0, "child").y, aBox.y, aBox.height]).toEqual([0, 30, 20]);
+  });
+
+  it("the root (a BFC root) encloses its first child's top margin", () => {
+    const child = createElementBox("c", {
+      display: "block", blockSize: 20, marginBlockStart: 30,
+    }, []);
+    const out = layoutOf(createElementBox("root", { display: "block" }, [child]));
+    expect([nth(out.children, 0, "child").y, out.height]).toEqual([30, 50]);
   });
 
   it("first child marginBlockStart is honored when parent has top padding", () => {
@@ -131,7 +142,7 @@ describe("layoutBlock — vertical-lr block advancement (P3.2)", () => {
     if (cascaded.type !== "element") throw new Error("?");
     const rootCs = { ...INITIAL_COMPUTED_STYLE, writingMode: "vertical-lr" as const };
     const ctx = makeRootContext(rootCs, 600);
-    const result = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const result = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     const box = result.box;
     if (box === null) throw new Error("layoutBlock returned null box");
     if (box.type !== "block") throw new Error("layoutBlock returned non-block box");
@@ -176,14 +187,50 @@ describe("layoutBlock — vertical-lr block advancement (P3.2)", () => {
   });
 });
 
+describe("layoutBlock — vertical block-axis border (BM3)", () => {
+  it("the block borders take block space (physical x in vertical-lr and vertical-rl)", () => {
+    for (const writingMode of ["vertical-lr", "vertical-rl"] as const) {
+      const cascaded = cascadePass(createElementBox("root", {
+        display: "block", writingMode,
+        borderBlockStartWidth: 4, borderBlockStartStyle: "solid", borderBlockEndWidth: 2, borderBlockEndStyle: "solid",
+      }, [createElementBox("c1", { display: "block", blockSize: 50 }, [])]));
+      if (cascaded.type !== "element") throw new Error("?");
+      const ctx = makeRootContext({ ...INITIAL_COMPUTED_STYLE, writingMode }, 600);
+      const laid = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined).box;
+      if (laid === null) throw new Error("?");
+      // The block-axis mirror of vertical-rl is the physicalize pass's.
+      const out = physicalizeVertical(laid, laid.blockSize);
+      if (out.type !== "block") throw new Error("?");
+      // vertical-rl's block start is the right edge: the child sits 4px left of it.
+      expect([nth(out.children, 0, "child").x, out.width]).toEqual([writingMode === "vertical-lr" ? 4 : 2, 56]);
+    }
+  });
+});
+
 describe("layoutBlock — margin collapse: parent / last child", () => {
-  it("last child marginBlockEnd is suppressed when parent has no bottom padding/border", () => {
+  it("the root (a BFC root) encloses its last child's end margin", () => {
     const child = createElementBox("c", {
       display: "block", blockSize: 20, marginBlockEnd: 30,
     }, []);
-    const tree = createElementBox("root", { display: "block" }, [child]);
-    const out = layoutOf(tree);
-    expect(out.height).toBe(20);   // marginBlockEnd suppressed
+    const out = layoutOf(createElementBox("root", { display: "block" }, [child]));
+    expect(out.height).toBe(50);
+  });
+
+  it("a last child's end margin collapses through undecorated ancestors into one margin (CSS 2.1 §8.3.1)", () => {
+    // A(mbe 5) > B(mbe 0) > P(20 tall, mbe 20), then S(mbs 10): max(20, 5, 0, 10) = 20.
+    const chain = (bStyle: Style) => createElementBox("root", { display: "block" }, [
+      createElementBox("a", { display: "block", marginBlockEnd: 5 }, [
+        createElementBox("b", bStyle, [
+          createElementBox("p", { display: "block", blockSize: 20, marginBlockEnd: 20 }, []),
+        ]),
+      ]),
+      createElementBox("s", { display: "block", blockSize: 10, marginBlockStart: 10 }, []),
+    ]);
+    const open = layoutOf(chain({ display: "block" }));
+    expect([nth(open.children, 0, "a").height, nth(open.children, 1, "s").y]).toEqual([20, 40]);
+    // B's end border stops the collapse: P's margin stays inside B.
+    const closed = layoutOf(chain({ display: "block", borderBlockEndWidth: 1, borderBlockEndStyle: "solid" }));
+    expect([nth(closed.children, 0, "a").height, nth(closed.children, 1, "s").y]).toEqual([41, 51]);
   });
 
   it("last child marginBlockEnd is honored when parent has bottom padding", () => {
@@ -248,7 +295,7 @@ describe("layoutBlock — inline content (IFC dispatch)", () => {
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 200);
-    const r = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const r = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -268,7 +315,7 @@ describe("layoutBlock — mixed block + inline children (anonymous box generatio
     const cascaded = cascadePass(doc);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r2 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r2 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r2.box === null) throw new Error("layoutBlock returned null box");
     const out = r2.box;
 
@@ -307,7 +354,7 @@ describe("layoutBlock — mixed block + inline children (anonymous box generatio
     const cascaded = cascadePass(doc);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error();
@@ -333,7 +380,7 @@ describe("layoutBlock — mixed block + inline children (anonymous box generatio
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 200);
-    const r3 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(8, 16), undefined);
+    const r3 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(8, 16), undefined);
     if (r3.box === null) throw new Error("layoutBlock returned null box");
     const out = r3.box;
     if (out.type !== "block") throw new Error("?");
@@ -348,7 +395,7 @@ describe("layoutBlock — mixed block + inline children (anonymous box generatio
     const cascaded = cascadePass(doc);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
-    const r4 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(8, 16), undefined);
+    const r4 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(8, 16), undefined);
     if (r4.box === null) throw new Error("layoutBlock returned null box");
     const out = r4.box;
     if (out.type !== "block") throw new Error("?");
@@ -391,7 +438,7 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -415,7 +462,7 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -431,7 +478,7 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -461,7 +508,7 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
       ]),
     );
     if (treeNoMarker.type !== "element") throw new Error("?");
-    const r2 = layoutBlock(treeNoMarker, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r2 = layoutBlock(treeNoMarker, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r2.box === null) throw new Error("layoutBlock returned null box");
     const out2 = r2.box;
     if (out2.type !== "block") throw new Error("?");
@@ -501,7 +548,7 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -555,7 +602,7 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -643,7 +690,7 @@ describe("BFC — intrinsic-sizing keywords on inlineSize", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r8 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r8 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r8.box === null) throw new Error("layoutBlock returned null box");
     const out = r8.box;
     const inner = findBoxByKey(out, "b");
@@ -660,7 +707,7 @@ describe("BFC — intrinsic-sizing keywords on inlineSize", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r9 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r9 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r9.box === null) throw new Error("layoutBlock returned null box");
     const out = r9.box;
     const inner = findBoxByKey(out, "b");
@@ -677,7 +724,7 @@ describe("BFC — intrinsic-sizing keywords on inlineSize", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r10 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r10 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r10.box === null) throw new Error("layoutBlock returned null box");
     const out = r10.box;
     const inner = findBoxByKey(out, "b");
@@ -699,7 +746,7 @@ describe("BFC — intrinsic-sizing keywords on inlineSize", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 30);
-    const r11 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r11 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r11.box === null) throw new Error("layoutBlock returned null box");
     const out = r11.box;
     const inner = findBoxByKey(out, "b");
@@ -718,7 +765,7 @@ describe("BFC — inline-block shrink-to-fit", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r12 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r12 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r12.box === null) throw new Error("layoutBlock returned null box");
     const out = r12.box;
     expect(out.type).toBe("block");
@@ -742,7 +789,7 @@ describe("BFC — inline-block shrink-to-fit", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 30);
-    const r = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const ibBox = findBoxByKey(r.box, "ib");
     expect(ibBox).toBeDefined();
@@ -760,11 +807,45 @@ describe("BFC — inline-block shrink-to-fit", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 30);
-    const r = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const ibBox = findBoxByKey(r.box, "ib");
     expect(ibBox).toBeDefined();
     expect(ibBox?.width).toBe(100);
+  });
+
+  it("an inline-block / float shrink-to-fits to its padding and its children's margin boxes (no wrap)", () => {
+    // Content: a block child "abc" (30) with margins 5 + 7 and padding 2 + 3;
+    // the box's own padding 4 + 6 → 30 + 12 + 5 + 10 = 57, laid out on one line.
+    const content = () => [
+      createElementBox("c", { display: "block", marginInlineStart: 5, marginInlineEnd: 7, paddingInlineStart: 2, paddingInlineEnd: 3 }, [
+        createTextBox("t", {}, "abc"),
+      ]),
+    ];
+    const pad = { paddingInlineStart: 4, paddingInlineEnd: 6 };
+    for (const box of [
+      createElementBox("p", { display: "block" }, [createElementBox("ib", { display: "inline-block", ...pad }, content())]),
+      createElementBox("p", { display: "block" }, [createElementBox("ib", { display: "block", float: "inline-start", ...pad }, content())]),
+    ]) {
+      const cascaded = cascadePass(box);
+      if (cascaded.type !== "element") throw new Error("?");
+      const r = layoutBlock(cascaded, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), createMockShaper(10, 16), undefined);
+      if (r.box === null) throw new Error("layoutBlock returned null box");
+      expect(findBoxByKey(r.box, "ib")?.width).toBe(57);
+      expect(findBoxByKey(r.box, "c")?.height).toBe(16);
+    }
+    // A list item whose wide outside marker widens its gutter: the float holding
+    // it is sized to the widened gutter, so "abc def" stays on one line.
+    const listFloat = cascadePass(createElementBox("p", { display: "block" }, [
+      createElementBox("ib", { display: "block", float: "inline-start" }, [
+        createElementBox("li", { display: "block", markerText: "viii.", paddingInlineStart: 20 }, [createTextBox("t", {}, "abc def")]),
+      ]),
+    ]));
+    if (listFloat.type !== "element") throw new Error("?");
+    const lr = layoutBlock(listFloat, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), createMockShaper(10, 16), undefined);
+    if (lr.box === null) throw new Error("layoutBlock returned null box");
+    expect(findBoxByKey(lr.box, "ib")?.width).toBe(124);
+    expect(findBoxByKey(lr.box, "li")?.height).toBe(16);
   });
 
 });
@@ -778,7 +859,7 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r13 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r13 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r13.box === null) throw new Error("layoutBlock returned null box");
     const out = r13.box;
     if (out.type !== "block") throw new Error("?");
@@ -794,7 +875,7 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("expected element root");
-    const out = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const out = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (out.box === null) throw new Error("expected a box");
     // The BFC box ENCLOSES the tall float (blockSize >= 200)…
     expect(out.box.blockSize).toBeGreaterThanOrEqual(200);
@@ -811,7 +892,7 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r14 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r14 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r14.box === null) throw new Error("layoutBlock returned null box");
     const out = r14.box;
     if (out.type !== "block") throw new Error("?");
@@ -823,6 +904,21 @@ describe("BFC — floats", () => {
     }
   });
 
+  it("clear in an RTL BFC clears the float on the same LOGICAL side (inline-start and inline-end)", () => {
+    for (const side of ["inline-start", "inline-end"] as const) {
+      // The RTL block is a child: a root takes its direction from the root context.
+      const out = layoutOf(createElementBox("root", { display: "block" }, [
+        createElementBox("p", { display: "block", direction: "rtl" }, [
+          createElementBox("f", { display: "block", float: side, inlineSize: 50, blockSize: 100 }, []),
+          createElementBox("after", { display: "block", clear: side, blockSize: 20 }, []),
+        ]),
+      ]));
+      const p = out.children.find((c) => c.key === "p");
+      const after = p !== undefined && "children" in p ? p.children.find((c) => c.key === "after") : undefined;
+      expect(after?.y).toBe(100);
+    }
+  });
+
   it("a right-floated child is placed at the right edge", () => {
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
@@ -830,7 +926,7 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r15 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r15 = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r15.box === null) throw new Error("layoutBlock returned null box");
     const out = r15.box;
     if (out.type !== "block") throw new Error("?");
@@ -853,7 +949,7 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -881,7 +977,7 @@ describe("BFC — floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -903,7 +999,7 @@ describe("BFC — floats", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     // Container narrower than 2*80 — second float must stack below.
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 100), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 100)), makeRootContext(INITIAL_COMPUTED_STYLE, 100), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -917,6 +1013,176 @@ describe("BFC — floats", () => {
     expect(f2.blockOffset).toBe(f2.y);
     // f2 must be placed below f1 (stacked), so its blockOffset must be > 0.
     expect(f2.blockOffset).toBeGreaterThan(0);
+  });
+});
+
+// F4: the float env is in the BFC root's content-box frame, so every block reads
+// (and places) floats at the column edge, whatever its own inline offset.
+describe("BFC — floats share one inline frame across indented / nested blocks", () => {
+  const WORDS = "alpha bravo charl delta echox foxtr golfx hotel india juliz kiloz limaa mikee";
+  const leftFloat = () => createElementBox("f", { display: "block", float: "inline-start", inlineSize: 100, blockSize: 50 }, []);
+  function child(box: import("./layout-box").LayoutBox, key: string): import("./layout-box").LayoutBox {
+    const c = "children" in box ? box.children.find((b) => b.key === key) : undefined;
+    if (c === undefined) throw new Error(`no child ${key}`);
+    return c;
+  }
+  function firstLine(box: import("./layout-box").LayoutBox): import("./layout-box").LayoutBox {
+    const l = "children" in box ? box.children.find((b) => b.type === "line") : undefined;
+    if (l === undefined) throw new Error(`no line in ${box.key}`);
+    return l;
+  }
+
+  it("a block float followed by an indented paragraph: its lines start at max(indent, float edge)", () => {
+    const out = layoutOf(createElementBox("root", { display: "block" }, [
+      leftFloat(),
+      createElementBox("p", { display: "block", marginInlineStart: 40 }, [createTextBox("t", {}, WORDS)]),
+      createElementBox("q", { display: "block", marginInlineStart: 150 }, [createTextBox("u", {}, "x")]),
+    ]));
+    const p = child(out, "p");
+    expect([p.x + firstLine(p).x, firstLine(p).width]).toEqual([100, 500]);
+    const q = child(out, "q");
+    expect([q.x + firstLine(q).x, firstLine(q).width]).toEqual([150, 450]);
+  });
+
+  it("a nested non-BFC block with a margin reads an outer float in the column frame", () => {
+    const out = layoutOf(createElementBox("root", { display: "block" }, [
+      leftFloat(),
+      createElementBox("quote", { display: "block", marginInlineStart: 40 }, [
+        createElementBox("p", { display: "block" }, [createTextBox("t", {}, WORDS)]),
+      ]),
+    ]));
+    const quote = child(out, "quote");
+    const p = child(quote, "p");
+    expect([quote.x + p.x + firstLine(p).x, firstLine(p).width]).toEqual([100, 500]);
+  });
+
+  it("a float inside a nested block with a margin sits at the column edge, and a following sibling reads it there", () => {
+    const out = layoutOf(createElementBox("root", { display: "block" }, [
+      createElementBox("quote", { display: "block", marginInlineStart: 40 }, [
+        leftFloat(),
+        createElementBox("q", { display: "block" }, [createTextBox("u", {}, "x")]),
+      ]),
+      createElementBox("p", { display: "block" }, [createTextBox("t", {}, WORDS)]),
+    ]));
+    const quote = child(out, "quote");
+    expect(quote.x + child(quote, "f").x).toBe(0);
+    const q = child(quote, "q");
+    expect([quote.x + q.x + firstLine(q).x, firstLine(q).width]).toEqual([100, 500]);
+    const p = child(out, "p");
+    expect([p.x + firstLine(p).x, firstLine(p).width]).toEqual([100, 500]);
+  });
+
+  it("two side-by-side floats on one side: the next line sits past both (sum of widths), left and right", () => {
+    for (const side of ["inline-start", "inline-end"] as const) {
+      const out = layoutOf(createElementBox("root", { display: "block" }, [
+        createElementBox("f1", { display: "block", float: side, inlineSize: 100, blockSize: 50 }, []),
+        createElementBox("f2", { display: "block", float: side, inlineSize: 60, blockSize: 50 }, []),
+        createElementBox("p", { display: "block" }, [createTextBox("t", {}, WORDS)]),
+      ]));
+      expect(child(out, "f2").x).toBe(side === "inline-start" ? 100 : 600 - 160);
+      const p = child(out, "p");
+      expect([p.x + firstLine(p).x, firstLine(p).width]).toEqual([side === "inline-start" ? 160 : 0, 440]);
+    }
+  });
+
+  it("a float that is the only child of a non-BFC block is placed; the block stays 0 tall and the next paragraph wraps", () => {
+    const out = layoutOf(createElementBox("root", { display: "block" }, [
+      createElementBox("quote", { display: "block", marginInlineStart: 40 }, [leftFloat()]),
+      createElementBox("p", { display: "block" }, [createTextBox("t", {}, WORDS)]),
+    ]));
+    const quote = child(out, "quote");
+    expect(quote.height).toBe(0);
+    const f = child(quote, "f");
+    expect([quote.x + f.x, quote.y + f.y, f.width, f.height]).toEqual([0, 0, 100, 50]);
+    const p = child(out, "p");
+    expect([p.y, p.x + firstLine(p).x, firstLine(p).width]).toEqual([0, 100, 500]);
+    // With a top margin collapsing through the empty block: the float stays where
+    // the env placed it (below the margin), level with the next paragraph.
+    const m = layoutOf(createElementBox("root", { display: "block" }, [
+      createElementBox("p0", { display: "block" }, [createTextBox("t0", {}, "x")]),
+      createElementBox("quote", { display: "block", marginBlockStart: 20 }, [leftFloat()]),
+      createElementBox("p", { display: "block" }, [createTextBox("t", {}, WORDS)]),
+    ]));
+    const mq = child(m, "quote");
+    const mp = child(m, "p");
+    expect([mq.y, mq.height, mq.y + child(mq, "f").y, mp.y]).toEqual([16, 0, 36, 36]);
+    expect([mp.x + firstLine(mp).x, firstLine(mp).width]).toEqual([100, 500]);
+    // RTL list item whose marker widens its padding: the shifted float keeps its
+    // physical x (re-derived against the laid-out content size, not the authored one).
+    const rtlFloatX = (marginBlockStart: number): number[] => {
+      const r = layoutOf(createElementBox("root", { display: "block" }, [
+        createElementBox("p0", { display: "block" }, [createTextBox("t0", {}, "x")]),
+        createElementBox("li", { display: "block", direction: "rtl", markerText: "10.", marginBlockStart }, [leftFloat()]),
+      ]));
+      const li = child(r, "li");
+      const f = child(li, "f");
+      return [li.x + f.x, li.y + f.y];
+    };
+    // The float sits where the BFC's env placed it: at the column's line-right
+    // edge (F4 — floats anchor to the BFC, whatever the block's padding).
+    const [x0, y0] = rtlFloatX(0);
+    expect([x0, y0]).toEqual([500, 16]);
+    expect(rtlFloatX(20)).toEqual([x0, 36]);
+  });
+
+  it("a BFC root's own inline content wraps around its own floats (flow-root: block float, wrapped image)", () => {
+    for (const display of ["block", "inline-block"] as const) {
+      const out = layoutOf(createElementBox("root", { display: "block" }, [
+        createElementBox("fr", { display: "flow-root" }, [
+          createElementBox("f", { display, float: "inline-start", inlineSize: 100, blockSize: 50 }, []),
+          createTextBox("t", {}, WORDS),
+        ]),
+      ]));
+      const fr = child(out, "fr");
+      expect([firstLine(fr).x, firstLine(fr).width]).toEqual([100, 500]);
+      expect(fr.height).toBeGreaterThanOrEqual(50);
+    }
+  });
+
+  it("a list item beside a left float: its marker moves with the first line (Word)", () => {
+    const out = layoutOf(createElementBox("root", { display: "block" }, [
+      leftFloat(),
+      createElementBox("li", { display: "block", markerText: "1", paddingInlineStart: 30 }, [createTextBox("t", {}, "body")]),
+    ]));
+    const li = child(out, "li");
+    // Content edge 30 → the float edge 100: the line and the marker (8px + 4px gap) shift by 70.
+    expect(li.x + firstLine(li).x).toBe(100);
+    expect(child(out, "li-marker").x).toBe(100 - 8 - 4);
+  });
+
+  it("a list item whose first line wraps around the item's OWN wrapped image: the marker moves with it", () => {
+    const out = layoutOf(createElementBox("root", { display: "block" }, [
+      createElementBox("li", { display: "block", markerText: "1", paddingInlineStart: 30 }, [
+        createElementBox("img", { display: "inline-block", float: "inline-start", inlineSize: 100, blockSize: 50 }, []),
+        createTextBox("t", {}, "body"),
+      ]),
+    ]));
+    const li = child(out, "li");
+    expect(li.x + firstLine(li).x).toBe(100);
+    expect(child(out, "li-marker").x).toBe(100 - 8 - 4);
+  });
+
+  it("the marker sits on the first line: a float ending inside the item's top padding does not move it, the padding does", () => {
+    const out = layoutOf(createElementBox("root", { display: "block" }, [
+      createElementBox("f", { display: "block", float: "inline-start", inlineSize: 100, blockSize: 10 }, []),
+      createElementBox("li", { display: "block", markerText: "1", paddingInlineStart: 30, paddingBlockStart: 20 }, [createTextBox("t", {}, "body")]),
+    ]));
+    const li = child(out, "li");
+    expect([li.x + firstLine(li).x, li.y + firstLine(li).y]).toEqual([30, 20]);
+    const marker = child(out, "li-marker");
+    expect([marker.x, marker.y]).toEqual([30 - 8 - 4, 20]);
+  });
+
+  it("a first line pushed below a float takes the marker down with it, unshifted", () => {
+    // A 560px word does not fit the 500px beside the float (content 570 wide).
+    const out = layoutOf(createElementBox("root", { display: "block" }, [
+      leftFloat(),
+      createElementBox("li", { display: "block", markerText: "1", paddingInlineStart: 30 }, [createTextBox("t", {}, "w".repeat(70))]),
+    ]));
+    const li = child(out, "li");
+    expect([li.x + firstLine(li).x, li.y + firstLine(li).y]).toEqual([30, 50]);
+    const marker = child(out, "li-marker");
+    expect([marker.x, marker.y]).toEqual([30 - 8 - 4, 50]);
   });
 });
 
@@ -946,7 +1212,7 @@ describe("BFC — clearance + margin-collapse interaction (CSS 8.3.1)", () => {
     const cascaded = cascadePass(parent);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r16 = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16), undefined);
+    const r16 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, createMockShaper(10, 16), undefined);
     if (r16.box === null) throw new Error("layoutBlock returned null box");
     const out = r16.box;
 
@@ -983,7 +1249,7 @@ describe("BFC — float rises to nearest BFC", () => {
     );
     if (outer.type !== "element") throw new Error("?");
 
-    const r17 = layoutBlock(outer, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r17 = layoutBlock(outer, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r17.box === null) throw new Error("layoutBlock returned null box");
     const out = r17.box;
     if (out.type !== "block") throw new Error("?");
@@ -1014,7 +1280,7 @@ describe("BFC — float rises to nearest BFC", () => {
     );
     if (outer.type !== "element") throw new Error("?");
 
-    const r18 = layoutBlock(outer, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    const r18 = layoutBlock(outer, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r18.box === null) throw new Error("layoutBlock returned null box");
     const out = r18.box;
     if (out.type !== "block") throw new Error("?");
@@ -1039,7 +1305,7 @@ describe("BFC — float rises to nearest BFC", () => {
     const cascaded = cascadePass(container);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r19 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const r19 = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (r19.box === null) throw new Error("layoutBlock returned null box");
     const out = r19.box;
     // The flow-root container should be at least 50px tall (encloses the float).
@@ -1056,7 +1322,7 @@ describe("BFC — float rises to nearest BFC", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const r = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     const inner = out.children.find((c) => c.type === "block" && c.key === "zero");
@@ -1154,7 +1420,7 @@ describe("BFC — in-flow block inline margins (box model)", () => {
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 600);
-    const r = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const r = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1176,7 +1442,7 @@ describe("BFC — in-flow block inline margins (box model)", () => {
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 600);
-    const r = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const r = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1196,7 +1462,7 @@ describe("BFC — in-flow block inline margins (box model)", () => {
     const refOl = createElementBox("ol", { display: "block" }, [refLi]);
     const refCascaded = cascadePass(refOl);
     if (refCascaded.type !== "element") throw new Error("?");
-    const refOut = layoutBlock(refCascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined).box;
+    const refOut = layoutBlock(refCascaded, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined).box;
     if (refOut === null || refOut.type !== "block") throw new Error("?");
     const refMarker = refOut.children.find((c) => c.type === "marker");
     if (refMarker === undefined) throw new Error("no ref marker");
@@ -1207,7 +1473,7 @@ describe("BFC — in-flow block inline margins (box model)", () => {
     const ol = createElementBox("ol", { display: "block" }, [li]);
     const cascaded = cascadePass(ol);
     if (cascaded.type !== "element") throw new Error("?");
-    const out = layoutBlock(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined).box;
+    const out = layoutBlock(cascaded, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 500)), makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined).box;
     if (out === null || out.type !== "block") throw new Error("?");
     const marker = out.children.find((c) => c.type === "marker");
     if (marker === undefined) throw new Error("no marker");
@@ -1331,7 +1597,7 @@ describe("BFC — list-item leaf carries its own marker presentation (component-
   function layoutItems(items: ReturnType<typeof createElementBox>[]) {
     const tree = cascadePass(createElementBox("root", { display: "block" }, items));
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 600), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 600)), makeRootContext(INITIAL_COMPUTED_STYLE, 600), shaper, undefined);
     if (r.box === null || r.box.type !== "block") throw new Error("layout failed");
     return r.box;
   }
@@ -1479,7 +1745,7 @@ describe("layoutBlock — position: relative offset resolution (slice 2)", () =>
     if (cascaded.type !== "element") throw new Error("?");
     const rootCtx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
     const ctx = { ...rootCtx, containingInlineSize: 500, containingBlockSize: 400 as number };
-    const result = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
+    const result = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined);
     const box = result.box;
     if (box === null || box.type !== "block") throw new Error("?");
     expect(box.relativeOffset).toEqual({ dx: 0, dy: 120 });
@@ -1493,9 +1759,13 @@ describe("layoutBlock — position: relative offset resolution (slice 2)", () =>
       display: "block", blockSize: 40, position: "relative",
       direction: "rtl", insetInlineStart: 15, insetBlockStart: 9,
     }, []);
-    const tree = createElementBox("root", { display: "block", direction: "rtl" }, [child]);
-    const out = layoutOf(tree);
-    const box = out.children.find((c) => c.key === "rel");
+    // The root lays out in its context's direction (as dispatch builds it from
+    // the root's style), so the context is RTL too.
+    const cascaded = cascadePass(createElementBox("root", { display: "block", direction: "rtl" }, [child]));
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 600);
+    const out = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined).box;
+    const box = out?.children.find((c) => c.key === "rel");
     if (box === undefined || box.type !== "block") throw new Error("?");
     expect(box.relativeOffset).toEqual({ dx: -15, dy: 9 });
   });
@@ -1708,5 +1978,304 @@ describe("layoutBlock — position: absolute (slice 3)", () => {
     const abs = out.absoluteChildren?.[0];
     if (abs === undefined || abs.type !== "block") throw new Error("?");
     expect(abs.x).toBe(300);
+  });
+});
+
+describe("B5 — a box sits in its parent's border-box frame, in the parent's direction", () => {
+  type Box = import("./layout-box").LayoutBox;
+  const PAD = { paddingInlineStart: 20, paddingInlineEnd: 10 };
+  function rootOf(dir: "ltr" | "rtl", children: ReturnType<typeof createElementBox>[], rootStyle: Record<string, unknown> = PAD) {
+    const cascaded = cascadePass(createElementBox("root", { display: "block", direction: dir, ...rootStyle }, children));
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: dir }, 600);
+    const box = layoutBlock(cascaded, 0, 0, rootFrame(ctx), ctx, shaper, undefined).box;
+    if (box === null) throw new Error("null box");
+    return box;
+  }
+  function get(box: Box, key: string): Box {
+    const c = "children" in box ? box.children.find((b) => b.key === key) : undefined;
+    if (c === undefined) throw new Error(`no child ${key}`);
+    return c;
+  }
+  function line(box: Box): Box {
+    const l = "children" in box ? box.children.find((b) => b.type === "line") : undefined;
+    if (l === undefined) throw new Error(`no line in ${box.key}`);
+    return l;
+  }
+  const block = (key: string, dir: "ltr" | "rtl", style: Record<string, unknown> = {}, children: Parameters<typeof createElementBox>[2] = []) =>
+    createElementBox(key, { display: "block", blockSize: 40, direction: dir, ...style }, children);
+
+  it("a child's physical x mirrors against the parent's border box in the parent's direction", () => {
+    expect(get(rootOf("rtl", [block("c", "rtl")]), "c").x).toBe(10);
+    expect(get(rootOf("ltr", [block("c", "rtl")]), "c").x).toBe(20);
+    expect(get(rootOf("rtl", [block("c", "ltr")]), "c").x).toBe(10);
+  });
+
+  it("a padded RTL paragraph's lines sit inside its padding", () => {
+    const root = rootOf("rtl", [createElementBox("p", { display: "block", direction: "rtl", ...PAD }, [createTextBox("t", {}, "abc")])]);
+    const p = get(root, "p");
+    expect([p.x, p.width]).toEqual([10, 570]);
+    const l = line(p);
+    expect([l.inlineOffset, l.x, l.width]).toEqual([20, 10, 540]);
+  });
+
+  it("an RTL float sits at the content box's inline-start (physical right) edge", () => {
+    const root = rootOf("rtl", [block("f", "rtl", { float: "inline-start", inlineSize: 100, blockSize: 50 })]);
+    // Content box: [10, 580) (padding-inline-start 20 is on the right).
+    expect(get(root, "f").x).toBe(480);
+  });
+
+  it("an RTL list marker hangs in the item's gutter, left of its content edge", () => {
+    const root = rootOf("rtl", [createElementBox("li", { display: "block", direction: "rtl", markerText: "1.", paddingInlineStart: 40 }, [createTextBox("t", {}, "x")])]);
+    const marker = get(root, "li-marker");
+    // Content edge logical 20 + 40 = 60 → physical 540; the 16px marker ends 4px before it.
+    expect([marker.x, marker.width]).toEqual([540 + 4, 16]);
+  });
+
+  it("an opposite-direction list item's marker hangs at the item's own inline-start content edge", () => {
+    // LTR root (padding-start 20) with an RTL li (padding-start 40, on its right):
+    // li [20, 590), content edge at 590 − 40 = 550; the 16px "1." ends 4px past it.
+    const root = rootOf("ltr", [createElementBox("li", { display: "block", direction: "rtl", markerText: "1.", paddingInlineStart: 40 }, [createTextBox("t", {}, "x")])]);
+    const marker = get(root, "li-marker");
+    expect([marker.x, marker.width]).toEqual([554, 16]);
+  });
+
+  it("an explicit-width child with an explicit block size keeps its width", () => {
+    const rtl = get(rootOf("rtl", [block("c", "ltr", { inlineSize: 200, blockSize: 40 })]), "c");
+    expect([rtl.x, rtl.width]).toEqual([380, 200]);
+    const ltr = get(rootOf("ltr", [block("c", "ltr", { inlineSize: 200, blockSize: 40 })]), "c");
+    expect([ltr.x, ltr.width]).toEqual([20, 200]);
+  });
+
+  it("a relative offset resolves in the containing block's direction", () => {
+    const root = rootOf("ltr", [block("rel", "rtl", { position: "relative", insetInlineStart: 10 })]);
+    expect(get(root, "rel").relativeOffset).toEqual({ dx: 10, dy: 0 });
+  });
+
+  it("an RTL table cell's lines sit inside the cell's padding", () => {
+    const table = createElementBox("tbl", { display: "table", direction: "rtl" }, [
+      createElementBox("r", { display: "table-row", direction: "rtl" }, [
+        createElementBox("cell", { display: "table-cell", direction: "rtl", ...PAD }, [createTextBox("t", {}, "abc")]),
+      ]),
+    ]);
+    const tbl = get(rootOf("rtl", [table], {}), "tbl");
+    const cell = get(get(tbl, "r"), "cell");
+    const l = line(cell);
+    expect(l.x + l.width).toBe(cell.width - 20);
+    expect(l.x).toBe(10);
+  });
+
+  it("an abs-pos child of an RTL padded box is placed from its inline-start (physical right)", () => {
+    const abs = block("abs", "rtl", { position: "absolute", insetInlineStart: 5, inlineSize: 100, blockSize: 10 });
+    const root = rootOf("rtl", [abs], { ...PAD, position: "relative" });
+    const a = root.absoluteChildren?.[0];
+    if (a === undefined) throw new Error("no abs child");
+    // The containing block is the padding box (CSS 2.1 §10.1): insets run from the padding edge.
+    expect(a.x).toBe(600 - 5 - 100);
+  });
+
+  it("an explicit-width child sits at its containing block's start, whatever its own direction", () => {
+    // (No explicit block-size: that path re-creates the box at the area's width.)
+    expect(get(rootOf("ltr", [block("c", "rtl", { inlineSize: 200, blockSize: "auto" })]), "c").x).toBe(20);
+    expect(get(rootOf("rtl", [block("c", "ltr", { inlineSize: 200, blockSize: "auto" })]), "c").x).toBe(600 - 20 - 200);
+    // Its floats and lines see it there: an LTR root's float covering [0, 300)
+    // pushes the lines of an RTL 200-wide child at [0, 200) below it.
+    const root = rootOf("ltr", [
+      block("f", "ltr", { float: "inline-start", inlineSize: 300, blockSize: 50 }),
+      createElementBox("c", { display: "block", direction: "rtl", inlineSize: 200 }, [createTextBox("t", {}, "abc")]),
+    ], {});
+    const c = get(root, "c");
+    expect(c.x).toBe(0);
+    expect(line(c).y).toBeGreaterThanOrEqual(50);
+  });
+  // BM2: borders take inline space (CSS 2.1 §8): content origin = border + padding.
+  const BORDER = { borderInlineStartWidth: 5, borderInlineEndWidth: 7, borderInlineStartStyle: "solid", borderInlineEndStyle: "solid" } as const;
+  const DECO = { ...BORDER, paddingInlineStart: 10, paddingInlineEnd: 20 };
+
+  it("BM2: a bordered paragraph's lines start inside its border and padding, LTR and RTL", () => {
+    for (const dir of ["ltr", "rtl"] as const) {
+      const p = get(rootOf(dir, [createElementBox("p", { display: "block", direction: dir, ...DECO }, [createTextBox("t", {}, "abc")])], {}), "p");
+      const l = line(p);
+      expect([l.inlineOffset, l.width]).toEqual([15, 600 - 12 - 30]);
+      expect(l.x).toBe(dir === "ltr" ? 15 : 7 + 20);
+    }
+  });
+
+  it("BM2: a float and a list marker sit inside the border", () => {
+    const floatX = (dir: "ltr" | "rtl") => get(rootOf(dir, [block("f", dir, { float: "inline-start", inlineSize: 100, blockSize: 50 })], DECO), "f").x;
+    expect(floatX("ltr")).toBe(15);
+    expect(floatX("rtl")).toBe(600 - 15 - 100);
+    const li = (padding: number) => rootOf("ltr", [createElementBox("li", {
+      display: "block", markerText: "1.", paddingInlineStart: padding, borderInlineStartWidth: 3, borderInlineStartStyle: "solid",
+    }, [createTextBox("t", {}, "x")])], {});
+    // The 16px marker ends 4px before the content edge (border 3 + padding 40).
+    const fits = li(40);
+    expect(get(fits, "li-marker").x).toBe(3 + 40 - 4 - 16);
+    expect(line(get(fits, "li")).inlineOffset).toBe(43);
+    // A gutter too narrow widens the padding: the marker sits flush inside the border.
+    const widened = li(0);
+    expect(get(widened, "li-marker").x).toBe(3);
+    expect(line(get(widened, "li")).inlineOffset).toBe(3 + 20);
+  });
+
+  it("BM2: a bordered table cell's content is its slot minus borders and padding", () => {
+    const table = createElementBox("tbl", { display: "table" }, [
+      createElementBox("r", { display: "table-row" }, [
+        createElementBox("cell", { display: "table-cell", boxSizing: "content-box", ...DECO }, [createTextBox("t", {}, "abc")]),
+      ]),
+    ]);
+    const cell = get(get(get(rootOf("ltr", [table], {}), "tbl"), "r"), "cell");
+    const l = line(cell);
+    expect([l.inlineOffset, l.width]).toEqual([15, cell.width - 12 - 30]);
+  });
+
+  it("BM2: box-sizing — an explicit width is the content width (content-box) or the border-box width", () => {
+    const sized = {
+      inlineSize: 200, paddingInlineStart: 10, paddingInlineEnd: 10,
+      borderInlineStartWidth: 2, borderInlineEndWidth: 2, borderInlineStartStyle: "solid", borderInlineEndStyle: "solid",
+    } as const;
+    const content = get(rootOf("ltr", [createElementBox("c", { display: "block", ...sized }, [createTextBox("t", {}, "abc")])], {}), "c");
+    expect([content.width, line(content).width]).toEqual([224, 200]);
+    const border = get(rootOf("ltr", [createElementBox("c", { display: "block", boxSizing: "border-box", ...sized }, [createTextBox("t", {}, "abc")])], {}), "c");
+    expect([border.width, line(border).width]).toEqual([200, 176]);
+    // An image: the width is the picture; a border adds outside it (block and inline).
+    const pictureBorder = { inlineSize: 200, blockSize: 100, borderInlineStartWidth: 2, borderInlineEndWidth: 2, borderInlineStartStyle: "solid", borderInlineEndStyle: "solid" } as const;
+    expect(get(rootOf("ltr", [block("img", "ltr", pictureBorder)], {}), "img").width).toBe(204);
+    const inlineImage = rootOf("ltr", [createElementBox("p", { display: "block" }, [
+      createElementBox("wrap", { display: "inline-block" }, [createElementBox("pic", { display: "block", ...pictureBorder }, [])]),
+    ])], {});
+    expect(findBoxByKey(inlineImage, "wrap")?.width).toBe(204);
+    // An inline-block atom advances by its border box.
+    const atom = rootOf("ltr", [createElementBox("p", { display: "block" }, [
+      createElementBox("atom", { display: "inline-block", ...sized, inlineSize: 50 }, [createTextBox("u", {}, "a")]),
+    ])], {});
+    expect(findBoxByKey(atom, "atom")?.width).toBe(74);
+    // Percent padding resolves against the containing block (CSS 2.1 §8.4), in
+    // the advance and in the laid-out atom alike: 100 + 10% of 600.
+    const pctAtom = findBoxByKey(rootOf("ltr", [createElementBox("p", { display: "block" }, [
+      createElementBox("atom", { display: "inline-block", inlineSize: 100, paddingInlineStart: { value: 10, unit: "percent" } }, [createTextBox("u", {}, "a")]),
+    ])], {}), "atom");
+    if (pctAtom === undefined) throw new Error("no atom");
+    expect([pctAtom.width, line(pctAtom).inlineOffset, line(pctAtom).width]).toEqual([160, 60, 100]);
+    // A percent-width atom's content is its advance.
+    const pctWidth = findBoxByKey(rootOf("ltr", [createElementBox("p", { display: "block" }, [
+      createElementBox("atom", { display: "inline-block", inlineSize: { value: 50, unit: "percent" } }, [createTextBox("u", {}, "a")]),
+    ])], {}), "atom");
+    if (pctWidth === undefined) throw new Error("no atom");
+    expect([pctWidth.width, line(pctWidth).width]).toEqual([300, 300]);
+  });
+
+  it("BM2: percent padding of a float or an abs-pos box resolves against its containing block", () => {
+    const pct = { inlineSize: 100, paddingInlineStart: { value: 10, unit: "percent" } } as const;
+    const f = get(rootOf("ltr", [createElementBox("f", { display: "block", float: "inline-start", ...pct }, [createTextBox("t", {}, "a")])], {}), "f");
+    expect([f.width, line(f).inlineOffset]).toEqual([160, 60]);
+    const abs = rootOf("ltr", [createElementBox("abs", { display: "block", position: "absolute", insetInlineEnd: 0, ...pct }, [createTextBox("t", {}, "a")])], { position: "relative" }).absoluteChildren?.[0];
+    if (abs === undefined) throw new Error("no abs child");
+    // Its end edge lands on the inset.
+    expect([abs.x + abs.width, abs.width, line(abs).inlineOffset]).toEqual([600, 160, 60]);
+  });
+
+  it("BM2: a border with style none takes no space", () => {
+    const p = get(rootOf("ltr", [createElementBox("p", { display: "block", borderInlineStartWidth: 5 }, [createTextBox("t", {}, "abc")])], {}), "p");
+    expect([line(p).inlineOffset, line(p).width]).toEqual([0, 600]);
+  });
+
+  it("BM2: an abs-pos box's containing block is the padding box", () => {
+    const absChild = (box: Box) => {
+      const a = box.absoluteChildren?.[0];
+      if (a === undefined) throw new Error("no abs child");
+      return a;
+    };
+    const at0 = (dir: "ltr" | "rtl") => absChild(rootOf(dir, [block("abs", dir, { position: "absolute", insetInlineStart: 0, inlineSize: 100, blockSize: 10 })], { ...DECO, position: "relative" }));
+    expect(at0("ltr").x).toBe(5);
+    expect(at0("rtl").x).toBe(600 - 5 - 100);
+    const fill = absChild(rootOf("ltr", [block("abs", "ltr", { position: "absolute", insetInlineStart: 0, insetInlineEnd: 0, blockSize: 10 })], { ...DECO, position: "relative" }));
+    expect([fill.x, fill.width]).toEqual([5, 600 - 12]);
+  });
+
+  // BM3: borders take block space (CSS 2.1 §8): content origin = border + padding on the block axis.
+  const BLOCK_DECO = {
+    borderBlockStartWidth: 3, borderBlockEndWidth: 5, borderBlockStartStyle: "solid", borderBlockEndStyle: "solid",
+    paddingBlockStart: 10, paddingBlockEnd: 20,
+  } as const;
+
+  it("BM3: a bordered paragraph's first line starts below its top border and padding; the end adds padding + border", () => {
+    const p = get(rootOf("ltr", [createElementBox("p", { display: "block", ...BLOCK_DECO }, [createTextBox("t", {}, "abc")])], {}), "p");
+    expect([line(p).y, p.height]).toEqual([13, 13 + 16 + 25]);
+  });
+
+  it("BM3: a nested block starts below its parent's top border; a border stops margin collapse", () => {
+    const B = { borderBlockStartWidth: 4, borderBlockEndWidth: 6, borderBlockStartStyle: "solid", borderBlockEndStyle: "solid" } as const;
+    const kid = block("c", "ltr", { blockSize: 20, marginBlockStart: 30, marginBlockEnd: 7 });
+    const bordered = rootOf("ltr", [kid], B);
+    expect([get(bordered, "c").y, bordered.height]).toEqual([4 + 30, 4 + 30 + 20 + 7 + 6]);
+    // The root is a BFC root: it encloses the margins (no collapse through it).
+    const plain = rootOf("ltr", [kid], {});
+    expect([get(plain, "c").y, plain.height]).toEqual([30, 30 + 20 + 7]);
+    // An empty block with a border does not collapse through: it is as tall as its border.
+    const root = rootOf("ltr", [
+      block("a", "ltr", { blockSize: 10 }),
+      block("e", "ltr", { blockSize: "auto", marginBlockStart: 20, marginBlockEnd: 30, borderBlockStartWidth: 2, borderBlockStartStyle: "solid" }),
+      block("b", "ltr", { blockSize: 10 }),
+    ], {});
+    expect([get(root, "e").height, get(root, "b").y]).toEqual([2, 10 + 20 + 2 + 30]);
+  });
+
+  it("BM3: box-sizing — an explicit block size is the content height (content-box) or the border-box height", () => {
+    const sized = {
+      blockSize: 100, paddingBlockStart: 10, paddingBlockEnd: 10,
+      borderBlockStartWidth: 2, borderBlockEndWidth: 2, borderBlockStartStyle: "solid", borderBlockEndStyle: "solid",
+    } as const;
+    expect(get(rootOf("ltr", [block("c", "ltr", sized)], {}), "c").height).toBe(124);
+    expect(get(rootOf("ltr", [block("c", "ltr", { ...sized, boxSizing: "border-box" })], {}), "c").height).toBe(100);
+    // A picture: the height is the picture; a border adds outside it (block, float and inline).
+    const pictureBorder = {
+      inlineSize: 200, blockSize: 100,
+      borderBlockStartWidth: 2, borderBlockEndWidth: 2, borderBlockStartStyle: "solid", borderBlockEndStyle: "solid",
+    } as const;
+    expect(get(rootOf("ltr", [block("img", "ltr", pictureBorder)], {}), "img").height).toBe(104);
+    expect(get(rootOf("ltr", [block("img", "ltr", { ...pictureBorder, float: "inline-start" })], {}), "img").height).toBe(104);
+    const inlineImage = rootOf("ltr", [createElementBox("p", { display: "block" }, [
+      createElementBox("pic", { display: "inline-block", ...pictureBorder }, []),
+    ])], {});
+    expect(findBoxByKey(inlineImage, "pic")?.height).toBe(104);
+    // border-box never shrinks the content below 0 (css-box-sizing §3): a float
+    // smaller than its padding is as tall / wide as its padding.
+    const tiny = {
+      boxSizing: "border-box", float: "inline-start", blockSize: 4, inlineSize: 4,
+      paddingBlockStart: 10, paddingBlockEnd: 10, paddingInlineStart: 10, paddingInlineEnd: 10,
+    } as const;
+    const f = get(rootOf("ltr", [block("f", "ltr", tiny)], {}), "f");
+    expect([f.width, f.height]).toEqual([20, 20]);
+  });
+
+  it("BM3: a table row's height includes its cells' block borders and padding", () => {
+    const table = createElementBox("tbl", { display: "table" }, [
+      createElementBox("r", { display: "table-row" }, [
+        createElementBox("cell", { display: "table-cell", ...BLOCK_DECO }, [createTextBox("t", {}, "abc")]),
+      ]),
+    ]);
+    const row = get(get(rootOf("ltr", [table], {}), "tbl"), "r");
+    const cell = get(row, "cell");
+    expect([row.height, cell.height, line(cell).y]).toEqual([54, 54, 13]);
+  });
+
+  it("BM3: an abs-pos box's containing block is the padding box on the block axis", () => {
+    const container = {
+      position: "relative", paddingBlockStart: 10, paddingBlockEnd: 10,
+      borderBlockStartWidth: 6, borderBlockEndWidth: 4, borderBlockStartStyle: "solid", borderBlockEndStyle: "solid",
+    } as const;
+    const absAt = (inset: Record<string, unknown>) => {
+      const root = rootOf("ltr", [block("c", "ltr"), block("abs", "ltr", { position: "absolute", blockSize: 10, ...inset })], container);
+      // Border box 6 + 10 + 40 + 10 + 4 = 70; the padding box spans 6..66.
+      expect(root.height).toBe(70);
+      const a = root.absoluteChildren?.[0];
+      if (a === undefined) throw new Error("no abs child");
+      return a.y;
+    };
+    expect(absAt({ insetBlockStart: 0 })).toBe(6);
+    expect(absAt({ insetBlockEnd: 0 })).toBe(66 - 10);
+    // Its explicit block size is its content height: a 1px border each side adds 2.
+    expect(absAt({ insetBlockEnd: 0, borderBlockStartWidth: 1, borderBlockEndWidth: 1, borderBlockStartStyle: "solid", borderBlockEndStyle: "solid" })).toBe(66 - 12);
   });
 });

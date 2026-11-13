@@ -2,13 +2,14 @@ import type { LayoutBoxMetadata } from "@taleweaver/core";
 import type { BlockId } from "@taleweaver/core";
 import {
   assignTableGrid as assignTableGridCore,
+  type AssignedCell as CoreAssignedCell,
   type GridCell,
-  type TableGrid,
+  type TableGrid as CoreTableGrid,
 } from "@taleweaver/core";
 
-// The grid TYPES are owned by the layering-neutral core; re-export them so
-// existing layout imports (`from "./table-grid"`) keep resolving.
-export type { TableGrid, AssignedCell } from "@taleweaver/core";
+// The grid TYPES are owned by the layering-neutral core; layout's are keyed by BlockId.
+export type TableGrid = CoreTableGrid<BlockId>;
+export type AssignedCell = CoreAssignedCell<BlockId>;
 
 /** A finite integer ≥ 1, else 1 (absent / invalid spans collapse to a 1×1 cell). */
 function clampSpan(v: unknown): number {
@@ -42,7 +43,7 @@ export interface GridCellInput {
  * Assign every cell a grid origin `(gridRow, gridCol)` + span via the CSS
  * Tables 3 §17.5 grid model — the LAYOUT entry point. This is a thin
  * adapter over the layering-neutral `assignTableGrid` core
- * (`state/table-grid-core.ts`): it resolves each cell's spans the LAYOUT way
+ * (core `table-grid/assign-table-grid.ts`): it resolves each cell's spans the LAYOUT way
  * (via `cellSpan`, reading `metadata`) into the neutral `GridCell` input, then
  * runs the shared scan. The span resolution here is the SAME path layout always
  * used, so the produced grid is byte-identical to the pre-extraction behavior.
@@ -51,8 +52,8 @@ export interface GridCellInput {
  * resolves spans via `spanValue ?? 1`, NOT `cellSpan`/`clampSpan`).
  */
 export function assignTableGrid(rows: readonly (readonly GridCellInput[])[]): TableGrid {
-  const neutralRows: GridCell[][] = rows.map((row) =>
-    row.map((input): GridCell => {
+  const neutralRows: GridCell<BlockId>[][] = rows.map((row) =>
+    row.map((input): GridCell<BlockId> => {
       const { rowSpan, colSpan } = cellSpan(input);
       return { cellId: input.key, rowSpan, colSpan };
     }),

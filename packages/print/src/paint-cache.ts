@@ -77,6 +77,10 @@ export function hashPaintInputs(box: LayoutBox): PaintInputHash {
   const us = box.usedStyle;
   h += `|us:${us.paddingBlockStart}:${us.paddingBlockEnd}:${us.paddingInlineStart}:${us.paddingInlineEnd}`;
   h += `:${us.borderBlockStartWidth}:${us.borderBlockEndWidth}:${us.borderInlineStartWidth}:${us.borderInlineEndWidth}`;
+  // A split box's sliced sides paint no border (only present on fragments).
+  if (box.sidesToInclude !== undefined) {
+    h += `|sides:${box.sidesToInclude.blockStart}:${box.sidesToInclude.blockEnd}`;
+  }
 
   // Type-specific fields
   if (box.type === "text-run") {

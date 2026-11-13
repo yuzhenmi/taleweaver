@@ -7,7 +7,7 @@ import {
   createBlockBox, createLineBox, createTextRunBox, createInlineBox, createInlineBlockBox, createMarkerBox,
   createTableBox, createTableRowBox, createTableCellBox, createMultiColumnBox,
   withInlineOffset, withBlockOffset, withOffsets, withBidiLevel,
-  withPhysicalInlineOffset,
+  withPhysicalInlineOffset, withSidesToInclude,
   assertLayoutBoxConsistent,
 } from "./layout-box";
 
@@ -214,6 +214,13 @@ describe("Table layout boxes", () => {
     expect(c.type).toBe("table-cell");
     expect({ gridRow: c.gridRow, gridCol: c.gridCol, rowSpan: c.rowSpan, colSpan: c.colSpan })
       .toEqual({ gridRow: 1, gridCol: 2, rowSpan: 2, colSpan: 3 });
+    // A positioned cell's abs-pos children survive a reposition clone.
+    const abs = createBlockBox("abs", 5, 5, 10, 10, "horizontal-tb", "ltr", cs, us, [], 100);
+    const withAbs = createTableCellBox(
+      "c", 0, 0, 100, 30, "horizontal-tb", "ltr", cs, us, [],
+      { gridRow: 0, gridCol: 0, rowSpan: 1, colSpan: 1 }, 100, undefined, [abs],
+    );
+    expect(withOffsets(withAbs, 20, 0, 500).absoluteChildren).toEqual([abs]);
   });
 });
 
@@ -509,6 +516,16 @@ describe("withOffsets", () => {
     const movedBlock = withBlockOffset(orig, 77, 500);
     expect(movedBlock.absoluteChildren).toHaveLength(1);
     expect(nth(movedBlock.absoluteChildren ?? [], 0, "absolute child").key).toBe("abs");
+  });
+
+  // BM4: a split box's fragment keeps its sliced sides through every reposition
+  // (reuse clone, vertical-rl physicalize); an unsplit box stays field-free.
+  it("PRESERVES sidesToInclude through withOffsets", () => {
+    const whole = createBlockBox("k", 0, 0, 100, 50, "horizontal-tb", "ltr", cs, us, [], 500);
+    expect(withSidesToInclude(whole, { blockStart: true, blockEnd: true })).toBe(whole);
+    const fragment = withSidesToInclude(whole, { blockStart: false, blockEnd: true });
+    expect(withOffsets(fragment, 12, 34, 500).sidesToInclude).toEqual({ blockStart: false, blockEnd: true });
+    expect("sidesToInclude" in withOffsets(whole, 12, 34, 500)).toBe(false);
   });
 });
 

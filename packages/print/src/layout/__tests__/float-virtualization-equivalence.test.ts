@@ -20,8 +20,6 @@
 //   - the `paginationFallsBackToLegacy` gate truth-table (Task 5 Step 3).
 
 import { describe, it, expect } from "vitest";
-import type { FootnoteAnchorRef } from "@taleweaver/core";
-import type { BlockId } from "@taleweaver/core";
 import { layoutBlock, placeIncomingPushedFloats } from "../bfc";
 import { createMockShaper } from "@taleweaver/core";
 import { makeRootContext } from "../layout-context";
@@ -48,6 +46,7 @@ import { makeVirtualLayoutTree } from "../virtual-layout-tree";
 import type { PageBox } from "../page-box";
 import type { LayoutBox } from "../layout-box";
 import { runOracle, nth } from "./equivalence-oracle";
+import { rootFrame } from "../parent-frame";
 
 // ---------------------------------------------------------------------------
 // Page configs + fixtures (mirror float-pagination-coherent.test.ts).
@@ -141,7 +140,7 @@ function makeMeasurer(
       root,
       a.inlineOrigin,
       a.blockOrigin,
-      pageCtx,
+      rootFrame(pageCtx), pageCtx,
       shaper,
       hyphenator,
       {
@@ -381,6 +380,62 @@ describe("float virtualization equivalence — incremental == from-scratch (mult
       expect(inc.listCounterAtStart, `page ${i} listCounterAtStart`).toBe(fs.listCounterAtStart);
     }
   });
+
+  it("T-ad: a float on page 0 grows without moving the break — page 1 re-fits with the new carry, not the stale one", () => {
+    // f hangs from page 0 (cumulative [64,120]) into page 1, which starts whole
+    // at c (its two lines do not fit beside f). Growing f to 72 leaves page 0's
+    // break and page 1's children unchanged — only the carry differs.
+    const doc = (h: number) => cascadeRoot({ display: "block" }, [para("a", 4), leftFloat("f", 200, h), para("c", 2), para("d", 3)]);
+    const before = doc(56);
+    const beforeH = buildHarness(before, PAGE);
+    const beforePlan = measurePass(
+      beforeH.metas, PAGE, IMPLICIT_SECTION_PLAN, flattenContents(before.children),
+      undefined, undefined, undefined, beforeH.measurer,
+    );
+    // Only f is replaced: c and d stay the same nodes, so page 1's children are
+    // reference-equal across the edit.
+    const edited: ElementBox = {
+      ...before,
+      children: [nth(before.children, 0, "a"), nth(doc(72).children, 1, "f"), ...before.children.slice(2)],
+    };
+    const editedH = buildHarness(edited, PAGE);
+    const run = (prev: typeof beforePlan | undefined) => measurePass(
+      editedH.metas, PAGE, IMPLICIT_SECTION_PLAN, flattenContents(edited.children),
+      prev, undefined, undefined, editedH.measurer,
+    );
+    const fromScratch = run(undefined);
+    const incremental = run(beforePlan);
+    expect(nth(fromScratch.entries, 1, "page 1").incomingActiveFloats.map((f) => f.blockOffset + f.blockSize)).toEqual([136]);
+    expect(nth(incremental.entries, 1, "page 1").incomingActiveFloats).toEqual(nth(fromScratch.entries, 1, "page 1").incomingActiveFloats);
+  });
+
+  it("T-ae: growing page 0 shifts the flow frame of reused pages 1–2 — their float carry and break tokens move with it", () => {
+    // Page 0: a (forced break). Page 1: b, f [16,86), c's first 4 rows beside
+    // f; c resumes mid-paragraph on page 2 with f hanging 6px into it. A third
+    // row in a shifts pages 1–2 by 16px without changing them.
+    const doc = (aLines: number) => cascadeRoot({ display: "block" }, [
+      para("a", aLines, { breakAfter: "page" }), para("b", 1), leftFloat("f", 200, 70), para("c", 6),
+    ]);
+    const before = doc(2);
+    const beforeH = buildHarness(before, PAGE);
+    const beforePlan = measurePass(
+      beforeH.metas, PAGE, IMPLICIT_SECTION_PLAN, flattenContents(before.children),
+      undefined, undefined, undefined, beforeH.measurer,
+    );
+    const edited: ElementBox = { ...before, children: [nth(doc(3).children, 0, "a"), ...before.children.slice(1)] };
+    const editedH = buildHarness(edited, PAGE);
+    const run = (prev: typeof beforePlan | undefined) => measurePass(
+      editedH.metas, PAGE, IMPLICIT_SECTION_PLAN, flattenContents(edited.children),
+      prev, undefined, undefined, editedH.measurer,
+    );
+    const fromScratch = run(undefined);
+    const page2 = nth(fromScratch.entries, 2, "page 2");
+    expect(page2.incomingActiveFloats.map((f) => f.blockOffset + f.blockSize - page2.pageFlowBase)).toEqual([6]);
+    expect(page2.resumeInto).not.toBeNull();
+    const incremental = run(beforePlan);
+    expect(incremental.entries.map((e) => e.incomingActiveFloats)).toEqual(fromScratch.entries.map((e) => e.incomingActiveFloats));
+    expect(incremental.entries.map((e) => [e.resumeInto, e.resumeOut])).toEqual(fromScratch.entries.map((e) => [e.resumeInto, e.resumeOut]));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -431,24 +486,14 @@ describe("float virtualization equivalence — per-page origin (PR2-B)", () => {
 describe("paginationFallsBackToLegacy gate truth-table", () => {
   it("single-column float doc → false (virtual)", () => {
     const root = cascadeRoot({ display: "block" }, [para("a", 3), leftFloat("f", 200, 40), para("b", 5)]);
-    expect(paginationFallsBackToLegacy(root, [])).toBe(false);
-  });
-
-  it("float + footnote → true (legacy)", () => {
-    const root = cascadeRoot({ display: "block" }, [para("a", 3), leftFloat("f", 200, 40), para("b", 5)]);
-    // A non-empty footnoteAnchors array routes a float doc to legacy (the gate
-    // only reads `.length`, so a minimal valid anchor suffices).
-    const anchors: readonly FootnoteAnchorRef[] = [
-      { blockId: "a" as BlockId, contentBlockId: "fn0" as BlockId, sectionId: null },
-    ];
-    expect(paginationFallsBackToLegacy(root, anchors)).toBe(true);
+    expect(paginationFallsBackToLegacy(root)).toBe(false);
   });
 
   it("float + multicol → true (legacy)", () => {
     // A doc-root multi-column region (columnCount > 1 in metadata — the source
     // `resolveColumnConfig` reads) WITH a float ⇒ legacy.
     const root = cascadeMulticolRoot(2, [para("a", 3), leftFloat("f", 200, 40), para("b", 5)]);
-    expect(paginationFallsBackToLegacy(root, [])).toBe(true);
+    expect(paginationFallsBackToLegacy(root)).toBe(true);
   });
 
   it("position:absolute doc → true (legacy)", () => {
@@ -458,17 +503,17 @@ describe("paginationFallsBackToLegacy gate truth-table", () => {
         createTextBox("abs-t", {}, "x"),
       ]),
     ]);
-    expect(paginationFallsBackToLegacy(root, [])).toBe(true);
+    expect(paginationFallsBackToLegacy(root)).toBe(true);
   });
 
   it("float-free doc → false (virtual)", () => {
     const root = cascadeRoot({ display: "block" }, [para("a", 3), para("b", 5)]);
-    expect(paginationFallsBackToLegacy(root, [])).toBe(false);
+    expect(paginationFallsBackToLegacy(root)).toBe(false);
   });
 
   it("multicol WITHOUT float → false (virtual handles plain multicol)", () => {
     const root = cascadeMulticolRoot(2, [para("a", 3), para("b", 5)]);
-    expect(paginationFallsBackToLegacy(root, [])).toBe(false);
+    expect(paginationFallsBackToLegacy(root)).toBe(false);
   });
 });
 
@@ -500,7 +545,7 @@ function makePushingMeasurer(
       a.incomingPushedFloats, env, pageCtx, root, shaper, undefined, a.pageFlowBase,
     );
     const { box, breakToken, inFlowConsumed } = layoutBlock(
-      root, a.inlineOrigin, a.blockOrigin, pageCtx, shaper, undefined,
+      root, a.inlineOrigin, a.blockOrigin, rootFrame(pageCtx), pageCtx, shaper, undefined,
       {
         availableBlockSize: a.contentBlockSize,
         pageIndex: 0,

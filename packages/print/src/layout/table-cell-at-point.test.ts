@@ -7,6 +7,7 @@ import { makeRootContext } from "./layout-context";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import { locateTableCellAtPoint } from "./table-cell-at-point";
 import type { TableBox } from "./layout-box";
+import { rootFrame } from "./parent-frame";
 
 const shaper = createMockShaper(8, 16);
 
@@ -14,7 +15,7 @@ const shaper = createMockShaper(8, 16);
 function layoutTableBox(node: ReturnType<typeof createElementBox>, width: number): TableBox {
   const cascaded = cascadePass(node);
   if (cascaded.type !== "element") throw new Error("?");
-  const result = layoutTable(cascaded, 0, 0, makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, width), shaper, undefined);
+  const result = layoutTable(cascaded, 0, 0, rootFrame(makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, width)), makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, width), shaper, undefined);
   if (result.box === null) throw new Error("null");
   return result.box;
 }

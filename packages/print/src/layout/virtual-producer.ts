@@ -15,6 +15,7 @@
 // `VirtualLayoutTree` for the carry-forward memo; pass it only when the prior
 // layout was virtual.
 
+import { rootFrame } from "./parent-frame";
 import type { ElementBox } from "@taleweaver/core";
 import type { BlockId } from "@taleweaver/core";
 import type { FootnoteAnchorRef } from "@taleweaver/core";
@@ -61,11 +62,11 @@ const EMPTY_FIELD_WIDTHS: ReadonlyMap<string, number> = new Map();
 /**
  * Build a `VirtualLayoutTree` for a paginated `display: block` document root.
  *
- * Callers must already have gated on `!paginationFallsBackToLegacy(cascadedRoot,
- * footnoteAnchors)` (`position:absolute` docs and float docs that are also
- * multi-column or footnote-bearing fall back to the legacy positioned
- * `paginateRoot` path; single-column float/`clear` docs use this virtualized fast
- * path) and `cascadedRoot.computedStyle?.display === "block"`.
+ * Callers must already have gated on `!paginationFallsBackToLegacy(cascadedRoot)`
+ * (`position:absolute` docs and multi-column float docs fall back to the legacy
+ * positioned `paginateRoot` path; single-column float/`clear` docs, footnotes
+ * included, use this virtualized fast path) and
+ * `cascadedRoot.computedStyle?.display === "block"`.
  *
  * @param cascadedRoot the cascaded document root (must have `computedStyle`).
  * @param ctx the root `LayoutContext` (writingMode/direction/etc.) — the SAME
@@ -119,9 +120,9 @@ export function buildVirtualPaginatedTree(
   // VL float fast-path: gate the float measurer on the doc having any float/clear.
   // Float-free docs pass `undefined` to `measurePass` ⇒ the existing `fitOnePage`
   // path, byte-identical. A float doc only reaches this producer when
-  // `paginationFallsBackToLegacy` returned false (single-column + footnote-free),
-  // so the measurer is only ever invoked on single-column float pages — the
-  // measure-pass multicol dev-assert never fires.
+  // `paginationFallsBackToLegacy` returned false (single-column), so the measurer
+  // is only ever invoked on single-column float pages — by the measure pass and
+  // by the footnote re-fit — and the multicol dev-asserts never fire.
   const docHasFloat = hasFloatOrClear(cascadedRoot);
 
   const metas = buildBlockFitMetas(cascadedRoot, shaper, hyphenator, pageContentInlineSize);
@@ -309,6 +310,8 @@ export function buildVirtualPaginatedTree(
             patchedRoot,
             a.inlineOrigin,
             a.blockOrigin,
+            // Measure only: the body box's position is discarded.
+            rootFrame(pageCtx),
             pageCtx,
             shaper,
             hyphenator,
@@ -316,6 +319,7 @@ export function buildVirtualPaginatedTree(
               availableBlockSize: a.contentBlockSize,
               pageIndex: 0,
               resumeFrom: a.resumeInto,
+              flowRoot: true,
               stopBeforeIndex: a.stopBeforeIndex,
               // Opt this VIRTUALIZED measure pass into float pushing (legacy
               // paginateRoot leaves it off). The pushed floats are read out via
@@ -387,6 +391,9 @@ export function buildVirtualPaginatedTree(
       // `measurePass` above). Without it the footnote pass plans at full width and
       // drifts (the drift class, here in the footnote re-fit).
       (inlineSize) => buildBlockFitMetas(patchedRoot, shaper, hyphenator, inlineSize),
+      // R2-5: a float doc's footnote pages re-fit with the SAME real-`layoutBlock`
+      // measurer at the slot-reduced block size, so they agree with materialize.
+      floatPageMeasurer,
     );
     const resolved = resolvePageFields(plan, fieldSpecs, measurer, parentOf);
     return {
@@ -534,10 +541,12 @@ function computeSlotInsets(
     // does (containingInlineSize = the content area). Lay the body at its
     // natural height (no clip, no page-break).
     const sectionContentCtx: LayoutContext = { ...ctx, containingInlineSize: effContentInlineSize };
-    const { box } = layoutBlock(body, 0, 0, sectionContentCtx, shaper, hyphenator, {
+    const { box } = layoutBlock(body, 0, 0, rootFrame(sectionContentCtx), sectionContentCtx, shaper, hyphenator, {
       availableBlockSize: Number.MAX_SAFE_INTEGER,
       pageIndex: 0,
       resumeFrom: null,
+      // A header / footer does not start a fragmentainer: its margins stay.
+      atFragmentainerStart: false,
     });
     const height = box?.blockSize ?? 0;
     perInline.set(effContentInlineSize, height);

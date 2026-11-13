@@ -348,7 +348,7 @@ export {
   UAX9_UNICODE_VERSION,
 } from "./layout/uax9";
 export type { BidiClass, BaseDirection, BidiResult } from "./layout/uax9";
-export type { IntrinsicSizes, IntrinsicContribution, IntrinsicSizesCache } from "./layout/intrinsic-sizes";
+export type { IntrinsicSizes, IntrinsicContribution, IntrinsicFloats, IntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export { createIntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export type { BlockParentLookup } from "./state/block-parent-lookup-type";
 export { makeBlockParentLookup } from "./editor/block-parent-lookup";
@@ -381,12 +381,12 @@ export {
   columnConfigsEqual,
 } from "./styles/column-config";
 export { formatCounter } from "./styles/format-counter";
-export { computedStylesEqual } from "./cascade/cascade-pass";
+export { computedStylesEqual, usedStylesEqual } from "./cascade/cascade-pass";
 export { INLINE_KEY_SEPARATOR } from "./render/inline-render-key";
 export type { BlockKindResolver } from "./state/block-kinds";
 export { coerceBlockId } from "./state/block-id";
-export type { GridCell, TableGrid, AssignedCell } from "./state/table-grid-core";
-export { assignTableGrid } from "./state/table-grid-core";
+export type { GridCell, TableGrid, AssignedCell } from "./table-grid/assign-table-grid";
+export { assignTableGrid } from "./table-grid/assign-table-grid";
 export type { PageFieldNumberStyle } from "./state/page-field";
 export {
   PAGE_FIELD_EMBED_TYPE,

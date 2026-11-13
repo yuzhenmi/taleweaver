@@ -14,6 +14,8 @@ import type { LayoutBox, BlockBox } from "./layout-box";
 export interface PageBox {
   readonly type: "page";
   readonly key: string;
+  /** A page is never a fragment of a split box (see `LayoutBoxBase.sidesToInclude`). */
+  readonly sidesToInclude?: undefined;
 
   // Logical (parent-relative)
   readonly inlineOffset: number;

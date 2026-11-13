@@ -6,6 +6,7 @@ import { layoutInlineContent } from "./ifc";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import { makeRootContext } from "./layout-context";
 import type { LayoutBox, TextRunBox } from "./layout-box";
+import { rootFrame } from "./parent-frame";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -25,7 +26,7 @@ function textRunLeavesOf(text: string, width: number): TextRunBox[] {
   );
   if (tree.type !== "element") throw new Error("expected element tree");
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
-  const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, 0);
+  const result = layoutInlineContent(tree, 0, 0, rootFrame(ctx), ctx, shaper, undefined, 0);
   if (result.box === null) throw new Error("layoutInlineContent returned null box");
 
   const leaves: TextRunBox[] = [];

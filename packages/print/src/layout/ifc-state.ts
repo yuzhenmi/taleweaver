@@ -16,6 +16,19 @@ export interface IFCState {
   readonly lines: readonly LineBox[];
   readonly availableInlineSize: number;
   /**
+   * The lines' inline-start offset in the block's frame (its content edge:
+   * border + padding). The cached lines bake it in, so a padding / border-start
+   * change with the same content width must re-lay them.
+   */
+  readonly inlineOffset: number;
+  /**
+   * The first line's block offset in the block's frame (its content edge:
+   * border + padding block-start). The cached lines bake it in too (T-r).
+   */
+  readonly blockOffset: number;
+  /** The block's border-box inline size: RTL lines' physical x mirror against it. */
+  readonly frameInlineSize: number;
+  /**
    * The block's resolved `textAlign` + inline base `direction` at the time the
    * lines were laid out. The cached lines bake in their alignment offset (each
    * LineBox's `inlineOffset`/`x` already reflects the aligned position), so a
@@ -48,6 +61,14 @@ export interface IFCState {
    * cache-save time from `tokens.some((t) => t.isTab === true)`.
    */
   readonly hasTab: boolean;
+  /**
+   * Whether this paragraph holds a float (a wrapped inline image's placeholder)
+   * or a float's exclusion crossed its lines when they were wrapped: those lines
+   * bake in float geometry the token comparison doesn't capture, so the entry is
+   * a forced miss, like `hasTab`. A paragraph that was clear of floats but now
+   * has one across its block range is caught at read time (`hasFloatIn`).
+   */
+  readonly seesFloat: boolean;
 }
 
 /**

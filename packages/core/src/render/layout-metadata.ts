@@ -144,4 +144,16 @@ export interface LayoutBoxMetadata {
   // `InlineBlockBox.isReplaced` so `applyVerticalAlign` picks the bottom-edge
   // baseline. `undefined` for a non-replaced inline-block.
   readonly replacedInline?: boolean;
+  // A WRAPPED inline image (inline-image embed with `properties.wrap`): its outer
+  // atom carries `float` and stays the single IFC item (a zero-width placeholder,
+  // one offset); print places the float at its paragraph's top + `offsetBlock`
+  // (paragraph-relative, px). `exclusion: "full"` = "break text": the exclusion
+  // is the whole containing inline size, so no line sits beside the image.
+  // `blockId` / `offset` = the embed's state position (owner block, offset).
+  readonly inlineFloat?: {
+    readonly blockId: BlockId;
+    readonly offset: number;
+    readonly offsetBlock: number;
+    readonly exclusion: "side" | "full";
+  };
 }

@@ -3,8 +3,10 @@ import { createElementBox, createTextBox } from "@taleweaver/core";
 import { cascadePass } from "@taleweaver/core";
 import { createMockShaper } from "@taleweaver/core";
 import { layoutTable } from "./table-fc";
+import { getLineIndex } from "../cursor/line-flatten";
 import { makeRootContext } from "./layout-context";
-import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
+import { INITIAL_COMPUTED_STYLE, asBlockId } from "@taleweaver/core";
+import { rootFrame } from "./parent-frame";
 
 const shaper = createMockShaper(8, 16);
 
@@ -34,7 +36,7 @@ describe("layoutTable", () => {
       [0.5, 0.5],
     );
     if (tree.type !== "element") throw new Error("?");
-    const result = layoutTable(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 600), shaper, undefined);
+    const result = layoutTable(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 600)), makeRootContext(INITIAL_COMPUTED_STYLE, 600), shaper, undefined);
     if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
     const out = result.box;
     expect(out.type).toBe("table");
@@ -47,7 +49,7 @@ describe("layoutTable", () => {
       [0.5, 0.5],
     );
     if (tree.type !== "element") throw new Error("?");
-    const result = layoutTable(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
+    const result = layoutTable(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 200)), makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
     if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
     const out = result.box;
     const row = nth(out.children, 0, "table-row");
@@ -62,7 +64,7 @@ describe("layoutTable", () => {
       [0.5, 0.5],
     );
     if (tree.type !== "element") throw new Error("?");
-    const result = layoutTable(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
+    const result = layoutTable(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 200)), makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
     if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
     const out = result.box;
     const row = nth(out.children, 0, "table-row");
@@ -87,7 +89,7 @@ describe("layoutTable", () => {
     const table = createElementBox("t", { display: "table" }, [row]);
     const cascaded = cascadePass(table);
     if (cascaded.type !== "element") throw new Error("?");
-    const result = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
+    const result = layoutTable(cascaded, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 200)), makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
     if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
     const out = result.box;
     expect(out.type).toBe("table");
@@ -110,7 +112,7 @@ describe("layoutTable", () => {
     const table = createElementBox("t2", { display: "table" }, [row]);
     const cascaded = cascadePass(table);
     if (cascaded.type !== "element") throw new Error("?");
-    const result = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 30), shaper, undefined);
+    const result = layoutTable(cascaded, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 30)), makeRootContext(INITIAL_COMPUTED_STYLE, 30), shaper, undefined);
     if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
     const out = result.box;
     expect(out.type).toBe("table");
@@ -141,7 +143,7 @@ describe("layoutTable", () => {
         }),
       );
       if (table.type !== "element" || !table.computedStyle) throw new Error("?");
-      const result = layoutTable(table, 0, 0, makeRootContext(table.computedStyle, 600), shaper, undefined);
+      const result = layoutTable(table, 0, 0, rootFrame(makeRootContext(table.computedStyle, 600)), makeRootContext(table.computedStyle, 600), shaper, undefined);
       if (result.box === null) throw new Error("null");
       const out = result.box;
       expect(out.writingMode).toBe(wm);
@@ -183,7 +185,7 @@ describe("layoutTable", () => {
     const row1 = createElementBox("r1", { display: "table-row" }, [a, b]);
     const cascaded = cascadePass(createElementBox("t", { display: "table" }, [row0, row1]));
     if (cascaded.type !== "element") throw new Error("?");
-    const result = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
+    const result = layoutTable(cascaded, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 200)), makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
     if (result.box === null) throw new Error("null");
     const out = result.box;
     expect(out.columnCount).toBe(2);
@@ -217,7 +219,7 @@ describe("layoutTable", () => {
         }),
       );
       if (table.type !== "element" || !table.computedStyle) throw new Error("?");
-      const result = layoutTable(table, 0, 0, makeRootContext(table.computedStyle, 400), shaper, undefined);
+      const result = layoutTable(table, 0, 0, rootFrame(makeRootContext(table.computedStyle, 400)), makeRootContext(table.computedStyle, 400), shaper, undefined);
       if (result.box === null) throw new Error("null");
       const out = result.box;
       expect(out.columnCount).toBe(2);
@@ -264,7 +266,7 @@ describe("layoutTable", () => {
       createElementBox("t", { display: "table" }, [row0, row1], { columnWidths: [0.5, 0.5] }),
     );
     if (table.type !== "element" || !table.computedStyle) throw new Error("?");
-    const result = layoutTable(table, 0, 0, makeRootContext(table.computedStyle, 400), shaper, undefined);
+    const result = layoutTable(table, 0, 0, rootFrame(makeRootContext(table.computedStyle, 400)), makeRootContext(table.computedStyle, 400), shaper, undefined);
     if (result.box === null) throw new Error("null");
     const out = result.box;
 
@@ -290,7 +292,7 @@ describe("layoutTable", () => {
     const table = createElementBox("tbl", { display: "table" }, [cell1, cell2]);
     const cascaded = cascadePass(table);
     if (cascaded.type !== "element") throw new Error("?");
-    const result = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
+    const result = layoutTable(cascaded, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 200)), makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
     if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
     const out = result.box;
     expect(out.type).toBe("table");
@@ -319,7 +321,7 @@ describe("layoutTable", () => {
     const table = createElementBox("tbl2", { display: "table" }, [bareCell, realRow]);
     const cascaded = cascadePass(table);
     if (cascaded.type !== "element") throw new Error("?");
-    const result = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
+    const result = layoutTable(cascaded, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 200)), makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
     if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
     const out = result.box;
     expect(out.children.length).toBe(2);
@@ -339,7 +341,7 @@ describe("layoutTable", () => {
     const table = createElementBox("tbl3", { display: "table" }, [row]);
     const cascaded = cascadePass(table);
     if (cascaded.type !== "element") throw new Error("?");
-    const result = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
+    const result = layoutTable(cascaded, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 200)), makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
     if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
     const out = result.box;
     expect(out.children.length).toBe(1);
@@ -369,7 +371,7 @@ describe("layoutTable", () => {
     const table = createElementBox("tbl4", { display: "table" }, [row]);
     const cascaded = cascadePass(table);
     if (cascaded.type !== "element") throw new Error("?");
-    const result = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 300), shaper, undefined);
+    const result = layoutTable(cascaded, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, 300)), makeRootContext(INITIAL_COMPUTED_STYLE, 300), shaper, undefined);
     if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
     const out = result.box;
     expect(out.children.length).toBe(1);
@@ -379,5 +381,99 @@ describe("layoutTable", () => {
     expect(nth(outRow.children, 0, "cell").key).toBe("rc1");
     expect(nth(outRow.children, 1, "cell").key).toBe("r4/anon[1]");
     expect(nth(outRow.children, 2, "cell").key).toBe("rc2");
+  });
+});
+
+describe("layoutTable — floats in cells", () => {
+  // A wrapped inline image: a floated atom (the IFC's zero-width placeholder).
+  const wrappedImage = (key: string, float: "inline-start" | "inline-end", inlineSize: number, blockSize = 32) =>
+    createElementBox(key, { display: "inline-block", float }, [
+      createElementBox(`${key}-img`, { display: "block", inlineSize, blockSize }, []),
+    ]);
+  function layoutOneRow(cells: ReturnType<typeof createElementBox>[], width: number, columnWidths?: number[]) {
+    const tree = cascadePass(createElementBox("t", { display: "table" }, [
+      createElementBox("r", { display: "table-row" }, cells),
+    ], columnWidths === undefined ? undefined : { columnWidths }));
+    if (tree.type !== "element") throw new Error("?");
+    const result = layoutTable(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, width)), makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
+    if (result.box === null) throw new Error("no table box");
+    return result.box;
+  }
+  function only<T>(xs: readonly T[]): T {
+    const [x] = xs;
+    if (x === undefined || xs.length !== 1) throw new Error(`expected exactly one, got ${xs.length}`);
+    return x;
+  }
+  function cellLines(table: { readonly children: readonly import("./layout-box").LayoutBox[] }, i: number) {
+    const row = nth(table.children, 0, "row");
+    const cell = "children" in row ? nth(row.children, i, "cell") : undefined;
+    if (cell === undefined || !("children" in cell)) throw new Error("no cell");
+    const all: import("./layout-box").LayoutBox[] = [];
+    const walk = (b: import("./layout-box").LayoutBox): void => {
+      if (b.type === "line") all.push(b);
+      else if ("children" in b) b.children.forEach(walk);
+    };
+    walk(cell);
+    return { cell, lines: all };
+  }
+
+  it("a cell's own text wraps around its own wrapped image (the cell is one BFC for its inline content)", () => {
+    const table = layoutOneRow([
+      createElementBox("c", { display: "table-cell" }, [wrappedImage("img", "inline-start", 40), createTextBox("t", {}, "aaaa bbbb cccc dddd eeee ffff")]),
+      createElementBox("d", { display: "table-cell" }, [createTextBox("u", {}, "x")]),
+      createElementBox("e", { display: "table-cell" }, [wrappedImage("img2", "inline-end", 40, 48), createTextBox("v", {}, "y")]),
+    ], 600, [1 / 3, 1 / 3, 1 / 3]);
+    const { lines } = cellLines(table, 0);
+    const [l0, l1] = lines;
+    if (l0 === undefined || l1 === undefined) throw new Error("expected two lines");
+    expect([l0.x, l0.width]).toEqual([40, 160]);
+    expect([l1.y, l1.x, l1.width]).toEqual([16, 40, 160]);
+    // The floats stay in their own cells: the middle cell's line is full width.
+    expect(only(cellLines(table, 1).lines).width).toBe(200);
+    // A cell encloses its float: the one-line third cell is as tall as its image.
+    const e = cellLines(table, 2);
+    expect([only(e.lines).x, only(e.lines).width]).toEqual([0, 160]);
+    expect(e.cell.height).toBe(48);
+  });
+
+  it("a positioned cell is its abs-pos children's containing block: they stay on the cell box, cell-relative", () => {
+    const table = layoutOneRow([
+      createElementBox("c", { display: "table-cell" }, [createTextBox("t", {}, "x")]),
+      createElementBox("d", { display: "table-cell", position: "relative" }, [
+        createTextBox("u", {}, "y"),
+        createElementBox("abs", { display: "block", position: "absolute", insetInlineStart: 12, insetBlockStart: 8, inlineSize: 40, blockSize: 20 }, [
+          createTextBox("v", {}, "z"),
+        ]),
+      ]),
+    ], 400, [0.5, 0.5]);
+    const { cell } = cellLines(table, 1);
+    const abs = cell.absoluteChildren?.find((b) => b.key === "abs");
+    expect([abs?.x, abs?.y, abs?.width]).toEqual([12, 8, 40]);
+    // Reachable by the cursor ops (the flat line index walks absoluteChildren).
+    const absLine = getLineIndex(table).all.find((l) => l.absoluteX === 200 + 12);
+    expect(absLine?.absoluteY).toBe(8);
+  });
+
+  it("auto column: a wrapped image counts as a float (min ≥ image; max = image + text; break = its own line)", () => {
+    const text = () => createTextBox("t", {}, "abc defgh");
+    // max-content: 100 + 72 fits 400 → the column is image + text.
+    const side = layoutOneRow([createElementBox("c", { display: "table-cell" }, [wrappedImage("img", "inline-start", 100), text()])], 400);
+    expect(side.columnPxWidths).toEqual([172]);
+    // min-content: the image is unbreakable → a narrow table floors at the image.
+    const narrow = layoutOneRow([createElementBox("c", { display: "table-cell" }, [wrappedImage("img", "inline-start", 100), text()])], 50);
+    expect(narrow.columnPxWidths).toEqual([100]);
+    // `break`: the image takes a line of its own → max-content = max(image, text).
+    const brk = createElementBox("img", { display: "inline-block", float: "inline-start" }, [
+      createElementBox("img-img", { display: "block", inlineSize: 100, blockSize: 32 }, []),
+    ], { inlineFloat: { blockId: asBlockId("c"), offset: 0, offsetBlock: 0, exclusion: "full" } });
+    const full = layoutOneRow([createElementBox("c", { display: "table-cell" }, [brk, text()])], 400);
+    expect(full.columnPxWidths).toEqual([100]);
+    // The image's margins and the cell's padding count (margin box + padding):
+    // 4 + 100 + 6 + 72 + 8 + 8.
+    const margined = createElementBox("img", { display: "inline-block", float: "inline-start", marginInlineStart: 4, marginInlineEnd: 6 }, [
+      createElementBox("img-img", { display: "block", inlineSize: 100, blockSize: 32 }, []),
+    ]);
+    const padded = layoutOneRow([createElementBox("c", { display: "table-cell", paddingInlineStart: 8, paddingInlineEnd: 8 }, [margined, text()])], 400);
+    expect(padded.columnPxWidths).toEqual([198]);
   });
 });

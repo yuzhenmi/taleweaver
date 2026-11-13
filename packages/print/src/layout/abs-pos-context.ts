@@ -44,6 +44,10 @@ export interface AbsPosEnvironment {
   register(child: PendingAbsChild): void;
   /** The pending children registered against this abc, in document order. */
   drain(): readonly PendingAbsChild[];
+  /** How many are registered — a point to roll back to. */
+  mark(): number;
+  /** Forget the children registered since `mark` (a discarded layout pass). */
+  rollback(mark: number): void;
 }
 
 export function createAbsPosEnvironment(): AbsPosEnvironment {
@@ -54,6 +58,12 @@ export function createAbsPosEnvironment(): AbsPosEnvironment {
     },
     drain() {
       return pending;
+    },
+    mark() {
+      return pending.length;
+    },
+    rollback(mark) {
+      pending.length = Math.min(pending.length, mark);
     },
   };
 }

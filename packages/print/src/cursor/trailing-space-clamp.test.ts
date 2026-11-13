@@ -41,6 +41,7 @@ import {
 import { createPosition, createSpan } from "@taleweaver/core";
 import type { BlockId, Document } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
+import { rootFrame } from "../layout/parent-frame";
 
 const CHAR_W = 8;
 const LINE_H = 16;
@@ -240,7 +241,7 @@ describe("#340 — caret on-page for trailing spaces INSIDE an inline element", 
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, CONTENT_W), shaper, undefined);
+    const r = layoutBlock(tree, 0, 0, rootFrame(makeRootContext(INITIAL_COMPUTED_STYLE, CONTENT_W)), makeRootContext(INITIAL_COMPUTED_STYLE, CONTENT_W), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     return { layout: positionTreeForTest(r.box), shaper };
   }
