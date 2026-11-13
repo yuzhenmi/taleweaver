@@ -19,7 +19,7 @@ import { groupChildren, anonymousBlockKey } from "./group-children";
 import type { ChildGroup } from "./group-children";
 import { layoutBlock } from "./bfc";
 import { layoutInlineContent } from "./ifc";
-import { makeRootContext, makeChildContext } from "./layout-context";
+import { makeRootContext, makeInlineRunContext } from "./layout-context";
 import { computeUsedStyle } from "./used-style";
 import { borderBoxInlineSize, inlineDecoration } from "./box-inline-decoration";
 import { blockEndDecoration, contentBlockStart } from "./box-block-decoration";
@@ -216,7 +216,7 @@ function buildMetasForChildren(
  * parent's own inline padding was subtracted exactly once by the caller
  * (`buildMetasForChildren`). bfc lays this anonymous IFC at the parent's
  * `contentInlineSize` (bfc.ts:334) with the inline padding subtracted exactly
- * ONCE (bfc.ts:227), so we feed `parentContentInlineSize` to `makeChildContext`
+ * ONCE (bfc.ts:227), so we feed `parentContentInlineSize` to `makeInlineRunContext`
  * DIRECTLY — re-applying `contentInlineSizeOf` here would subtract the inline
  * padding a SECOND time and shrink the wrap width, changing the line count.
  *
@@ -241,12 +241,13 @@ function ifcLeafMetaFromInlineRun(
     computedStyle: parentCs,
     children: Object.freeze([...group.children]),
   });
-  // The anonymous IFC inherits the parent's containing block; its content
-  // inline-size IS `parentContentInlineSize` (already padding-reduced once). The
-  // root context's containing-inline-size is irrelevant to the wrap (the child
-  // context overrides it), but we pass the same value for consistency.
+  // The anonymous IFC is in its parent's BFC with the parent's content box as
+  // its containing block (`parentContentInlineSize`, already padding-reduced
+  // once) — the same `makeInlineRunContext` bfc.ts builds for it.
   const parentCtx = makeRootContext(parentCs, parentContentInlineSize);
-  const ifcCtx = makeChildContext(parentCtx, parentCs, parentContentInlineSize, "indefinite");
+  const ifcCtx = makeInlineRunContext(parentCtx, parentCs, parentContentInlineSize, {
+    lineLeft: 0, bfcInlineSize: parentContentInlineSize,
+  });
   // Unfragmented IFC layout (no FragmentationContext): produces every line.
   // `paraFlowStart: 0` — this unfragmented measure-pass call emits no break
   // token (no FragmentationContext), so the value is never read.

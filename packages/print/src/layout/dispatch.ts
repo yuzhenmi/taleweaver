@@ -102,11 +102,11 @@ export function layoutTree(
       if (cs.display === "block") {
         // Virtual mode unless the document uses a feature the measure pass
         // can't reproduce — `position:absolute`, or a float doc that is ALSO
-        // multi-column or footnote-bearing (single-column float/`clear` docs now
+        // multi-column (single-column float/`clear` docs, footnotes included,
         // take the virtualized fast path) — in which case fall back to the legacy
         // positioned page tree. This is the full (non-incremental) build (tests and
         // the incremental unsupported-display fallback), so there is no carry-forward memo.
-        result = paginationFallsBackToLegacy(layoutRoot, footnoteAnchors)
+        result = paginationFallsBackToLegacy(layoutRoot)
           ? paginateRoot(layoutRoot, ctx, shaper, hyphenator, pageConfig)
           : buildVirtualPaginatedTree(
               layoutRoot, ctx, shaper, pageConfig, undefined,

@@ -26,7 +26,6 @@ import { createElementBox, createTextBox } from "@taleweaver/core";
 import type { ElementBox, RenderNode } from "@taleweaver/core";
 import type { Style } from "@taleweaver/core";
 import type { BlockId } from "@taleweaver/core";
-import type { FootnoteAnchorRef } from "@taleweaver/core";
 import { buildBlockFitMetas } from "../build-fit-metas";
 import { createMockShaper } from "@taleweaver/core";
 import { flattenContents } from "../group-children";
@@ -611,7 +610,7 @@ describe("measurePassUnsupported", () => {
     ]);
     expect(measurePassUnsupported(root)).toBe(false);
     expect(hasFloatOrClear(root)).toBe(false);
-    expect(paginationFallsBackToLegacy(root, [])).toBe(false);
+    expect(paginationFallsBackToLegacy(root)).toBe(false);
   });
 
   it("a floated descendant is NOT measurePassUnsupported, IS hasFloatOrClear, and routes to virtual (single-col)", () => {
@@ -622,7 +621,7 @@ describe("measurePassUnsupported", () => {
     ]);
     expect(measurePassUnsupported(root)).toBe(false);
     expect(hasFloatOrClear(root)).toBe(true);
-    expect(paginationFallsBackToLegacy(root, [])).toBe(false);
+    expect(paginationFallsBackToLegacy(root)).toBe(false);
   });
 
   it("a clear descendant is NOT measurePassUnsupported, IS hasFloatOrClear, and routes to virtual (single-col)", () => {
@@ -631,7 +630,7 @@ describe("measurePassUnsupported", () => {
     ]);
     expect(measurePassUnsupported(root)).toBe(false);
     expect(hasFloatOrClear(root)).toBe(true);
-    expect(paginationFallsBackToLegacy(root, [])).toBe(false);
+    expect(paginationFallsBackToLegacy(root)).toBe(false);
   });
 
   // --- (2) padded / bordered CONTAINER — now SUPPORTED (#254 handled). ---
@@ -692,10 +691,9 @@ describe("measurePassUnsupported", () => {
     expect(measurePassUnsupported(root)).toBe(false);
   });
 
-  it("a floated descendant inside a padded container is detected by hasFloatOrClear (and a float+footnote doc still routes to legacy)", () => {
-    // Padding alone is supported; the float is detected by hasFloatOrClear. With
-    // NO footnotes/multicol it routes to virtual; WITH a footnote anchor present
-    // the composite gate routes the float doc to legacy.
+  it("a floated descendant inside a padded container is detected by hasFloatOrClear", () => {
+    // Padding alone is supported; the float is detected by hasFloatOrClear, and
+    // a single-column float doc routes to virtual.
     const container = createElementBox("c", { display: "block", paddingBlockStart: 12 } as Style, [
       para("p0"),
       createElementBox("f", { display: "block", float: "inline-start" } as Style, []),
@@ -703,13 +701,7 @@ describe("measurePassUnsupported", () => {
     const root = cascade({ display: "block" }, [container]);
     expect(measurePassUnsupported(root)).toBe(false);
     expect(hasFloatOrClear(root)).toBe(true);
-    expect(paginationFallsBackToLegacy(root, [])).toBe(false);
-    // A non-empty footnoteAnchors array routes the float doc to legacy (the gate
-    // only reads `.length`, so a minimal valid anchor suffices).
-    const anchors: readonly FootnoteAnchorRef[] = [
-      { blockId: "c" as BlockId, contentBlockId: "fn0" as BlockId, sectionId: null },
-    ];
-    expect(paginationFallsBackToLegacy(root, anchors)).toBe(true);
+    expect(paginationFallsBackToLegacy(root)).toBe(false);
   });
 });
 

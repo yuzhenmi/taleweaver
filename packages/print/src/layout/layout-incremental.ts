@@ -118,10 +118,10 @@ export function layoutTreeIncremental(
     if (pageConfig !== undefined && cs.display === "block") {
       // Paginated mode. The measure pass / fit-core reproduce only the
       // features it models; `position:absolute` docs — and float docs that are
-      // ALSO multi-column or footnote-bearing — fall back to the legacy
-      // positioned `paginateRoot` path (single-column float/`clear` docs now take
-      // the virtualized fast path; see `paginationFallsBackToLegacy`).
-      if (!paginationFallsBackToLegacy(layoutRoot, footnoteAnchors)) {
+      // ALSO multi-column — fall back to the legacy positioned `paginateRoot`
+      // path (single-column float/`clear` docs, footnotes included, take the
+      // virtualized fast path; see `paginationFallsBackToLegacy`).
+      if (!paginationFallsBackToLegacy(layoutRoot)) {
         // Virtual mode: build the page plan + a lazily-materializing
         // `VirtualLayoutTree`. No page is positioned here; consumers position
         // only the pages they need via `getPage(i)` — the whole document is

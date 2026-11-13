@@ -877,7 +877,7 @@ describe("measurePassUnsupported gate after #253/#254", () => {
     // `measurePassUnsupported` now flags ONLY position:absolute (float/clear lifted).
     expect(measurePassUnsupported(root)).toBe(false);
     // A single-column, footnote-free float doc routes to the virtualized fast path.
-    expect(paginationFallsBackToLegacy(root, [])).toBe(false);
+    expect(paginationFallsBackToLegacy(root)).toBe(false);
   });
 
   it("single-column clear:both document is no longer measurePassUnsupported, and uses the virtual fast path (VL float fast-path)", () => {
@@ -886,7 +886,7 @@ describe("measurePassUnsupported gate after #253/#254", () => {
     ]);
     const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 40), cleared]);
     expect(measurePassUnsupported(root)).toBe(false);
-    expect(paginationFallsBackToLegacy(root, [])).toBe(false);
+    expect(paginationFallsBackToLegacy(root)).toBe(false);
   });
 
   it("position:absolute document is UNSUPPORTED (true) — must fall back to legacy positioned layout", () => {

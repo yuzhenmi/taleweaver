@@ -34,6 +34,7 @@ import type { ComputedStyle, UsedStyle } from "@taleweaver/core";
 import type { PagePlan, PagePlanEntry, FootnoteContinuation } from "./measure-pass";
 import type { PlacedFloat, PushedFloat } from "./float-context";
 import { createFloatEnvironment } from "./float-context";
+import { footnoteBodyContext } from "./footnote-body-context";
 import { placedFloatListsEqual, pushedFloatListsEqual } from "./float-lists-equal";
 import type { BreakToken } from "./fragmentation";
 import { breakTokensEqual } from "./fragmentation";
@@ -1157,10 +1158,8 @@ export function makeVirtualLayoutTree(
               // the page content inline-start, so its CHILDREN are 0-based — NOT
               // `effMargins.inlineStart` (that double-padded the bodies).
               const bodyInlineOffset = gutter;
-              const bodyCtx: LayoutContext =
-                gutter === 0
-                  ? effContentCtx
-                  : { ...effContentCtx, containingInlineSize: bodyInlineSize };
+              // Its own BFC (a fresh float env), as `computeSlotLayout` lays it.
+              const bodyCtx = footnoteBodyContext(effContentCtx, bodyInlineSize);
               const { box: bodyBox } = layoutBlock(
                 body,
                 bodyInlineOffset,
