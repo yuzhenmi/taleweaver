@@ -3,6 +3,8 @@ import type { CompleteReserve } from "./complete-reserve";
 
 import type { LayoutBox } from "./layout-box";
 import type { BlockId } from "@taleweaver/core";
+import type { PlacedFloat } from "./float-context";
+import { placedFloatListsEqual } from "./float-lists-equal";
 
 /**
  * Break-token continuation model. When a fragmentation-aware layout call
@@ -33,6 +35,13 @@ export interface IFCBreakToken {
    *  property of where the paragraph began, carried across fragments so a later
    *  task can query floats at the line's TRUE cumulative offset. */
   readonly paraFlowStart: number;
+  /**
+   * R2-1: the float exclusions the paragraph's earlier lines wrapped around
+   * (env frame, cumulative, cut at the break). The resumed fragment re-wraps
+   * from line 0, so it seeds these for the re-wrap only — never painted, never
+   * placed. Absent ≡ none.
+   */
+  readonly floats?: readonly PlacedFloat[];
 }
 
 /**
@@ -151,7 +160,8 @@ export function breakTokensEqual(a: BreakToken | null, b: BreakToken | null): bo
       breakTokensEqual(a.resumeChildToken, b.resumeChildToken);
   }
   if (a.type === "ifc" && b.type === "ifc") {
-    return a.resumeAtLine === b.resumeAtLine && a.paraFlowStart === b.paraFlowStart;
+    return a.resumeAtLine === b.resumeAtLine && a.paraFlowStart === b.paraFlowStart &&
+      placedFloatListsEqual(a.floats ?? [], b.floats ?? []);
   }
   if (a.type === "table" && b.type === "table") {
     return a.resumeAtRow === b.resumeAtRow &&

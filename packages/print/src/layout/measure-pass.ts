@@ -15,6 +15,7 @@ import { breakTokensEqual, innerBfcToken } from "./fragmentation";
 import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
 import type { PlacedFloat, PushedFloat } from "./float-context";
+import { placedFloatListsEqual, pushedFloatListsEqual } from "./float-lists-equal";
 import { fitColumnsOnPage, balanceColumnHeight, type ColumnsFitResult } from "./column-fit";
 import { isDevMode } from "@taleweaver/core";
 import type { PageConfig } from "./page-config";
@@ -774,6 +775,10 @@ export function measurePass(
         // height re-pagination is this per-entry gate's job.
         effTop === reusable.effectiveTopInset &&
         effBottom === reusable.effectiveBottomInset &&
+        // T-ad: the floats crossing in from the prior page (hanging or pushed)
+        // shaped this page's fit; a changed upstream float re-fits it.
+        placedFloatListsEqual(incomingFloats, reusable.incomingActiveFloats) &&
+        pushedFloatListsEqual(incomingPushedFloats, reusable.incomingPushedFloats) &&
         canReusePage(rootChildren, startIndex, metas.length, reusable, prevNext)
       ) {
         const reusedSliceEnd =
@@ -1140,9 +1145,10 @@ export function measurePass(
       // block-bottom (`blockOffset + blockSize`) sits past this page's
       // content-bottom (`pageFlowBase + inFlowConsumed`) keeps shadowing the next
       // page; one that ends within this page drops out.
+      // An anchored float (a wrapped image) stays on its anchor's page (R2-3).
       const nextContentTop = pageFlowBase + fr.inFlowConsumed;
       incomingFloats = fr.placedFloats.filter(
-        (f) => f.blockOffset + f.blockSize > nextContentTop,
+        (f) => f.anchorKey === undefined && f.blockOffset + f.blockSize > nextContentTop,
       );
       // Advance the pushed-float carry to the floats this page deferred to
       // the next page (`fr.pushedFloats`, from the BFC float branch's overflow check).

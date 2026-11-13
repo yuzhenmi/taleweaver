@@ -145,3 +145,37 @@ describe("pushFloat channel", () => {
     expect(env.clearance("both", 7)).toBe(7);
   });
 });
+
+describe("mark / rollback (R2-2) and fragmentainers (R2-3)", () => {
+  it("rollback forgets the floats placed and pushed since the mark; hasFloatIn stays exact", () => {
+    const env = createFloatEnvironment();
+    env.placeFloat("inline-start", 0, 80, 50, 200);
+    const m = env.mark();
+    env.placeFloat("inline-start", 100, 80, 50, 200);
+    env.pushFloat({ node: createElementBox("f", { display: "block", float: "inline-start" }, []), side: "inline-start" });
+    env.rollback(m);
+    expect(env.getPlacedFloats().length).toBe(1);
+    expect(env.pushedFloats().length).toBe(0);
+    // The early-out bound is still 150 (an upper bound): the scan answers.
+    expect(env.hasFloatIn(100, 150)).toBe(false);
+    expect(env.hasFloatIn(40, 60)).toBe(true);
+  });
+
+  it("anchored floats, landed notes and forced breaks leave at the next fragmentainer; landed notes roll back", () => {
+    const env = createFloatEnvironment();
+    env.placeFloat("inline-start", 0, 80, 50, 200);
+    env.seedPlaced({ side: "inline-start", inlineOffset: 80, blockOffset: 30, inlineSize: 80, blockSize: 50, anchorKey: "img", paragraphKey: "p" });
+    expect(env.anchoredFloat("img")?.paragraphKey).toBe("p");
+    const m = env.mark();
+    env.noteLanded("img");
+    expect([...env.landedSince(m)]).toEqual(["img"]);
+    env.rollback(m);
+    expect([...env.landedSince(m)]).toEqual([]);
+    env.setBreaksBefore(new Set(["p"]));
+    expect(env.breaksBefore("p")).toBe(true);
+    env.beginFragmentainer({ top: 100, end: 200 });
+    expect(env.getPlacedFloats().map((f) => f.anchorKey)).toEqual([undefined]);
+    expect(env.breaksBefore("p")).toBe(false);
+    expect(env.fragmentainer()).toEqual({ top: 100, end: 200 });
+  });
+});

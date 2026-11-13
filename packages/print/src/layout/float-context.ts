@@ -6,6 +6,29 @@ export interface PlacedFloat {
   readonly blockOffset: number;
   readonly inlineSize: number;
   readonly blockSize: number;
+  /**
+   * Present on a paragraph-anchored float (a wrapped inline image): its node
+   * key. An anchored float stays on its anchor's fragmentainer (Word / Google
+   * Docs): it never carries to the next one (R2-3).
+   */
+  readonly anchorKey?: string;
+  /** An anchored float's paragraph (the block whose inline run holds it). */
+  readonly paragraphKey?: string;
+  /** An anchored float shifted above its paragraph's top to fit its fragmentainer. */
+  readonly rose?: true;
+}
+
+/** A fragmentainer's cumulative block range, set by its flow root (R2-3). */
+export interface FragmentainerBounds {
+  readonly top: number;
+  readonly end: number;
+}
+
+/** A point in the env's history to roll back to (R2-2). */
+export interface FloatMark {
+  readonly placed: number;
+  readonly pushed: number;
+  readonly landed: number;
 }
 
 /**
@@ -109,6 +132,42 @@ export interface FloatEnvironment {
   /** The floats pushed to the next page, in push order. */
   pushedFloats(): readonly PushedFloat[];
 
+  /** The env's current history point. */
+  mark(): FloatMark;
+
+  /**
+   * Forget every float placed or pushed since `m` — a discarded layout attempt
+   * (a child moved to the next fragmentainer, or re-laid). `hasFloatIn`'s
+   * early-out bound stays an upper bound, which is still correct.
+   */
+  rollback(m: FloatMark): void;
+
+  /**
+   * A flow root starts a fragmentainer: anchored floats of the previous one
+   * leave the env (they never carry), and anchored floats placed from now on
+   * are kept within `bounds`.
+   */
+  beginFragmentainer(bounds: FragmentainerBounds): void;
+
+  /** The current fragmentainer, if a flow root set one. */
+  fragmentainer(): FragmentainerBounds | undefined;
+
+  /** The anchored float with this key, if one is in the env (a seed of the re-lay). */
+  anchoredFloat(key: string): PlacedFloat | undefined;
+
+  /** An anchored float's paragraph placed a line here: its float boxes landed. */
+  noteLanded(key: string): void;
+
+  /** The anchored floats whose boxes landed since `m` (rolled back with the rest). */
+  landedSince(m: FloatMark): ReadonlySet<string>;
+
+  /**
+   * The paragraphs that must start on the next fragmentainer (their own risen
+   * float pushed them off); cleared when a fragmentainer begins.
+   */
+  setBreaksBefore(paragraphKeys: ReadonlySet<string>): void;
+  breaksBefore(paragraphKey: string): boolean;
+
   /** For incremental-layout diffing. Returns a frozen reference to the placed floats. */
   getPlacedFloats(): readonly PlacedFloat[];
 
@@ -124,6 +183,9 @@ export interface FloatEnvironment {
 export function createFloatEnvironment(): FloatEnvironment {
   const placed: PlacedFloat[] = [];
   const pushed: PushedFloat[] = [];
+  let bounds: FragmentainerBounds | undefined;
+  const landed: string[] = [];
+  let breaks: ReadonlySet<string> = new Set();
   // Upper bound on every placed float's block end, for `hasFloatIn`'s early out.
   let maxBlockEnd = Number.NEGATIVE_INFINITY;
   function add(f: PlacedFloat): void {
@@ -268,6 +330,48 @@ export function createFloatEnvironment(): FloatEnvironment {
 
     getPlacedFloats() {
       return placed;
+    },
+
+    mark() {
+      return { placed: placed.length, pushed: pushed.length, landed: landed.length };
+    },
+
+    rollback(m) {
+      placed.length = Math.min(placed.length, m.placed);
+      pushed.length = Math.min(pushed.length, m.pushed);
+      landed.length = Math.min(landed.length, m.landed);
+    },
+
+    beginFragmentainer(b) {
+      let kept = 0;
+      for (const f of placed) if (f.anchorKey === undefined) placed[kept++] = f;
+      placed.length = kept;
+      bounds = b;
+      breaks = new Set();
+    },
+
+    fragmentainer() {
+      return bounds;
+    },
+
+    noteLanded(key) {
+      landed.push(key);
+    },
+
+    landedSince(m) {
+      return new Set(landed.slice(m.landed));
+    },
+
+    setBreaksBefore(keys) {
+      breaks = keys;
+    },
+
+    breaksBefore(key) {
+      return breaks.has(key);
+    },
+
+    anchoredFloat(key) {
+      return placed.find((f) => f.anchorKey === key);
     },
 
     dirtyBlockOffsetSince(prev) {

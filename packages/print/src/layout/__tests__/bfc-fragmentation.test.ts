@@ -5,7 +5,7 @@ import { layoutBlock } from "../bfc";
 import { makeRootContext } from "../layout-context";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import { createMockShaper } from "@taleweaver/core";
-import { cascadePass } from "@taleweaver/core";
+import { asBlockId, cascadePass } from "@taleweaver/core";
 import { createElementBox, createTextBox } from "@taleweaver/core";
 import type { ElementBox } from "@taleweaver/core";
 import type { Style } from "@taleweaver/core";
@@ -932,6 +932,37 @@ describe("BFC fragmentation — layout reuse honours the fragmentainer start (BM
       { availableBlockSize: 200, pageIndex: 0, resumeFrom: null, flowRoot: true }).box);
     const frBox = nth(out.children, 1, "fr");
     expect("children" in frBox ? nth(frBox.children, 0, "fr-p").blockOffset : -1).toBe(20);
+  });
+});
+
+describe("BFC fragmentation — layout reuse keeps an anchored float's paragraph live (P3 M3 r2)", () => {
+  it("a paragraph whose risen image sits wholly above it is not reused: the relayout re-raises the image and the text above still wraps", () => {
+    // P (at 144) anchors a 100×100 image at offsetBlock −120 → [24,124], wholly
+    // above P: the re-lay seeds it and A's lines beside it narrow. A cached P
+    // reused as is would never place the image again, leaving A full width.
+    const img = createElementBox("img", { display: "inline-block", float: "inline-start" } as Style, [
+      createElementBox("img-img", { display: "block", inlineSize: 100, blockSize: 100 } as Style, []),
+    ], { inlineFloat: { blockId: asBlockId("P"), offset: 0, offsetBlock: -120, exclusion: "side" } });
+    const first = cascadePass(createElementBox("root", { display: "block" } as Style, [
+      createElementBox("A", { display: "block", whiteSpace: "pre" } as Style, [createTextBox("a-t", { whiteSpace: "pre" }, "0\n1\n2\n3\n4\n5\n6\n7\n8")]),
+      createElementBox("P", { display: "block" } as Style, [img, createTextBox("p-t", {}, "ab")]),
+    ])) as ElementBox;
+    const cfg = { pageInlineSize: 600, pageBlockSize: 400, pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 }, pageGap: 20 };
+    const shaper = createMockShaper(8, 16);
+    const aLines = (body: LayoutBox): number[][] => {
+      const a = "children" in body ? nth(body.children, 0, "A") : body;
+      return "children" in a ? a.children.filter((l) => l.type === "line").map((l) => [l.y, l.x]) : [];
+    };
+    const prev = paginateRoot(first, makeRootContext(INITIAL_COMPUTED_STYLE, 600), shaper, undefined, cfg);
+    const narrowed = [[0, 0], [16, 0], [32, 100], [48, 100], [64, 100], [80, 100], [96, 100], [112, 100], [128, 0]];
+    const page0 = nth(prev.children, 0, "page 0");
+    expect(aLines(nth("children" in page0 ? page0.children : [], 0, "body"))).toEqual(narrowed);
+    // The same cascaded children, re-laid with the previous layout as the cache.
+    const relaid: ElementBox = { ...first, key: "root2" };
+    const ctx = { ...makeRootContext(INITIAL_COMPUTED_STYLE, 600), prevLayoutCache: buildLayoutBoxCacheFromTree(prev, first) };
+    const out = placed(layoutBlock(relaid, 0, 0, rootFrame(ctx), ctx, shaper, undefined,
+      { availableBlockSize: 400, pageIndex: 0, resumeFrom: null, flowRoot: true }).box);
+    expect(aLines(out)).toEqual(narrowed);
   });
 });
 

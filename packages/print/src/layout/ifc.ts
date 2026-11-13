@@ -5,7 +5,7 @@ import type { LayoutBox, LineBox, InlineBox, BlockBox } from "./layout-box";
 import type { BlockId } from "@taleweaver/core";
 import { HARD_BREAK_EMBED_TYPE } from "@taleweaver/core";
 import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset, withBlockOffset, assertLayoutBoxConsistent, createBlockBox } from "./layout-box";
-import type { FragmentationContext, LayoutResult } from "./fragmentation";
+import type { FragmentationContext, IFCBreakToken, LayoutResult } from "./fragmentation";
 import type { TextShaper } from "@taleweaver/core";
 import type { Hyphenator } from "@taleweaver/core";
 import type { TextMeasurer } from "@taleweaver/core";
@@ -23,6 +23,7 @@ import { borderBoxBlockSize } from "./box-block-decoration";
 import type { LayoutContext } from "./layout-context";
 import { makeRootContext, makeChildContext } from "./layout-context";
 import { contentFrame, floatIntrusionAt } from "./float-frame";
+import { floatsBeforeBreak, resumeFloatEnv } from "./resume-floats";
 import type { ParentFrame } from "./parent-frame";
 import type { IntrinsicSizesCache } from "@taleweaver/core";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
@@ -1474,7 +1475,9 @@ export function layoutInlineContent(
   // independently to the next line.
   const canWrap = ws !== "nowrap" && ws !== "pre";
 
-  const floatEnv = ctx.floatEnv;
+  // R2-1: a resumed fragment re-wraps from line 0 against the exclusions its
+  // earlier lines wrapped around (carried in its token), plus this page's floats.
+  const floatEnv = resumeFloatEnv(ctx.floatEnv, fragmentation?.resumeFrom);
   // CSS Text §8 `text-indent` — the block's first-line indent,
   // resolved to a used length (px) against the containing inline size. It is
   // LOGICAL (inline-start), so it composes additively with the float
@@ -2948,6 +2951,18 @@ export function layoutInlineContent(
       startLine = fragmentation.resumeFrom.resumeAtLine;
     }
 
+    // A break before line `k`. A break where this fragment placed nothing keeps
+    // the incoming token's exclusions; a later break carries every exclusion
+    // lines [0, k) wrapped around (R2-1).
+    const carried = fragmentation.resumeFrom?.type === "ifc" ? fragmentation.resumeFrom.floats : undefined;
+    const breakBefore = (k: number): IFCBreakToken => {
+      const at = k === startLine ? undefined : resultLines[k];
+      const floats = at === undefined
+        ? carried
+        : floatsBeforeBreak(floatEnv, paraFlowStart, paraFlowStart + (at.blockOffset - blockOffset));
+      return { type: "ifc", resumeAtLine: k, paraFlowStart, ...(floats === undefined ? {} : { floats }) };
+    };
+
     // The suffix of lines we consider on this fragment (lines[startLine..end]).
     const linesToConsider = resultLines.slice(startLine);
 
@@ -2967,14 +2982,14 @@ export function layoutInlineContent(
 
     if (placedLineCount === 0) {
       // First suffix line doesn't fit. Resume from startLine (not 0) on next fragment.
-      return { box: null, breakToken: { type: "ifc", resumeAtLine: startLine, paraFlowStart }, inFlowConsumed: 0 };
+      return { box: null, breakToken: breakBefore(startLine), inFlowConsumed: 0 };
     }
 
     // Orphans constraint (CSS Fragmentation L4 §5.4).
     // At least `orphans` lines must remain on the current fragment. Default 2 per CSS spec.
     const orphans = parentCs.orphans ?? 2;
     if (placedLineCount < linesToConsider.length && placedLineCount < orphans) {
-      return { box: null, breakToken: { type: "ifc", resumeAtLine: startLine, paraFlowStart }, inFlowConsumed: 0 };
+      return { box: null, breakToken: breakBefore(startLine), inFlowConsumed: 0 };
     }
 
     // Widows constraint (CSS Fragmentation L4 §5.4).
@@ -2986,7 +3001,7 @@ export function layoutInlineContent(
     }
     // After widows back-off, re-check orphans (back-off may have violated it).
     if (placedLineCount < linesToConsider.length && placedLineCount < orphans) {
-      return { box: null, breakToken: { type: "ifc", resumeAtLine: startLine, paraFlowStart }, inFlowConsumed: 0 };
+      return { box: null, breakToken: breakBefore(startLine), inFlowConsumed: 0 };
     }
 
     // Hyphen-pair constraint (CSS Fragmentation L4 §5).
@@ -3004,7 +3019,7 @@ export function layoutInlineContent(
     }
     // After hyphen-pair back-off, re-check orphans.
     if (placedLineCount < linesToConsider.length && placedLineCount < orphans) {
-      return { box: null, breakToken: { type: "ifc", resumeAtLine: startLine, paraFlowStart }, inFlowConsumed: 0 };
+      return { box: null, breakToken: breakBefore(startLine), inFlowConsumed: 0 };
     }
 
     // Recompute used block size after all back-off adjustments.
@@ -3075,7 +3090,7 @@ export function layoutInlineContent(
         placedLines,
         availableInlineSize,
       );
-      return { box: placedBox, breakToken: { type: "ifc", resumeAtLine: startLine + placedLineCount, paraFlowStart }, inFlowConsumed: usedAdjusted };
+      return { box: placedBox, breakToken: breakBefore(startLine + placedLineCount), inFlowConsumed: usedAdjusted };
     }
 
     // All suffix lines placed — emit them and return no break token.

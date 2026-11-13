@@ -34,6 +34,7 @@ import type { ComputedStyle, UsedStyle } from "@taleweaver/core";
 import type { PagePlan, PagePlanEntry, FootnoteContinuation } from "./measure-pass";
 import type { PlacedFloat, PushedFloat } from "./float-context";
 import { createFloatEnvironment } from "./float-context";
+import { placedFloatListsEqual, pushedFloatListsEqual } from "./float-lists-equal";
 import type { BreakToken } from "./fragmentation";
 import { breakTokensEqual } from "./fragmentation";
 import { pageConfigsEqual } from "./section-plan";
@@ -303,54 +304,6 @@ function childrenRefsEqual(a: readonly unknown[], b: readonly unknown[]): boolea
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
     if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
-
-/**
- * Field-wise equality of two incoming active-float shadow lists (VL float
- * fast-path). Equal iff same length AND each element agrees on every
- * placement field (`side` / `inlineOffset` / `blockOffset` / `inlineSize` /
- * `blockSize`). A changed upstream float (resized, moved sides, or re-placed at a
- * different offset) flips one of these → the downstream page re-materializes.
- * Compared by value (not reference) since the carry pass builds fresh
- * `PlacedFloat` objects each measure cycle.
- */
-function placedFloatListsEqual(a: readonly PlacedFloat[], b: readonly PlacedFloat[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    const x = a[i];
-    const y = b[i];
-    if (x === undefined || y === undefined) return false;
-    if (
-      x.side !== y.side ||
-      x.inlineOffset !== y.inlineOffset ||
-      x.blockOffset !== y.blockOffset ||
-      x.inlineSize !== y.inlineSize ||
-      x.blockSize !== y.blockSize
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/**
- * Field-wise equality of two pushed-float lists. Equal iff same length
- * AND each element agrees on its float `node` (reference ===, the cascaded
- * RenderNode) and `side`. A pushed-float carries no geometry (it is re-laid-out
- * on the landing page), so only node identity + side define it. Two empty lists
- * (no-pushed-float docs) compare equal.
- */
-function pushedFloatListsEqual(a: readonly PushedFloat[], b: readonly PushedFloat[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    const x = a[i];
-    const y = b[i];
-    if (x === undefined || y === undefined) return false;
-    if (x.node !== y.node || x.side !== y.side) {
-      return false;
-    }
   }
   return true;
 }
@@ -925,10 +878,8 @@ export function makeVirtualLayoutTree(
       _getPageDriverCount++;
       // VL float fast-path: seed a fresh per-page FloatEnvironment with the floats whose
       // shadow crosses into this page from a prior page (cumulative frame, VERBATIM — no
-      // translation). For a non-float page `incomingActiveFloats` is empty ⇒ reuse
-      // `effContentCtx` by reference, byte-identical to today. (Also fixes the latent
-      // shared-floatEnv-across-pages leak: each materialized page gets its OWN env, so
-      // this page's floats — placed by its own layoutBlock — never bleed into the next.)
+      // translation). Every page gets its OWN env, as in the measure pass, so a
+      // page's floats never bleed into another page or into its header / footer.
       const pageFloatEnv = createFloatEnvironment();
       for (const f of entry.incomingActiveFloats) pageFloatEnv.seedPlaced(f);
       // The floats PUSHED onto this page from the prior page are placed
@@ -938,12 +889,7 @@ export function makeVirtualLayoutTree(
       // body placed itself); the measure pass discards its copies. Mirror the
       // measure closure (virtual-producer.ts) field-for-field for equivalence. The
       // field participates in the page-reuse fingerprint (`pushedFloatListsEqual`).
-      const usesFloatEnv =
-        entry.incomingActiveFloats.length > 0 || entry.incomingPushedFloats.length > 0;
-      const pageContentCtx: LayoutContext =
-        usesFloatEnv
-          ? { ...effContentCtx, floatEnv: pageFloatEnv, isBFCRoot: true }
-          : effContentCtx;
+      const pageContentCtx: LayoutContext = { ...effContentCtx, floatEnv: pageFloatEnv, isBFCRoot: true };
       const landedPushedFloats = placeIncomingPushedFloats(
         entry.incomingPushedFloats, pageFloatEnv, pageContentCtx,
         substitutedRoot, shaper, hyphenator, entry.pageFlowBase,
@@ -1057,7 +1003,8 @@ export function makeVirtualLayoutTree(
         effMargins.inlineStart,
         slotBlockStart,
         pageChildFrame,
-        effContentCtx,
+        // Its own BFC, as `computeSlotInsets` measures it: no body float reaches it.
+        { ...effContentCtx, floatEnv: createFloatEnvironment(), isBFCRoot: true },
         shaper,
         hyphenator,
         // A header / footer does not start a fragmentainer: its margins stay.

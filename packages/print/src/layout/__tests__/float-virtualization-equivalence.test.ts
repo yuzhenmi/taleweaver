@@ -382,6 +382,34 @@ describe("float virtualization equivalence — incremental == from-scratch (mult
       expect(inc.listCounterAtStart, `page ${i} listCounterAtStart`).toBe(fs.listCounterAtStart);
     }
   });
+
+  it("T-ad: a float on page 0 grows without moving the break — page 1 re-fits with the new carry, not the stale one", () => {
+    // f hangs from page 0 (cumulative [64,120]) into page 1, which starts whole
+    // at c (its two lines do not fit beside f). Growing f to 72 leaves page 0's
+    // break and page 1's children unchanged — only the carry differs.
+    const doc = (h: number) => cascadeRoot({ display: "block" }, [para("a", 4), leftFloat("f", 200, h), para("c", 2), para("d", 3)]);
+    const before = doc(56);
+    const beforeH = buildHarness(before, PAGE);
+    const beforePlan = measurePass(
+      beforeH.metas, PAGE, IMPLICIT_SECTION_PLAN, flattenContents(before.children),
+      undefined, undefined, undefined, beforeH.measurer,
+    );
+    // Only f is replaced: c and d stay the same nodes, so page 1's children are
+    // reference-equal across the edit.
+    const edited: ElementBox = {
+      ...before,
+      children: [nth(before.children, 0, "a"), nth(doc(72).children, 1, "f"), ...before.children.slice(2)],
+    };
+    const editedH = buildHarness(edited, PAGE);
+    const run = (prev: typeof beforePlan | undefined) => measurePass(
+      editedH.metas, PAGE, IMPLICIT_SECTION_PLAN, flattenContents(edited.children),
+      prev, undefined, undefined, editedH.measurer,
+    );
+    const fromScratch = run(undefined);
+    const incremental = run(beforePlan);
+    expect(nth(fromScratch.entries, 1, "page 1").incomingActiveFloats.map((f) => f.blockOffset + f.blockSize)).toEqual([136]);
+    expect(nth(incremental.entries, 1, "page 1").incomingActiveFloats).toEqual(nth(fromScratch.entries, 1, "page 1").incomingActiveFloats);
+  });
 });
 
 // ---------------------------------------------------------------------------
