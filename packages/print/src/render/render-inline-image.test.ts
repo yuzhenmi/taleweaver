@@ -388,6 +388,50 @@ describe("layout — wrapped inline image floats at its paragraph top", () => {
     expect([lineAt(p, 3).x, lineAt(p, 3).width]).toEqual([0, 500]);
   });
 
+  for (const rtl of [false, true]) {
+    it(`a float starting mid-line shortens the line it reaches into (CSS 9.5: over the line's whole extent)${rtl ? " — RTL" : ""}`, () => {
+      // [8,40) reaches line 0 [0,16) as well as lines 1–2.
+      const p = para(layoutParas([[wrapped("left", { offsetBlock: 8 }), text(`${WORDS} ${WORDS}`)]], { rtl }), 0);
+      expect([only(p.floats).x, only(p.floats).y]).toEqual([0, 8]);
+      for (const k of [0, 1, 2]) expect([lineAt(p, k).y, lineAt(p, k).x, lineAt(p, k).width]).toEqual([16 * k, 100, 400]);
+      expect([lineAt(p, 3).x, lineAt(p, 3).width]).toEqual([0, 500]);
+    });
+  }
+
+  it("a float starting mid-line with no room beside it moves the line below it", () => {
+    const p = para(layoutParas([[wrapped("left", { offsetBlock: 8, width: 490 }), text(WORDS)]]), 0);
+    expect([lineAt(p, 0).y, lineAt(p, 0).x, lineAt(p, 0).width]).toEqual([40, 0, 500]);
+  });
+
+  it("a line that reaches a float only by its measured height (a tall inline image) is re-wrapped beside it", () => {
+    // The 30-tall inline image makes line 0 [0,30): it reaches the float at 20.
+    const tall = embed(INLINE_IMAGE_EMBED_TYPE, { src: "t.png", width: 10, height: 30 });
+    const p = para(layoutParas([[wrapped("left", { offsetBlock: 20 }), tall, text(WORDS)]]), 0);
+    expect([lineAt(p, 0).y, lineAt(p, 0).height, lineAt(p, 0).x, lineAt(p, 0).width]).toEqual([0, 30, 100, 400]);
+    expect(lineAt(p, 0).inlineOffsetEnd).toBeLessThan(2 + 50);
+  });
+
+  it("a line pushed down to where it is wider takes taller units; re-wrapped as often as that takes, it never crosses a float", () => {
+    // Free width by block range (left images stacked): [0,10) 40, [10,25) 10,
+    // [25,45) 150, [45,65) 10, [65,105) 360, [105,200) 10, then 500. Each
+    // re-wrap pushes the line down to a wider range where it takes a taller
+    // inline image (20, 40, 60), whose extent reaches the next narrow range —
+    // three re-wraps before it settles below them all.
+    const slab = (offsetBlock: number, width: number, height: number) => wrapped("left", { offsetBlock, width, height });
+    const tall = (height: number) => embed(INLINE_IMAGE_EMBED_TYPE, { src: "t.png", width: 10, height });
+    const p = para(layoutParas([[
+      slab(0, 460, 10), slab(10, 490, 15), slab(25, 350, 20), slab(45, 490, 20), slab(65, 140, 40), slab(105, 490, 95),
+      text("aa"), tall(20), text(" bbbbbbbbbbb"), tall(40), text(" cccccccccccccccccccccccc"), tall(60), text(` ${WORDS}`),
+    ]]), 0);
+    const l0 = lineAt(p, 0);
+    expect([l0.y, l0.x, l0.width]).toEqual([200, 0, 500]);
+    for (const f of p.floats) {
+      for (const l of p.lines) {
+        expect(l.y < f.y + f.height && l.y + l.height > f.y && l.x < f.x + f.width && l.x + l.width > f.x, `line at ${l.y} crosses the image at ${f.y}`).toBe(false);
+      }
+    }
+  });
+
   it("RTL mirrors the physical side: left stays physically left (inline-end), right physically right", () => {
     const rtl = { rtl: true };
     const l = para(layoutParas([[wrapped("left"), text(WORDS)]], rtl), 0);

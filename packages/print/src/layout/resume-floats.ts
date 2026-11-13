@@ -3,23 +3,24 @@ import { createFloatEnvironment } from "./float-context";
 import type { BreakToken } from "./fragmentation";
 
 /**
- * R2-1: the float exclusions a paragraph's lines in `[paraFlowStart, breakAt)`
- * wrapped around (cumulative), cut at the break — what its resumed fragment must
- * re-wrap those lines against. A float reaching past the break is the next
- * fragmentainer's business (its carry), not this paragraph's.
+ * R2-1: the float exclusions (cumulative) that lines of a paragraph wrapped
+ * around: those reaching below `from`, where the lines' queries began, cut at
+ * `until` — the furthest end of the block extents they were checked over.
+ * Within that range the cut copies answer every query the lines made exactly
+ * as the env did.
  */
 export function floatsBeforeBreak(
   env: FloatEnvironment,
-  paraFlowStart: number,
-  breakAt: number,
+  from: number,
+  until: number,
 ): readonly PlacedFloat[] | undefined {
   // Canonical (the same exclusions give the same token whichever env held
-  // them): an earlier fragment's carried copy of a float is the same rectangle
-  // cut shorter, so copies merge into the tallest; sorted by position.
+  // them): copies of one rectangle cut at different ends merge into the tallest;
+  // sorted by position.
   const byRect = new Map<string, PlacedFloat>();
   for (const f of env.getPlacedFloats()) {
-    if (f.blockOffset >= breakAt || f.blockOffset + f.blockSize <= paraFlowStart) continue;
-    const blockSize = Math.min(f.blockSize, breakAt - f.blockOffset);
+    if (f.blockOffset >= until || f.blockOffset + f.blockSize <= from) continue;
+    const blockSize = Math.min(f.blockSize, until - f.blockOffset);
     const key = `${f.side}|${f.inlineOffset}|${f.blockOffset}|${f.inlineSize}`;
     const prev = byRect.get(key);
     if (prev !== undefined && prev.blockSize >= blockSize) continue;
@@ -32,14 +33,21 @@ export function floatsBeforeBreak(
 }
 
 /**
- * The env a resumed paragraph wraps in: its fragmentainer's floats plus the
- * exclusions its token carries (read-only — the IFC never places floats).
+ * The env each line of a resumed paragraph wraps in: a line before the token's
+ * `resumeAtLine` re-wraps against only the exclusions its fragment carried (read
+ * only — the IFC never places floats); later lines against `env`, this
+ * fragmentainer's.
  */
-export function resumeFloatEnv(env: FloatEnvironment, resumeFrom: BreakToken | null | undefined): FloatEnvironment {
-  const carried = resumeFrom?.type === "ifc" ? resumeFrom.floats : undefined;
-  if (carried === undefined) return env;
-  const overlay = createFloatEnvironment();
-  for (const f of env.getPlacedFloats()) overlay.seedPlaced(f);
-  for (const f of carried) overlay.seedPlaced(f);
-  return overlay;
+export function resumeFloatEnvs(env: FloatEnvironment, resumeFrom: BreakToken | null | undefined): (line: number) => FloatEnvironment {
+  if (resumeFrom?.type !== "ifc") return () => env;
+  const resumeAtLine = resumeFrom.resumeAtLine;
+  const empty = createFloatEnvironment();
+  const segments = (resumeFrom.floats ?? []).map((seg) => {
+    const segEnv = createFloatEnvironment();
+    for (const f of seg.floats) segEnv.seedPlaced(f);
+    return { seg, env: segEnv };
+  });
+  return (line) => line >= resumeAtLine
+    ? env
+    : segments.find(({ seg }) => seg.fromLine <= line && line < seg.untilLine)?.env ?? empty;
 }

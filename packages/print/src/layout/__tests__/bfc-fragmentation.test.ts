@@ -954,7 +954,8 @@ describe("BFC fragmentation — layout reuse keeps an anchored float's paragraph
       return "children" in a ? a.children.filter((l) => l.type === "line").map((l) => [l.y, l.x]) : [];
     };
     const prev = paginateRoot(first, makeRootContext(INITIAL_COMPUTED_STYLE, 600), shaper, undefined, cfg);
-    const narrowed = [[0, 0], [16, 0], [32, 100], [48, 100], [64, 100], [80, 100], [96, 100], [112, 100], [128, 0]];
+    // Line [16,32) reaches the image at 24 (CSS 9.5: over the line's extent).
+    const narrowed = [[0, 0], [16, 100], [32, 100], [48, 100], [64, 100], [80, 100], [96, 100], [112, 100], [128, 0]];
     const page0 = nth(prev.children, 0, "page 0");
     expect(aLines(nth("children" in page0 ? page0.children : [], 0, "body"))).toEqual(narrowed);
     // The same cascaded children, re-laid with the previous layout as the cache.

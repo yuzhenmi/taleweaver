@@ -83,16 +83,18 @@ export function fromEnvInline(frame: FloatFrame, envLineLeft: number, inlineSize
 }
 
 /**
- * How far the floats active at `blockOffset` (cumulative) intrude into `frame`
- * from its start and end sides: each side's exclusion edge past the frame's own
- * edge, never negative (a float that ends inside an indent shortens nothing).
+ * How far the floats overlapping the block range `[blockStart, blockEnd)`
+ * (cumulative) intrude into `frame` from its start and end sides: each side's
+ * exclusion edge past the frame's own edge, never negative (a float that ends
+ * inside an indent shortens nothing).
  */
-export function floatIntrusionAt(
+export function floatIntrusionOver(
   env: FloatEnvironment,
   frame: FloatFrame,
-  blockOffset: number,
+  blockStart: number,
+  blockEnd: number,
 ): { readonly start: number; readonly end: number } {
-  const active = env.availableInlineSizeAt(blockOffset, frame.bfcInlineSize);
+  const active = env.availableInlineSizeOver(blockStart, blockEnd, frame.bfcInlineSize);
   // No float on a side → no intrusion, even for a box overflowing the BFC.
   const left = active.inlineStartSize > 0 ? Math.max(0, active.inlineStartSize - frame.lineLeft) : 0;
   const right = active.inlineEndSize > 0

@@ -37,11 +37,19 @@ export interface IFCBreakToken {
   readonly paraFlowStart: number;
   /**
    * R2-1: the float exclusions the paragraph's earlier lines wrapped around
-   * (env frame, cumulative, cut at the break). The resumed fragment re-wraps
-   * from line 0, so it seeds these for the re-wrap only — never painted, never
-   * placed. Absent ≡ none.
+   * (env frame, cumulative), one segment per fragment that placed them. The
+   * resumed fragment re-wraps from line 0: each line before `resumeAtLine`
+   * queries only its segment's floats (none when no segment covers it), so it
+   * wraps exactly as when it was placed — never painted, never placed. Absent ≡ none.
    */
-  readonly floats?: readonly PlacedFloat[];
+  readonly floats?: readonly CarriedFloats[];
+}
+
+/** The exclusions lines `[fromLine, untilLine)` wrapped around, cut at their furthest checked extent. */
+export interface CarriedFloats {
+  readonly fromLine: number;
+  readonly untilLine: number;
+  readonly floats: readonly PlacedFloat[];
 }
 
 /**
@@ -161,7 +169,7 @@ export function breakTokensEqual(a: BreakToken | null, b: BreakToken | null): bo
   }
   if (a.type === "ifc" && b.type === "ifc") {
     return a.resumeAtLine === b.resumeAtLine && a.paraFlowStart === b.paraFlowStart &&
-      placedFloatListsEqual(a.floats ?? [], b.floats ?? []);
+      carriedFloatsEqual(a.floats ?? [], b.floats ?? []);
   }
   if (a.type === "table" && b.type === "table") {
     return a.resumeAtRow === b.resumeAtRow &&
@@ -341,4 +349,11 @@ export function isResumeFromDegenerate(rf: BreakToken | null): boolean {
   }
   // Other types (table) — be conservative.
   return false;
+}
+
+function carriedFloatsEqual(a: readonly CarriedFloats[], b: readonly CarriedFloats[]): boolean {
+  return a.length === b.length && a.every((x, i) => {
+    const y = b[i];
+    return y !== undefined && x.fromLine === y.fromLine && x.untilLine === y.untilLine && placedFloatListsEqual(x.floats, y.floats);
+  });
 }

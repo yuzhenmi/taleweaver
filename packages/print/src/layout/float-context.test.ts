@@ -43,6 +43,11 @@ describe("FloatEnvironment — CSS 9.5.1 placement", () => {
     env.placeFloat("inline-start", 0, 80, 100, 200);
     expect(env.availableInlineSizeAt(50, 200)).toEqual({ inlineStartSize: 80, inlineEndSize: 0 });
     expect(env.availableInlineSizeAt(150, 200)).toEqual({ inlineStartSize: 0, inlineEndSize: 0 });
+    // Over a range: every float the range intersects, even one starting inside it.
+    env.placeFloat("inline-end", 120, 30, 10, 200);
+    expect(env.availableInlineSizeOver(110, 126, 200)).toEqual({ inlineStartSize: 0, inlineEndSize: 30 });
+    expect(env.availableInlineSizeOver(90, 110, 200)).toEqual({ inlineStartSize: 80, inlineEndSize: 0 });
+    expect(env.availableInlineSizeOver(130, 140, 200)).toEqual({ inlineStartSize: 0, inlineEndSize: 0 });
   });
 
   it("two side-by-side floats on one side occupy up to the furthest edge (sum of widths), both sides", () => {

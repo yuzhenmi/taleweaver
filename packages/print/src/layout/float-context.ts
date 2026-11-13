@@ -86,6 +86,19 @@ export interface FloatEnvironment {
   ): { inlineStartSize: number; inlineEndSize: number };
 
   /**
+   * Inline-size occupied per side over the whole block range `[blockStart,
+   * blockEnd)` (CSS 9.5: a line box or float is shortened by every float its
+   * block extent intersects): the intersection of the free ranges, i.e. each
+   * side's furthest edge among the floats overlapping the range. An empty range
+   * reads as the point `blockStart`.
+   */
+  availableInlineSizeOver(
+    blockStart: number,
+    blockEnd: number,
+    containingInlineSize: number,
+  ): { inlineStartSize: number; inlineEndSize: number };
+
+  /**
    * For `clear`: returns the block-offset where the cleared side(s) have
    * no active float. Result ≥ `currentBlockOffset`.
    */
@@ -204,16 +217,17 @@ export function createFloatEnvironment(): FloatEnvironment {
     return candidate === Infinity ? blockOffset : candidate;
   }
 
-  // Occupied inline size per side at `blockOffset`: the distance from each
-  // containing edge to the furthest active float edge on that side (CSS 9.5.1 —
-  // side-by-side floats add up), against `containingInlineSize`, the frame the
-  // floats were placed in.
-  function activeAt(blockOffset: number, containingInlineSize: number) {
+  // Occupied inline size per side over `[blockStart, blockEnd)` (a point when
+  // empty): the distance from each containing edge to the furthest edge, on that
+  // side, of the floats overlapping the range (CSS 9.5.1 — side-by-side floats
+  // add up), against `containingInlineSize`, the frame the floats were placed in.
+  function activeOver(blockStart: number, blockEnd: number, containingInlineSize: number) {
     let inlineStartSize = 0;
     let inlineEndSize = 0;
+    if (blockStart >= maxBlockEnd) return { inlineStartSize, inlineEndSize };
     for (const f of placed) {
-      if (blockOffset < f.blockOffset) continue;
-      if (blockOffset >= f.blockOffset + f.blockSize) continue;
+      if (f.blockOffset + f.blockSize <= blockStart) continue;
+      if (f.blockOffset > blockStart && f.blockOffset >= blockEnd) continue;
       if (f.side === "inline-start") {
         inlineStartSize = Math.max(inlineStartSize, f.inlineOffset + f.inlineSize);
       } else {
@@ -240,7 +254,7 @@ export function createFloatEnvironment(): FloatEnvironment {
     // Iterate: try at the requested offset; if doesn't fit, push to next float bottom.
     // Cap iterations to prevent infinite loops in pathological cases.
     for (let iter = 0; iter < 1000; iter++) {
-      const active = activeAt(candidateBlockOffset, containingInlineSize);
+      const active = activeOver(candidateBlockOffset, candidateBlockOffset, containingInlineSize);
       const free = containingInlineSize - active.inlineStartSize - active.inlineEndSize;
 
       if (free >= inlineSize) {
@@ -285,7 +299,11 @@ export function createFloatEnvironment(): FloatEnvironment {
     },
 
     availableInlineSizeAt(blockOffset, containingInlineSize) {
-      return activeAt(blockOffset, containingInlineSize);
+      return activeOver(blockOffset, blockOffset, containingInlineSize);
+    },
+
+    availableInlineSizeOver(blockStart, blockEnd, containingInlineSize) {
+      return activeOver(blockStart, blockEnd, containingInlineSize);
     },
 
     clearance(side, currentBlockOffset) {

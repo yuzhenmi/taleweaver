@@ -26,16 +26,9 @@ export function anchoredLanding(
   if (bounds === undefined) return env.peekPlaceFloat(side, offsetTop, inlineSize, containingInlineSize);
   const requested = Math.max(bounds.top, Math.min(offsetTop, bounds.end - blockSize));
   const floats = env.getPlacedFloats();
-  // Fits at `t` over its whole extent: the free width at `t` and at every
-  // placed float's top inside it (the exclusions only change there).
+  // Fits at `t` over its whole extent.
   const fitsOver = (t: number): Landing | undefined => {
-    let start = 0;
-    let end = 0;
-    for (const at of [t, ...floats.map((f) => f.blockOffset).filter((b) => b > t && b < t + blockSize)]) {
-      const a = env.availableInlineSizeAt(at, containingInlineSize);
-      start = Math.max(start, a.inlineStartSize);
-      end = Math.max(end, a.inlineEndSize);
-    }
+    const { inlineStartSize: start, inlineEndSize: end } = env.availableInlineSizeOver(t, t + blockSize, containingInlineSize);
     if (containingInlineSize - start - end < inlineSize) return undefined;
     return { blockOffset: t, inlineOffset: side === "inline-start" ? start : containingInlineSize - end - inlineSize };
   };

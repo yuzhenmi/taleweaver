@@ -22,8 +22,8 @@ import { borderBoxInlineSize } from "./box-inline-decoration";
 import { borderBoxBlockSize } from "./box-block-decoration";
 import type { LayoutContext } from "./layout-context";
 import { makeRootContext, makeChildContext } from "./layout-context";
-import { contentFrame, floatIntrusionAt } from "./float-frame";
-import { floatsBeforeBreak, resumeFloatEnv } from "./resume-floats";
+import { contentFrame, floatIntrusionOver } from "./float-frame";
+import { floatsBeforeBreak, resumeFloatEnvs } from "./resume-floats";
 import type { ParentFrame } from "./parent-frame";
 import type { IntrinsicSizesCache } from "@taleweaver/core";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
@@ -1475,9 +1475,10 @@ export function layoutInlineContent(
   // independently to the next line.
   const canWrap = ws !== "nowrap" && ws !== "pre";
 
-  // R2-1: a resumed fragment re-wraps from line 0 against the exclusions its
-  // earlier lines wrapped around (carried in its token), plus this page's floats.
-  const floatEnv = resumeFloatEnv(ctx.floatEnv, fragmentation?.resumeFrom);
+  // R2-1: a resumed fragment re-wraps from line 0; each earlier line against
+  // only the exclusions it wrapped around (carried in the token), later lines
+  // against this fragmentainer's floats (`ctx.floatEnv`).
+  const floatEnvFor = resumeFloatEnvs(ctx.floatEnv, fragmentation?.resumeFrom);
   // CSS Text §8 `text-indent` — the block's first-line indent,
   // resolved to a used length (px) against the containing inline size. It is
   // LOGICAL (inline-start), so it composes additively with the float
@@ -1496,12 +1497,14 @@ export function layoutInlineContent(
   }
 
   /**
-   * Returns the effective line inlineOffset and inlineSize at a given
-   * lineBlockOffset, accounting for floats. On the block's FIRST line
-   * (`firstLine`), `text-indent` shifts the inline-start cursor and reduces the
-   * available width by the same amount (so wrapping accounts for the indent).
+   * Returns the effective line inlineOffset and inlineSize for line `line` at
+   * lineBlockOffset, `extent` tall (by default the current line's height
+   * estimate, `lineExtent`), accounting for every float the line's block extent
+   * intersects (CSS 2.1 §9.5). On the block's FIRST line (`line === 0`),
+   * `text-indent` shifts the inline-start cursor and reduces the available width
+   * by the same amount (so wrapping accounts for the indent).
    */
-  function effectiveLineDims(lineBlockOffset: number, firstLine: boolean): { lineInlineCursor: number; lineInlineSize: number } {
+  function effectiveLineDims(lineBlockOffset: number, line: number, extent: number = lineExtent): { lineInlineCursor: number; lineInlineSize: number } {
     // Coherent float+pagination: query the float env at the line's TRUE
     // cumulative document-flow offset. `paraFlowStart` is the paragraph's
     // first-line cumulative offset (carried across fragments); `(lineBlockOffset
@@ -1510,8 +1513,9 @@ export function layoutInlineContent(
     // the BFC places floats in, so the narrowing applies on the page the float sits.
     // The floats are in the BFC's frame: the line is shortened only by how far
     // each side's exclusion reaches past this paragraph's own edge.
-    const intrusion = floatIntrusionAt(floatEnv, floatFrame, paraFlowStart + (lineBlockOffset - blockOffset));
-    const indent = firstLine ? blockTextIndent : 0;
+    const lineTop = paraFlowStart + (lineBlockOffset - blockOffset);
+    const intrusion = floatIntrusionOver(floatEnvFor(line), floatFrame, lineTop, lineTop + extent);
+    const indent = line === 0 ? blockTextIndent : 0;
     return {
       lineInlineCursor: inlineOffset + intrusion.start + indent,
       lineInlineSize: availableInlineSize - intrusion.start - intrusion.end - indent,
@@ -1571,7 +1575,7 @@ export function layoutInlineContent(
     tabStopsEqual(prevState.tabStops, parentCs.tabStops)
   ) {
     const cachedBlockSize = linesBlockSize(prevState.lines, blockOffset);
-    if (findChangePoint(prevState.tokens, tokens) === -1 && !floatEnv.hasFloatIn(paraFlowStart, paraFlowStart + cachedBlockSize)) {
+    if (findChangePoint(prevState.tokens, tokens) === -1 && !ctx.floatEnv.hasFloatIn(paraFlowStart, paraFlowStart + cachedBlockSize)) {
       const tHit = markStart("ifc.cache.hit");
       try {
         const cachedLines = Array.from(prevState.lines);
@@ -1592,6 +1596,19 @@ export function layoutInlineContent(
     ctx.floatArea.lineLeft, availableInlineSize, direction, availableInlineSize,
     direction, 0, availableInlineSize, ctx.floatArea.bfcInlineSize,
   );
+  // The block extent a line is checked against floats over before it is built:
+  // none (LayoutNG: the layout opportunity at the line's top), raised to a built
+  // line's measured height when that line is re-wrapped (`settleLine`).
+  let lineExtent = 0;
+  // Per line (index into `lines`): the furthest end of the block extents it was
+  // checked over (wrap frame) — what a break carries its floats up to.
+  const lineExtentEnds: number[] = [];
+  /** The furthest checked extent end of lines [from, until) (wrap frame). */
+  const extentsEnd = (from: number, until: number): number => {
+    let end = blockOffset;
+    for (let i = from; i < until; i++) end = Math.max(end, lineExtentEnds[i] ?? blockOffset);
+    return end;
+  };
 
   // Per-line token-range metadata for incremental re-wrap.
   // Keyed by the LineBox object (via WeakMap) so it doesn't prevent GC.
@@ -2296,6 +2313,7 @@ export function layoutInlineContent(
     // current cursor. Both start and end are the same offset — the
     // line covers zero characters.
     const startOff = currentLineStartOffset >= 0 ? currentLineStartOffset : cursorOffset;
+    lastFlush = { top: lineBlockOffset, cursor: lineInlineCursor, size: lineInlineSize, line: lineIndex };
     const line = buildLineWithFragments(
       parent.key, lineIndex++, lineInlineCursor, lineBlockOffset, lineInlineSize,
       buildUnits, parentCs, measurer, writingMode, direction, availableInlineSize, frame.inlineSize,
@@ -2435,7 +2453,11 @@ export function layoutInlineContent(
   // against their neighbours, and selection/caret on the empty line has no
   // line box to attach to.
   if (units.length === 0) {
-    const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
+    // The ¶'s style sets the strut (below); it is the line's extent.
+    const sentinel = parent.children.length === 1 ? parent.children[0] : undefined;
+    const strutCs = (sentinel !== undefined && sentinel.type === "text" && sentinel.text === "" ? sentinel.computedStyle : undefined) ?? parentCs;
+    const strutBlockSize = measurer.measureHeight(strutCs);
+    const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex, strutBlockSize);
     // A strut (empty paragraph) has zero content width, so
     // the gap is the full line. The alignment is carried on a single zero-width
     // STRUT CHILD inside the line — caret/selection consumers walk `line.children`
@@ -2449,9 +2471,6 @@ export function layoutInlineContent(
     // The empty paragraph's line is laid out in its ¶ character props (Word /
     // GDocs): the render strut sentinel (the lone empty text child)
     // carries the ¶'s `markAttrs`; the block style when there is none.
-    const sentinel = parent.children.length === 1 ? parent.children[0] : undefined;
-    const strutCs = (sentinel !== undefined && sentinel.type === "text" && sentinel.text === "" ? sentinel.computedStyle : undefined) ?? parentCs;
-    const strutBlockSize = measurer.measureHeight(strutCs);
     const strutUsedStyle = computeUsedStyle(strutCs, availableInlineSize, "indefinite");
     const strutChild = createTextRunBox(
       `${parent.key}-l${lineIndex}:strut`,
@@ -2506,6 +2525,7 @@ export function layoutInlineContent(
       endsAtFloat(lineInlineCursor, lineInlineSize),
     );
     lines.push(strutLine);
+    lineExtentEnds.push(lineBlockOffset + strutBlockSize);
     lineBlockOffset += strutBlockSize;
   }
 
@@ -2513,9 +2533,51 @@ export function layoutInlineContent(
   let unitQueue: WrapUnit[] = [...units];
   let uqi = 0;
 
+  // M3b (CSS 2.1 §9.5, LayoutNG): a line is wrapped against the floats at its
+  // top (`lineExtent` 0) before its height is known. When the built line is
+  // taller than the extent it was checked over and the floats over its real
+  // extent leave a narrower range, it is re-wrapped from its start at that
+  // height. No cap is needed: each retry strictly raises `lineExtent` to a line
+  // height, and line heights come from the finite set of unit heights, so a
+  // line settles after at most that many retries. (A shorter re-wrap keeps the
+  // taller extent: never re-widened, which could oscillate.) Every flush inside
+  // the wrap loop is followed by `continue`, and the units it re-queues are
+  // inserted at `uqi` right after it, so the next loop top (or the loop's end)
+  // is the one place a line is settled, and rewinding is O(1) state plus
+  // dropping those inserts.
+  let lastFlush = { top: 0, cursor: 0, size: 0, line: 0 };
+  const markLineStart = () => ({
+    uqi, queueLength: unitQueue.length, lines: lines.length, lineIndex, cursorOffset, lineBlockOffset, lastUnitWasForcedBreak,
+  });
+  let lineStart = markLineStart();
+  /** False when the line just flushed was rewound to be re-wrapped taller. */
+  function settleLine(): boolean {
+    if (lines.length === lineStart.lines) return true;
+    const line = lines[lines.length - 1];
+    if (line === undefined) throw new Error("ifc: flushed line missing (unreachable)");
+    if (line.blockSize > lineExtent) {
+      const real = effectiveLineDims(lastFlush.top, lastFlush.line, line.blockSize);
+      if (real.lineInlineCursor !== lastFlush.cursor || real.lineInlineSize !== lastFlush.size) {
+        unitQueue.splice(uqi, unitQueue.length - lineStart.queueLength);
+        ({ uqi, lineIndex, cursorOffset, lineBlockOffset, lastUnitWasForcedBreak } = lineStart);
+        lines.length = lineStart.lines;
+        lineExtentEnds.length = lineStart.lines;
+        lineExtent = line.blockSize;
+        return false;
+      }
+    }
+    lineExtentEnds[lines.length - 1] = lastFlush.top + Math.max(lineExtent, line.blockSize);
+    lineExtent = 0;
+    lineStart = markLineStart();
+    return true;
+  }
+
   const tWrap = markStart("ifc.wrap");
   try {
+  // Re-entered when settling the paragraph's last line rewinds it.
+  for (;;) {
   while (uqi < unitQueue.length) {
+    if (!settleLine()) continue;
     let unit = unitQueue[uqi++];
     if (unit === undefined) throw new Error(`ifc: wrap-loop unit ${uqi - 1} missing (unreachable)`);
 
@@ -2529,7 +2591,7 @@ export function layoutInlineContent(
     // position past the `\n`); the next line starts at the same
     // offset, preserving `nextLine.start === currentLine.end`.
     if (unit.isLineBreak) {
-      const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
+      const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex);
       if (currentLineStartOffset < 0) currentLineStartOffset = cursorOffset;
       cursorOffset += unitOffsetContribution(unit);
       // Hard-break-terminated line is NOT justified (CSS Text 3 §7.3).
@@ -2539,7 +2601,7 @@ export function layoutInlineContent(
     }
 
     // Soft wrap — only when canWrap is true
-    let { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
+    let { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex);
 
     // Tab stops: resolve at the overflow check, then freeze geometry. A tab's
     // advance is POSITION-DEPENDENT: it depends on the running pen position
@@ -2695,7 +2757,7 @@ export function layoutInlineContent(
         const [prefixUnit, suffixUnit] = softSplit;
         pushUnit(prefixUnit);
         flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
-        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
+        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex));
         unitQueue.splice(uqi, 0, suffixUnit);
         continue;
       }
@@ -2710,7 +2772,7 @@ export function layoutInlineContent(
         pushUnit(prefixUnit);
         flushLine(lineInlineCursor, lineInlineSize, hyphenBreak);
         // Recompute dims and push the suffix unit back as next to process.
-        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
+        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex));
         // Insert suffix at the current position so it's processed next.
         unitQueue.splice(uqi, 0, suffixUnit);
         continue;
@@ -2725,8 +2787,9 @@ export function layoutInlineContent(
       if (headTok === undefined) throw new Error("ifc: wrap unit has no tokens (unreachable)");
       if (headTok.breakableBefore !== false) {
         flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
-        // Recompute dims for the new line position
-        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
+        // The unit starts the next line: process it again there.
+        uqi--;
+        continue;
       } else {
         // Glued (NBSP, or a word continuing across a style-run boundary): the
         // unbreakable unit is the glued chain ending in this unit. Break at the
@@ -2760,7 +2823,7 @@ export function layoutInlineContent(
           const [prefixUnit, suffixUnit] = emergency;
           pushUnit(prefixUnit);
           flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
-          ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
+          ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex));
           unitQueue.splice(uqi, 0, suffixUnit);
           continue;
         }
@@ -2784,10 +2847,10 @@ export function layoutInlineContent(
           // offset `effectiveLineDims` uses), then translate the returned
           // cumulative float bottom back to the wrap frame by subtracting
           // `(paraFlowStart - blockOffset)` so it is comparable to `lineBlockOffset`.
-          const next = floatEnv.nextFloatBottomBelow(paraFlowStart + (lineBlockOffset - blockOffset)) - (paraFlowStart - blockOffset);
+          const next = floatEnvFor(lineIndex).nextFloatBottomBelow(paraFlowStart + (lineBlockOffset - blockOffset)) - (paraFlowStart - blockOffset);
           if (next <= lineBlockOffset) break; // no float below; can't push further
           lineBlockOffset = next;
-          ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
+          ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex));
           if (lineInlineSize > 0 && lineInlineSize >= unit.totalWidth) break; // now fits
           if (lineInlineSize >= availableInlineSize) break; // no more floats squeezing
         }
@@ -2809,7 +2872,7 @@ export function layoutInlineContent(
         const [prefixUnit, suffixUnit] = softSplit;
         pushUnit(prefixUnit);
         flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
-        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
+        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex));
         unitQueue.splice(uqi, 0, suffixUnit);
         continue;
       }
@@ -2818,7 +2881,7 @@ export function layoutInlineContent(
         const [prefixUnit, suffixUnit, hyphenBreak] = split;
         pushUnit(prefixUnit);
         flushLine(lineInlineCursor, lineInlineSize, hyphenBreak);
-        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
+        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex));
         unitQueue.splice(uqi, 0, suffixUnit);
         continue;
       }
@@ -2832,7 +2895,7 @@ export function layoutInlineContent(
         const [prefixUnit, suffixUnit] = emergency;
         pushUnit(prefixUnit);
         flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
-        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
+        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex));
         unitQueue.splice(uqi, 0, suffixUnit);
         continue;
       }
@@ -2840,12 +2903,10 @@ export function layoutInlineContent(
 
     pushUnit(unit);
   }
-  } finally {
-    markEnd("ifc.wrap", tWrap);
-  }
+  if (!settleLine()) continue;
 
   if (currentUnits.length > 0) {
-    const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
+    const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex);
     // Final flush — the last/only line of the paragraph is NOT justified.
     flushLine(lineInlineCursor, lineInlineSize, pendingHyphen, /* noJustify */ true);
   } else if (lastUnitWasForcedBreak) {
@@ -2856,8 +2917,13 @@ export function layoutInlineContent(
     // tokenizer's trailing empty token produces this line). `flushLine`
     // handles the empty case — `currentUnits` is empty, so it anchors the
     // line at `cursorOffset` (start === end, zero source chars).
-    const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
+    const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex);
     flushLine(lineInlineCursor, lineInlineSize, pendingHyphen, /* noJustify */ true);
+  }
+  if (settleLine()) break;
+  }
+  } finally {
+    markEnd("ifc.wrap", tWrap);
   }
 
   const result = assignFragmentEdges(lines);
@@ -2931,8 +2997,11 @@ export function layoutInlineContent(
       // resolved advance depends on its line-position, not just its token text),
       // so an incremental re-wrap of a tab-bearing block always re-lays.
       hasTab: tokens.some((t) => t.isTab === true),
+      // Over every line's checked extent (a re-wrapped line can be checked past
+      // its bottom). An entry without floats had no re-wrap, so each line's
+      // extent ends at its bottom and the hit gate's line range covers it.
       seesFloat: tokens.some((t) => t.inlineBlock?.floatKey !== undefined) ||
-        floatEnv.hasFloatIn(paraFlowStart, paraFlowStart + linesBlockSize(resultLines, blockOffset)),
+        ctx.floatEnv.hasFloatIn(paraFlowStart, paraFlowStart + Math.max(linesBlockSize(resultLines, blockOffset), extentsEnd(0, lineExtentEnds.length) - blockOffset)),
     });
   }
 
@@ -2954,12 +3023,17 @@ export function layoutInlineContent(
     // A break before line `k`. A break where this fragment placed nothing keeps
     // the incoming token's exclusions; a later break carries every exclusion
     // lines [0, k) wrapped around (R2-1).
+    // Lines [startLine, k) wrapped against this fragmentainer's floats, up to
+    // the furthest extent they were checked over; earlier lines keep theirs.
     const carried = fragmentation.resumeFrom?.type === "ifc" ? fragmentation.resumeFrom.floats : undefined;
     const breakBefore = (k: number): IFCBreakToken => {
-      const at = k === startLine ? undefined : resultLines[k];
-      const floats = at === undefined
-        ? carried
-        : floatsBeforeBreak(floatEnv, paraFlowStart, paraFlowStart + (at.blockOffset - blockOffset));
+      // From where line `startLine`'s queries began (the previous line's end).
+      const prev = startLine === 0 ? undefined : resultLines[startLine - 1];
+      const from = prev === undefined ? blockOffset : prev.blockOffset + prev.blockSize;
+      const own = k === startLine
+        ? undefined
+        : floatsBeforeBreak(ctx.floatEnv, paraFlowStart + (from - blockOffset), paraFlowStart + (extentsEnd(startLine, k) - blockOffset));
+      const floats = own === undefined ? carried : [...(carried ?? []), { fromLine: startLine, untilLine: k, floats: own }];
       return { type: "ifc", resumeAtLine: k, paraFlowStart, ...(floats === undefined ? {} : { floats }) };
     };
 

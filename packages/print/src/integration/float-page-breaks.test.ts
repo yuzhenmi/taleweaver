@@ -11,7 +11,7 @@ import { describe, it, expect } from "vitest";
 import { render, buildDocument, buildBlock, inlineContent, text, embed, asBlockId, INLINE_IMAGE_EMBED_TYPE } from "@taleweaver/core";
 import { createDefaultComponentRegistry, createDefaultAttrRegistry, cascadePass, createMockShaper } from "@taleweaver/core";
 import { createElementBox, createTextBox } from "@taleweaver/core";
-import type { BlockId, ElementBox, InlineItem, RenderNode } from "@taleweaver/core";
+import type { BlockId, ElementBox, InlineItem, RenderNode, TextShaper } from "@taleweaver/core";
 import { makeRootContext } from "../layout/layout-context";
 import { paginateRoot } from "../layout/paginate";
 import { buildVirtualPaginatedTree } from "../layout/virtual-producer";
@@ -20,6 +20,16 @@ import type { PageBox } from "../layout/page-box";
 import type { LayoutBox } from "../layout/layout-box";
 
 const shaper = createMockShaper(8, 16);
+
+/** 8px per char; a run's line height is its font size (so a paragraph's runs can be shorter than its strut). */
+function sizedShaper(): TextShaper {
+  const base = createMockShaper(8, 16);
+  const metrics = (h: number) => ({ ascent: h * 0.8, descent: h * 0.2, lineGap: 0, capHeight: h * 0.7, xHeight: h * 0.5 });
+  return {
+    shape: (text, style, dir) => ({ ...base.shape(text, style, dir), ...metrics(style.fontSize) }),
+    measureFontMetrics: (style) => metrics(style.fontSize),
+  };
+}
 const WORDS = "alpha bravo charl delta echox foxtr golfx hotel india juliz kiloz limaa mikee novem oscar papaa quebe romeo";
 
 function page(blockSize: number): PageConfig {
@@ -76,13 +86,13 @@ function pageGeo(p: PageBox): PageGeo {
 }
 
 /** Lay the doc out on both paths; assert they agree page for page; return the pages. */
-function layBoth(paras: readonly InlineItem[][] | ElementBox, cfg: PageConfig): PageGeo[] {
+function layBoth(paras: readonly InlineItem[][] | ElementBox, cfg: PageConfig, sh: TextShaper = shaper): PageGeo[] {
   const root = "type" in paras ? paras : docRoot(paras);
   const cs = root.computedStyle;
   if (cs === undefined) throw new Error("root is not cascaded");
-  const legacy = paginateRoot(root, makeRootContext(cs, cfg.pageInlineSize), shaper, undefined, cfg)
+  const legacy = paginateRoot(root, makeRootContext(cs, cfg.pageInlineSize), sh, undefined, cfg)
     .children.flatMap((c) => c.type === "page" ? [pageGeo(c)] : []);
-  const tree = buildVirtualPaginatedTree(root, makeRootContext(cs, cfg.pageInlineSize), shaper, cfg);
+  const tree = buildVirtualPaginatedTree(root, makeRootContext(cs, cfg.pageInlineSize), sh, cfg);
   // Last page first: each page must lay out on its own, whatever was laid before.
   const virtual = tree.plan.entries.map((_, i) => i).reverse().map((i) => pageGeo(tree.getPage(i))).reverse();
   expect(virtual, "virtual == legacy").toEqual(legacy);
@@ -109,10 +119,26 @@ function expectFloatsDisjoint(g: PageGeo | undefined): void {
 }
 
 /** A hand-built wrapped image (inline-block float) anchored in block `blockId`. */
-function wrappedAtom(key: string, blockId: string, w: number, h: number): ElementBox {
+function wrappedAtom(key: string, blockId: string, w: number, h: number, offsetBlock = 0): ElementBox {
   return createElementBox(key, { display: "inline-block", float: "inline-start" }, [
     createElementBox(`${key}-img`, { display: "block", inlineSize: w, blockSize: h }, []),
-  ], { inlineFloat: { blockId: blockId as BlockId, offset: 0, offsetBlock: 0, exclusion: "side" } });
+  ], { inlineFloat: { blockId: blockId as BlockId, offset: 0, offsetBlock, exclusion: "side" } });
+}
+
+/** A 25px-strut paragraph whose text runs are 15px tall (short lines). */
+function shortLinePara(key: string, before: readonly ElementBox[], words: number): ElementBox {
+  return createElementBox(key, { display: "block", fontSize: 25 }, [
+    ...before,
+    createElementBox(`${key}-s`, { display: "inline", fontSize: 15 }, [
+      createTextBox(`${key}-t`, {}, Array.from({ length: words }, () => "abcdefghi").join(" ")),
+    ]),
+  ]);
+}
+
+function cascadedRoot(children: readonly ElementBox[]): ElementBox {
+  const root = cascadePass(createElementBox("doc", { display: "block" }, [...children]));
+  if (root.type !== "element") throw new Error("cascaded root is not an element");
+  return root;
 }
 
 function linesOf(g: PageGeo | undefined, owner: string): LineGeo[] {
@@ -132,6 +158,7 @@ describe("page breaks — paragraph-anchored floats (P3 M3)", () => {
     for (const l of p2) expect([l[2], l[3]]).toEqual([0, 500]);
     expect(pages.flatMap((g) => g.floats).length).toBe(1);
     expect(pages[0]?.floats.length).toBe(1);
+    expectNoOverlap(pages[0]);
   });
 
   it("R2-2: a paragraph pushed whole after placing its float leaves no ghost — on page 2 its float is at the column edge, its lines narrowed once", () => {
@@ -143,6 +170,7 @@ describe("page breaks — paragraph-anchored floats (P3 M3)", () => {
     const g = pages[1];
     expect(g?.floats.map((f) => [f[1], f[2]])).toEqual([[0, 0]]);
     expect(linesOf(g, "p1").map((l) => [l[1], l[2], l[3]])).toEqual([[0, 100, 400], [16, 100, 400], [32, 0, 500], [48, 0, 500]]);
+    expectNoOverlap(g);
   });
 
   it("R2-3: a float crossing the page end is shifted up to end at the page bottom, staying on its anchor's page", () => {
@@ -153,6 +181,7 @@ describe("page breaks — paragraph-anchored floats (P3 M3)", () => {
     expect(pages[1]?.floats).toEqual([]);
     expect(linesOf(pages[0], "p1").map((l) => [l[1], l[2], l[3]])).toEqual([[40, 100, 400], [56, 100, 400]]);
     for (const l of linesOf(pages[1], "p1")) expect([l[2], l[3]]).toEqual([0, 500]);
+    expectNoOverlap(pages[0]);
   });
 
   it("R2-3: a float taller than the space left rises above its paragraph; the content before it wraps around it", () => {
@@ -162,12 +191,14 @@ describe("page breaks — paragraph-anchored floats (P3 M3)", () => {
     expect(linesOf(pages[0], "p0").map((l) => [l[1], l[2], l[3]])).toEqual([[0, 0, 500], [16, 100, 400]]);
     expect(linesOf(pages[0], "p1").map((l) => [l[1], l[2], l[3]])).toEqual([[40, 100, 400], [56, 100, 400]]);
     expect(pages.flatMap((g) => g.floats).length).toBe(1);
+    expectNoOverlap(pages[0]);
   });
 
   it("R2-3: a float taller than the page overflows its anchor's page and never narrows the next page", () => {
     const pages = layBoth([[image(120), text(`${WORDS} ${WORDS} ${WORDS} ${WORDS}`)]], page(80));
     expect(pages[0]?.floats.map((f) => [f[1], f[4]])).toEqual([[0, 120]]);
     for (const l of linesOf(pages[1], "p0")) expect([l[2], l[3]]).toEqual([0, 500]);
+    expectNoOverlap(pages[0]);
   });
 
   it("fixpoint: an image that must rise only once an earlier one re-flowed the text rises too; no line crosses either", () => {
@@ -192,23 +223,27 @@ describe("page breaks — paragraph-anchored floats (P3 M3)", () => {
     for (const l of linesOf(pages[0], "p0")) expect([l[2], l[3]]).toEqual([0, 500]);
     expect(pages[1]?.floats.map((f) => [f[1], f[2]])).toEqual([[0, 0]]);
     expect(linesOf(pages[1], "p1")[0]?.slice(1, 4)).toEqual([0, 100, 400]);
+    expectNoOverlap(pages[1]);
   });
 
   it("same-side images too wide to sit side by side, near the page end: the second takes the free spot above the first, on the page", () => {
-    // p1's R1 lands [104,176]; p2's R2 would be pushed below it to [176,248],
-    // past the end (240) → the lowest free spot that still ends on the page: [32,104].
+    // p1's R1 lands [104,176]; p2's R2 (60) would be pushed below it to
+    // [176,236], past the end (232) → the lowest free spot that still ends on
+    // the page: [44,104], starting inside p0's line [32,48), which wraps beside it.
     const pages = layBoth([
       [text("a\nb\nc\nd\ne\nf")],
       [image(72, "right", { width: 300 }), text("ab")],
-      [image(72, "right", { width: 300 }), text("cd")],
-    ], page(240));
-    expect(pages[0]?.floats.map((f) => [f[1], f[4]])).toEqual([[104, 72], [32, 72]]);
+      [image(60, "right", { width: 300 }), text("cd")],
+    ], page(232));
+    expect(pages[0]?.floats.map((f) => [f[1], f[4]])).toEqual([[104, 72], [44, 60]]);
+    expect(linesOf(pages[0], "p0").map((l) => [l[1], l[3]])).toEqual([[0, 500], [16, 500], [32, 200], [48, 200], [64, 200], [80, 200]]);
     expectNoOverlap(pages[0]);
   });
 
   it("a negative offsetBlock does not lift an image above the page top", () => {
     const pages = layBoth([[image(32, "left", { offsetBlock: -50 }), text(WORDS)]], page(80));
     expect(pages[0]?.floats.map((f) => f[1])).toEqual([0]);
+    expectNoOverlap(pages[0]);
   });
 
   it("an image in a table cell is not shifted up: the cell grows, and the row that would cross the page end moves whole", () => {
@@ -268,6 +303,7 @@ describe("page breaks — paragraph-anchored floats (P3 M3)", () => {
       ], page(222));
       expect(pages[0]?.floats.map((f) => [f[1], f[4]])).toEqual([[152, 50], [52, 100]]);
       expectFloatsDisjoint(pages[0]);
+      expectNoOverlap(pages[0]);
     });
   }
 
@@ -289,5 +325,29 @@ describe("page breaks — paragraph-anchored floats (P3 M3)", () => {
     expect(pages[0]?.lines.map((l) => [l[2], l[3]])).toEqual([[0, 500], [0, 500]]);
     expect(pages[1]?.floats.map((f) => [f[1], f[2]])).toEqual([[0, 0]]);
     expect(pages[1]?.lines[0]?.slice(1, 4)).toEqual([0, 300, 200]);
+    expectNoOverlap(pages[1]);
+  });
+
+  it("a paragraph of short lines split across pages, an image risen to page 2's top: no text duplicated or dropped at the break", () => {
+    // P's 15px lines hold 6 words (480px) each: 5 lines [0,75) on page 1, the
+    // rest on page 2. Q's 40×80 image rises to page 2's top (75); the re-lay
+    // re-wraps P from line 0, and line 4 [60,75) must not see the image (beside
+    // it the line would hold only 5 words).
+    const P = shortLinePara("P", [], 42);
+    const Q = createElementBox("Q", { display: "block" }, [wrappedAtom("img", "Q", 40, 80), createTextBox("q-t", {}, "ab")]);
+    const pages = layBoth(cascadedRoot([P, Q]), page(80), sizedShaper());
+    const [p1, p2] = [linesOf(pages[0], "P"), linesOf(pages[1], "P")];
+    expect(p1.map((l) => [l[1], l[3], l[6]])).toEqual([0, 15, 30, 45, 60].map((y) => [y, 500, 15]));
+    expect(pages[1]?.floats.map((f) => [f[1], f[4]])).toEqual([[0, 80]]);
+    expect(p2[0]?.[4]).toBe(p1[p1.length - 1]?.[5]);
+    expect(p2[p2.length - 1]?.[5]).toBe(42 * 10 - 1);
+    expectNoOverlap(pages[1]);
+  });
+
+  it("a short line next to an image starting 1px below its bottom keeps full width", () => {
+    const P = shortLinePara("P", [wrappedAtom("img", "P", 100, 40, 16)], 14);
+    const lines = linesOf(layBoth(cascadedRoot([P]), page(400), sizedShaper())[0], "P");
+    // The image is [16,56): line 0 [0,15) is clear of it, lines 1–2 beside it.
+    expect(lines.map((l) => [l[1], l[2], l[3]])).toEqual([[0, 0, 500], [15, 100, 400], [30, 100, 400]]);
   });
 });
